@@ -242,6 +242,13 @@ simply pop in or disappear. Review every UI change for:
 - Stable committed state while a pager or drag is still in progress.
 - Reasonable frame cost during zoom, page changes, and modal movement.
 
+Important validation boundary: code review, tests, and emulator inspection can
+check implementation details and basic behavior, but the product judgment for
+animations, gesture feel, timing, visual polish, and similar “how it actually
+looks and feels” questions belongs to Ivan. When a review concerns the
+rendered experience rather than code correctness, explicitly flag it for Ivan
+to inspect and validate instead of treating source inspection as sufficient.
+
 Use the existing motion tokens in `design/CalinoTheme.kt` / `CalinoMotion`
 where possible. Keep animation ownership explicit: the child should follow the
 finger, and the host should own the final dismissal/removal transition.
@@ -296,7 +303,10 @@ The next model should review in this order:
 
 ### P0 — visual/interaction audit
 
-Walk every root destination and capture screenshots at rest and during motion:
+Walk every root destination and capture screenshots at rest and during motion.
+Treat the captures and motion review as material for Ivan’s visual validation;
+do not mark animation or interaction polish complete solely because the code
+looks correct or automated checks pass:
 
 - Calendar at all three zoom levels.
 - Month cell click, week-day click, and day agenda navigation.
