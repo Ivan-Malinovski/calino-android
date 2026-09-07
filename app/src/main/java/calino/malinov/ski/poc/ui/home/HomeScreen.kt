@@ -2,11 +2,14 @@ package calino.malinov.ski.poc.ui.home
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -204,6 +207,7 @@ fun HomeScreen(
     onDayClick: ((LocalDate) -> Unit)? = null,
     onEventClick: ((CalEvent) -> Unit)? = null,
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
+    onTaskRescheduleTo: (CalTask, LocalDate?) -> Unit = { _, _ -> },
     onOpenDay: ((LocalDate) -> Unit)? = null,
     interactionEnabled: Boolean = true,
 ) {
@@ -698,6 +702,7 @@ fun HomeScreen(
                         agendaOwnsInput = agendaOwnsInputNow,
                         onEvent = onEventClick,
                         onTaskDone = onTaskDone,
+                        onTaskRescheduleTo = onTaskRescheduleTo,
                         onOpenDay = splitOpenDay,
                     )
                 }
@@ -979,6 +984,96 @@ private fun WeekDay(
                     lineHeight = 9.sp,
                     color = if (selectedWeight > .5f) Color.White.copy(.9f) else CalinoColors.Green,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarTaskRow(
+    task: CalTask,
+    onTaskDone: ((Boolean) -> Unit)?,
+    onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    var rescheduleOpen by remember(task.id) { mutableStateOf(false) }
+    val baseDate = task.due ?: FixtureDate
+
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TaskRow(
+                task = task,
+                modifier = Modifier.weight(1f),
+                onCheckedChange = onTaskDone,
+            )
+            if (!task.done && onTaskRescheduleTo != null) {
+                IconButton(
+                    onClick = { rescheduleOpen = !rescheduleOpen },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .semantics {
+                            contentDescription = if (rescheduleOpen) {
+                                "Hide reschedule options for ${task.title}"
+                            } else {
+                                "Show reschedule options for ${task.title}"
+                            }
+                        },
+                ) {
+                    Icon(
+                        CalinoIcons.Repeat,
+                        contentDescription = null,
+                        tint = CalinoColors.Ink2,
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = rescheduleOpen && !task.done && onTaskRescheduleTo != null,
+            enter = expandVertically(tween(180)) + fadeIn(tween(160)),
+            exit = shrinkVertically(tween(160)) + fadeOut(tween(120)),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 56.dp, end = 8.dp, bottom = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf(
+                    baseDate.plusDays(1) to "Tomorrow",
+                    baseDate.plusDays(7) to "Next week",
+                ).forEach { (date, label) ->
+                    TextButton(
+                        onClick = {
+                            rescheduleOpen = false
+                            onTaskRescheduleTo?.invoke(task, date)
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .semantics {
+                                contentDescription = "Reschedule ${task.title} to $label"
+                            },
+                    ) {
+                        Text(label, color = CalinoColors.Ink2, fontSize = 11.sp, maxLines = 1)
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        rescheduleOpen = false
+                        onTaskRescheduleTo?.invoke(task, null)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 44.dp)
+                        .semantics {
+                            contentDescription = "Remove due date from ${task.title}"
+                        },
+                ) {
+                    Text("No date", color = CalinoColors.Ink2, fontSize = 11.sp, maxLines = 1)
+                }
             }
         }
     }
@@ -2557,6 +2652,7 @@ private fun DayPagerSurface(
     agendaOwnsInput: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: (CalTask, Boolean) -> Unit,
+    onTaskRescheduleTo: (CalTask, LocalDate?) -> Unit,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
     val dayRailVisibility = Modifier.drawWithContent {
@@ -2590,6 +2686,7 @@ private fun DayPagerSurface(
                     scrollEnabled = dayRailOwnsInput,
                     onEvent = if (dayRailOwnsInput) onEvent else null,
                     onTaskDone = if (dayRailOwnsInput) onTaskDone else null,
+                    onTaskRescheduleTo = if (dayRailOwnsInput) onTaskRescheduleTo else null,
                 )
             }
             Box(
@@ -2618,6 +2715,7 @@ private fun DayPagerSurface(
                     active = agendaOwnsInput,
                     onEvent = if (agendaOwnsInput) onEvent else null,
                     onTaskDone = if (agendaOwnsInput) onTaskDone else null,
+                    onTaskRescheduleTo = if (agendaOwnsInput) onTaskRescheduleTo else null,
                     onOpenDay = if (agendaOwnsInput) onOpenDay else null,
                 )
             }
@@ -2634,6 +2732,7 @@ private fun SelectedDayAgendaPage(
     active: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
+    onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
     val interactionModifier = if (active) {
@@ -2672,9 +2771,10 @@ private fun SelectedDayAgendaPage(
                 modifier = Modifier.padding(top = 5.dp),
             )
             dayTasks.forEach { task ->
-                TaskRow(
+                CalendarTaskRow(
                     task = task,
-                    onCheckedChange = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                    onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                    onTaskRescheduleTo = onTaskRescheduleTo,
                     modifier = Modifier.padding(vertical = 1.dp),
                 )
             }
@@ -2699,6 +2799,7 @@ private fun DayRailPage(
     scrollEnabled: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
+    onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
 ) {
     val interactionModifier = if (active) Modifier else Modifier.clearAndSetSemantics { }
     Column(interactionModifier.fillMaxSize()) {
@@ -2711,9 +2812,10 @@ private fun DayRailPage(
             if (dayTasks.isNotEmpty()) {
                 Text("TASKS DUE", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Green)
                 dayTasks.forEach { task ->
-                    TaskRow(
+                    CalendarTaskRow(
                         task = task,
-                        onCheckedChange = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                        onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                        onTaskRescheduleTo = onTaskRescheduleTo,
                         modifier = Modifier.padding(vertical = 1.dp),
                     )
                 }

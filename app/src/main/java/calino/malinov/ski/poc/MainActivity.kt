@@ -332,6 +332,9 @@ fun CalinoApp() {
                             onTaskDone = { task, done ->
                                 showUndo(repository.setTaskDone(task.id, done))
                             },
+                            onTaskRescheduleTo = { task, date ->
+                                showUndo(repository.rescheduleTask(task.id, date))
+                            },
                         )
                         PockRoute.Tasks -> Tasks(
                             tasks = snapshot.tasks,

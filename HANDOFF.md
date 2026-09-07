@@ -43,12 +43,12 @@ so the selected row physically continues into the month geometry. Keep
 committed date state separate from pager preview state, keep boundary previews
 mounted, and keep one pointer owner per gesture.
 
-Next scoped work should be task/calendar polish and behavior coverage: add a
-clear calendar entry point for task rescheduling if needed, add Compose/device
-tests for week paging, compact hit-target gating, task completion/undo, and
-boundary cancellation, then continue with other fixture-backed Calino surface
-gaps. Event/task drag-and-drop remains deferred until those state and gesture
-contracts are reviewed; do not add sync, persistence, or remote services.
+Next scoped work should be task/calendar behavior coverage: add
+Compose/device tests for week paging, compact hit-target gating, task
+completion/undo, calendar rescheduling, and boundary cancellation, then
+continue with other fixture-backed Calino surface gaps. Event/task
+drag-and-drop remains deferred until those state and gesture contracts are
+reviewed; do not add sync, persistence, or remote services.
 
 For each meaningful UI change, use the required full check:
 
@@ -96,6 +96,9 @@ results.
   task markers/counts persist in the month Canvas, and the week/day surfaces
   show labelled due tasks with completion controls. Completion uses the local
   repository and the existing undo banner; undated tasks remain in Tasks.
+- Calendar due-task rows now expose an animated reschedule control with
+  Tomorrow, Next week, and No date choices. Each choice goes through the same
+  local repository mutation and undo banner as the Tasks surface.
 - On the warmed API 36 `calino-poc-api36` emulator, the latest single-renderer
   slow-drag reports (0→1, 1→2, 2→1) were respectively: 76/16/16/2,
   75/12/16/2, and 76/16/16/2 for total frames / 50th percentile / 95th
@@ -106,7 +109,8 @@ results.
   requested phone at `physical-device:5555` without issuing a force-stop to the
   phone. No physical-device smoothness claim is made.
 - The full `test lintDebug assembleDebug` handoff check passed after the final
-  endpoint and ownership changes. Drag-and-drop remains deferred.
+  endpoint, ownership, and calendar-task reschedule changes. Drag-and-drop
+  remains deferred.
 
 ### Future only — concrete drag-and-drop implementation checklist
 
@@ -196,7 +200,8 @@ remote sync, persistence, a broad refactor, or a new dependency.
   from in-progress pager preview state.
 - Day selection from month cells, week cells, and agenda navigation.
 - Due task markers/counts in calendar cells and due-task rows in the week/day
-  surfaces, with completion/reopen controls and the existing undo banner.
+  surfaces, with completion/reopen/reschedule controls and the existing undo
+  banner.
 - Animated month/week/day transitions, selection indicator movement, event
   appearance changes, and zoom transitions.
 - A bottom Add action that opens Quick Add for the selected date.
