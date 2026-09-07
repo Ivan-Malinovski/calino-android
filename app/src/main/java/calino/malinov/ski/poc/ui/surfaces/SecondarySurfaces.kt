@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -117,6 +118,7 @@ import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.qa.TaskBucket
 import calino.malinov.ski.poc.qa.taskBucket
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
+import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
 import calino.malinov.ski.poc.util.nextOccurrences
@@ -685,7 +687,7 @@ fun TasksSurface(
         }
         SegmentedFilter(filter) { filter = it }
         TaskProgress(tasks)
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(14.dp))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             AnimatedContent(
                 targetState = filter,
@@ -856,13 +858,17 @@ private fun TaskProgress(tasks: List<CalTask>) {
         animationSpec = tween(240),
         label = "task completion progress",
     )
-    Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = 7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("WEEKLY FOCUS", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+            Text("TASK PROGRESS", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
             Spacer(Modifier.weight(1f))
-            Text("$completed of ${tasks.size} complete", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
+            Text(
+                "$completed of ${tasks.size} complete",
+                style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                color = CalinoColors.Ink2,
+            )
         }
-        Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(5.dp).clip(RoundedCornerShape(3.dp)).background(CalinoColors.Ink.copy(.07f))) {
+        Box(Modifier.fillMaxWidth().padding(top = 7.dp).height(6.dp).clip(RoundedCornerShape(3.dp)).background(CalinoColors.Ink.copy(.07f))) {
             Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(CalinoColors.Green))
         }
     }
@@ -900,10 +906,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     renderTask: (CalTask) -> CalTask,
 ) {
     if (tasks.isNotEmpty()) {
-        item(key = "bucket:$name") { label("$name · ${tasks.size}", Modifier.padding(top = 4.dp, bottom = 2.dp)) }
+        item(key = "bucket:$name") {
+            label(
+                "$name · ${tasks.size}",
+                Modifier
+                    .animateItem()
+                    .padding(top = 10.dp, bottom = 3.dp),
+            )
+        }
         tasks.forEach { originalTask ->
             val task = renderTask(originalTask)
-            item(key = "task:${task.id}") {
+            // A completion can move a row from its date bucket to Completed.
+            // Give each bucket its own identity so LazyColumn fades the old
+            // item out and the new item in instead of animating it through all
+            // intervening rows and headers.
+            item(key = "task:$name:${task.id}") {
                 TaskRow(
                     task = task,
                     onComplete = onComplete,
@@ -917,6 +934,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TaskRow(
     task: CalTask,
@@ -940,7 +958,7 @@ private fun TaskRow(
     val actionThresholdPx = with(density) { 108.dp.toPx() }
     val maxDragPx = with(density) { 140.dp.toPx() }
     val color = taskColor(task)
-    val rowShape = RoundedCornerShape(12.dp)
+    val rowShape = RoundedCornerShape(16.dp)
     val canAct = !task.done
     val description = buildString {
         append(task.title)
@@ -948,6 +966,8 @@ private fun TaskRow(
         task.category?.let { append(", "); append(it) }
         if (task.done) append(", completed")
     }
+    val actionProgress = (abs(offset) / actionThresholdPx).coerceIn(0f, 1f)
+    val titleColor = if (task.done) CalinoColors.Ink3 else CalinoColors.Ink
 
     Column(modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().clip(rowShape)) {
@@ -955,11 +975,21 @@ private fun TaskRow(
                 val actionLabel = if (offset < 0f) "Reschedule" else "Complete"
                 val actionColor = if (offset < 0f) CalinoColors.Accent else CalinoColors.Green
                 Row(
-                    Modifier.matchParentSize().background(actionColor).padding(horizontal = 16.dp),
+                    Modifier
+                        .matchParentSize()
+                        .background(actionColor.copy(alpha = actionProgress * .92f))
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = if (offset < 0f) Arrangement.End else Arrangement.Start,
                 ) {
-                    Text(if (offset < 0f) "↶  $actionLabel" else "✓  $actionLabel", color = Color.White, style = CalinoTypography.bodyMedium)
+                    CalinoIcon(
+                        if (offset < 0f) CalinoIcon.Repeat else CalinoIcon.Check,
+                        tint = Color.White.copy(alpha = actionProgress.coerceAtLeast(.72f)),
+                        modifier = Modifier.size(18.dp),
+                        contentDescription = null,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(actionLabel, color = Color.White.copy(alpha = actionProgress.coerceAtLeast(.72f)), style = CalinoTypography.bodyMedium)
                 }
             }
             Row(
@@ -967,7 +997,7 @@ private fun TaskRow(
                     .offset { IntOffset(offset.roundToInt(), 0) }
                     .clip(rowShape)
                     .background(CalinoColors.Panel)
-                    .border(BorderStroke(1.dp, CalinoColors.Ink.copy(.08f)), rowShape)
+                    .border(BorderStroke(1.dp, CalinoColors.Ink.copy(.045f)), rowShape)
                     .semantics { contentDescription = description }
                     .pointerInput(task.id, canAct) {
                         if (canAct) detectHorizontalDragGestures(
@@ -991,7 +1021,7 @@ private fun TaskRow(
                         )
                     }
                     .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     Modifier
@@ -1001,14 +1031,39 @@ private fun TaskRow(
                         .semantics { contentDescription = if (task.done) "${task.title}, completed" else "Complete ${task.title}" },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Box(Modifier.size(21.dp).clip(CircleShape).border(1.7.dp, color).background(if (task.done) color else Color.Transparent)) {
-                    if (task.done) Text("✓", color = Color.White, fontSize = 13.sp, modifier = Modifier.align(Alignment.Center))
+                    Box(
+                        Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(if (task.done) color else Color.Transparent)
+                            .border(BorderStroke(1.5.dp, color), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (task.done) {
+                            CalinoIcon(
+                                CalinoIcon.Check,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp),
+                                contentDescription = null,
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(task.title, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium), textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None)
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(
+                        task.title,
+                        style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                        color = titleColor,
+                        textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        modifier = Modifier.padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         task.due?.let { due ->
                             Text(
                                 due.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)),
@@ -1017,7 +1072,15 @@ private fun TaskRow(
                             )
                         }
                         task.category?.let { category ->
-                            Text(category, style = CalinoTypography.bodySmall, color = color, modifier = Modifier.background(eventTint(color, .14f), CircleShape).padding(horizontal = 7.dp, vertical = 1.dp))
+                            Text(
+                                category,
+                                style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                color = color.copy(alpha = .88f),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(eventTint(color, .10f))
+                                    .padding(horizontal = 7.dp, vertical = 1.dp),
+                            )
                         }
                     }
                 }
@@ -1025,16 +1088,37 @@ private fun TaskRow(
                     // Completion has one clear 44dp target at the leading edge.
                     // Keep reschedule as the separate trailing action; the
                     // horizontal swipe remains available on the whole row.
-                    IconButtonGlyph("↶", "Reschedule ${task.title}") { onReschedule(task) }
+                    IconButton(
+                        onClick = { onReschedule(task) },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .semantics { contentDescription = "Reschedule ${task.title}" },
+                    ) {
+                        CalinoIcon(
+                            CalinoIcon.Repeat,
+                            tint = CalinoColors.Ink2,
+                            modifier = Modifier.size(18.dp),
+                            contentDescription = null,
+                        )
+                    }
                 }
             }
         }
         AnimatedVisibility(visible = showReschedule, enter = expandVertically(tween(180)) + fadeIn(tween(160)), exit = shrinkVertically(tween(160)) + fadeOut(tween(120))) {
-            Row(Modifier.fillMaxWidth().padding(start = 33.dp, top = 4.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            FlowRow(
+                Modifier.fillMaxWidth().padding(start = 44.dp, top = 5.dp, bottom = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 listOf(May18 to "Today", May18.plusDays(1) to "Tomorrow", May18.plusDays(7) to "Next week").forEach { (date, labelText) ->
                     TextButton(
                         onClick = { onRescheduleTo(task, date) },
-                        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(CalinoColors.Accent.copy(.12f)).semantics { contentDescription = "Reschedule ${task.title} to $labelText" },
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(CalinoColors.Accent.copy(.09f))
+                            .semantics { contentDescription = "Reschedule ${task.title} to $labelText" },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                     ) { Text(labelText, color = CalinoColors.Ink2, fontSize = 12.sp) }
                 }
             }

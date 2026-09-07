@@ -188,6 +188,40 @@ There is a local notification preview surface reachable from Settings. It shows
 representative event/task notification cards and channel rows. It is not wired
 to Android notifications.
 
+### Recent UI polish
+
+The current working tree includes a scoped visual polish pass in
+`HomeScreen.kt` and `SecondarySurfaces.kt`:
+
+- Calendar month and week layouts now center date labels and align selected/today
+  states through the month-to-week morph. Compact event markers keep all-day
+  bars, timed markers, and journal dots visually separate and scale as a group.
+- Agenda and event cards now have clearer title/metadata hierarchy, color rails,
+  stronger touch sizing, and restrained borders/backgrounds. The hour-rail
+  cards use the same hierarchy.
+- Tasks use tighter progress spacing, rounded rows, explicit completion and
+  reschedule icons, progressive swipe action feedback, readable category chips,
+  and wrapped reschedule actions with 44dp touch lanes. Task row and bucket
+  animation keys are bucket-qualified, so rows fade across bucket changes while
+  bucket headings animate their placement instead of crossing unrelated rows.
+
+Validation for this pass: `distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'` passed, and the resulting APK was installed on
+the API 36 emulator `emulator-5554`. Rendered screenshots were inspected for
+the week/agenda, month, and detailed month states; dates align, calendar
+markers remain distinct, journal dots are visible, and agenda color rails and
+title/time hierarchy fit the surface. This records emulator spot checks only;
+it does not establish comprehensive gesture/animation coverage or physical
+phone validation.
+
+Representative interaction checks on the emulator also covered a slow vertical
+drag and a short drag settling back to selected Monday, 18 May 2026, plus a
+fast horizontal fling selecting Tuesday, 19 May with the pill and heading in
+agreement. Completion/undo was inspected as the task count changed from four
+to three and the original row was restored. Resting states were clean, but a
+partial zoom capture showed agenda/list text briefly superimposed during the
+crossfade; Ivan should review that intermediate frame visually. These checks
+remain representative spot checks rather than comprehensive gesture acceptance.
+
 ## Data and architecture
 
 The app host is `MainActivity.kt` / `CalinoApp()`.

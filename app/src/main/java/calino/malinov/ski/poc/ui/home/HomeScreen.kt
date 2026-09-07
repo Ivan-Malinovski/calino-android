@@ -66,6 +66,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -132,11 +133,6 @@ private data class BoundaryPagerSnapshot(
     val daySettledPage: Int,
     val monthInProgress: Boolean,
     val monthSettledPage: Int,
-)
-
-private data class EventDensitySummary(
-    val allDayCount: Int,
-    val precedingAllDayCounts: IntArray,
 )
 
 private fun dayPageFor(date: LocalDate): Int =
@@ -518,7 +514,7 @@ private fun MonthHeading(
     onToday: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 5.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(
@@ -552,7 +548,10 @@ private fun MonthHeading(
             }
         }
         if (day != FixtureDate) {
-            TextButton(onClick = onToday, modifier = Modifier.semantics { contentDescription = "Go to today" }) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp) }
+            TextButton(
+                onClick = onToday,
+                modifier = Modifier.semantics { contentDescription = "Go to today" },
+            ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
         }
         IconButton(
             onClick = onNextMonth,
@@ -576,7 +575,7 @@ private fun WeekStrip(
     onDay: (LocalDate) -> Unit,
 ) {
     Box(
-        modifier.fillMaxWidth().height(80.dp).then(gestureModifier).clipToBounds(),
+        modifier.fillMaxWidth().height(76.dp).then(gestureModifier).clipToBounds(),
     ) {
         val committedMonday = day.with(DayOfWeek.MONDAY)
         val monday = displayedWeekDay.with(DayOfWeek.MONDAY)
@@ -670,8 +669,9 @@ private fun WeekStripPage(
             Box(
                 Modifier.offset(x = cellWidth * indicatorIndex)
                     .width(cellWidth)
-                    .fillMaxHeight()
-                    .padding(horizontal = 2.dp)
+                    .height(58.dp)
+                    .align(Alignment.CenterStart)
+                    .padding(horizontal = 3.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(CalinoColors.Ink.copy(alpha = .95f)),
             )
@@ -715,6 +715,7 @@ private fun WeekDay(
     val dateColor = lerpColor(CalinoColors.Ink2, Color.White, selectedWeight)
     Column(
         modifier = modifier
+            .fillMaxHeight()
             .padding(horizontal = 2.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(background)
@@ -722,7 +723,8 @@ private fun WeekDay(
             .semantics(mergeDescendants = true) {
                 contentDescription = "${date.format(FullDateFormatter)}${if (committedSelected) ", selected" else ""}"
             }
-            .padding(vertical = 5.dp),
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -847,7 +849,13 @@ private fun MonthGrid(
                     .graphicsLayer { alpha = 1f - compactProgress },
             ) {
                 WeekdayLetters.forEach {
-                    Text(it, Modifier.weight(1f), fontSize = 10.sp, color = CalinoColors.Ink3)
+                    Text(
+                        it,
+                        Modifier.weight(1f),
+                        fontSize = 10.sp,
+                        color = CalinoColors.Ink3,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
             (0 until rows).forEach { row ->
@@ -867,10 +875,11 @@ private fun MonthGrid(
                         Box(
                             Modifier.offset(x = cellWidth * indicatorIndex)
                                 .width(cellWidth)
-                                .fillMaxHeight()
-                                .padding(horizontal = 2.dp)
+                                .height(58.dp)
+                                .align(Alignment.CenterStart)
+                                .padding(horizontal = 3.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                            .background(CalinoColors.Ink.copy(alpha = .95f * compactProgress)),
+                                .background(CalinoColors.Ink.copy(alpha = .95f * compactProgress)),
                         )
                     }
                     if (isCompactWeek) {
@@ -998,11 +1007,11 @@ private fun CompactMonthRow(
             }
             // The Today fill fades out before the compact row settles. Keep
             // the label dark rather than leaving white text on the canvas.
-            val dateColor = when {
-                today && compactProgress >= .8f -> CalinoColors.Ink2
-                today -> Color.White
-                inMonth -> CalinoColors.Ink2
-                else -> CalinoColors.Ink3.copy(.5f)
+            val regularDateColor = if (inMonth) CalinoColors.Ink2 else CalinoColors.Ink3.copy(.5f)
+            val dateColor = if (today) {
+                lerpColor(Color.White, CalinoColors.Ink2, compactProgress)
+            } else {
+                regularDateColor
             }
             Column(
                 Modifier
@@ -1038,14 +1047,27 @@ private fun CompactMonthRow(
                 }
                 Row(
                     Modifier.fillMaxWidth().height(7.dp),
-                    horizontalArrangement = Arrangement.Center,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     dayEvents.take(3).forEach { event ->
-                        Box(Modifier.size(4.dp).clip(CircleShape).background(Color(event.color)))
+                        Box(
+                            Modifier
+                                .width(if (event.allDay) 16.dp else 4.dp)
+                                .height(if (event.allDay) 3.dp else 4.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color(event.color)),
+                        )
                     }
                 }
-                if (date in journalDates) {
-                    Box(Modifier.size(4.dp).clip(CircleShape).background(CalinoColors.Plum))
+                Row(
+                    Modifier.fillMaxWidth().height(6.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (date in journalDates) {
+                        Box(Modifier.size(4.dp).clip(CircleShape).background(CalinoColors.Plum))
+                    }
                 }
             }
         }
@@ -1096,24 +1118,20 @@ private fun DayCell(
     onDay: () -> Unit,
 ) {
     val today = date == FixtureDate
+    val compactFade = (1f - compactProgress).coerceIn(0f, 1f)
+    val selectedWeight = max(compactFade.takeIf { selected } ?: 0f, compactSelectedWeight)
+        .coerceIn(0f, 1f)
     val monthFill = when {
-        selected -> CalinoColors.Accent.copy(.09f)
-        today -> CalinoColors.Accent.copy(.05f)
+        selected -> CalinoColors.AccentSoft.copy(alpha = .72f * compactFade)
+        today -> CalinoColors.AccentSoft.copy(alpha = .45f * compactFade)
         else -> Color.Transparent
     }
-    val fill = lerpColor(monthFill, Color.Transparent, compactProgress)
-    val monthSelectionWeight = if (selected) 1f - compactProgress else 0f
-    val selectedWeight = max(monthSelectionWeight, compactSelectedWeight).coerceIn(0f, 1f)
-    val selectedBorder = if (selected && compactProgress < .8f) {
-        Modifier.border(1.5.dp, CalinoColors.Accent.copy(alpha = .45f * (1f - compactProgress)))
-    } else {
-        Modifier
-    }
-    val dateDescription = remember(date, selected, events) {
+    val dateDescription = remember(date, selected, events, hasJournal) {
         buildString {
             append(date.format(FullDateFormatter))
             if (selected) append(", selected")
             if (events.isNotEmpty()) append(", events: ").append(events.joinToString { it.title })
+            if (hasJournal) append(", journal entry")
         }
     }
     val interactionModifier = if (interactive) {
@@ -1128,10 +1146,12 @@ private fun DayCell(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(lerpDp(4.dp, 14.dp, compactProgress)))
-            .background(fill)
-            .then(selectedBorder)
+            .background(monthFill)
             .then(interactionModifier)
-            .padding(horizontal = lerpDp(2.dp, 5.dp, compactProgress), vertical = lerpDp(2.dp, 5.dp, compactProgress)),
+            .padding(
+                horizontal = lerpDp(2.dp, 5.dp, compactProgress),
+                vertical = lerpDp(2.dp, 11.dp, compactProgress),
+            ),
         verticalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         val weekdayHeight = lerpDp(0.dp, 15.dp, compactProgress)
@@ -1149,23 +1169,35 @@ private fun DayCell(
         }
         val dateSize = lerpDp(lerpDp(22.dp, 25.dp, detailProgress), 18.dp, compactProgress)
         val monthDateColor = when {
-            today && compactProgress >= .8f && compactSelectedWeight <= .5f -> CalinoColors.Ink2
-            today -> Color.White
             inMonth -> CalinoColors.Ink2
             else -> CalinoColors.Ink3.copy(.5f)
         }
         val compactDateColor = if (compactSelectedWeight > .5f) Color.White else CalinoColors.Ink2
-        Row(Modifier.fillMaxWidth().height(dateSize), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().height(dateSize),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
             Box(
                 Modifier.width(lerpDp(dateSize, 30.dp, compactProgress)).height(dateSize).clip(CircleShape)
-                    .background(if (today && compactProgress < .8f) CalinoColors.Accent else Color.Transparent),
+                    .background(
+                        when {
+                            selected -> CalinoColors.Accent.copy(alpha = compactFade)
+                            today -> CalinoColors.Accent.copy(alpha = .78f * compactFade)
+                            else -> Color.Transparent
+                        },
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     date.dayOfMonth.toString(),
                     fontSize = ((12f + 1.5f * detailProgress) * (1f - compactProgress) + 16f * compactProgress).sp,
                     fontWeight = FontWeight.Medium,
-                    color = lerpColor(monthDateColor, compactDateColor, compactProgress),
+                    color = lerpColor(
+                        lerpColor(monthDateColor, if (selected || today) Color.White else monthDateColor, selectedWeight),
+                        compactDateColor,
+                        compactProgress,
+                    ),
                 )
             }
         }
@@ -1173,8 +1205,12 @@ private fun DayCell(
         // Journal dates are fixture/state data during this transition. Avoid
         // one AnimatedVisibility state machine in every cell; if journal data
         // changes later, the enclosing grid can animate that state change.
-        if (hasJournal) {
-            Row(Modifier.fillMaxWidth().height(6.dp), horizontalArrangement = Arrangement.Center) {
+        Row(
+            Modifier.fillMaxWidth().height(6.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (hasJournal) {
                 Box(Modifier.size(4.dp).clip(CircleShape).background(CalinoColors.Plum))
             }
         }
@@ -1195,16 +1231,14 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
     val shownCount = events.size.coerceAtMost(2)
     val compactExtraCount = (events.size - 2).coerceIn(0, 2)
     val overflow = (events.size - 2).coerceAtLeast(0)
-    val densitySummary = remember(events) {
-        var allDayCount = 0
-        val precedingAllDayCounts = IntArray(events.size) { index ->
-            val precedingCount = allDayCount
-            if (events[index].allDay) allDayCount++
-            precedingCount
+    val visibleMarkerCount = (shownCount + compactExtraCount).coerceAtMost(4)
+    val density = LocalDensity.current
+    val compactMarkerWidthsPx = remember(events, density) {
+        IntArray(visibleMarkerCount) { index ->
+            with(density) { if (events[index].allDay) 18.dp.roundToPx() else 5.dp.roundToPx() }
         }
-        EventDensitySummary(allDayCount, precedingAllDayCounts)
     }
-    val allDayCount = densitySummary.allDayCount
+    val compactMarkerTotalWidthPx = remember(events, density) { compactMarkerWidthsPx.sum() }
     Layout(
         content = {
             repeat(shownCount) { index -> EventDensityItem(events[index], detailProgress) }
@@ -1219,30 +1253,31 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
         },
         modifier = modifier.drawBehind {
             val progress = detailProgress.coerceIn(0f, 1f)
-            val dot = 5.dp.toPx()
             val gap = 3.dp.toPx()
-            val radius = 2.dp.toPx()
-            val allDayGap = if (allDayCount > 1) min(gap, size.width / (allDayCount * 2f)) else 0f
-            val allDayWidth = if (allDayCount > 0) {
-                ((size.width - allDayGap * (allDayCount - 1)) / allDayCount).coerceAtLeast(1f)
+            val totalGap = gap * (visibleMarkerCount - 1).coerceAtLeast(0)
+            val compactScale = if (compactMarkerTotalWidthPx > 0) {
+                min(1f, ((size.width - totalGap).coerceAtLeast(1f) / compactMarkerTotalWidthPx))
             } else {
-                dot
+                1f
             }
+            val totalWidth = compactMarkerTotalWidthPx * compactScale + totalGap
+            val compactStart = ((size.width - totalWidth) / 2f).coerceAtLeast(0f)
+            var precedingWidth = 0f
+            repeat(shownCount) { index -> precedingWidth += compactMarkerWidthsPx[index] * compactScale }
             repeat(compactExtraCount) { extraIndex ->
                 val event = events[extraIndex + 2]
                 val index = extraIndex + 2
-                val allDayIndex = densitySummary.precedingAllDayCounts[index]
-                val compactWidth = if (event.allDay) allDayWidth else dot
-                val childWidth = lerpInt(compactWidth.roundToInt(), dot.roundToInt(), progress).toFloat()
-                val coarseX = if (event.allDay) {
-                    allDayIndex * (allDayWidth + allDayGap)
-                } else {
-                    index * (dot + gap)
-                }
-                val coarseY = 0f
-                val x = lerpInt(coarseX.roundToInt(), 0, progress).toFloat()
-                val y = lerpInt(coarseY.roundToInt(), 0, progress).toFloat()
-                val childHeight = dot
+                val compactWidth = compactMarkerWidthsPx[index] * compactScale
+                val compactX = compactStart + precedingWidth + gap * index
+                val childWidth = lerpInt(compactWidth.roundToInt(), 5.dp.toPx().roundToInt(), progress).toFloat()
+                val compactHeight = if (event.allDay) 3.dp.toPx() else 5.dp.toPx()
+                val childHeight = lerpInt(compactHeight.roundToInt(), 5.dp.toPx().roundToInt(), progress).toFloat()
+                val x = lerpInt(compactX.roundToInt(), 0, progress).toFloat()
+                val y = lerpInt(
+                    ((size.height - compactHeight) / 2f).roundToInt(),
+                    0,
+                    progress,
+                ).toFloat()
                 val color = Color(event.color)
                 val chipColor = eventTint(color, if (event.allDay) .18f else .10f)
                 drawRoundRect(
@@ -1255,24 +1290,26 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
                         childWidth.coerceAtLeast(1f),
                         childHeight.coerceAtLeast(1f),
                     ),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx()),
                 )
+                precedingWidth += compactWidth
             }
         },
     ) { measurables, constraints ->
         val progress = detailProgress.coerceIn(0f, 1f)
         val width = constraints.maxWidth
-        val dot = 5.dp.roundToPx()
         val gap = 3.dp.roundToPx()
-        val allDayGap = if (allDayCount > 1) min(gap, width / (allDayCount * 2)) else 0
-        val allDayWidth = if (allDayCount > 0) {
-            ((width - allDayGap * (allDayCount - 1)) / allDayCount).coerceAtLeast(1)
+        val totalGap = gap * (visibleMarkerCount - 1).coerceAtLeast(0)
+        val compactScale = if (compactMarkerTotalWidthPx > 0) {
+            min(1f, ((width - totalGap).coerceAtLeast(1) / compactMarkerTotalWidthPx.toFloat()))
         } else {
-            dot
+            1f
         }
+        val totalWidth = (compactMarkerTotalWidthPx * compactScale + totalGap).roundToInt()
+        val compactStart = ((width - totalWidth) / 2).coerceAtLeast(0)
         val chipHeight = 20.dp.roundToPx()
         val overflowHeight = 14.dp.roundToPx()
-        val coarseHeight = dot
+        val coarseHeight = 7.dp.roundToPx()
         val detailHeight = shownCount * chipHeight + if (overflow > 0) overflowHeight else 0
         val height = lerpInt(coarseHeight, detailHeight.coerceAtLeast(coarseHeight), progress)
             .coerceIn(constraints.minHeight, constraints.maxHeight)
@@ -1282,32 +1319,30 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
                 measurable.measure(Constraints.fixed(maxOf(1, width), maxOf(1, overflowHeight)))
             } else {
                 val event = events[index]
-                val compactWidth = if (event.allDay) allDayWidth else dot
-                val targetWidth = if (index < 2) width else dot
+                val compactWidth = (compactMarkerWidthsPx[index] * compactScale).roundToInt().coerceAtLeast(1)
+                val targetWidth = width
                 val childHeight = if (index < 2) {
-                    lerpInt(if (event.allDay) 3.dp.roundToPx() else dot, chipHeight, progress)
+                    lerpInt(if (event.allDay) 3.dp.roundToPx() else 5.dp.roundToPx(), chipHeight, progress)
                 } else {
-                    dot
+                    if (event.allDay) 3.dp.roundToPx() else 5.dp.roundToPx()
                 }
-                val childWidth = lerpInt(compactWidth, targetWidth, progress)
+                val childWidth = lerpInt(compactWidth, if (index < 2) targetWidth else 5.dp.roundToPx(), progress)
                     .coerceIn(1, maxOf(1, width))
                 measurable.measure(Constraints.fixed(childWidth, maxOf(1, childHeight)))
             }
         }
         layout(width, height) {
+            var precedingWidth = 0
             places.forEachIndexed { index, placeable ->
                 if (overflow > 0 && index == shownCount) {
                     val y = lerpInt(coarseHeight + 2.dp.roundToPx(), shownCount * chipHeight, progress)
                     placeable.placeRelative(0, y.coerceIn(0, max(0, height - placeable.height)))
                 } else {
                     val event = events[index]
-                    val allDayIndex = densitySummary.precedingAllDayCounts[index]
-                    val coarseX = if (event.allDay) {
-                        allDayIndex * (allDayWidth + allDayGap)
-                    } else {
-                        index * (dot + gap)
-                    }
-                    val coarseY = 0
+                    val compactX = compactStart + precedingWidth + gap * index
+                    val compactHeight = if (event.allDay) 3.dp.roundToPx() else 5.dp.roundToPx()
+                    val coarseX = compactX
+                    val coarseY = ((coarseHeight - compactHeight) / 2).coerceAtLeast(0)
                     val targetY = if (index < 2) index * chipHeight else 0
                     val x = lerpInt(coarseX, 0, progress)
                     val y = lerpInt(coarseY, targetY, progress)
@@ -1315,6 +1350,7 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
                         x.coerceIn(0, max(0, width - placeable.width)),
                         y.coerceIn(0, max(0, height - placeable.height)),
                     )
+                    precedingWidth += (compactMarkerWidthsPx[index] * compactScale).roundToInt().coerceAtLeast(1)
                 }
             }
         }
@@ -1366,25 +1402,61 @@ private fun eventDescription(event: CalEvent): String = buildString {
 
 @Composable
 private fun EventChip(event: CalEvent, minHeight: Dp = 34.dp, onClick: (() -> Unit)? = null, agendaStyle: Boolean = false) {
+    val metadata = buildString {
+        if (event.allDay) {
+            append("All day")
+        } else {
+            event.start?.let { append(it.format(TimeFormatter)) }
+            event.durationMinutes?.let { duration ->
+                if (isNotEmpty()) append(" · ")
+                append(duration).append(" min")
+            }
+        }
+        event.location?.let { location ->
+            if (isNotEmpty()) append(" · ")
+            append(location)
+        }
+    }
+    val shape = RoundedCornerShape(if (agendaStyle) 10.dp else 6.dp)
     Row(
-        Modifier.fillMaxWidth().heightIn(min = minHeight).clip(RoundedCornerShape(6.dp))
+        Modifier.fillMaxWidth().heightIn(min = maxOf(44.dp, minHeight)).clip(shape)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .semantics(mergeDescendants = true) { contentDescription = eventDescription(event) }
-            .background(eventTint(Color(event.color), .10f)).padding(horizontal = 4.dp),
+            .background(eventTint(Color(event.color), if (agendaStyle) .12f else .10f, CalinoColors.Panel))
+            .border(1.dp, Color(event.color).copy(alpha = if (agendaStyle) .16f else .12f), shape)
+            .padding(horizontal = if (agendaStyle) 10.dp else 4.dp, vertical = if (agendaStyle) 7.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(if (agendaStyle) 3.dp else 2.dp).height(22.dp).background(Color(event.color)))
-        Text(
-            if (agendaStyle) {
-                event.start?.format(TimeFormatter)?.let { "$it  ${event.title}" } ?: event.title
-            } else event.title,
-            Modifier.padding(start = 7.dp),
-            fontSize = if (agendaStyle) 13.5.sp else 9.sp,
-            lineHeight = if (agendaStyle) 18.sp else 10.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            color = CalinoColors.Ink,
+        Box(
+            Modifier.width(if (agendaStyle) 4.dp else 2.dp)
+                .height(if (agendaStyle) 30.dp else 22.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color(event.color)),
         )
+        if (agendaStyle) {
+            Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    event.title,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = CalinoColors.Ink,
+                )
+                Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = CalinoColors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else {
+            Text(
+                event.title,
+                Modifier.padding(start = 7.dp),
+                fontSize = 9.sp,
+                lineHeight = 10.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = CalinoColors.Ink,
+            )
+        }
     }
 }
 
@@ -1550,23 +1622,44 @@ private fun HourRailContent(dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> U
         dayEvents.filterNot { it.allDay }.forEach { event ->
             event.start?.let { start ->
                 val top = ((start.hour + start.minute / 60f) * 62).dp
-                val height = maxOf(38, ((event.durationMinutes ?: 60) / 60f * 62 - 6).toInt()).dp
+                val height = maxOf(44, ((event.durationMinutes ?: 60) / 60f * 62 - 6).toInt()).dp
                 Box(
                     Modifier.offset(y = top)
                         .fillMaxWidth()
                         .padding(start = 52.dp, end = 20.dp)
                         .height(height)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(11.dp))
                         .then(if (onEvent != null) Modifier.clickable { onEvent(event) } else Modifier)
                         .semantics(mergeDescendants = true) { contentDescription = eventDescription(event) }
-                        .background(eventTint(Color(event.color), .12f, CalinoColors.Panel))
-                        .padding(8.dp),
+                        .background(eventTint(Color(event.color), .13f, CalinoColors.Panel))
+                        .border(1.dp, Color(event.color).copy(alpha = .16f), RoundedCornerShape(11.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
-                    Text(
-                        event.title + "\n" + start.format(TimeFormatter) + (event.location?.let { " · $it" } ?: ""),
-                        fontSize = 13.sp,
-                        color = CalinoColors.Ink,
-                    )
+                    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) {
+                        Box(
+                            Modifier.width(4.dp)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color(event.color)),
+                        )
+                        Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                event.title,
+                                fontSize = 13.5.sp,
+                                lineHeight = 17.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = CalinoColors.Ink,
+                            )
+                            val metadata = buildString {
+                                append(start.format(TimeFormatter))
+                                event.durationMinutes?.let { append(" · ").append(it).append(" min") }
+                                event.location?.let { append(" · ").append(it) }
+                            }
+                            Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = CalinoColors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
