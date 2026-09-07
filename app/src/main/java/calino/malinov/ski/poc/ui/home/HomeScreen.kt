@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,8 +58,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -66,20 +73,26 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle as ComposeTextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import calino.malinov.ski.poc.data.model.CalEvent
+import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
@@ -88,8 +101,11 @@ import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.ui.components.CalinoIcons
+import calino.malinov.ski.poc.ui.components.TaskRow
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
+import calino.malinov.ski.poc.state.openTasksDueOn
+import calino.malinov.ski.poc.state.tasksDueOn
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -111,13 +127,21 @@ private const val DaytimeScrollHour = 9
 private const val ZoomStepDp = 280f
 private const val DayPagerCenter = 100_000
 private const val DayPagerPageCount = DayPagerCenter * 2 + 1
+private const val WeekPagerCenter = 10_000
+private const val WeekPagerPageCount = WeekPagerCenter * 2 + 1
 private const val MonthPagerCenter = 10_000
 private const val MonthPagerPageCount = MonthPagerCenter * 2 + 1
+// Retained by the deprecated compatibility month renderer below. The active
+// calendar path uses StaticMonthGrid and does not use these crossfade bounds.
 private const val CompactMonthRowPlaceholderThreshold = .62f
 private const val CollapsedMonthRowThreshold = .92f
 private const val CompactMonthRowCrossfadeHalfWidth = .06f
 private const val CollapsedMonthRowCrossfadeHalfWidth = .06f
 private const val DaySurfaceOwnershipHysteresis = .08f
+private const val MonthEndpointBlendStart = .10f
+private const val MonthEndpointBlendEnd = .18f
+private const val DaySurfaceBlendStart = .38f
+private const val DaySurfaceBlendEnd = .62f
 private val WeekdayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
 private val FullDateFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)
 private val TimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
@@ -143,6 +167,17 @@ private fun dayPageFor(date: LocalDate): Int =
 private fun dateForDayPage(page: Int): LocalDate =
     FixtureDate.plusDays((page - DayPagerCenter).toLong())
 
+private fun weekPageFor(date: LocalDate): Int {
+    val fixtureMonday = FixtureDate.with(DayOfWeek.MONDAY)
+    val monday = date.with(DayOfWeek.MONDAY)
+    return (WeekPagerCenter + ((monday.toEpochDay() - fixtureMonday.toEpochDay()) / 7L))
+        .coerceIn(0L, (WeekPagerPageCount - 1).toLong())
+        .toInt()
+}
+
+private fun mondayForWeekPage(page: Int): LocalDate =
+    FixtureDate.with(DayOfWeek.MONDAY).plusWeeks((page - WeekPagerCenter).toLong())
+
 private fun monthPageFor(month: YearMonth): Int {
     val fixtureMonth = YearMonth.from(FixtureDate)
     return (MonthPagerCenter + (month.year - fixtureMonth.year) * 12 + month.monthValue - fixtureMonth.monthValue)
@@ -161,28 +196,41 @@ private fun monthForPage(page: Int): YearMonth =
 fun HomeScreen(
     repository: CalinoRepository = remember { FixtureRepository() },
     journals: List<JournalEntry> = emptyList(),
+    tasks: List<CalTask> = repository.tasks(),
     modifier: Modifier = Modifier,
     initialDate: LocalDate = FixtureDate,
     onAdd: (LocalDate) -> Unit = {},
     onDateChanged: (LocalDate) -> Unit = {},
     onDayClick: ((LocalDate) -> Unit)? = null,
     onEventClick: ((CalEvent) -> Unit)? = null,
+    onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
     onOpenDay: ((LocalDate) -> Unit)? = null,
     interactionEnabled: Boolean = true,
 ) {
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
-    var zoom by rememberSaveable { mutableFloatStateOf(0f) }
+    val zoomState = rememberSaveable { mutableFloatStateOf(0f) }
+    var settledZoom by rememberSaveable { mutableFloatStateOf(0f) }
     LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
 
     val selected = LocalDate.ofEpochDay(selectedEpoch)
     val events = repository.events()
+    val tasksByDueDate = remember(tasks) {
+        tasks.filter { it.due != null }
+            .groupBy { it.due!! }
+            .mapValues { (date, dueTasks) -> tasksDueOn(dueTasks, date) }
+    }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val railScroll = rememberScrollState(initial = with(density) { (DaytimeScrollHour * 62).dp.roundToPx() })
     val dayPagerState = rememberPagerState(initialPage = dayPageFor(initialDate)) { DayPagerPageCount }
+    val weekPagerState = rememberPagerState(initialPage = weekPageFor(initialDate)) { WeekPagerPageCount }
     val monthPagerState = rememberPagerState(initialPage = monthPageFor(YearMonth.from(initialDate))) { MonthPagerPageCount }
+    // Boundary previews move the week pager ahead of the committed date so
+    // the compact row can stay continuous. Do not let that visual sync
+    // become a second, possibly wrong date commit when it settles.
+    var suppressedWeekPage by remember { mutableStateOf<Int?>(null) }
     var zoomJob by remember { mutableStateOf<Job?>(null) }
-    val currentZoom = rememberUpdatedState(zoom)
+    val currentZoom = zoomState
     val currentSelectedEpoch = rememberUpdatedState(selectedEpoch)
 
     fun cancelMotion() {
@@ -193,13 +241,15 @@ fun HomeScreen(
     fun animateZoomTo(targetValue: Float) {
         cancelMotion()
         val target = targetValue.coerceIn(0f, 2f)
+        val start = zoomState.floatValue
         zoomJob = scope.launch {
             animate(
-                initialValue = zoom,
+                initialValue = start,
                 targetValue = target,
                 animationSpec = spring(dampingRatio = .85f, stiffness = 380f),
-            ) { value, _ -> zoom = value.coerceIn(0f, 2f) }
-            zoom = target
+            ) { value, _ -> zoomState.floatValue = value.coerceIn(0f, 2f) }
+            zoomState.floatValue = target
+            settledZoom = target
         }
     }
 
@@ -220,6 +270,27 @@ fun HomeScreen(
                 if (date.toEpochDay() != currentSelectedEpoch.value) {
                     selectedEpoch = date.toEpochDay()
                     onDateChanged(date)
+                }
+            }
+    }
+
+    // The week strip is an independent seven-day pager. A swipe advances a
+    // whole week while preserving the selected weekday; the committed date is
+    // still written only after the pager settles.
+    LaunchedEffect(weekPagerState) {
+        snapshotFlow { weekPagerState.settledPage }
+            .distinctUntilChanged()
+            .collect {
+                if (suppressedWeekPage == it) {
+                    suppressedWeekPage = null
+                    return@collect
+                }
+                val targetMonday = mondayForWeekPage(it)
+                val currentDate = LocalDate.ofEpochDay(currentSelectedEpoch.value)
+                val targetDate = targetMonday.plusDays((currentDate.dayOfWeek.value - 1).toLong())
+                if (targetDate.toEpochDay() != currentSelectedEpoch.value) {
+                    selectedEpoch = targetDate.toEpochDay()
+                    onDateChanged(targetDate)
                 }
             }
     }
@@ -258,6 +329,12 @@ fun HomeScreen(
             }
         }
         launch {
+            val targetWeekPage = weekPageFor(selected)
+            if (weekPagerState.currentPage != targetWeekPage || abs(weekPagerState.currentPageOffsetFraction) > .001f) {
+                weekPagerState.animateScrollToPage(targetWeekPage)
+            }
+        }
+        launch {
             if (monthPagerState.currentPage != targetMonthPage || abs(monthPagerState.currentPageOffsetFraction) > .001f) {
                 monthPagerState.animateScrollToPage(targetMonthPage)
             }
@@ -292,7 +369,7 @@ fun HomeScreen(
         detectVerticalDragGestures(
             onDragStart = {
                 cancelMotion()
-                anchor = currentZoom.value.roundToInt().coerceIn(0, 2)
+                anchor = zoomState.floatValue.roundToInt().coerceIn(0, 2)
                 velocityTracker = VelocityTracker()
             },
             onVerticalDrag = { change, delta ->
@@ -301,13 +378,17 @@ fun HomeScreen(
                 // The detector only starts after vertical touch-slop wins the
                 // gesture, so HorizontalPager retains horizontal swipes.
                 // Down is positive in screen coordinates and expands.
-                zoom = zoomAfterVerticalDrag(zoom, with(density) { delta.toDp().value }, ZoomStepDp)
+                zoomState.floatValue = zoomAfterVerticalDrag(
+                    zoomState.floatValue,
+                    with(density) { delta.toDp().value },
+                    ZoomStepDp,
+                )
             },
             onDragEnd = {
                 val velocity = velocityTracker.calculateVelocity()
                 animateZoomTo(
                     zoomSettleLevel(
-                        zoom = currentZoom.value,
+                        zoom = zoomState.floatValue,
                         anchorLevel = anchor,
                         // Positive y velocity means the user pulled down.
                         zoomVelocityDpPerSecond = with(density) { velocity.y.toDp().value },
@@ -321,8 +402,6 @@ fun HomeScreen(
     }
 
     val splitOpenDay = if (interactionEnabled) onOpenDay ?: onDayClick else null
-    val dayRailAlpha = (1f - zoom).coerceIn(0f, 1f)
-    val agendaAlpha = zoom.coerceIn(0f, 1f) * (2f - zoom).coerceIn(0f, 1f)
     // A boundary week should begin its own transition as soon as the pager
     // has selected that destination, rather than waiting for settledPage to
     // update the app's committed date after the animation completes. Keep
@@ -355,6 +434,9 @@ fun HomeScreen(
             } else {
                 val boundary = snapshot.compactBoundaryDay
                 if (boundary != null) {
+                    val daySettledElsewhere =
+                        !snapshot.dayInProgress &&
+                            snapshot.daySettledPage != dayPageFor(boundary)
                     val dayTransitionComplete =
                         !snapshot.dayInProgress &&
                             snapshot.daySettledPage == dayPageFor(boundary)
@@ -369,9 +451,46 @@ fun HomeScreen(
                     // settle one frame before the selected-date collector
                     // starts the month pager animation; clearing here would
                     // briefly restore the old month's grid in that gap.
-                    if (dayTransitionComplete && monthTransitionComplete) {
+                    if (daySettledElsewhere ||
+                        (dayTransitionComplete && monthTransitionComplete && committed == boundary)
+                    ) {
                         compactBoundaryDay = null
                     }
+                }
+            }
+        }
+    }
+    LaunchedEffect(compactBoundaryDay, selectedEpoch) {
+        val boundary = compactBoundaryDay
+        if (boundary == null) {
+            // A boundary drag can cancel after the week preview animation has
+            // already reached its destination but before its settled-page
+            // collector runs. Return that visual preview to the committed
+            // week instead of allowing a stale suppression token to leave the
+            // week pager ahead of the selected date.
+            val committedWeekPage = weekPageFor(selected)
+            if (!weekPagerState.isScrollInProgress && weekPagerState.currentPage != committedWeekPage) {
+                weekPagerState.animateScrollToPage(committedWeekPage)
+            }
+            return@LaunchedEffect
+        }
+
+        val targetWeekPage = weekPageFor(boundary)
+        if (!weekPagerState.isScrollInProgress && weekPagerState.currentPage != targetWeekPage) {
+            suppressedWeekPage = targetWeekPage
+            var completed = false
+            try {
+                weekPagerState.animateScrollToPage(targetWeekPage)
+                completed = true
+            } finally {
+                // If the boundary drag reverses or the route disables
+                // interaction before the target settles, do not leave a
+                // one-shot suppression token behind to swallow a later
+                // genuine week swipe. A completed animation keeps its token
+                // until the settled collector consumes it or the cancellation
+                // path above animates back to the committed week.
+                if (!completed && suppressedWeekPage == targetWeekPage) {
+                    suppressedWeekPage = null
                 }
             }
         }
@@ -385,22 +504,38 @@ fun HomeScreen(
     // back and forth when the two alpha curves are nearly equal.
     var agendaOwnsInput by remember { mutableStateOf(false) }
     LaunchedEffect(interactionEnabled) {
-        snapshotFlow { zoom }.collect { currentZoom ->
-            val railAlpha = (1f - currentZoom).coerceIn(0f, 1f)
-            val agendaAlpha = currentZoom.coerceIn(0f, 1f) * (2f - currentZoom).coerceIn(0f, 1f)
+        snapshotFlow { zoomState.floatValue }.collect { currentZoom ->
+            val railVisible = currentZoom < DaySurfaceBlendEnd
+            val agendaVisible = currentZoom > DaySurfaceBlendStart && currentZoom < 1.99f
+            val blend = daySurfaceBlend(currentZoom)
             val nextOwner = when {
-                !interactionEnabled -> false
-                agendaOwnsInput -> railAlpha > agendaAlpha + DaySurfaceOwnershipHysteresis
-                else -> agendaAlpha > railAlpha + DaySurfaceOwnershipHysteresis
+                !interactionEnabled || (!railVisible && !agendaVisible) -> false
+                !railVisible -> true
+                !agendaVisible -> false
+                agendaOwnsInput -> blend >= .5f - DaySurfaceOwnershipHysteresis
+                else -> blend > .5f + DaySurfaceOwnershipHysteresis
             }
             if (nextOwner != agendaOwnsInput) agendaOwnsInput = nextOwner
         }
     }
-    val dayRailOwnsInput = interactionEnabled && !agendaOwnsInput && dayRailAlpha > .01f
-    val agendaOwnsInputNow = interactionEnabled && agendaOwnsInput && agendaAlpha > .01f
+    val dayRailOwnsInput = interactionEnabled && !agendaOwnsInput
+    val agendaOwnsInputNow = interactionEnabled && agendaOwnsInput
 
-    BackHandler(enabled = interactionEnabled && zoom > .01f) {
-        animateZoomTo(if (zoom.roundToInt() >= 2) 1f else 0f)
+    val zoomLevel by remember(zoomState) {
+        derivedStateOf { zoomState.floatValue.roundToInt().coerceIn(0, 2) }
+    }
+    val zoomBand by remember(zoomState) {
+        derivedStateOf {
+            when {
+                zoomState.floatValue < .5f -> 0
+                zoomState.floatValue < 1.5f -> 1
+                else -> 2
+            }
+        }
+    }
+
+    BackHandler(enabled = interactionEnabled && settledZoom > .01f) {
+        animateZoomTo(if (settledZoom.roundToInt() >= 2) 1f else 0f)
     }
 
     Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
@@ -425,73 +560,144 @@ fun HomeScreen(
             val handleHeight = 44.dp
             val splitGridHeight = 292.dp
             val detailedGridHeight = (maxHeight - handleHeight).coerceAtLeast(splitGridHeight)
-            // Level 1 and level 2 now share one physical calendar surface.
-            // The surface grows from the week strip's height into the month
-            // grid's height, so the week is revealed as the month surface
-            // morphs rather than appearing in a separate slot above it.
-            val weekProgress = (1f - zoom).coerceIn(0f, 1f)
-            val compactProgress = smoothStep(weekProgress)
-            val calendarHeight = if (zoom <= 1f) {
-                lerpDp(80.dp, splitGridHeight, zoom)
-            } else {
-                lerpDp(splitGridHeight, detailedGridHeight, (zoom - 1f).coerceIn(0f, 1f))
+            val daySurfaceHeight = (maxHeight - handleHeight - 80.dp).coerceAtLeast(0.dp)
+            // Keep the expensive month and day surfaces at stable measured
+            // sizes. The zoom frame only clips the month endpoint and places
+            // the handle/day surface, which avoids remeasuring the whole
+            // pager and its long agenda on every drag sample.
+            val calendarHeight = remember(maxHeight, splitGridHeight, detailedGridHeight) {
+                derivedStateOf {
+                    val currentZoom = currentZoom.value
+                    if (currentZoom <= 1f) {
+                        lerpDp(80.dp, splitGridHeight, currentZoom)
+                    } else {
+                        lerpDp(splitGridHeight, detailedGridHeight, (currentZoom - 1f).coerceIn(0f, 1f))
+                    }
+                }
             }
-            Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().clipToBounds()) {
+                // The week pager is the compact endpoint of the same
+                // selected-week geometry drawn by StaticMonthGrid. Keeping it
+                // underneath the morphing canvas lets the canvas take over
+                // at the exact shared row instead of painting a separate
+                // week surface on top of a fading month.
+                if (zoomState.value < MonthEndpointBlendEnd) {
+                    WeekStrip(
+                        state = weekPagerState,
+                        day = selected,
+                        displayedWeekDay = weekStripDay,
+                        events = events,
+                        tasksByDueDate = tasksByDueDate,
+                        pagerOffset = dayPagerTravel,
+                        gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
+                        interactionEnabled = interactionEnabled,
+                        modifier = Modifier
+                            .zIndex(1f)
+                            .fillMaxWidth()
+                            .requiredHeight(80.dp)
+                            .drawWithContent {
+                                // The month Canvas owns the idle endpoint.
+                                // Bring this pager renderer above it only
+                                // while a neighboring week is previewed.
+                                val previewVisible = weekPagerState.isScrollInProgress ||
+                                    weekPageFor(weekStripDay) != weekPagerState.settledPage
+                                if (previewVisible) drawContent()
+                            },
+                        onDay = { date ->
+                            if (interactionEnabled) {
+                                selectedEpoch = date.toEpochDay()
+                                onDateChanged(date)
+                            }
+                        },
+                    )
+                }
                 Box(
                     Modifier.fillMaxWidth()
-                        .height(calendarHeight)
-                        .clipToBounds(),
+                        .requiredHeight(detailedGridHeight)
+                        .drawWithContent {
+                            val visibleHeight = calendarHeight.value.toPx().coerceIn(0f, size.height)
+                            clipRect(bottom = visibleHeight) {
+                                this@drawWithContent.drawContent()
+                            }
+                        },
                 ) {
                     MonthPager(
                         state = monthPagerState,
                         selected = selected,
                         events = events,
                         journals = journals,
-                        detailProgress = (zoom - 1f).coerceIn(0f, 1f),
-                        compactProgress = compactProgress,
+                        tasksByDueDate = tasksByDueDate,
+                        zoomState = currentZoom,
+                        compactGridHeight = splitGridHeight,
+                        detailedGridHeight = detailedGridHeight,
                         compactDay = weekStripDay,
-                        compactPagerOffset = dayPagerTravel,
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
                         modifier = Modifier.fillMaxSize(),
                         gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
-                        userScrollEnabled = interactionEnabled && zoom > .01f,
+                        // At the compact endpoint the week pager is the sole
+                        // horizontal owner. Disable the month pager as soon
+                        // as the visual morph reaches its handoff threshold,
+                        // including while a reverse zoom settle is still in
+                        // flight.
+                        userScrollEnabled = interactionEnabled &&
+                            zoomState.value >= MonthEndpointBlendEnd,
                         onDay = { date ->
                             if (interactionEnabled) {
                                 // The split level is a selection surface. Only
                                 // the detailed settled level opens the day modal.
-                                val isDetailed = zoom >= 1.5f
+                                val isDetailed = zoomState.floatValue >= 1.5f
                                 selectedEpoch = date.toEpochDay()
                                 onDateChanged(date)
                                 if (isDetailed) onDayClick?.invoke(date)
                             }
                         },
                     )
-
                 }
-
                 // The handle stays attached to the shared surface, so it
                 // travels with the month-to-week morph as one gesture affordance.
-                ZoomHandle(
-                    zoom = zoom,
-                    gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
-                    onTap = {
-                        val level = zoom.roundToInt().coerceIn(0, 2)
-                        animateZoomTo(if (level < 2) level + 1f else 1f)
-                    },
-                )
+                Box(
+                    Modifier.fillMaxWidth()
+                        .requiredHeight(handleHeight)
+                        .offset {
+                            IntOffset(0, with(density) { calendarHeight.value.roundToPx() })
+                        },
+                ) {
+                    ZoomHandle(
+                        zoomLevel = zoomLevel,
+                        zoomBand = zoomBand,
+                        gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
+                        onTap = {
+                            val level = zoomState.floatValue.roundToInt().coerceIn(0, 2)
+                            animateZoomTo(if (level < 2) level + 1f else 1f)
+                        },
+                    )
+                }
 
-                Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                Box(
+                    Modifier.fillMaxWidth()
+                        .requiredHeight(daySurfaceHeight)
+                        .offset {
+                            IntOffset(
+                                0,
+                                with(density) {
+                                    (calendarHeight.value + handleHeight).roundToPx()
+                                },
+                            )
+                        }
+                        .clipToBounds(),
+                ) {
                     DayPagerSurface(
                         state = dayPagerState,
                         events = events,
+                        tasksByDueDate = tasksByDueDate,
                         scrollState = railScroll,
                         modifier = Modifier.fillMaxSize(),
                         interactionEnabled = interactionEnabled,
-                        dayRailAlpha = dayRailAlpha,
-                        agendaAlpha = agendaAlpha,
+                        zoomState = currentZoom,
                         dayRailOwnsInput = dayRailOwnsInput,
                         agendaOwnsInput = agendaOwnsInputNow,
                         onEvent = onEventClick,
+                        onTaskDone = onTaskDone,
                         onOpenDay = splitOpenDay,
                     )
                 }
@@ -505,6 +711,10 @@ private fun smoothStep(value: Float): Float {
     val t = value.coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
+
+private fun daySurfaceBlend(zoom: Float): Float = smoothStep(
+    ((zoom - DaySurfaceBlendStart) / (DaySurfaceBlendEnd - DaySurfaceBlendStart)).coerceIn(0f, 1f),
+)
 
 @Composable
 private fun MonthHeading(
@@ -566,19 +776,22 @@ private fun MonthHeading(
 
 @Composable
 private fun WeekStrip(
+    state: PagerState,
     day: LocalDate,
     displayedWeekDay: LocalDate,
     events: List<CalEvent>,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
     pagerOffset: Float,
     gestureModifier: Modifier,
+    interactionEnabled: Boolean,
     modifier: Modifier = Modifier,
     onDay: (LocalDate) -> Unit,
 ) {
+    val semanticsModifier = if (interactionEnabled) Modifier else Modifier.clearAndSetSemantics { }
     Box(
-        modifier.fillMaxWidth().height(76.dp).then(gestureModifier).clipToBounds(),
+        modifier.fillMaxWidth().height(80.dp).then(gestureModifier).then(semanticsModifier).clipToBounds(),
     ) {
         val committedMonday = day.with(DayOfWeek.MONDAY)
-        val monday = displayedWeekDay.with(DayOfWeek.MONDAY)
         val settledIndex = (day.dayOfWeek.value - 1).coerceIn(0, 6)
         val liveOffset = pagerOffset.coerceIn(-1f, 1f)
         val previewDate = when {
@@ -590,41 +803,33 @@ private fun WeekStrip(
         // A day pager offset is screen travel: negative reveals tomorrow and
         // positive reveals yesterday. Keep the week row fixed, but move its
         // indicator in lockstep while the agenda is being dragged/settled.
-        val indicatorTargetIndex = if (monday == committedMonday && previewStaysInWeek) {
+        val indicatorTargetIndex = if (previewStaysInWeek) {
             (settledIndex - liveOffset).coerceIn(0f, 6f)
         } else {
             settledIndex.toFloat()
         }
-        // Day paging belongs to the agenda below. Keep this strip anchored to
-        // the selected date's week so an in-week swipe only moves the
-        // indicator. A week boundary gets its own directional strip
-        // transition as soon as the pager has a boundary target.
-        AnimatedContent(
-            targetState = monday,
+        HorizontalPager(
+            state = state,
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 7.dp),
-            transitionSpec = {
-                val direction = if (targetState.isAfter(initialState)) 1 else -1
-                (slideInHorizontally(tween(240)) { direction * it } + fadeIn(tween(150))) togetherWith
-                    (slideOutHorizontally(tween(240)) { -direction * it } + fadeOut(tween(150)))
-            },
-            label = "week strip transition",
-        ) { pageMonday ->
-            // Preserve the outgoing boundary day's indicator while the old
-            // week exits, and render the target day in the incoming week so
-            // the new week is visually correct before the date commit.
-            val pageDay = if (pageMonday == committedMonday) {
-                day
-            } else if (monday.isAfter(pageMonday)) {
-                pageMonday.plusDays(6)
-            } else {
+            beyondViewportPageCount = 0,
+            userScrollEnabled = interactionEnabled,
+            key = { page -> page },
+        ) { page ->
+            val pageMonday = mondayForWeekPage(page)
+            val pageDay = if (pageMonday == displayedWeekDay.with(DayOfWeek.MONDAY)) {
                 displayedWeekDay
+            } else {
+                pageMonday.plusDays((day.dayOfWeek.value - 1).toLong())
             }
+            val isCommittedWeek = pageMonday == committedMonday
             WeekStripPage(
                 monday = pageMonday,
                 selected = pageDay,
-                indicatorTargetIndex = if (pageMonday == committedMonday) indicatorTargetIndex else null,
-                followPager = pageMonday == committedMonday && abs(liveOffset) > .001f && previewStaysInWeek,
+                indicatorTargetIndex = if (isCommittedWeek && previewStaysInWeek) indicatorTargetIndex else null,
+                followPager = isCommittedWeek && abs(liveOffset) > .001f && previewStaysInWeek,
                 events = events,
+                tasksByDueDate = tasksByDueDate,
+                interactionEnabled = interactionEnabled,
                 onDay = onDay,
             )
         }
@@ -638,6 +843,8 @@ private fun WeekStripPage(
     indicatorTargetIndex: Float?,
     followPager: Boolean,
     events: List<CalEvent>,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
+    interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -682,11 +889,13 @@ private fun WeekStripPage(
                     WeekDay(
                         date = date,
                         events = events,
+                        tasksDueCount = openTasksDueOn(tasksByDueDate[date].orEmpty(), date).size,
                         currentSelectionWeight = 1f - distance,
                         targetSelectionWeight = 0f,
                         committedSelected = date == selected,
                         drawSelectionBackground = false,
                         modifier = Modifier.weight(1f),
+                        interactionEnabled = interactionEnabled,
                         onClick = { onDay(date) },
                     )
                 }
@@ -699,11 +908,13 @@ private fun WeekStripPage(
 private fun WeekDay(
     date: LocalDate,
     events: List<CalEvent>,
+    tasksDueCount: Int = 0,
     currentSelectionWeight: Float,
     targetSelectionWeight: Float,
     committedSelected: Boolean,
     drawSelectionBackground: Boolean = true,
     modifier: Modifier,
+    interactionEnabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val selectedWeight = max(currentSelectionWeight, targetSelectionWeight).coerceIn(0f, 1f)
@@ -713,16 +924,30 @@ private fun WeekDay(
     )
     val weekdayColor = lerpColor(CalinoColors.Ink3, Color.White.copy(.65f), selectedWeight)
     val dateColor = lerpColor(CalinoColors.Ink2, Color.White, selectedWeight)
+    val interactionModifier = if (interactionEnabled) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
+    val semanticsModifier = if (interactionEnabled) {
+        Modifier.semantics(mergeDescendants = true) {
+            contentDescription = buildString {
+                append(date.format(FullDateFormatter))
+                if (committedSelected) append(", selected")
+                if (tasksDueCount > 0) append(", $tasksDueCount open tasks due")
+            }
+        }
+    } else {
+        Modifier.clearAndSetSemantics { }
+    }
     Column(
         modifier = modifier
             .fillMaxHeight()
             .padding(horizontal = 2.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(background)
-            .clickable(onClick = onClick)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "${date.format(FullDateFormatter)}${if (committedSelected) ", selected" else ""}"
-            }
+            .then(interactionModifier)
+            .then(semanticsModifier)
             .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -738,9 +963,22 @@ private fun WeekDay(
             fontWeight = FontWeight.Medium,
             color = dateColor,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.height(7.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.height(10.dp),
+        ) {
             eventsFor(events, date).take(3).forEach { event ->
                 Box(Modifier.size(4.dp).clip(CircleShape).background(Color(event.color)))
+            }
+            if (tasksDueCount > 0) {
+                Box(Modifier.size(5.dp).clip(CircleShape).background(CalinoColors.Green))
+                Text(
+                    tasksDueCount.toString(),
+                    fontSize = 8.sp,
+                    lineHeight = 9.sp,
+                    color = if (selectedWeight > .5f) Color.White.copy(.9f) else CalinoColors.Green,
+                )
             }
         }
     }
@@ -752,20 +990,31 @@ private fun MonthPager(
     selected: LocalDate,
     events: List<CalEvent>,
     journals: List<JournalEntry>,
-    detailProgress: Float,
-    compactProgress: Float,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
+    zoomState: androidx.compose.runtime.State<Float>,
+    compactGridHeight: Dp,
+    detailedGridHeight: Dp,
     compactDay: LocalDate,
-    compactPagerOffset: Float,
     compactBoundaryTransition: Boolean,
     modifier: Modifier,
     gestureModifier: Modifier,
     userScrollEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
+    val compactPreviewVisible by remember(zoomState) {
+        derivedStateOf { zoomState.value < .999f }
+    }
+    val monthInteractive by remember(zoomState) {
+        derivedStateOf { zoomState.value >= .2f }
+    }
+    // StaticMonthGrid owns the compact endpoint as well as the expanded
+    // month. The week pager remains an interaction/preview layer, so the
+    // selected week never fades out while a second idle row fades in.
+    val monthVisualAlpha = remember { mutableFloatStateOf(1f) }
     Box(modifier.clipToBounds().then(gestureModifier)) {
         fun effectiveMonth(page: Int): YearMonth {
             val pagerMonth = monthForPage(page)
-            val compactTargetPage = compactBoundaryTransition && page == state.currentPage && compactProgress > .001f
+            val compactTargetPage = compactBoundaryTransition && page == state.currentPage && compactPreviewVisible
             return if (compactTargetPage) YearMonth.from(compactDay) else pagerMonth
         }
 
@@ -777,32 +1026,858 @@ private fun MonthPager(
             // frame measure five rail/agenda trees unnecessarily.
             beyondViewportPageCount = 0,
             userScrollEnabled = userScrollEnabled,
-            // Include the effective rendered month in the key so a boundary
-            // preview cannot retain the identity of the old month's content.
-            // The page ordinal keeps keys unique when the preview month is
-            // also the adjacent pager page during the same swipe.
-            key = { page -> "$page:${effectiveMonth(page)}" },
+            // Page identity is stable while boundary preview content changes.
+            // Re-keying from transient preview state would recreate the page
+            // mid-gesture and can cause a jump or blank frame.
+            key = { page -> page },
         ) { page ->
             val pagerMonth = monthForPage(page)
             // While compacting, the visible row belongs to the targeted day,
             // not necessarily to the month page that is still settling. This
             // keeps a boundary swipe from briefly exposing the first row of
             // the old/next month.
-            val compactTargetPage = compactBoundaryTransition && page == state.currentPage && compactProgress > .001f
+            val compactTargetPage = compactBoundaryTransition && page == state.currentPage && compactPreviewVisible
             val pageMonth = effectiveMonth(page)
             val pageSelected = pageMonth.atDay(
                 (if (compactTargetPage) compactDay.dayOfMonth else selected.dayOfMonth)
                     .coerceAtMost(pageMonth.lengthOfMonth()),
             )
-            MonthGrid(
-                selected = pageSelected,
-                month = pageMonth,
-                events = events,
-                journals = journals,
-                detailProgress = detailProgress,
-                compactProgress = compactProgress,
+            val monthLayer = Modifier
+                .fillMaxWidth()
+                .requiredHeight(detailedGridHeight)
+            Box(Modifier.fillMaxSize()) {
+                Box(monthLayer) {
+                    StaticMonthGrid(
+                        selected = pageSelected,
+                        month = pageMonth,
+                        events = events,
+                        journals = journals,
+                        tasksByDueDate = tasksByDueDate,
+                        visualAlpha = monthVisualAlpha,
+                        zoomState = zoomState,
+                        compactGridHeight = compactGridHeight,
+                        detailedGridHeight = detailedGridHeight,
+                        compactDay = compactDay,
+                        interactionEnabled = monthInteractive,
+                        onDay = onDay,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One canvas owns the compact-to-detailed month morph. Keeping the row
+ * geometry in one draw pass avoids crossfading two full month grids with
+ * different row heights, which both looked like a ghosted double calendar
+ * and forced the renderer to maintain two large layers.
+ */
+@Composable
+private fun MorphingMonthGrid(
+    selected: LocalDate,
+    month: YearMonth,
+    events: List<CalEvent>,
+    journals: List<JournalEntry>,
+    zoomState: androidx.compose.runtime.State<Float>,
+    compactGridHeight: Dp,
+    detailedGridHeight: Dp,
+    interactionEnabled: Boolean,
+    targetHeight: Dp,
+    onDay: (LocalDate) -> Unit,
+) {
+    val first = month.atDay(1)
+    val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
+    val rows = monthGridRows(month)
+    val monthEvents = remember(events, month) { monthEventIndex(events, month) }
+    val monthJournalDates = remember(journals, month) { monthJournalDates(journals, month) }
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val dateStyle = remember {
+        ComposeTextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+    val weekdayStyle = remember { ComposeTextStyle(fontSize = 10.sp) }
+    val eventStyle = remember { ComposeTextStyle(fontSize = 10.5.sp, lineHeight = 12.sp) }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val horizontalPadding = 16.dp
+        val headerHeight = 22.dp
+        val cellWidth = ((maxWidth - horizontalPadding * 2) / 7).coerceAtLeast(0.dp)
+        val eventTextMaxWidth = with(density) {
+            (cellWidth - 2.dp - 8.dp - 3.dp).toPx().roundToInt().coerceAtLeast(1)
+        }
+        val dateLayouts = remember(month, density) {
+            List(rows * 7) { index ->
+                textMeasurer.measure(
+                    start.plusDays(index.toLong()).dayOfMonth.toString(),
+                    dateStyle,
+                )
+            }
+        }
+        val weekdayLayouts = remember(density) {
+            WeekdayLetters.map { textMeasurer.measure(it, weekdayStyle) }
+        }
+        val eventLayouts = remember(month, events, eventTextMaxWidth, density) {
+            buildMap {
+                monthEvents.values.flatten().forEach { event ->
+                    put(
+                        event.id,
+                        textMeasurer.measure(
+                            event.title,
+                            eventStyle,
+                            overflow = TextOverflow.Ellipsis,
+                            maxLines = 1,
+                            constraints = Constraints(maxWidth = eventTextMaxWidth),
+                        ),
+                    )
+                }
+            }
+        }
+
+        Box(Modifier.fillMaxSize()) {
+            Canvas(Modifier.fillMaxSize()) {
+                val zoom = zoomState.value.coerceIn(0f, 2f)
+                val detailProgress = smoothStep((zoom - 1f).coerceIn(0f, 1f))
+                val compactReveal = if (zoom < 1f) {
+                    smoothStep(
+                        ((zoom - MonthEndpointBlendStart) /
+                            (1f - MonthEndpointBlendStart)).coerceIn(0f, 1f),
+                    )
+                } else {
+                    1f
+                }
+                val revealAlpha = compactReveal
+                val horizontalPaddingPx = with(density) { horizontalPadding.toPx() }
+                val headerHeightPx = with(density) { headerHeight.toPx() }
+                val compactHeightPx = with(density) { compactGridHeight.toPx() }
+                val detailedHeightPx = with(density) { detailedGridHeight.toPx() }
+                val gridHeightPx = compactHeightPx + (detailedHeightPx - compactHeightPx) * detailProgress
+                val cellWidthPx = ((size.width - horizontalPaddingPx * 2f) / 7f).coerceAtLeast(0f)
+                val rowHeightPx = ((gridHeightPx - headerHeightPx) / rows).coerceAtLeast(0f)
+                val dateSizePx = with(density) {
+                    (22.dp.toPx() + (25.dp.toPx() - 22.dp.toPx()) * detailProgress)
+                }
+                val dateTopPaddingPx = with(density) { 2.dp.toPx() }
+                val dateGapPx = with(density) { 1.dp.toPx() }
+                val eventMarkerGapPx = with(density) { 3.dp.toPx() }
+                val journalRadiusPx = with(density) { 2.dp.toPx() }
+                val chipHeightPx = with(density) { 20.dp.toPx() }
+                val chipHorizontalPaddingPx = with(density) { 2.dp.toPx() }
+                val chipTextStartPx = with(density) { 8.dp.toPx() }
+
+                fun faded(color: Color, factor: Float = 1f): Color =
+                    color.copy(alpha = color.alpha * revealAlpha * factor.coerceIn(0f, 1f))
+
+                WeekdayLetters.forEachIndexed { column, _ ->
+                    val layout = weekdayLayouts[column]
+                    drawText(
+                        layout,
+                        topLeft = Offset(
+                            horizontalPaddingPx + cellWidthPx * column + (cellWidthPx - layout.size.width) / 2f,
+                            (headerHeightPx - layout.size.height) / 2f,
+                        ),
+                        color = faded(CalinoColors.Ink3),
+                    )
+                }
+
+                repeat(rows * 7) { index ->
+                    val row = index / 7
+                    val column = index % 7
+                    val date = start.plusDays(index.toLong())
+                    val cellLeft = horizontalPaddingPx + cellWidthPx * column
+                    val cellTop = headerHeightPx + rowHeightPx * row
+                    val isSelected = date == selected
+                    val isToday = date == FixtureDate
+                    val cellFill = when {
+                        isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f)
+                        isToday -> CalinoColors.AccentSoft.copy(alpha = .45f)
+                        else -> Color.Transparent
+                    }
+                    if (cellFill != Color.Transparent) {
+                        drawRoundRect(
+                            color = faded(cellFill),
+                            topLeft = Offset(cellLeft, cellTop),
+                            size = Size(cellWidthPx, rowHeightPx),
+                            cornerRadius = CornerRadius(with(density) { 4.dp.toPx() }),
+                        )
+                    }
+
+                    val dateTop = cellTop + dateTopPaddingPx
+                    if (isSelected || isToday) {
+                        drawCircle(
+                            color = faded(
+                                if (isSelected) CalinoColors.Accent else CalinoColors.Accent.copy(alpha = .78f),
+                            ),
+                            radius = dateSizePx / 2f,
+                            center = Offset(cellLeft + cellWidthPx / 2f, dateTop + dateSizePx / 2f),
+                        )
+                    }
+                    val dateLayout = dateLayouts[index]
+                    val dateColor = if (isSelected) Color.White else if (YearMonth.from(date) == month) {
+                        CalinoColors.Ink2
+                    } else {
+                        CalinoColors.Ink3.copy(.5f)
+                    }
+                    drawText(
+                        dateLayout,
+                        topLeft = Offset(
+                            cellLeft + (cellWidthPx - dateLayout.size.width) / 2f,
+                            dateTop + (dateSizePx - dateLayout.size.height) / 2f,
+                        ),
+                        color = faded(dateColor),
+                    )
+
+                    val dayEvents = monthEvents[date].orEmpty()
+                    val eventAreaTop = dateTop + dateSizePx + dateGapPx
+                    val markerEvents = dayEvents.take(4)
+                    val rawWidths = markerEvents.map { event ->
+                        with(density) { if (event.allDay) 18.dp.toPx() else 5.dp.toPx() }
+                    }
+                    val totalGap = eventMarkerGapPx * (markerEvents.size - 1).coerceAtLeast(0)
+                    val rawTotal = rawWidths.sum() + totalGap
+                    val markerScale = if (rawTotal > 0f) {
+                        min(1f, (cellWidthPx - totalGap).coerceAtLeast(1f) / rawTotal)
+                    } else {
+                        1f
+                    }
+                    val markerTotal = rawTotal * markerScale
+                    var markerLeft = cellLeft + (cellWidthPx - markerTotal) / 2f
+                    val eventMorph = smoothStep((detailProgress - .18f).coerceIn(0f, 1f) / .82f)
+                    markerEvents.forEachIndexed { eventIndex, event ->
+                        val markerWidth = rawWidths[eventIndex] * markerScale
+                        val markerHeight = with(density) { if (event.allDay) 3.dp.toPx() else 5.dp.toPx() }
+                        val markerTop = eventAreaTop + (with(density) { 7.dp.toPx() } - markerHeight) / 2f
+                        if (eventIndex < 2) {
+                            val chipWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f).coerceAtLeast(1f)
+                            val chipTop = eventAreaTop + chipHeightPx * eventIndex
+                            val x = markerLeft + (cellLeft + chipHorizontalPaddingPx - markerLeft) * eventMorph
+                            val y = markerTop + (chipTop - markerTop) * eventMorph
+                            val width = markerWidth + (chipWidth - markerWidth) * eventMorph
+                            val height = markerHeight + (chipHeightPx - markerHeight) * eventMorph
+                            val eventColor = Color(event.color)
+                            val chipColor = eventTint(eventColor, if (event.allDay) .18f else .10f)
+                            val textMorph = smoothStep(((eventMorph - .55f) / .45f).coerceIn(0f, 1f))
+                            drawRoundRect(
+                                color = faded(lerpColor(eventColor, chipColor, eventMorph)),
+                                topLeft = Offset(x, y),
+                                size = Size(width, height),
+                                cornerRadius = CornerRadius(with(density) { 2.dp.toPx() + 4.dp.toPx() * eventMorph }),
+                            )
+                            if (eventMorph > .01f) {
+                                drawRoundRect(
+                                    color = faded(eventColor, eventMorph),
+                                    topLeft = Offset(x, y + 3.dp.toPx()),
+                                    size = Size(with(density) { 2.5.dp.toPx() }, height - 6.dp.toPx()),
+                                    cornerRadius = CornerRadius(with(density) { 1.dp.toPx() }),
+                                )
+                                if (textMorph > .01f) eventLayouts[event.id]?.let { layout ->
+                                    drawText(
+                                        layout,
+                                        topLeft = Offset(
+                                            x + chipTextStartPx,
+                                            y + (height - layout.size.height) / 2f,
+                                        ),
+                                        color = faded(CalinoColors.Ink, textMorph),
+                                    )
+                                }
+                            }
+                        } else {
+                            drawRoundRect(
+                                color = faded(Color(event.color), 1f - eventMorph),
+                                topLeft = Offset(markerLeft, markerTop),
+                                size = Size(markerWidth, markerHeight),
+                                cornerRadius = CornerRadius(with(density) { 2.dp.toPx() }),
+                            )
+                        }
+                        markerLeft += markerWidth + eventMarkerGapPx
+                    }
+                    val overflow = (dayEvents.size - 2).coerceAtLeast(0)
+                    val overflowMorph = smoothStep(((eventMorph - .55f) / .45f).coerceIn(0f, 1f))
+                    if (overflow > 0 && overflowMorph > .01f) {
+                        val layout = textMeasurer.measure(
+                            "+$overflow",
+                            ComposeTextStyle(fontSize = 10.sp),
+                        )
+                        drawText(
+                            layout,
+                            topLeft = Offset(
+                                cellLeft + (cellWidthPx - layout.size.width) / 2f,
+                                eventAreaTop + 2 * chipHeightPx,
+                            ),
+                            color = faded(CalinoColors.Ink3, overflowMorph),
+                        )
+                    }
+                    if (date in monthJournalDates) {
+                        drawCircle(
+                            color = faded(CalinoColors.Plum),
+                            radius = journalRadiusPx,
+                            center = Offset(
+                                cellLeft + cellWidthPx / 2f,
+                                cellTop + rowHeightPx - journalRadiusPx - 1.dp.toPx(),
+                            ),
+                        )
+                    }
+                }
+            }
+            MonthGridHitTargets(
+                selected = selected,
+                month = month,
+                events = monthEvents,
+                journalDates = monthJournalDates,
+                targetHeight = targetHeight,
+                interactionEnabled = interactionEnabled,
+                onDay = onDay,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MonthGridHitTargets(
+    selected: LocalDate,
+    month: YearMonth,
+    events: Map<LocalDate, List<CalEvent>>,
+    journalDates: Set<LocalDate>,
+    tasks: Map<LocalDate, List<CalTask>> = emptyMap(),
+    targetHeight: Dp,
+    zoomState: androidx.compose.runtime.State<Float>? = null,
+    compactGridHeight: Dp = targetHeight,
+    detailedGridHeight: Dp = targetHeight,
+    compactDay: LocalDate = selected,
+    interactionEnabled: Boolean,
+    onDay: (LocalDate) -> Unit,
+) {
+    val first = month.atDay(1)
+    val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
+    val rows = monthGridRows(month)
+
+    Layout(
+        content = {
+            repeat(rows) { row ->
+                repeat(7) { column ->
+                    val date = start.plusDays((row * 7 + column).toLong())
+                    val dayEvents = events[date].orEmpty()
+                    val dueTasks = tasks[date].orEmpty()
+                    val dateDescription = remember(date, selected, dayEvents, date in journalDates, dueTasks) {
+                            buildString {
+                                append(date.format(FullDateFormatter))
+                                if (date == selected) append(", selected")
+                                if (dayEvents.isNotEmpty()) append(", events: ").append(dayEvents.joinToString { it.title })
+                                if (date in journalDates) append(", journal entry")
+                                val openTaskCount = dueTasks.count { !it.done }
+                                if (openTaskCount > 0) append(", $openTaskCount open tasks due")
+                            }
+                        }
+                    val cellModifier = if (interactionEnabled) {
+                        Modifier
+                            .clickable { onDay(date) }
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = dateDescription
+                            }
+                    } else {
+                        Modifier.clearAndSetSemantics { }
+                    }
+                    Box(cellModifier)
+                }
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) { measurables, constraints ->
+        val horizontalPaddingPx = 16.dp.roundToPx()
+        val headerHeightPx = 22.dp.roundToPx().toFloat()
+        val compactHeightPx = compactGridHeight.roundToPx().toFloat()
+        val detailedHeightPx = detailedGridHeight.roundToPx().toFloat()
+        // Read the animated zoom in measurement, not composition. The 42
+        // semantic hit nodes keep a stable composition tree while only their
+        // bounds are remeasured as the canvas morphs.
+        val zoom = zoomState?.value?.coerceIn(0f, 2f) ?: 2f
+        val compactProgress = smoothStep(1f - zoom.coerceIn(0f, 1f))
+        val detailProgress = smoothStep((zoom - 1f).coerceIn(0f, 1f))
+        val compactWeekStart = compactDay.with(DayOfWeek.MONDAY)
+        val compactWeekRow = ((compactWeekStart.toEpochDay() - start.toEpochDay()) / 7L)
+            .toInt()
+            .coerceIn(0, rows - 1)
+        val compactStartHeightPx = 80.dp.roundToPx().toFloat()
+        val visibleHeightPx = if (zoom <= 1f) {
+            compactStartHeightPx + (compactHeightPx - compactStartHeightPx) * zoom
+        } else {
+            compactHeightPx + (detailedHeightPx - compactHeightPx) * (zoom - 1f)
+        }
+        val contentHeaderHeightPx = headerHeightPx * (1f - compactProgress)
+        val compactAvailableHeightPx = (compactStartHeightPx +
+            (compactHeightPx - compactStartHeightPx) * zoom.coerceIn(0f, 1f) - contentHeaderHeightPx)
+            .coerceAtLeast(0f)
+        val compactOtherRowWeight = (1f - compactProgress).coerceAtLeast(.001f)
+        val compactTotalRowWeight = 1f + compactOtherRowWeight * (rows - 1)
+        val compactEqualRowHeightPx = ((compactHeightPx - headerHeightPx) / rows).coerceAtLeast(0f)
+        val detailedRowHeightPx = ((detailedHeightPx - headerHeightPx) / rows).coerceAtLeast(0f)
+        fun rowHeight(row: Int): Float = if (zoom <= 1f) {
+            val weight = if (row == compactWeekRow) 1f else compactOtherRowWeight
+            compactAvailableHeightPx * weight / compactTotalRowWeight
+        } else {
+            compactEqualRowHeightPx + (detailedRowHeightPx - compactEqualRowHeightPx) * detailProgress
+        }
+        val cellWidth = ((constraints.maxWidth - horizontalPaddingPx * 2) / 7).coerceAtLeast(1)
+        val placeables = measurables.mapIndexed { index, measurable ->
+            val row = index / 7
+            measurable.measure(
+                Constraints.fixed(cellWidth, rowHeight(row).roundToInt().coerceAtLeast(1)),
+            )
+        }
+        val layoutHeight = if (zoomState == null) {
+            targetHeight.roundToPx()
+        } else {
+            visibleHeightPx.roundToInt().coerceIn(constraints.minHeight, constraints.maxHeight)
+        }
+        layout(constraints.maxWidth, layoutHeight) {
+            var y = contentHeaderHeightPx
+            repeat(rows) { row ->
+                val rowHeightPx = rowHeight(row)
+                // Keep a row interactive while it is still visibly large
+                // enough to contain its painted dates. Only unplace rows once
+                // the same interpolated geometry has collapsed them below a
+                // meaningful visual lane; this avoids showing dates that no
+                // longer respond during the reverse morph.
+                val rowHidden = zoomState != null && zoom <= 1f &&
+                    row != compactWeekRow && rowHeightPx < 20.dp.roundToPx()
+                if (!rowHidden) {
+                    repeat(7) { column ->
+                        val index = row * 7 + column
+                        placeables[index].placeRelative(
+                            x = horizontalPaddingPx + column * cellWidth,
+                            y = y.roundToInt(),
+                        )
+                    }
+                }
+                y += rowHeightPx
+            }
+        }
+    }
+}
+
+/**
+ * One fixed-size month surface owns the compact-to-detailed morph. Text and
+ * event labels are laid out once, while the draw pass interpolates row bounds
+ * and marker/chip geometry without crossfading two month grids.
+ */
+@Composable
+private fun StaticMonthGrid(
+    selected: LocalDate,
+    month: YearMonth,
+    events: List<CalEvent>,
+    journals: List<JournalEntry>,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
+    visualAlpha: androidx.compose.runtime.State<Float>,
+    zoomState: androidx.compose.runtime.State<Float>,
+    compactGridHeight: Dp,
+    detailedGridHeight: Dp,
+    compactDay: LocalDate,
+    interactionEnabled: Boolean,
+    onDay: (LocalDate) -> Unit,
+) {
+    val first = month.atDay(1)
+    val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
+    val rows = monthGridRows(month)
+    val monthEvents = remember(events, month) { monthEventIndex(events, month) }
+    val monthJournalDates = remember(journals, month) { monthJournalDates(journals, month) }
+    val textMeasurer = rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val dateStyle = remember {
+        ComposeTextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+    }
+    val weekdayStyle = remember {
+        ComposeTextStyle(fontSize = 10.sp)
+    }
+    val eventStyle = remember {
+        ComposeTextStyle(fontSize = 10.5.sp, lineHeight = 12.sp)
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val horizontalPadding = 16.dp
+        val headerHeight = 22.dp
+        val gridWidth = (maxWidth - horizontalPadding * 2).coerceAtLeast(0.dp)
+        val cellWidth = gridWidth / 7
+        val cellWidthPx = with(density) { cellWidth.toPx() }
+        val headerHeightPx = with(density) { headerHeight.toPx() }
+        val compactGridHeightPx = with(density) { compactGridHeight.toPx() }
+        val detailedGridHeightPx = with(density) { detailedGridHeight.toPx() }
+        val detailedRowHeightPx = ((detailedGridHeightPx - headerHeightPx) / rows).coerceAtLeast(0f)
+        val horizontalPaddingPx = with(density) { horizontalPadding.toPx() }
+        val dateGapPx = with(density) { 1.dp.toPx() }
+        val dateTopPaddingPx = with(density) { 2.dp.toPx() }
+        val compactDateSizePx = with(density) { 22.dp.toPx() }
+        val detailedDateSizePx = with(density) { 25.dp.toPx() }
+        val eventMarkerGapPx = with(density) { 3.dp.toPx() }
+        val eventAreaHeightPx = with(density) { 7.dp.toPx() }
+        val journalRadiusPx = with(density) { 2.dp.toPx() }
+        val chipHeightPx = with(density) { 20.dp.toPx() }
+        val chipHorizontalPaddingPx = with(density) { 2.dp.toPx() }
+        val chipTextStartPx = with(density) { 8.dp.toPx() }
+        val chipTextEndPx = with(density) { 3.dp.toPx() }
+        val dateLayouts = remember(month, density) {
+            List(rows * 7) { index ->
+                textMeasurer.measure(
+                    text = start.plusDays(index.toLong()).dayOfMonth.toString(),
+                    style = dateStyle,
+                )
+            }
+        }
+        val weekdayLayouts = remember(density) {
+            WeekdayLetters.map { textMeasurer.measure(it, weekdayStyle) }
+        }
+        val eventTextMaxWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f - chipTextStartPx - chipTextEndPx)
+            .roundToInt()
+            .coerceAtLeast(1)
+        val eventLayouts = remember(month, events, eventTextMaxWidth, density) {
+            buildMap {
+                monthEvents.values.flatten().forEach { event ->
+                    put(
+                        event.id,
+                        textMeasurer.measure(
+                            text = event.title,
+                            style = eventStyle,
+                            overflow = TextOverflow.Ellipsis,
+                            maxLines = 1,
+                            constraints = Constraints(maxWidth = eventTextMaxWidth),
+                        ),
+                    )
+                }
+            }
+        }
+        val cellDates = remember(month) {
+            List(rows * 7) { index -> start.plusDays(index.toLong()) }
+        }
+        val cellEvents = remember(month, events) {
+            cellDates.map { date -> monthEvents[date].orEmpty() }
+        }
+        val cellTasks = remember(month, tasksByDueDate) {
+            cellDates.map { date -> tasksByDueDate[date].orEmpty() }
+        }
+        val taskCountStyle = remember { ComposeTextStyle(fontSize = 8.sp, lineHeight = 9.sp) }
+        val taskCountLayouts = remember(month, tasksByDueDate, density) {
+            cellTasks.map { dueTasks ->
+                val openCount = dueTasks.count { !it.done }
+                if (openCount > 0) textMeasurer.measure(openCount.toString(), taskCountStyle) else null
+            }
+        }
+        val inMonthFlags = remember(month) {
+            cellDates.map { date -> YearMonth.from(date) == month }
+        }
+        val compactMarkerWidths = remember(month, events, density) {
+            cellEvents.map { dayEvents ->
+                FloatArray(dayEvents.size.coerceAtMost(4)) { index ->
+                    with(density) { if (dayEvents[index].allDay) 18.dp.toPx() else 5.dp.toPx() }
+                }
+            }
+        }
+        val overflowStyle = remember { ComposeTextStyle(fontSize = 10.sp) }
+        val overflowLayouts = remember(month, events, density) {
+            cellEvents.map { dayEvents ->
+                val overflow = (dayEvents.size - 2).coerceAtLeast(0)
+                if (overflow > 0) {
+                    textMeasurer.measure("+$overflow", overflowStyle)
+                } else {
+                    null
+                }
+            }
+        }
+        Box(Modifier.fillMaxSize()) {
+            Canvas(Modifier.fillMaxSize()) {
+                val drawAlpha = visualAlpha.value.coerceIn(0f, 1f)
+                val zoom = zoomState.value.coerceIn(0f, 2f)
+                val compactProgress = smoothStep(1f - zoom.coerceIn(0f, 1f))
+                val detailProgress = smoothStep((zoom - 1f).coerceIn(0f, 1f))
+                val compactWeekStart = compactDay.with(DayOfWeek.MONDAY)
+                val compactWeekRow = ((compactWeekStart.toEpochDay() - start.toEpochDay()) / 7L)
+                    .toInt()
+                    .coerceIn(0, rows - 1)
+                val contentHeaderHeightPx = headerHeightPx * (1f - compactProgress)
+                val compactStartHeightPx = with(density) { 80.dp.toPx() }
+                val compactVisibleHeightPx = compactStartHeightPx +
+                    (compactGridHeightPx - compactStartHeightPx) * zoom.coerceIn(0f, 1f)
+                val compactAvailableHeightPx = (compactVisibleHeightPx - contentHeaderHeightPx).coerceAtLeast(0f)
+                val compactOtherRowWeight = compactProgress.let { (1f - it).coerceAtLeast(.001f) }
+                val compactTotalRowWeight = 1f + compactOtherRowWeight * (rows - 1)
+                val compactEqualRowHeightPx =
+                    ((compactGridHeightPx - headerHeightPx) / rows).coerceAtLeast(0f)
+                fun compactRowHeightFor(row: Int): Float {
+                    val weight = if (row == compactWeekRow) 1f else compactOtherRowWeight
+                    return compactAvailableHeightPx * weight / compactTotalRowWeight
+                }
+                fun rowHeightFor(row: Int): Float {
+                    return if (zoom <= 1f) {
+                        compactRowHeightFor(row)
+                    } else {
+                        compactEqualRowHeightPx +
+                            (detailedRowHeightPx - compactEqualRowHeightPx) * detailProgress
+                    }
+                }
+                fun rowTopFor(row: Int): Float {
+                    var top = contentHeaderHeightPx
+                    repeat(row) { previous -> top += rowHeightFor(previous) }
+                    return top
+                }
+                var contentFade = 1f
+                fun faded(color: Color, factor: Float = 1f): Color = color.copy(
+                    alpha = color.alpha * drawAlpha * factor * contentFade,
+                )
+
+                val headerFade = 1f - compactProgress
+                if (headerFade > .001f) {
+                    WeekdayLetters.forEachIndexed { column, _ ->
+                        val layout = weekdayLayouts[column]
+                        drawText(
+                            layout,
+                            topLeft = Offset(
+                                horizontalPaddingPx + cellWidthPx * column + (cellWidthPx - layout.size.width) / 2f,
+                                (contentHeaderHeightPx - layout.size.height) / 2f,
+                            ),
+                            color = faded(
+                                CalinoColors.Ink3,
+                                headerFade,
+                            ),
+                        )
+                    }
+                }
+                repeat(rows * 7) { index ->
+                    val row = index / 7
+                    val column = index % 7
+                    val date = cellDates[index]
+                    val cellLeft = horizontalPaddingPx + cellWidthPx * column
+                    val cellTop = rowTopFor(row)
+                    val cellRowHeight = rowHeightFor(row)
+                    contentFade = if (zoom <= 1f && row != compactWeekRow) 1f - compactProgress else 1f
+                    clipRect(
+                        left = cellLeft,
+                        top = cellTop,
+                        right = cellLeft + cellWidthPx,
+                        bottom = cellTop + cellRowHeight,
+                    ) {
+                    val isSelected = date == selected
+                    val isToday = date == FixtureDate
+                    val compactWeekStyle = zoom < 1f && row == compactWeekRow
+                    val dateSizePx = compactDateSizePx +
+                        (detailedDateSizePx - compactDateSizePx) * detailProgress
+                    val compactWeekContentHeight = weekdayLayouts[column].size.height +
+                        with(density) { 4.dp.toPx() } + dateSizePx + dateGapPx + eventAreaHeightPx
+                    val dateTop = if (compactWeekStyle && compactProgress > .001f) {
+                        cellTop + ((cellRowHeight - compactWeekContentHeight) / 2f).coerceAtLeast(0f) +
+                            weekdayLayouts[column].size.height + with(density) { 4.dp.toPx() }
+                    } else {
+                        cellTop + dateTopPaddingPx
+                    }
+                    if (compactWeekStyle && compactProgress > .001f) {
+                        val weekdayLayout = weekdayLayouts[column]
+                        drawText(
+                            weekdayLayout,
+                            topLeft = Offset(
+                                cellLeft + (cellWidthPx - weekdayLayout.size.width) / 2f,
+                                cellTop + ((cellRowHeight - compactWeekContentHeight) / 2f).coerceAtLeast(0f),
+                            ),
+                            color = faded(
+                                if (isSelected) Color.White else CalinoColors.Ink3,
+                                compactProgress,
+                            ),
+                        )
+                    }
+                    if (compactWeekStyle && isSelected && compactProgress > .001f) {
+                        val selectedHeight = with(density) { 58.dp.toPx() }
+                        drawRoundRect(
+                            color = faded(CalinoColors.Ink.copy(alpha = .95f), compactProgress),
+                            topLeft = Offset(
+                                cellLeft,
+                                cellTop + ((cellRowHeight - selectedHeight) / 2f).coerceAtLeast(0f),
+                            ),
+                            size = Size(cellWidthPx, selectedHeight.coerceAtMost(cellRowHeight)),
+                            cornerRadius = CornerRadius(with(density) { 14.dp.toPx() }),
+                        )
+                        // The selected pill is painted after the compact
+                        // weekday row, so redraw its letter above the fill.
+                        val selectedWeekdayLayout = weekdayLayouts[column]
+                        drawText(
+                            selectedWeekdayLayout,
+                            topLeft = Offset(
+                                cellLeft + (cellWidthPx - selectedWeekdayLayout.size.width) / 2f,
+                                cellTop + ((cellRowHeight - compactWeekContentHeight) / 2f).coerceAtLeast(0f),
+                            ),
+                            color = faded(Color.White, compactProgress),
+                        )
+                    }
+                    val compactFill = when {
+                        isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f * (1f - compactProgress))
+                        isToday -> CalinoColors.AccentSoft.copy(alpha = .45f * (1f - compactProgress))
+                        else -> Color.Transparent
+                    }
+                    if (compactFill != Color.Transparent) {
+                        drawRoundRect(
+                            color = faded(compactFill),
+                            topLeft = Offset(cellLeft, cellTop),
+                            size = Size(cellWidthPx, cellRowHeight),
+                            cornerRadius = CornerRadius(with(density) { 4.dp.toPx() }),
+                        )
+                    }
+                    val detailFill = when {
+                        isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f * detailProgress)
+                        isToday -> CalinoColors.AccentSoft.copy(alpha = .45f * detailProgress)
+                        else -> Color.Transparent
+                    }
+                    if (detailFill != Color.Transparent) {
+                        drawRoundRect(
+                            color = faded(detailFill),
+                            topLeft = Offset(cellLeft, cellTop),
+                            size = Size(cellWidthPx, cellRowHeight),
+                            cornerRadius = CornerRadius(with(density) { 4.dp.toPx() }),
+                        )
+                    }
+                    if (isSelected || isToday) {
+                        if (!isSelected || compactProgress < .999f) {
+                            drawCircle(
+                                color = faded(
+                                    if (isSelected) CalinoColors.Accent else CalinoColors.Accent.copy(alpha = .78f),
+                                    if (isSelected && zoom <= 1f) 1f - compactProgress else 1f,
+                                ),
+                                radius = dateSizePx / 2f,
+                                center = Offset(cellLeft + cellWidthPx / 2f, dateTop + dateSizePx / 2f),
+                            )
+                        }
+                    }
+                    val dateLayout = dateLayouts[index]
+                    drawText(
+                        dateLayout,
+                        topLeft = Offset(
+                            cellLeft + (cellWidthPx - dateLayout.size.width) / 2f,
+                            dateTop + (dateSizePx - dateLayout.size.height) / 2f,
+                        ),
+                        color = faded(if (isSelected) {
+                            Color.White
+                        } else if (inMonthFlags[index]) {
+                            CalinoColors.Ink2
+                        } else {
+                            CalinoColors.Ink3.copy(.5f)
+                        }),
+                    )
+
+                    val dayEvents = cellEvents[index]
+                    val eventAreaTop = dateTop + dateSizePx + dateGapPx
+                    val rawWidths = compactMarkerWidths[index]
+                    val totalGap = eventMarkerGapPx * (rawWidths.size - 1).coerceAtLeast(0)
+                    var rawTotal = totalGap
+                    rawWidths.forEach { width -> rawTotal += width }
+                    val markerScale = if (rawTotal > 0f) {
+                        min(1f, (cellWidthPx - totalGap).coerceAtLeast(1f) / rawTotal)
+                    } else {
+                        1f
+                    }
+                    var markerLeft = cellLeft + (cellWidthPx - rawTotal * markerScale) / 2f
+                    rawWidths.forEachIndexed { eventIndex, _ ->
+                        val event = dayEvents[eventIndex]
+                        val markerWidth = rawWidths[eventIndex] * markerScale
+                        val markerHeight = with(density) { if (event.allDay) 3.dp.toPx() else 5.dp.toPx() }
+                        val markerTop = eventAreaTop + (eventAreaHeightPx - markerHeight) / 2f
+                        if (eventIndex < 2) {
+                            val chipWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f).coerceAtLeast(1f)
+                            val chipTop = eventAreaTop + chipHeightPx * eventIndex
+                            val x = markerLeft +
+                                (cellLeft + chipHorizontalPaddingPx - markerLeft) * detailProgress
+                            val y = markerTop + (chipTop - markerTop) * detailProgress
+                            val width = markerWidth + (chipWidth - markerWidth) * detailProgress
+                            val height = markerHeight + (chipHeightPx - markerHeight) * detailProgress
+                            val eventColor = Color(event.color)
+                            val chipColor = eventTint(eventColor, if (event.allDay) .18f else .10f)
+                            drawRoundRect(
+                                color = faded(lerpColor(eventColor, chipColor, detailProgress)),
+                                topLeft = Offset(x, y),
+                                size = Size(width, height),
+                                cornerRadius = CornerRadius(with(density) { 2.dp.toPx() + 4.dp.toPx() * detailProgress }),
+                            )
+                            if (detailProgress > .01f) {
+                                drawRoundRect(
+                                    color = faded(eventColor, detailProgress),
+                                    topLeft = Offset(x, y + 3.dp.toPx()),
+                                    size = Size(
+                                        2.5.dp.toPx(),
+                                        (height - 6.dp.toPx()).coerceAtLeast(1f),
+                                    ),
+                                    cornerRadius = CornerRadius(1.dp.toPx()),
+                                )
+                                val textProgress = smoothStep(((detailProgress - .5f) / .5f).coerceIn(0f, 1f))
+                                if (textProgress > .01f) eventLayouts[event.id]?.let { layout ->
+                                    drawText(
+                                        layout,
+                                        topLeft = Offset(
+                                            x + chipTextStartPx,
+                                            y + (height - layout.size.height) / 2f,
+                                        ),
+                                        color = faded(CalinoColors.Ink, textProgress),
+                                    )
+                                }
+                            }
+                        } else {
+                            drawRoundRect(
+                                color = faded(Color(event.color), 1f - detailProgress),
+                                topLeft = Offset(markerLeft, markerTop),
+                                size = Size(markerWidth, markerHeight),
+                                cornerRadius = CornerRadius(2.dp.toPx()),
+                            )
+                        }
+                        markerLeft += markerWidth + eventMarkerGapPx
+                    }
+                    val overflow = (dayEvents.size - 2).coerceAtLeast(0)
+                    val overflowProgress = smoothStep(((detailProgress - .5f) / .5f).coerceIn(0f, 1f))
+                    if (overflow > 0 && overflowProgress > .01f) {
+                        overflowLayouts[index]?.let { layout ->
+                            drawText(
+                                layout,
+                                topLeft = Offset(
+                                    cellLeft + (cellWidthPx - layout.size.width) / 2f,
+                                    eventAreaTop + 2 * chipHeightPx,
+                                ),
+                                color = faded(CalinoColors.Ink3, overflowProgress),
+                            )
+                        }
+                    }
+                    val openTaskCount = cellTasks[index].count { !it.done }
+                    if (openTaskCount > 0) {
+                        drawCircle(
+                            color = faded(CalinoColors.Green),
+                            radius = with(density) { 2.5.dp.toPx() },
+                            center = Offset(
+                                cellLeft + cellWidthPx / 2f,
+                                cellTop + cellRowHeight - with(density) { 8.dp.toPx() },
+                            ),
+                        )
+                        taskCountLayouts[index]?.let { layout ->
+                            drawText(
+                                layout,
+                                topLeft = Offset(
+                                    cellLeft + cellWidthPx / 2f + with(density) { 5.dp.toPx() },
+                                    cellTop + cellRowHeight - with(density) { 12.dp.toPx() },
+                                ),
+                                color = faded(CalinoColors.Green),
+                            )
+                        }
+                    }
+                    if (date in monthJournalDates) {
+                        drawCircle(
+                            color = faded(CalinoColors.Plum),
+                            radius = journalRadiusPx,
+                            center = Offset(cellLeft + cellWidthPx / 2f, cellTop + cellRowHeight - journalRadiusPx - 1.dp.toPx()),
+                        )
+                    }
+                }
+            }
+            }
+            MonthGridHitTargets(
+                selected = selected,
+                month = month,
+                events = monthEvents,
+                journalDates = monthJournalDates,
+                tasks = tasksByDueDate,
+                targetHeight = detailedGridHeight,
+                zoomState = zoomState,
+                compactGridHeight = compactGridHeight,
+                detailedGridHeight = detailedGridHeight,
                 compactDay = compactDay,
-                compactPagerOffset = compactPagerOffset,
+                interactionEnabled = interactionEnabled,
                 onDay = onDay,
             )
         }
@@ -819,6 +1894,7 @@ private fun MonthGrid(
     compactProgress: Float,
     compactDay: LocalDate,
     compactPagerOffset: Float,
+    interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
     val first = month.atDay(1)
@@ -899,7 +1975,7 @@ private fun MonthGrid(
                                     hasJournal = date in monthJournalDates,
                                     detailProgress = detailProgress,
                                     compactProgress = compactProgress,
-                                    interactive = isCompactWeek || compactProgress < .86f,
+                                    interactive = interactionEnabled && (isCompactWeek || compactProgress < .86f),
                                     modifier = Modifier.weight(1f).fillMaxHeight(),
                                     onDay = { onDay(date) },
                                 )
@@ -937,7 +2013,7 @@ private fun MonthGrid(
                                         hasJournal = date in monthJournalDates,
                                         detailProgress = detailProgress,
                                         compactProgress = compactProgress,
-                                        interactive = compactProgress < .86f,
+                                        interactive = interactionEnabled && compactProgress < .86f,
                                         modifier = Modifier.weight(1f).fillMaxHeight(),
                                         onDay = { onDay(date) },
                                     )
@@ -956,7 +2032,7 @@ private fun MonthGrid(
                                 events = monthEvents,
                                 journalDates = monthJournalDates,
                                 compactProgress = compactProgress,
-                                interactive = compactProgress < .86f,
+                                interactive = interactionEnabled && compactProgress < .86f,
                                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = compactRowAlpha },
                                 onDay = onDay,
                             )
@@ -1178,6 +2254,10 @@ private fun DayCell(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
+            val dateFontScale = (
+                (12f + 1.5f * detailProgress) * (1f - compactProgress) +
+                    16f * compactProgress
+                ) / 16f
             Box(
                 Modifier.width(lerpDp(dateSize, 30.dp, compactProgress)).height(dateSize).clip(CircleShape)
                     .background(
@@ -1191,7 +2271,11 @@ private fun DayCell(
             ) {
                 Text(
                     date.dayOfMonth.toString(),
-                    fontSize = ((12f + 1.5f * detailProgress) * (1f - compactProgress) + 16f * compactProgress).sp,
+                    Modifier.graphicsLayer {
+                        scaleX = dateFontScale
+                        scaleY = dateFontScale
+                    },
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = lerpColor(
                         lerpColor(monthDateColor, if (selected || today) Color.White else monthDateColor, selectedWeight),
@@ -1464,16 +2548,20 @@ private fun EventChip(event: CalEvent, minHeight: Dp = 34.dp, onClick: (() -> Un
 private fun DayPagerSurface(
     state: PagerState,
     events: List<CalEvent>,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
     scrollState: androidx.compose.foundation.ScrollState,
     modifier: Modifier,
     interactionEnabled: Boolean,
-    dayRailAlpha: Float,
-    agendaAlpha: Float,
+    zoomState: androidx.compose.runtime.State<Float>,
     dayRailOwnsInput: Boolean,
     agendaOwnsInput: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
+    onTaskDone: (CalTask, Boolean) -> Unit,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
+    val dayRailVisibility = Modifier.drawWithContent {
+        if (zoomState.value < DaySurfaceBlendEnd) drawContent()
+    }
     HorizontalPager(
         state = state,
         modifier = modifier.clipToBounds(),
@@ -1481,43 +2569,57 @@ private fun DayPagerSurface(
             // viewport. Extra eagerly composed month grids are expensive while
             // zoom continuously changes every cell's measured height.
             beyondViewportPageCount = 0,
-        userScrollEnabled = interactionEnabled && max(dayRailAlpha, agendaAlpha) > .01f,
+        userScrollEnabled = interactionEnabled,
         key = { page -> dateForDayPage(page).toEpochDay() },
     ) { page ->
         val pageDay = dateForDayPage(page)
         val dayEvents = remember(events, pageDay) { eventsFor(events, pageDay) }
+        val dayTasks = tasksByDueDate[pageDay].orEmpty()
         Box(Modifier.fillMaxSize()) {
-            // Do not merely hide a fully transparent surface: clearAndSetSemantics
-            // removes accessibility nodes but the hidden tree still costs a full
-            // composition/measure pass on every zoom frame. The two trees are
-            // mounted only while they contribute visible pixels; the threshold
-            // is crossed once per transition, so the rest remains continuous.
-            if (dayRailAlpha > .01f) {
-                Box(
-                    Modifier.fillMaxSize().graphicsLayer { alpha = dayRailAlpha },
-                ) {
-                    DayRailPage(
-                        day = pageDay,
-                        dayEvents = dayEvents,
-                        scrollState = scrollState,
-                        active = dayRailOwnsInput,
-                        scrollEnabled = dayRailOwnsInput,
-                        onEvent = if (dayRailOwnsInput) onEvent else null,
-                    )
-                }
+            // Keep the rail mounted until the agenda has covered it. The
+            // incoming surface uses an opaque clipped reveal instead of a
+            // full-screen alpha crossfade: both endpoint trees remain stable,
+            // but their text and event cards never render as a ghosted double.
+            Box(Modifier.fillMaxSize().then(dayRailVisibility)) {
+                DayRailPage(
+                    day = pageDay,
+                    dayEvents = dayEvents,
+                    scrollState = scrollState,
+                    dayTasks = dayTasks,
+                    active = dayRailOwnsInput,
+                    scrollEnabled = dayRailOwnsInput,
+                    onEvent = if (dayRailOwnsInput) onEvent else null,
+                    onTaskDone = if (dayRailOwnsInput) onTaskDone else null,
+                )
             }
-            if (agendaAlpha > .01f) {
-                Box(
-                    Modifier.fillMaxSize().graphicsLayer { alpha = agendaAlpha },
-                ) {
-                    SelectedDayAgendaPage(
-                        day = pageDay,
-                        dayEvents = dayEvents,
-                        active = agendaOwnsInput,
-                        onEvent = if (agendaOwnsInput) onEvent else null,
-                        onOpenDay = if (agendaOwnsInput) onOpenDay else null,
-                    )
-                }
+            Box(
+                Modifier.fillMaxSize().drawWithContent {
+                    val zoom = zoomState.value
+                    if (zoom > DaySurfaceBlendStart && zoom < 1.99f) {
+                        val reveal = if (zoom < DaySurfaceBlendEnd) {
+                            daySurfaceBlend(zoom)
+                        } else {
+                            1f
+                        }
+                        clipRect(bottom = size.height * reveal) {
+                            // Cover the rail before drawing the incoming
+                            // agenda so the transition has one readable
+                            // surface at every frame.
+                            drawRect(CalinoColors.Canvas)
+                            this@drawWithContent.drawContent()
+                        }
+                    }
+                },
+            ) {
+                SelectedDayAgendaPage(
+                    day = pageDay,
+                    dayEvents = dayEvents,
+                    dayTasks = dayTasks,
+                    active = agendaOwnsInput,
+                    onEvent = if (agendaOwnsInput) onEvent else null,
+                    onTaskDone = if (agendaOwnsInput) onTaskDone else null,
+                    onOpenDay = if (agendaOwnsInput) onOpenDay else null,
+                )
             }
         }
     }
@@ -1527,9 +2629,11 @@ private fun DayPagerSurface(
 private fun SelectedDayAgendaPage(
     day: LocalDate,
     dayEvents: List<CalEvent>,
+    dayTasks: List<CalTask>,
     modifier: Modifier = Modifier.fillMaxSize(),
     active: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
+    onTaskDone: ((CalTask, Boolean) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
     val interactionModifier = if (active) {
@@ -1559,6 +2663,22 @@ private fun SelectedDayAgendaPage(
             )
         }
         Text(day.format(AgendaDateFormatter), fontSize = 11.sp, color = CalinoColors.Ink2)
+        if (dayTasks.isNotEmpty()) {
+            Text(
+                "TASKS DUE · ${dayTasks.count { !it.done }} OPEN",
+                fontSize = 10.sp,
+                letterSpacing = 1.sp,
+                color = CalinoColors.Green,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+            dayTasks.forEach { task ->
+                TaskRow(
+                    task = task,
+                    onCheckedChange = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                    modifier = Modifier.padding(vertical = 1.dp),
+                )
+            }
+        }
         if (dayEvents.isEmpty()) {
             Text("Nothing scheduled", fontSize = 13.sp, color = CalinoColors.Ink3, modifier = Modifier.padding(vertical = 8.dp))
         } else {
@@ -1573,10 +2693,12 @@ private fun SelectedDayAgendaPage(
 private fun DayRailPage(
     day: LocalDate,
     dayEvents: List<CalEvent>,
+    dayTasks: List<CalTask>,
     scrollState: androidx.compose.foundation.ScrollState,
     active: Boolean,
     scrollEnabled: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
+    onTaskDone: ((CalTask, Boolean) -> Unit)?,
 ) {
     val interactionModifier = if (active) Modifier else Modifier.clearAndSetSemantics { }
     Column(interactionModifier.fillMaxSize()) {
@@ -1586,6 +2708,16 @@ private fun DayRailPage(
             Modifier.fillMaxWidth().padding(start = 52.dp, end = 20.dp, top = 5.dp, bottom = 5.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            if (dayTasks.isNotEmpty()) {
+                Text("TASKS DUE", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Green)
+                dayTasks.forEach { task ->
+                    TaskRow(
+                        task = task,
+                        onCheckedChange = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                        modifier = Modifier.padding(vertical = 1.dp),
+                    )
+                }
+            }
             if (dayEvents.any { it.allDay }) {
                 dayEvents.filter { it.allDay }.take(2).forEach { event ->
                     EventChip(event, minHeight = 40.dp, onClick = onEvent?.let { callback -> { callback(event) } }, agendaStyle = true)
@@ -1671,20 +2803,25 @@ private fun HourRailContent(dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> U
 }
 
 @Composable
-private fun ZoomHandle(zoom: Float, gestureModifier: Modifier, onTap: () -> Unit) {
+private fun ZoomHandle(
+    zoomLevel: Int,
+    zoomBand: Int,
+    gestureModifier: Modifier,
+    onTap: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().height(44.dp).then(gestureModifier)
             .clickable(onClick = onTap)
-            .semantics(mergeDescendants = true) { contentDescription = "Change calendar zoom, level ${zoom.roundToInt() + 1} of 3" }
+            .semantics(mergeDescendants = true) { contentDescription = "Change calendar zoom, level ${zoomLevel + 1} of 3" }
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(Modifier.width(26.dp).height(3.dp).background(CalinoColors.Ink.copy(.25f)))
         Text(
-            when {
-                zoom < .5f -> "PULL FOR MONTH"
-                zoom < 1.5f -> "PULL AGAIN FOR DETAIL"
+            when (zoomBand) {
+                0 -> "PULL FOR MONTH"
+                1 -> "PULL AGAIN FOR DETAIL"
                 else -> "RELEASE TO COLLAPSE"
             },
             fontSize = 10.sp,
@@ -1693,9 +2830,9 @@ private fun ZoomHandle(zoom: Float, gestureModifier: Modifier, onTap: () -> Unit
         )
         repeat(3) { index ->
             Box(
-                Modifier.width(if (index == zoom.roundToInt()) 14.dp else 6.dp)
+                Modifier.width(if (index == zoomLevel) 14.dp else 6.dp)
                     .height(5.dp).clip(RoundedCornerShape(3.dp))
-                    .background(if (index == zoom.roundToInt()) CalinoColors.Accent else CalinoColors.Ink3.copy(.3f)),
+                    .background(if (index == zoomLevel) CalinoColors.Accent else CalinoColors.Ink3.copy(.3f)),
             )
         }
         Box(Modifier.width(26.dp).height(3.dp).background(CalinoColors.Ink.copy(.25f)))

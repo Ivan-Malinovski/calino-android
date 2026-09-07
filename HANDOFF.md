@@ -27,84 +27,86 @@ visual and gesture behavior is deterministic.
 
 The initial standalone repository snapshot is commit `32c0664`.
 
-## NEXT TASK — fix calendar zoom performance before planning drag-and-drop
+## NEXT TASK — continue fixture-backed calendar functionality after the zoom/week/task pass
 
-Work in this order. The first implementation task is the poor performance
-during the level 1↔2↔3 calendar transition. Dragging events or tasks is a
-future plan; do not implement it while fixing zoom performance.
+The zoom performance pass, swipable week strip, and calendar task projection
+are complete. Preserve the frozen May 2026 fixture contract and the three
+calendar rest states:
 
-1. Preserve the fixture and pager contract while naming the states precisely:
+- UI 1 is `zoom == 0f`: the seven-day week endpoint and selected-day hour rail.
+- UI 2 is `zoom == 1f`: the compact month grid and selected-day agenda.
+- UI 3 is `zoom == 2f`: the detailed month grid.
 
-   - UI 1 is `zoom == 0f`: the seven-day week strip and the selected-day hour
-     rail.
-   - UI 2 is `zoom == 1f`: the compact month grid and selected-day agenda.
-   - UI 3 is `zoom == 2f`: the detailed month grid.
+The month Canvas owns the idle compact endpoint. The week `HorizontalPager`
+remains hoisted for interaction and draws only while previewing another week,
+so the selected row physically continues into the month geometry. Keep
+committed date state separate from pager preview state, keep boundary previews
+mounted, and keep one pointer owner per gesture.
 
-   Intermediate `zoom` values are the animated transitions between those
-   states. Keep committed date state separate from pager preview state, keep
-   boundary preview pages mounted, and keep one pointer owner for vertical
-   zoom. Do not change the May 2026 fixture data or pager behavior to make a
-   performance result look better.
+Next scoped work should be task/calendar polish and behavior coverage: add a
+clear calendar entry point for task rescheduling if needed, add Compose/device
+tests for week paging, compact hit-target gating, task completion/undo, and
+boundary cancellation, then continue with other fixture-backed Calino surface
+gaps. Event/task drag-and-drop remains deferred until those state and gesture
+contracts are reviewed; do not add sync, persistence, or remote services.
 
-2. Establish a repeatable baseline before changing code. Use the same warmed
-   API 36 emulator, app build, orientation, and fixture data for every run.
-   Warm the app with one pass, then record slow drags, fast flings, and a
-   cancelled drag for 1→2, 2→3, 3→2, and 2→1. Capture both resting states and
-   the intermediate frames. Ivan must review the visual result; source review
-   alone cannot establish smoothness.
+For each meaningful UI change, use the required full check:
 
-   For repeatable automation, use the zoom handle’s semantics content
-   description `Change calendar zoom, level … of 3`, or dump the hierarchy with
-   `uiautomator` and use the reported node bounds. Do not hardcode screenshot
-   coordinates, since they make frame comparisons sensitive to layout changes.
+```bash
+distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'
+```
 
-   The root already passed `test lintDebug assembleDebug` for committed pass
-   `a5b3a41`. If a source change requires a new APK, use the documented build
-   command. Inside the Android SDK container use the full adb path below:
-   the PATH `adb` wrapper is broken in this environment.
+Inspect the changed surface on `calino-poc-api36`, including slow, fast,
+cancelled, boundary, and reverse gestures. Use the zoom handle semantics
+`Change calendar zoom, level … of 3` for repeatable bounds. Physical-phone
+validation requires an explicit request and must not be inferred from emulator
+results.
 
-   ```bash
-   distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'
-   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk'
-   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell am force-stop calino.malinov.ski.poc'
-   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell am start -W -n calino.malinov.ski.poc/.MainActivity'
-   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell dumpsys gfxinfo calino.malinov.ski.poc reset'
-   # Perform one fixed gesture sequence, then collect the frame report.
-   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell dumpsys gfxinfo calino.malinov.ski.poc framestats'
-   ```
+### Zoom, week-navigation, and calendar-task pass completed — 2026-09-08
 
-   Record the frame metrics, including p95 frame time and janky-frame count,
-   for each direction. Use Perfetto when available to separate UI, RenderThread,
-   and composition work. Do not claim that CPU work is the cause without a
-   trace or other profiling evidence; a slow frame can be measurement, layout,
-   allocation, rendering, or device noise.
-
-3. Trace the existing path before choosing a fix. Start in
-   `app/src/main/java/calino/malinov/ski/poc/ui/home/HomeScreen.kt` and inspect
-   `zoom`, `animateZoomTo`, `calendarGesture`, `dayRailAlpha`, `agendaAlpha`,
-   `agendaOwnsInput`, `MonthPager`, and `DayPagerSurface`. Then inspect the
-   `MonthGrid`, `DayCell`, and `EventDensityContent` custom layout paths. Check
-   whether every zoom frame allocates objects or causes avoidable remeasure;
-   check the indexed event/journal data and any remembered or derived caches.
-   `DayPagerSurface` intentionally keeps the agenda and hour rail mounted while
-   their crossfade runs, so measure that cost before changing its mounting
-   policy. Do not restore broad pager precomposition or per-cell full-list
-   scans without data.
-
-4. Make one narrow change, rebuild if needed, and repeat the identical warmed
-   gesture sequence. Compare p95 and janky frames with the baseline from the
-   same device/build setup. Keep preview mounting and the single gesture owner;
-   do not hide the problem by disabling animations, removing the transition,
-   or making a surface disappear before the animation finishes. Stop and
-   revert the hypothesis if the measured result does not improve or if it
-   creates blank pages, jumps, lost cancellation, or stale committed dates.
-
-5. Finish the performance pass only after the measured comparison improves and
-   Ivan has approved the rendered transitions at rest and in motion. Run the
-   relevant behavior tests and then the full handoff check for the final code.
-   Review slow, fast, cancelled, boundary, and reverse-direction gestures.
-   Physical-phone validation requires an explicit request; emulator results
-   must not be reported as phone results.
+- `HomeScreen.kt` keeps the month/day surfaces at stable measured sizes during
+  zoom. The compact-to-detailed month path now uses one Canvas: the selected
+  week collapses/expands into the compact grid, then rows and event markers
+  interpolate into detailed rows and event chips. This removes the old
+  duplicate-grid crossfade and its ghosted intermediate frames.
+- The day rail→agenda transition uses an opaque clipped agenda reveal instead
+  of compositing two full-screen alpha layers. This keeps event cards from
+  showing through one another while the surface grows.
+- Month date hit targets use the same interpolated row geometry as the painted
+  grid and retain date/event/journal semantics. The current emulator check
+  tapped May 25 and committed May 25 correctly.
+- The week strip is an independent seven-day `HorizontalPager`. It keeps the
+  selected weekday while swiping a whole week, previews neighboring weeks,
+  and commits the selected date only when the week pager settles. The current
+  emulator check committed Week 21 → Week 22 and preserved Monday selection.
+- The idle compact endpoint is painted by the same month Canvas as the
+  month-to-week morph. The week pager remains hoisted for taps and horizontal
+  preview, but its separate renderer is transparent at rest; this removes the
+  reported month-fades/week-appears regression.
+- Compact month hit targets follow the painted row geometry and remain
+  interactive while a row is visibly present; collapsed rows are removed from
+  both taps and accessibility only after their lane falls below 20dp. The
+  month pager also relinquishes horizontal ownership at the week handoff,
+  including during reverse zoom settling.
+- Boundary week preview synchronization now returns a canceled visual preview
+  to the committed week and keeps one-shot suppression scoped to the settle
+  lifecycle. Day rail/agenda ownership follows the actually visible clipped
+  surfaces and disables both owners once the day surface is offscreen.
+- Calendar tasks are indexed by date. Open-task counts appear in week cells,
+  task markers/counts persist in the month Canvas, and the week/day surfaces
+  show labelled due tasks with completion controls. Completion uses the local
+  repository and the existing undo banner; undated tasks remain in Tasks.
+- On the warmed API 36 `calino-poc-api36` emulator, the latest single-renderer
+  slow-drag reports (0→1, 1→2, 2→1) were respectively: 76/16/16/2,
+  75/12/16/2, and 76/16/16/2 for total frames / 50th percentile / 95th
+  percentile / janky frames. These are emulator results, not physical-phone
+  validation. The latest captures show one compact endpoint and no duplicate
+  month/week header or grid ghosting.
+- The final debug APK was installed on both `emulator-5554` and the explicitly
+  requested phone at `physical-device:5555` without issuing a force-stop to the
+  phone. No physical-device smoothness claim is made.
+- The full `test lintDebug assembleDebug` handoff check passed after the final
+  endpoint and ownership changes. Drag-and-drop remains deferred.
 
 ### Future only — concrete drag-and-drop implementation checklist
 
@@ -182,17 +184,19 @@ remote sync, persistence, a broad refactor, or a new dependency.
 - A detailed month grid with weekday headings, out-of-month days, event marks,
   all-day indicators, journal indicators, and event density handling.
 - A compact month/day-agenda state in which the selected week is reused from the
-  month surface while the other weeks collapse away.
+  month surface while the other weeks collapse away through one Canvas morph.
 - A week-strip state with seven day cells, event dots/marks, a moving selected
   day indicator, and horizontal paging.
 - A selected-day agenda/timeline with hour rails, event cards, all-day area,
   current-time line, and event click targets.
 - Three zoom levels driven by vertical drag, with spring settling and a tap
-  handle. The month-to-week transition is intended to morph the existing month
-  surface instead of replacing it with a separate bar.
+  handle. The month-to-week transition morphs the existing month surface into
+  its selected week instead of replacing it with a separate bar.
 - Horizontal date/week/month paging with committed selection state separated
   from in-progress pager preview state.
 - Day selection from month cells, week cells, and agenda navigation.
+- Due task markers/counts in calendar cells and due-task rows in the week/day
+  surfaces, with completion/reopen controls and the existing undo banner.
 - Animated month/week/day transitions, selection indicator movement, event
   appearance changes, and zoom transitions.
 - A bottom Add action that opens Quick Add for the selected date.

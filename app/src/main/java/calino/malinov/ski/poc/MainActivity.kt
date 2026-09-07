@@ -315,6 +315,7 @@ fun CalinoApp() {
                         PockRoute.Day -> HomeScreen(
                             repository = repository,
                             journals = snapshot.journals,
+                            tasks = snapshot.tasks,
                             modifier = Modifier.fillMaxSize(),
                             interactionEnabled = route == PockRoute.Day && !showDayModal && !journalReviewVisible,
                             initialDate = selectedDate,
@@ -327,6 +328,9 @@ fun CalinoApp() {
                                 detailOrigin = PocReturnTarget.Calendar
                                 showDayModal = false
                                 route = PockRoute.Detail
+                            },
+                            onTaskDone = { task, done ->
+                                showUndo(repository.setTaskDone(task.id, done))
                             },
                         )
                         PockRoute.Tasks -> Tasks(
