@@ -27,6 +27,150 @@ visual and gesture behavior is deterministic.
 
 The initial standalone repository snapshot is commit `32c0664`.
 
+## NEXT TASK — fix calendar zoom performance before planning drag-and-drop
+
+Work in this order. The first implementation task is the poor performance
+during the level 1↔2↔3 calendar transition. Dragging events or tasks is a
+future plan; do not implement it while fixing zoom performance.
+
+1. Preserve the fixture and pager contract while naming the states precisely:
+
+   - UI 1 is `zoom == 0f`: the seven-day week strip and the selected-day hour
+     rail.
+   - UI 2 is `zoom == 1f`: the compact month grid and selected-day agenda.
+   - UI 3 is `zoom == 2f`: the detailed month grid.
+
+   Intermediate `zoom` values are the animated transitions between those
+   states. Keep committed date state separate from pager preview state, keep
+   boundary preview pages mounted, and keep one pointer owner for vertical
+   zoom. Do not change the May 2026 fixture data or pager behavior to make a
+   performance result look better.
+
+2. Establish a repeatable baseline before changing code. Use the same warmed
+   API 36 emulator, app build, orientation, and fixture data for every run.
+   Warm the app with one pass, then record slow drags, fast flings, and a
+   cancelled drag for 1→2, 2→3, 3→2, and 2→1. Capture both resting states and
+   the intermediate frames. Ivan must review the visual result; source review
+   alone cannot establish smoothness.
+
+   For repeatable automation, use the zoom handle’s semantics content
+   description `Change calendar zoom, level … of 3`, or dump the hierarchy with
+   `uiautomator` and use the reported node bounds. Do not hardcode screenshot
+   coordinates, since they make frame comparisons sensitive to layout changes.
+
+   The root already passed `test lintDebug assembleDebug` for committed pass
+   `a5b3a41`. If a source change requires a new APK, use the documented build
+   command. Inside the Android SDK container use the full adb path below:
+   the PATH `adb` wrapper is broken in this environment.
+
+   ```bash
+   distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'
+   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk'
+   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell am force-stop calino.malinov.ski.poc'
+   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell am start -W -n calino.malinov.ski.poc/.MainActivity'
+   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell dumpsys gfxinfo calino.malinov.ski.poc reset'
+   # Perform one fixed gesture sequence, then collect the frame report.
+   distrobox enter android-sdk -- bash -lc '/opt/android-sdk/platform-tools/adb -s emulator-5554 shell dumpsys gfxinfo calino.malinov.ski.poc framestats'
+   ```
+
+   Record the frame metrics, including p95 frame time and janky-frame count,
+   for each direction. Use Perfetto when available to separate UI, RenderThread,
+   and composition work. Do not claim that CPU work is the cause without a
+   trace or other profiling evidence; a slow frame can be measurement, layout,
+   allocation, rendering, or device noise.
+
+3. Trace the existing path before choosing a fix. Start in
+   `app/src/main/java/calino/malinov/ski/poc/ui/home/HomeScreen.kt` and inspect
+   `zoom`, `animateZoomTo`, `calendarGesture`, `dayRailAlpha`, `agendaAlpha`,
+   `agendaOwnsInput`, `MonthPager`, and `DayPagerSurface`. Then inspect the
+   `MonthGrid`, `DayCell`, and `EventDensityContent` custom layout paths. Check
+   whether every zoom frame allocates objects or causes avoidable remeasure;
+   check the indexed event/journal data and any remembered or derived caches.
+   `DayPagerSurface` intentionally keeps the agenda and hour rail mounted while
+   their crossfade runs, so measure that cost before changing its mounting
+   policy. Do not restore broad pager precomposition or per-cell full-list
+   scans without data.
+
+4. Make one narrow change, rebuild if needed, and repeat the identical warmed
+   gesture sequence. Compare p95 and janky frames with the baseline from the
+   same device/build setup. Keep preview mounting and the single gesture owner;
+   do not hide the problem by disabling animations, removing the transition,
+   or making a surface disappear before the animation finishes. Stop and
+   revert the hypothesis if the measured result does not improve or if it
+   creates blank pages, jumps, lost cancellation, or stale committed dates.
+
+5. Finish the performance pass only after the measured comparison improves and
+   Ivan has approved the rendered transitions at rest and in motion. Run the
+   relevant behavior tests and then the full handoff check for the final code.
+   Review slow, fast, cancelled, boundary, and reverse-direction gestures.
+   Physical-phone validation requires an explicit request; emulator results
+   must not be reported as phone results.
+
+### Future only — concrete drag-and-drop implementation checklist
+
+Do not start this checklist until the zoom measurements and Ivan’s visual
+approval are complete. It is a staged fixture-only plan, not permission to add
+remote sync, persistence, a broad refactor, or a new dependency.
+
+1. Add a small drag state/helper with stable event/task IDs and explicit
+   `idle`, `armed`, `dragging`, `settling`, and `cancelled` phases. Put host
+   callbacks in `MainActivity.kt` beside the existing `HomeScreen` and `Tasks`
+   callbacks. Put the shared long-press recognizer/overlay primitives in
+   `ui/components/CalinoComponents.kt` (or a narrowly scoped adjacent helper).
+   Use measured root bounds, viewport and scroll offsets, and the pointer grab
+   offset. One component owns the pointer stream; disable pager/zoom only after
+   activation, then restore it on settle/cancel. Reset to `idle` on route
+   disposal and every pointer cancellation.
+
+2. First milestone: move one nonrecurring, timed event within the visible day
+   rail. Wire `HomeScreen.kt`’s `HourRailContent`/private `EventChip` and
+   `DayPagerSurface`; the rail currently uses 62dp per hour. Convert with the
+   current density (`pxPerMinute = density * 62f / 60f`) and calculate:
+
+   `startMinute = round(((pointerRootY - railViewportTop + scrollPx - grabOffsetPx) / pxPerMinute) / 15) * 15`
+
+   Clamp the result to `0..1439`. Preserve the event duration, allow a move to
+   cross midnight without shortening it, and reject an invalid drop or cancel
+   without writing anything. Commit one accepted drop through the host callback
+   to repository `updateEvent`.
+
+3. Build the event `NewEvent` explicitly from the original `CalEvent` before
+   calling `updateEvent`: preserve title, color, duration, location, notes,
+   attendees, calendar ID, and recurrence fields. `FixtureRepository` currently
+   rebuilds through `eventFromInput`, and `UndoableChange`/`ChangeKind` support
+   only tasks, so event undo is unavailable until a deliberate extension or a
+   dedicated reversible move is implemented. Never silently lose metadata.
+
+4. Second event milestone: drop onto a visible month day. Use `MonthGrid` in
+   `HomeScreen.kt` to expose measured date bounds, and target only a rendered
+   day. Preserve the event’s local start time and duration; an all-day event
+   remains all-day and moves by date only. Recurring events are unsupported in
+   this stage: reject them with an explanation and direct the user to the
+   existing edit flow until occurrence-versus-series behavior is designed.
+
+5. Task milestone: add a long-press drag in `TasksSurface` in
+   `ui/surfaces/SecondarySurfaces.kt` and its private active `TaskRow` at
+   `SecondarySurfaces.kt:939`. The same-named `TaskRow` in
+   `ui/components/CalinoComponents.kt` is an unrelated shared wrapper; do not
+   edit it assuming it is the Tasks screen row. Accept only explicit visible
+   Today, Tomorrow, Next week, and No date trays. Call `rescheduleTask(id, due)`
+   or `rescheduleTask(id, null)` through the host and retain its existing undo
+   banner. Moving must never complete a task. Do not fake ordering until the
+   model/repository has a rank field.
+
+6. Keep cross-route drops for a later stage. If they are added, the host owns
+   the drag state and every target is visible and explicit; there are no
+   invisible drop zones. Add auto-scroll and dwell-based pager changes only
+   after stationary drops are reliable. Every cancel has no mutation and every
+   accepted drop has one atomic mutation. Provide keyboard and TalkBack
+   alternatives for the same move/reschedule action.
+
+7. Add pure mapping/state tests beside `HomeGestureRulesTest.kt` and
+   `PocStateRulesTest.kt`, then device/Compose gesture tests for long-press,
+   slow, fast, cancelled, invalid, boundary, all-day, recurring, and undo
+   cases. Assert IDs, committed dates/times, preserved metadata, no write on
+   cancel, and route restoration; do not assert private pixel coordinates.
+
 ## What currently works
 
 ### Calendar
@@ -190,7 +334,7 @@ to Android notifications.
 
 ### Recent UI polish
 
-The current working tree includes a scoped visual polish pass in
+The current app includes a scoped visual polish pass committed as `a5b3a41` in
 `HomeScreen.kt` and `SecondarySurfaces.kt`:
 
 - Calendar month and week layouts now center date labels and align selected/today
