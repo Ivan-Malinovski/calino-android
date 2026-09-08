@@ -1,6 +1,7 @@
 package calino.malinov.ski.poc.ui.surfaces
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -206,47 +208,112 @@ private fun AgendaMonthPage(
     ) {
         items(days.size, key = { days[it].toEpochDay() }) { index ->
             val day = days[index]
-            val dayEvents = eventsByDay[day].orEmpty().sortedWith(
-                compareBy<CalEvent> { !it.allDay }.thenBy { it.start?.toLocalTime() }.thenBy { it.id },
+            AgendaDayBlock(
+                day = day,
+                events = eventsByDay[day].orEmpty(),
+                tasks = tasksByDay[day].orEmpty(),
+                modifier = Modifier.padding(bottom = 10.dp),
+                onEventClick = onEventClick,
+                onTaskClick = onTaskClick,
+                onTaskDone = onTaskDone,
+                onAdd = { onAddOn(day) },
             )
-            val dayTasks = tasksByDay[day].orEmpty()
-            Column(Modifier.padding(bottom = 10.dp)) {
-                AgendaDayHeader(day = day, onAdd = { onAddOn(day) })
-                if (dayEvents.isEmpty() && dayTasks.isEmpty()) {
-                    Text(
-                        "Nothing scheduled",
-                        color = CalinoColors.Ink3,
-                        fontSize = 13.sp,
-                        lineHeight = 19.5.sp,
-                        fontStyle = FontStyle.Italic,
-                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+        }
+    }
+}
+
+/**
+ * One day's agenda content: the day header, then its events and due tasks, or
+ * the empty line. Shared by the month-paged agenda and by the landscape day
+ * pane so the two cannot drift apart.
+ */
+@Composable
+internal fun AgendaDayBlock(
+    day: LocalDate,
+    events: List<CalEvent>,
+    tasks: List<CalTask>,
+    modifier: Modifier = Modifier,
+    onEventClick: ((LocalDate, CalEvent) -> Unit)?,
+    onTaskClick: ((CalTask) -> Unit)?,
+    onTaskDone: (CalTask, Boolean) -> Unit,
+    onAdd: () -> Unit,
+) {
+    val dayEvents = remember(events) {
+        events.sortedWith(
+            compareBy<CalEvent> { !it.allDay }.thenBy { it.start?.toLocalTime() }.thenBy { it.id },
+        )
+    }
+    Column(modifier) {
+        AgendaDayHeader(day = day, onAdd = onAdd)
+        if (dayEvents.isEmpty() && tasks.isEmpty()) {
+            Text(
+                "Nothing scheduled",
+                color = CalinoColors.Ink3,
+                fontSize = 13.sp,
+                lineHeight = 19.5.sp,
+                fontStyle = FontStyle.Italic,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+            )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                dayEvents.forEach { event ->
+                    // 24h keeps the times inside the mono column, the
+                    // same clock the day rail uses.
+                    AgendaRow(
+                        title = event.title,
+                        color = eventColor(event.color),
+                        time = if (event.allDay) null else event.start?.format(AgendaTimeFormatter),
+                        subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
+                        variant = AgendaRowVariant.Card,
+                        onClick = onEventClick?.let { click -> { click(day, event) } },
                     )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        dayEvents.forEach { event ->
-                            // 24h keeps the times inside the mono column, the
-                            // same clock the day rail uses.
-                            AgendaRow(
-                                title = event.title,
-                                color = eventColor(event.color),
-                                time = if (event.allDay) null else event.start?.format(AgendaTimeFormatter),
-                                subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
-                                variant = AgendaRowVariant.Card,
-                                onClick = onEventClick?.let { click -> { click(day, event) } },
-                            )
-                        }
-                        dayTasks.forEach { task ->
-                            AgendaTaskRow(
-                                task = task,
-                                time = task.due?.let { AgendaTimeFormatter.format(it.atStartOfDay()) },
-                                onClick = onTaskClick?.let { click -> { click(task) } },
-                                onCheckedChange = { done -> onTaskDone(task, done) },
-                            )
-                        }
-                    }
+                }
+                tasks.forEach { task ->
+                    AgendaTaskRow(
+                        task = task,
+                        time = task.due?.let { AgendaTimeFormatter.format(it.atStartOfDay()) },
+                        onClick = onTaskClick?.let { click -> { click(task) } },
+                        onCheckedChange = { done -> onTaskDone(task, done) },
+                    )
                 }
             }
         }
+    }
+}
+
+/**
+ * The landscape companion pane: the selected day's agenda beside the month
+ * grid. It scrolls on its own and reserves the add pill's clearance, since the
+ * pill sits over this pane when it is showing.
+ */
+@Composable
+fun DayPane(
+    day: LocalDate,
+    events: List<CalEvent>,
+    tasks: List<CalTask>,
+    modifier: Modifier = Modifier,
+    onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
+    onTaskClick: ((CalTask) -> Unit)? = null,
+    onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
+    onAdd: () -> Unit = {},
+) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .background(CalinoColors.Canvas)
+            .verticalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+            .padding(bottom = CalinoSpacing.PillClearance),
+    ) {
+        AgendaDayBlock(
+            day = day,
+            events = events,
+            tasks = tasks,
+            onEventClick = onEventClick,
+            onTaskClick = onTaskClick,
+            onTaskDone = onTaskDone,
+            onAdd = onAdd,
+        )
     }
 }
 
@@ -256,7 +323,7 @@ private fun AgendaMonthPage(
  * alone.
  */
 @Composable
-private fun AgendaDayHeader(day: LocalDate, onAdd: () -> Unit) {
+internal fun AgendaDayHeader(day: LocalDate, onAdd: () -> Unit) {
     val isToday = day == FixtureDate
     val weekday = day.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
         .replaceFirstChar { it.uppercase() }

@@ -58,7 +58,9 @@ fun BottomDetailOverlay(
         Box(Modifier.fillMaxSize().background(CalinoColors.Ink.copy(alpha = .28f * progress))
             .semantics { contentDescription = "Dismiss detail card" }
             .clickable(onClick = onDismiss))
-        val cardHeight = maxHeight * .86f
+        // A short landscape window has no room to spare for the peek of the
+        // surface behind the card, so the card takes almost all of it.
+        val cardHeight = maxHeight * if (maxHeight < 520.dp) .96f else .86f
         Box(Modifier.align(Alignment.BottomCenter).padding(vertical = 8.dp)
             .widthIn(max = 660.dp).fillMaxWidth().height(cardHeight)
             .graphicsLayer { translationY = (1f - progress) * (size.height + 32.dp.toPx()) }) {

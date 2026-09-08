@@ -587,9 +587,11 @@ private fun SettingValue(value: String) {
             .padding(horizontal = 11.dp),
         contentAlignment = Alignment.Center,
     ) {
+        // The inline row gives the label a weight and the control its
+        // intrinsic width. Filling the width here starves the label into
+        // one-character wrapping on a wide (landscape) settings card.
         Text(
             value,
-            modifier = Modifier.fillMaxWidth(),
             style = CalinoTypography.bodyMedium,
             color = CalinoColors.Ink2,
             textAlign = TextAlign.Center,

@@ -7,6 +7,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -47,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -107,6 +110,7 @@ import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
@@ -114,9 +118,13 @@ import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.TaskRow
+import calino.malinov.ski.poc.ui.components.calinoPressable
+import calino.malinov.ski.poc.ui.surfaces.DayPane
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
+import calino.malinov.ski.poc.state.SplitPaneWidthDp
 import calino.malinov.ski.poc.state.openTasksDueOn
+import calino.malinov.ski.poc.state.shouldSplit
 import calino.malinov.ski.poc.state.tasksDueOn
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -243,6 +251,8 @@ fun HomeScreen(
     onTaskClick: ((CalTask) -> Unit)? = null,
     onOpenDay: ((LocalDate) -> Unit)? = null,
     interactionEnabled: Boolean = true,
+    /** Reports whether the landscape day pane is currently showing. */
+    onSplitPaneChanged: (Boolean) -> Unit = {},
 ) {
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
     val zoomState = rememberSaveable { mutableFloatStateOf(0f) }
@@ -740,7 +750,58 @@ fun HomeScreen(
         animateZoomTo(if (settledZoom.roundToInt() >= 2) 1f else 0f)
     }
 
-    Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+    // Landscape on a wide window is a different layout, not a wider version
+    // of the zoom continuum: the month grid is pinned open beside a day pane,
+    // so the week strip, the day rail and the zoom gesture are not composed.
+    var dayPaneCollapsed by rememberSaveable { mutableStateOf(false) }
+    BoxWithConstraints(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+    val splitLayout = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt())
+    val dayPaneShowing = splitLayout && !dayPaneCollapsed
+    LaunchedEffect(dayPaneShowing) { onSplitPaneChanged(dayPaneShowing) }
+    DisposableEffect(Unit) { onDispose { onSplitPaneChanged(false) } }
+    if (splitLayout) {
+        SplitHomeLayout(
+            selected = selected,
+            events = events,
+            journals = journals,
+            tasksByDueDate = tasksByDueDate,
+            monthPagerState = monthPagerState,
+            interactionEnabled = interactionEnabled,
+            dayPaneCollapsed = dayPaneCollapsed,
+            onToggleDayPane = { dayPaneCollapsed = !dayPaneCollapsed },
+            onOpenMenu = onOpenMenu,
+            onPreviousMonth = {
+                scope.launch {
+                    pagerDragOrigins[monthPagerState] = selectedEpoch
+                    monthPagerState.animateScrollToPage((monthPagerState.currentPage - 1).coerceAtLeast(0))
+                }
+            },
+            onNextMonth = {
+                scope.launch {
+                    pagerDragOrigins[monthPagerState] = selectedEpoch
+                    monthPagerState.animateScrollToPage((monthPagerState.currentPage + 1).coerceAtMost(MonthPagerPageCount - 1))
+                }
+            },
+            onToday = {
+                selectedEpoch = FixtureDate.toEpochDay()
+                onDateChanged(FixtureDate)
+            },
+            onDay = { date ->
+                // A first tap selects the day into the pane. Only a tap on the
+                // day already showing there drills into the day modal.
+                val reselected = date == selected
+                selectedEpoch = date.toEpochDay()
+                onDateChanged(date)
+                if (reselected) onDayClick?.invoke(date)
+            },
+            onEventClick = onEventClick,
+            onTaskClick = onTaskClick,
+            onTaskDone = onTaskDone,
+            onAddOn = { date -> onOpenDay?.invoke(date) },
+        )
+        return@BoxWithConstraints
+    }
+    Column(Modifier.fillMaxSize()) {
         MonthHeading(
             day = selected,
             onOpenMenu = onOpenMenu,
@@ -938,6 +999,131 @@ fun HomeScreen(
                     )
                 }
             }
+        }
+    }
+    }
+}
+
+/**
+ * The landscape month root: the grid pinned open on the left, the selected
+ * day's agenda on the right, and a rule between them carrying the pane's own
+ * collapse control. The zoom continuum is deliberately absent here — with the
+ * day already beside the grid there is nothing for the month-to-day morph to
+ * reveal.
+ */
+@Composable
+private fun SplitHomeLayout(
+    selected: LocalDate,
+    events: List<CalEvent>,
+    journals: List<JournalEntry>,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
+    monthPagerState: PagerState,
+    interactionEnabled: Boolean,
+    dayPaneCollapsed: Boolean,
+    onToggleDayPane: () -> Unit,
+    onOpenMenu: (() -> Unit)?,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onToday: () -> Unit,
+    onDay: (LocalDate) -> Unit,
+    onEventClick: ((CalEvent) -> Unit)?,
+    onTaskClick: ((CalTask) -> Unit)?,
+    onTaskDone: (CalTask, Boolean) -> Unit,
+    onAddOn: (LocalDate) -> Unit,
+) {
+    // The grid is drawn at its detailed endpoint and stays there. MonthPager
+    // reads this as a plain State, so a constant is all the zoom it needs.
+    val pinnedZoom = remember { mutableFloatStateOf(2f) }
+    val paneWidth by animateDpAsState(
+        targetValue = if (dayPaneCollapsed) 0.dp else SplitPaneWidthDp.dp,
+        animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+        label = "day pane width",
+    )
+    val dayEvents = remember(events, selected) {
+        events.filter { it.occursOn(selected) }
+    }
+    val dayTasks = tasksByDueDate[selected].orEmpty()
+
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            MonthHeading(
+                day = selected,
+                onOpenMenu = onOpenMenu,
+                onPreviousMonth = onPreviousMonth,
+                onNextMonth = onNextMonth,
+                onToday = onToday,
+            )
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val gridHeight = maxHeight
+                MonthPager(
+                    state = monthPagerState,
+                    selected = selected,
+                    events = events,
+                    journals = journals,
+                    tasksByDueDate = tasksByDueDate,
+                    zoomState = pinnedZoom,
+                    compactGridHeight = gridHeight,
+                    detailedGridHeight = gridHeight,
+                    compactDay = selected,
+                    compactSelectorIndex = (selected.dayOfWeek.value - 1).toFloat(),
+                    compactBoundaryTransition = false,
+                    modifier = Modifier.fillMaxSize(),
+                    // No vertical zoom drag in this layout, so the pager is
+                    // the sole owner of the pointer stream over the grid.
+                    gestureModifier = Modifier,
+                    userScrollEnabled = interactionEnabled,
+                    onDay = { date -> if (interactionEnabled) onDay(date) },
+                )
+            }
+        }
+        DayPaneDivider(collapsed = dayPaneCollapsed, onToggle = onToggleDayPane)
+        if (paneWidth > 0.dp) {
+            DayPane(
+                day = selected,
+                events = dayEvents,
+                tasks = dayTasks,
+                modifier = Modifier.width(paneWidth).fillMaxHeight().clipToBounds(),
+                onEventClick = { _, event -> onEventClick?.invoke(event) },
+                onTaskClick = onTaskClick,
+                onTaskDone = onTaskDone,
+                onAdd = { onAddOn(selected) },
+            )
+        }
+    }
+}
+
+/**
+ * The rule between the two panes, doubling as the pane's collapse control.
+ * The painted chevron is compact; the touch lane around it is not.
+ */
+@Composable
+private fun DayPaneDivider(collapsed: Boolean, onToggle: () -> Unit) {
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (collapsed) 180f else 0f,
+        animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+        label = "day pane chevron",
+    )
+    val label = if (collapsed) "Show day pane" else "Hide day pane"
+    Box(
+        Modifier.fillMaxHeight().width(44.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.fillMaxHeight().width(1.dp).background(CalinoColors.Line).align(Alignment.Center))
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(CalinoColors.Canvas)
+                .calinoPressable(onClick = onToggle)
+                .semantics { contentDescription = label },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "\u203A",
+                color = CalinoColors.Ink3,
+                fontSize = 20.sp,
+                modifier = Modifier.graphicsLayer { rotationZ = chevronRotation },
+            )
         }
     }
 }

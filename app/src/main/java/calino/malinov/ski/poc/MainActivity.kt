@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -78,10 +79,12 @@ import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.data.repository.UndoableChange
+import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTheme
 import calino.malinov.ski.poc.design.CalinoTypography
+import calino.malinov.ski.poc.state.SplitPaneWidthDp
 import calino.malinov.ski.poc.state.PocReturnTarget
 import calino.malinov.ski.poc.ui.components.AddPill
 import calino.malinov.ski.poc.ui.components.NavSidebar
@@ -212,6 +215,9 @@ fun CalinoApp() {
         var journalEditorVisible by rememberSaveable { mutableStateOf(false) }
         var journalOpenEntryId by rememberSaveable { mutableStateOf<String?>(null) }
         var sidebarVisible by rememberSaveable { mutableStateOf(false) }
+        // The landscape month root puts the day beside the grid. The pill
+        // belongs over that pane, not centred on the rule between the two.
+        var splitDayPaneVisible by remember { mutableStateOf(false) }
         var journalEntryRequest by rememberSaveable { mutableIntStateOf(0) }
         var pendingUndo by remember { mutableStateOf<UndoableChange?>(null) }
         var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
@@ -407,6 +413,7 @@ fun CalinoApp() {
                                 taskDetailOrigin = PocReturnTarget.Calendar
                                 route = PockRoute.TaskDetail
                             },
+                            onSplitPaneChanged = { splitDayPaneVisible = it },
                         )
                         PockRoute.Agenda -> AgendaScreen(
                             repository = repository,
@@ -621,13 +628,24 @@ fun CalinoApp() {
                 visible = pillVisible && !sidebarVisible,
                 enter = slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
                 exit = slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 20.dp),
                 label = "add pill visibility",
             ) {
+                // In the landscape split the pill rides over the day pane, so
+                // the lane it centres in is the pane rather than the window.
+                val pillLaneWidth by animateDpAsState(
+                    targetValue = if (splitDayPaneVisible) (SplitPaneWidthDp + 44).dp else 0.dp,
+                    animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+                    label = "add pill lane",
+                )
                 // The pill also carries the three main views: a horizontal
                 // drag steps through them in the same order the sidebar lists.
                 val pillRoutes = listOf(PockRoute.Day, PockRoute.Agenda, PockRoute.Tasks, PockRoute.Journal)
                 val pillIndex = pillRoutes.indexOf(rootRoute)
+                Box(
+                    if (pillLaneWidth > 0.dp) Modifier.width(pillLaneWidth) else Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
                 AddPill(
                     canSwipe = { direction -> pillIndex >= 0 && (pillIndex + direction) in pillRoutes.indices },
                     onSwipe = { direction ->
@@ -646,6 +664,7 @@ fun CalinoApp() {
                         }
                     },
                 )
+                }
             }
 
             NavSidebar(

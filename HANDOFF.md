@@ -65,6 +65,35 @@ cancelled, boundary, and reverse gestures. Use the zoom handle semantics
 validation requires an explicit request and must not be inferred from emulator
 results.
 
+### Landscape split view on the month root — 2026-09-08
+
+- The activity is no longer pinned to portrait. `AndroidManifest.xml` drops
+  `screenOrientation` and declares `configChanges` for orientation/size, so a
+  rotation resizes the composition instead of recreating the activity.
+- `shouldSplit(widthDp, heightDp)` in `state/PocNavigationState.kt` gates the
+  layout: landscape *and* at least `SplitPaneMinWidthDp` (720dp) wide. A compact
+  phone turned sideways deliberately stays on the portrait zoom surface.
+- When it applies, `HomeScreen` renders `SplitHomeLayout` instead of the zoom
+  continuum: the month grid pinned at its detailed endpoint on the left, a
+  `DayPane` for the selected day on the right, and a 44dp rule between them
+  carrying the pane's collapse control. The week strip, the day rail and the
+  vertical zoom gesture are not composed in this layout, so `MonthPager` is the
+  only owner of the pointer stream over the grid.
+- In the split, a tap on a month cell *selects* the day into the pane; only a
+  tap on the day already showing there opens the day modal.
+- `DayPane` and the month agenda share `AgendaDayBlock` (`AgendaScreen.kt`), so
+  the row set, sort order and "Nothing scheduled" case cannot drift.
+- `dayPaneCollapsed` lives in `HomeScreen` as `rememberSaveable` and is reported
+  up through `onSplitPaneChanged`, which `MainActivity` uses to slide the add
+  pill over the day pane rather than leaving it centred on the rule.
+- Landscape damage pass on the other roots: Agenda, Tasks, Journal and the
+  sidebar were undamaged. Two fixes were needed — `SettingValue` no longer fills
+  the row width (it was starving the label into one-character wrapping in the
+  inline Settings row, which only landscape is wide enough to reach), and
+  `BottomDetailOverlay` gives the card 96% of a short (<520dp) window instead of
+  86%.
+- Covered by `SplitPaneRulesTest`.
+
 ### Week-strip selector follows a boundary crossing — 2026-09-08
 
 - A day swipe that crosses a week boundary no longer parks the pill on the
