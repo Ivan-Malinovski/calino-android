@@ -19,6 +19,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
@@ -252,7 +254,7 @@ enum class CalinoIcon { Back, Forward, Plus, Search, Calendar, Repeat, Check, Pi
  * ripple covering dense calendar content.
  */
 @Composable
-private fun Modifier.calinoPressable(
+internal fun Modifier.calinoPressable(
     enabled: Boolean = true,
     role: Role = Role.Button,
     pressedScale: Float = .97f,
@@ -851,36 +853,89 @@ fun SectionLabel(text: String, count: Int? = null, modifier: Modifier = Modifier
     }
 }
 
+/**
+ * The floating add affordance. A horizontal drag on the pill moves between the
+ * three main views, so the destination can be changed without opening the
+ * sidebar; [canSwipe] lets the host refuse a direction at the ends of the row,
+ * where the pill springs back instead of committing.
+ */
 @Composable
-fun AddBar(dateLabel: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
-    val pressModifier = if (onClick != null) Modifier.calinoPressable(pressedScale = 1f, onClick = onClick) else Modifier
+fun AddPill(
+    label: String,
+    modifier: Modifier = Modifier,
+    canSwipe: (Int) -> Boolean = { false },
+    onSwipe: (Int) -> Unit = {},
+    onClick: () -> Unit,
+) {
+    var dragX by remember { mutableFloatStateOf(0f) }
+    val currentOnSwipe by rememberUpdatedState(onSwipe)
+    val currentCanSwipe by rememberUpdatedState(canSwipe)
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val commitPx = with(density) { 56.dp.toPx() }
+    // A refused direction still moves, but only enough to read as a limit.
+    val maxTravelPx = with(density) { 88.dp.toPx() }
+    val edgeTravelPx = with(density) { 22.dp.toPx() }
+
+    fun settle() {
+        scope.launch {
+            animate(dragX, 0f, animationSpec = spring(dampingRatio = .78f, stiffness = 520f)) { value, _ -> dragX = value }
+        }
+    }
+
     Row(
         modifier
-            .fillMaxWidth()
-            .height(66.dp)
-            .drawBehind { drawLine(CalinoColors.Line, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx()) }
-            .then(pressModifier)
-            .semantics(mergeDescendants = true) { contentDescription = "Add on $dateLabel" }
-            .padding(horizontal = 20.dp),
+            .offset { IntOffset(dragX.roundToInt(), 0) }
+            .shadow(14.dp, RoundedCornerShape(CalinoShapes.Pill), clip = false)
+            .clip(RoundedCornerShape(CalinoShapes.Pill))
+            .background(CalinoColors.Ink)
+            .calinoPressable(pressedScale = .97f, onClick = onClick)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        // A drag left moves forward through the views, matching
+                        // the direction the root content slides in.
+                        val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
+                        if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
+                        settle()
+                    },
+                    onDragCancel = { settle() },
+                ) { change, amount ->
+                    change.consume()
+                    val next = dragX + amount
+                    val direction = if (next < 0f) 1 else -1
+                    val limit = if (currentCanSwipe(direction)) maxTravelPx else edgeTravelPx
+                    dragX = next.coerceIn(-limit, limit)
+                }
+            }
+            .semantics(mergeDescendants = true) { contentDescription = label }
+            .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Add on ", color = CalinoColors.Ink, fontSize = 15.sp, lineHeight = 22.5.sp)
+        CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Canvas, modifier = Modifier.size(19.dp), contentDescription = null)
         AnimatedContent(
-            targetState = dateLabel,
+            targetState = label,
             transitionSpec = { fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith fadeOut(tween(CalinoMotion.FadeThroughMillis)) },
-            label = "add bar date",
-        ) { date ->
-            Text(date, color = CalinoColors.Ink2, fontSize = 15.sp, lineHeight = 22.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            label = "add pill label",
+        ) { text ->
+            Text(text, color = CalinoColors.Canvas, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Box(
-            Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(CalinoShapes.Fab))
-                .background(CalinoColors.Ink),
-            contentAlignment = Alignment.Center,
-        ) {
-            CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Canvas, modifier = Modifier.size(22.dp), contentDescription = null)
-        }
+    }
+}
+
+/** The hamburger that opens the root navigation sidebar from a screen header. */
+@Composable
+fun MenuButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(CalinoShapes.Button))
+            .calinoPressable(onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = "Open navigation" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(CalinoIcons.Menu, contentDescription = null, tint = CalinoColors.Ink2, modifier = Modifier.size(21.dp))
     }
 }
 
@@ -1037,6 +1092,6 @@ private fun PreviewComponents() {
         EventDots(listOf(CalinoColors.Rose, CalinoColors.Blue, CalinoColors.Green))
         AgendaRow("Design review", CalinoColors.Blue, "10:00 AM", "Studio", variant = AgendaRowVariant.Card)
         SegmentedControl(listOf("Open", "Scheduled", "Done"), selected, { selected = it })
-        AddBar("Tuesday, May 19")
+        AddPill("Add on Tuesday, May 19") {}
     }
 }

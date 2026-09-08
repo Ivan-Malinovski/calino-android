@@ -118,6 +118,7 @@ import calino.malinov.ski.poc.data.parser.ParsedQuickAdd
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.qa.TaskBucket
@@ -127,6 +128,7 @@ import calino.malinov.ski.poc.ui.components.DetailCardSurface
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.components.CalinoIcon
+import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
 import calino.malinov.ski.poc.util.nextOccurrences
@@ -838,7 +840,7 @@ fun TasksSurface(
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { task, _ -> onReschedule(task) },
     onTaskClick: (CalTask) -> Unit = {},
     onUndoComplete: (CalTask) -> Unit = {},
-    onAddTask: (() -> Unit)? = null,
+    onOpenMenu: (() -> Unit)? = null,
 ) {
     var filter by remember { mutableStateOf(TaskFilter.All) }
     var pendingCompletionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -886,6 +888,9 @@ fun TasksSurface(
 
     Column(Modifier.fillMaxSize().background(CalinoColors.Canvas).padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            onOpenMenu?.let {
+                MenuButton(onClick = it, modifier = Modifier.padding(end = 4.dp))
+            }
             Text("Tasks", modifier = Modifier.weight(1f), style = CalinoTypography.displayLarge)
         }
         SegmentedFilter(filter) { filter = it }
@@ -911,13 +916,10 @@ fun TasksSurface(
                 }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = if (onAddTask != null) 104.dp else 20.dp),
-                    // The add action is overlaid on this Box. Reserve space in
-                    // the viewport itself, not only in the scroll content: the
-                    // final row must never be laid out underneath the button.
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = if (onAddTask != null) 80.dp else 0.dp),
+                    // The floating add pill is drawn by the shell over this
+                    // list, so the reservation belongs in the scroll content.
+                    contentPadding = PaddingValues(bottom = CalinoSpacing.PillClearance),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     TaskBucket(
                         "Overdue",
@@ -987,20 +989,13 @@ fun TasksSurface(
                 }
             }
 
-            // Keep every bottom action in one layout. Independent bottom-aligned
-            // children can overlap while the undo banner is entering or exiting;
-            // this stack makes the New task target move with the banner's real
-            // animated height instead of guessing with a second fixed offset.
-            val bottomActionSpacing by animateDpAsState(
-                targetValue = if (completionUndo.isNotEmpty() && onAddTask != null) 12.dp else 0.dp,
-                animationSpec = tween(220),
-                label = "task bottom action spacing",
-            )
+            // The undo banner is the only bottom-aligned action left; keep it
+            // clear of the floating add pill the shell draws over this list.
             Column(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = if (onAddTask != null) 10.dp else 16.dp),
+                    .padding(bottom = CalinoSpacing.PillClearance),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 androidx.compose.animation.AnimatedVisibility(
@@ -1044,15 +1039,6 @@ fun TasksSurface(
                             ) { Text(if (completed.size == 1) "Undo" else "Undo all", color = CalinoColors.AccentSoft) }
                         }
                     }
-                }
-                if (onAddTask != null) {
-                    Spacer(Modifier.height(bottomActionSpacing))
-                    Button(
-                        onClick = onAddTask,
-                        modifier = Modifier.height(52.dp),
-                        shape = RoundedCornerShape(26.dp),
-                        colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                    ) { Text("+  New task") }
                 }
             }
         }
@@ -1722,8 +1708,8 @@ fun Tasks(
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { task, _ -> onReschedule(task) },
     onTaskClick: (CalTask) -> Unit = {},
     onUndoComplete: (CalTask) -> Unit = {},
-    onAddTask: (() -> Unit)? = null,
-) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onUndoComplete, onAddTask)
+    onOpenMenu: (() -> Unit)? = null,
+) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onUndoComplete, onOpenMenu)
 
 /** Shared animated Event/Task/Journal editor sheet. */
 @Composable

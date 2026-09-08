@@ -78,10 +78,12 @@ import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.data.repository.UndoableChange
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTheme
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.state.PocReturnTarget
-import calino.malinov.ski.poc.ui.components.BottomDock
+import calino.malinov.ski.poc.ui.components.AddPill
+import calino.malinov.ski.poc.ui.components.NavSidebar
 import calino.malinov.ski.poc.ui.home.HomeScreen
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.surfaces.DayModalSurface
@@ -203,6 +205,8 @@ fun CalinoApp() {
         var journalReviewVisible by rememberSaveable { mutableStateOf(false) }
         var journalEditorVisible by rememberSaveable { mutableStateOf(false) }
         var journalOpenEntryId by rememberSaveable { mutableStateOf<String?>(null) }
+        var sidebarVisible by rememberSaveable { mutableStateOf(false) }
+        var journalEntryRequest by rememberSaveable { mutableIntStateOf(0) }
         var pendingUndo by remember { mutableStateOf<UndoableChange?>(null) }
         var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
         var undoNonce by remember { mutableIntStateOf(0) }
@@ -270,6 +274,15 @@ fun CalinoApp() {
             }
         }
 
+        fun navigateRoot(next: PockRoute) {
+            showDayModal = false
+            journalReviewVisible = false
+            editEventId = null
+            selectedEventId = null
+            selectedEventOccurrenceDay = null
+            route = next
+        }
+
         fun showUndo(change: UndoableChange) {
             pendingUndo = change
             undoNonce += 1
@@ -277,9 +290,10 @@ fun CalinoApp() {
 
         // EventEditDialog is a platform Dialog and owns its back gesture so
         // its exit animation can finish before editEventId is cleared.
-        BackHandler(enabled = route != PockRoute.Detail && route != PockRoute.TaskDetail &&
-            !journalEditorVisible && (journalReviewVisible || route != PockRoute.Day || showDayModal)) {
+        BackHandler(enabled = sidebarVisible || (route != PockRoute.Detail && route != PockRoute.TaskDetail &&
+            !journalEditorVisible && (journalReviewVisible || route != PockRoute.Day || showDayModal))) {
             when {
+                sidebarVisible -> sidebarVisible = false
                 journalReviewVisible -> journalReviewVisible = false
                 route == PockRoute.QuickAdd -> dismissQuickAdd()
                 route == PockRoute.Detail -> {
@@ -342,7 +356,7 @@ fun CalinoApp() {
                             modifier = Modifier.fillMaxSize(),
                             interactionEnabled = route == PockRoute.Day && !showDayModal && !journalReviewVisible,
                             initialDate = selectedDate,
-                            onAdd = { date -> selectedDate = date; openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar) },
+                            onOpenMenu = { sidebarVisible = true },
                             onDateChanged = { selectedDate = it },
                             onDayClick = { date -> selectedDate = date; showDayModal = true; route = PockRoute.Day },
                             onEventClick = { event ->
@@ -375,7 +389,7 @@ fun CalinoApp() {
                                 route = PockRoute.TaskDetail
                             },
                             onUndoComplete = { task -> repository.setTaskDone(task.id, false) },
-                            onAddTask = { openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks) },
+                            onOpenMenu = { sidebarVisible = true },
                         )
                         PockRoute.Journal -> JournalSurface(
                             entries = snapshot.journals,
@@ -390,12 +404,15 @@ fun CalinoApp() {
                             onEditingChanged = { journalEditorVisible = it },
                             openEntryId = journalOpenEntryId,
                             onOpenEntryConsumed = { journalOpenEntryId = null },
+                            onOpenMenu = { sidebarVisible = true },
+                            startEntryRequest = journalEntryRequest,
                         )
                         PockRoute.Settings -> SettingsSurface(
                             onOpenNotifications = {
                                 notificationOrigin = PocReturnTarget.Settings
                                 route = PockRoute.Notifications
                             },
+                            onOpenMenu = { sidebarVisible = true },
                         )
                         PockRoute.Detail, PockRoute.TaskDetail -> Unit
                         PockRoute.Notifications -> NotificationPreview(
@@ -543,7 +560,7 @@ fun CalinoApp() {
                 visible = pendingUndo != null,
                 enter = slideInVertically(tween(200), initialOffsetY = { it / 2 }) + fadeIn(tween(170)),
                 exit = slideOutVertically(tween(170), targetOffsetY = { it / 2 }) + fadeOut(tween(130)),
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = CalinoSpacing.PillClearance),
             ) {
                 displayedUndo?.let { change ->
                     PocUndoBanner(
@@ -558,26 +575,51 @@ fun CalinoApp() {
                     )
                 }
             }
-        }
 
-        val dockVisible = route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null ||
-            route == PockRoute.Tasks || (route == PockRoute.Journal && !journalEditorVisible) || route == PockRoute.Settings
-        androidx.compose.animation.AnimatedVisibility(
-            visible = dockVisible,
-            enter = androidx.compose.animation.slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
-            exit = androidx.compose.animation.slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
-            label = "bottom dock visibility",
-        ) {
-            BottomDock(
-                selectedRoute = if (route == PockRoute.Journal) PockRoute.Journal else if (route == PockRoute.Settings) PockRoute.Settings else if (route == PockRoute.Tasks) PockRoute.Tasks else PockRoute.Day,
-                onRoute = { next ->
-                    showDayModal = false
-                    journalReviewVisible = false
-                    editEventId = null
-                    selectedEventId = null
-                    selectedEventOccurrenceDay = null
-                    route = next
-                },
+            // The add affordance floats over the surfaces instead of taking
+            // layout space; every scrollable root reserves PillClearance for it.
+            val pillVisible = when (rootRoute) {
+                PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
+                PockRoute.Tasks -> route == PockRoute.Tasks
+                PockRoute.Journal -> route == PockRoute.Journal && !journalEditorVisible
+                else -> false
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = pillVisible && !sidebarVisible,
+                enter = slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
+                exit = slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
+                label = "add pill visibility",
+            ) {
+                // The pill also carries the three main views: a horizontal
+                // drag steps through them in the same order the sidebar lists.
+                val pillRoutes = listOf(PockRoute.Day, PockRoute.Tasks, PockRoute.Journal)
+                val pillIndex = pillRoutes.indexOf(rootRoute)
+                AddPill(
+                    canSwipe = { direction -> pillIndex >= 0 && (pillIndex + direction) in pillRoutes.indices },
+                    onSwipe = { direction ->
+                        pillRoutes.getOrNull(pillIndex + direction)?.let(::navigateRoot)
+                    },
+                    label = when (rootRoute) {
+                        PockRoute.Tasks -> "New task"
+                        PockRoute.Journal -> "New entry"
+                        else -> "Add on ${selectedDate.format(DateLabel)}"
+                    },
+                    onClick = {
+                        when (rootRoute) {
+                            PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks)
+                            PockRoute.Journal -> journalEntryRequest += 1
+                            else -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar)
+                        }
+                    },
+                )
+            }
+
+            NavSidebar(
+                visible = sidebarVisible,
+                selectedRoute = rootRoute,
+                onRoute = { next -> navigateRoot(next) },
+                onDismiss = { sidebarVisible = false },
             )
         }
 

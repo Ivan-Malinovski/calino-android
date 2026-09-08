@@ -71,6 +71,8 @@ import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.JournalDraft
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoSpacing
+import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
@@ -99,6 +101,8 @@ fun JournalSurface(
     openEntryId: String? = null,
     onOpenEntryConsumed: () -> Unit = {},
     newEntryDate: LocalDate = LocalDate.of(2026, 5, 18),
+    onOpenMenu: (() -> Unit)? = null,
+    startEntryRequest: Int = 0,
 ) {
     var modeName by rememberSaveable { mutableStateOf(JournalMode.Month.name) }
     val mode = remember(modeName) { runCatching { JournalMode.valueOf(modeName) }.getOrDefault(JournalMode.Month) }
@@ -135,6 +139,12 @@ fun JournalSurface(
         onAdd()
     }
 
+    // The add affordance now lives in the shell's floating pill, which asks
+    // for a new entry by bumping this counter.
+    LaunchedEffect(startEntryRequest) {
+        if (startEntryRequest > 0) startNewEntry()
+    }
+
     fun closeEntry(entry: JournalEntry) {
         if (draft?.id == entry.id) {
             draftId = null
@@ -146,6 +156,9 @@ fun JournalSurface(
     Box(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalAlignment = Alignment.Top) {
+                onOpenMenu?.let {
+                    MenuButton(onClick = it, modifier = Modifier.padding(end = 6.dp))
+                }
                 Column(Modifier.weight(1f)) {
                     Text("Journal", style = CalinoTypography.displayLarge)
                     Text("A place for what the calendar cannot hold.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
@@ -178,19 +191,8 @@ fun JournalSurface(
                     JournalMode.Month -> JournalMonthList(sorted) { editingId = it.id }
                 }
             }
-
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(CalinoColors.Panel)
-                    .border(1.dp, CalinoColors.Line)
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Write a note for today", Modifier.weight(1f), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink2)
-                Button(onClick = ::startNewEntry, shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.buttonColors(CalinoColors.Ink), modifier = Modifier.size(48.dp).semantics { contentDescription = "Add journal entry" }, contentPadding = PaddingValues(0.dp)) { Text("+", fontSize = 25.sp) }
-            }
         }
+
         val currentEntry = visibleEntries.firstOrNull { it.id == editingId }
         if (currentEntry != null) {
             JournalEditor(
@@ -230,7 +232,7 @@ private fun JournalRecentList(entries: List<JournalEntry>, onEntry: (JournalEntr
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 34.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = CalinoSpacing.PillClearance),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(entries, key = { "journal:${it.id}" }) { entry ->
@@ -253,9 +255,9 @@ private fun JournalMonthList(entries: List<JournalEntry>, onEntry: (JournalEntry
     val groups = entries.groupBy { it.date.withDayOfMonth(1) }.toSortedMap(reverseOrder())
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        // Leave a deliberate breathing pocket before the fixed write bar so
-        // the final card can scroll fully clear of its border.
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 34.dp),
+        // Leave a deliberate breathing pocket so the final card can scroll
+        // fully clear of the floating add pill.
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = CalinoSpacing.PillClearance),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         groups.forEach { (month, monthEntries) ->

@@ -107,8 +107,10 @@ import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
+import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.TaskRow
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
@@ -157,7 +159,6 @@ private val FullDateFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Loca
 private val TimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 private val ShortDateFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
 private val AgendaDateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
-private val AddDateFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
 /**
  * Geometry shared by the compact month endpoint and its interactive pager.
@@ -232,7 +233,7 @@ fun HomeScreen(
     tasks: List<CalTask> = repository.tasks(),
     modifier: Modifier = Modifier,
     initialDate: LocalDate = FixtureDate,
-    onAdd: (LocalDate) -> Unit = {},
+    onOpenMenu: (() -> Unit)? = null,
     onDateChanged: (LocalDate) -> Unit = {},
     onDayClick: ((LocalDate) -> Unit)? = null,
     onEventClick: ((CalEvent) -> Unit)? = null,
@@ -727,6 +728,7 @@ fun HomeScreen(
     Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         MonthHeading(
             day = selected,
+            onOpenMenu = onOpenMenu,
             onPreviousMonth = {
                 scope.launch {
                     pagerDragOrigins[monthPagerState] = selectedEpoch
@@ -922,7 +924,6 @@ fun HomeScreen(
                 }
             }
         }
-        AddBar(selected, if (interactionEnabled) onAdd else null)
     }
 }
 
@@ -938,6 +939,7 @@ private fun daySurfaceBlend(zoom: Float): Float = smoothStep(
 @Composable
 private fun MonthHeading(
     day: LocalDate,
+    onOpenMenu: (() -> Unit)?,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onToday: () -> Unit,
@@ -946,6 +948,7 @@ private fun MonthHeading(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        onOpenMenu?.let { MenuButton(onClick = it) }
         IconButton(
             onClick = onPreviousMonth,
             modifier = Modifier.semantics { contentDescription = "Previous month" },
@@ -3103,6 +3106,9 @@ private fun DayRailPage(
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             Column(Modifier.fillMaxWidth().verticalScroll(scrollState, enabled = scrollEnabled)) {
                 HourRailContent(dayEvents, onEvent)
+                // The add pill floats over this rail; keep the last hours
+                // scrollable clear of it.
+                Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
         }
     }
@@ -3213,29 +3219,3 @@ private fun ZoomHandle(
     }
 }
 
-@Composable
-private fun AddBar(day: LocalDate, onAdd: ((LocalDate) -> Unit)?) {
-    Row(
-        Modifier.fillMaxWidth().height(66.dp).background(CalinoColors.Panel)
-            .border(1.dp, CalinoColors.Line).clickable(enabled = onAdd != null) { onAdd?.invoke(day) }
-            .semantics(mergeDescendants = true) { contentDescription = "Add event on ${day.format(AddDateFormatter)}" }
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AnimatedContent(
-            targetState = day,
-            modifier = Modifier.weight(1f),
-            transitionSpec = {
-                val direction = if (targetState.isAfter(initialState)) 1 else -1
-                (slideInHorizontally(tween(180)) { direction * it / 3 } + fadeIn(tween(140))) togetherWith
-                    (slideOutHorizontally(tween(150)) { -direction * it / 3 } + fadeOut(tween(100)))
-            },
-            label = "add bar date",
-        ) { targetDay ->
-            Text("Add on ${targetDay.format(AgendaDateFormatter)}", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink2)
-        }
-        Box(Modifier.size(46.dp).clip(RoundedCornerShape(16.dp)).background(CalinoColors.Ink), contentAlignment = Alignment.Center) {
-            Text("+", fontSize = 27.sp, color = Color.White, fontWeight = FontWeight.Light)
-        }
-    }
-}

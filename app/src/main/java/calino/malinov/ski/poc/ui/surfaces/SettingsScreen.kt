@@ -80,6 +80,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoSpacing
+import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
@@ -112,7 +114,7 @@ private enum class SettingRowControlLayout {
 }
 
 @Composable
-fun SettingsSurface(onOpenNotifications: () -> Unit = {}) {
+fun SettingsSurface(onOpenNotifications: () -> Unit = {}, onOpenMenu: (() -> Unit)? = null) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.General.name) }
     val section = remember(sectionName) {
         runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.General)
@@ -150,6 +152,9 @@ fun SettingsSurface(onOpenNotifications: () -> Unit = {}) {
         Modifier.fillMaxSize().background(CalinoColors.Canvas),
     ) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
+            onOpenMenu?.let {
+                MenuButton(onClick = it, modifier = Modifier.padding(bottom = 2.dp))
+            }
             Text("Settings", style = CalinoTypography.displayLarge)
             Text(
                 "Shape Calino around the way you think.",
@@ -289,9 +294,9 @@ private fun SettingsSectionContent(section: SettingsSection, onOpenNotifications
 private fun SettingsPage(title: String, content: @Composable () -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        // Keep the last setting group comfortably scrollable above the fixed
-        // root dock rather than letting it finish against the dock boundary.
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 96.dp),
+        // Keep the last setting group comfortably scrollable rather than
+        // letting it finish against the screen edge.
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = CalinoSpacing.PillClearance),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {

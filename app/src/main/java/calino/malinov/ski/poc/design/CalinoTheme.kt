@@ -36,6 +36,12 @@ object CalinoSpacing {
     val Base = 4.dp
     val Screen = 20.dp
     val Section = 24.dp
+
+    /**
+     * Room reserved at the bottom of every scrollable root surface so the
+     * floating add pill never covers the last row.
+     */
+    val PillClearance = 96.dp
 }
 
 object CalinoShapes {
