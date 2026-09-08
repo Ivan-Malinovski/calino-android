@@ -459,21 +459,30 @@ fun HomeScreen(
             if (abs(distance) <= 1.05f) distance.coerceIn(-1f, 1f) else 0f
         }
     }
-    val compactSelectorIndex by remember(dayPagerTravel, selectedWeekdayIndex) {
+    // Null while no same-week day preview is live. The pill follows this
+    // directly during the drag; the spring below owns it the rest of the time.
+    val compactSelectorPreview = remember(dayPagerTravel, selectedWeekdayIndex) {
         derivedStateOf {
             val liveOffset = dayPagerTravel.coerceIn(-1f, 1f)
-            val previewDate = when {
-                liveOffset < 0f -> selected.plusDays(1)
-                liveOffset > 0f -> selected.minusDays(1)
-                else -> selected
+            if (abs(liveOffset) <= .001f) return@derivedStateOf null
+            val previewDate = if (liveOffset < 0f) selected.plusDays(1) else selected.minusDays(1)
+            if (previewDate.with(DayOfWeek.MONDAY) != selected.with(DayOfWeek.MONDAY)) {
+                return@derivedStateOf null
             }
-            val sameWeek = previewDate.with(DayOfWeek.MONDAY) == selected.with(DayOfWeek.MONDAY)
-            if (sameWeek && abs(liveOffset) > .001f) {
-                (selectedWeekdayIndex - liveOffset).coerceIn(0f, 6f)
-            } else {
-                compactSelectorPosition.value
-            }
+            (selectedWeekdayIndex - liveOffset).coerceIn(0f, 6f)
         }
+    }
+    // Keep the spring seeded with the live preview so the handoff at release
+    // continues from where the finger left the pill. Without this the preview
+    // drops out the instant the settle consumes the gesture, the pill falls
+    // back to the spring's stale previous weekday for a frame, and only then
+    // animates to the committed day.
+    LaunchedEffect(compactSelectorPreview) {
+        snapshotFlow { compactSelectorPreview.value }
+            .collect { preview -> preview?.let { compactSelectorPosition.snapTo(it) } }
+    }
+    val compactSelectorIndex by remember(compactSelectorPreview) {
+        derivedStateOf { compactSelectorPreview.value ?: compactSelectorPosition.value }
     }
 
     /**

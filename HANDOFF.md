@@ -65,6 +65,17 @@ cancelled, boundary, and reverse gestures. Use the zoom handle semantics
 validation requires an explicit request and must not be inferred from emulator
 results.
 
+### Week-strip selector handoff fixed — 2026-09-08
+
+- Releasing a day swipe no longer snaps the compact week pill back to the
+  previous weekday before animating to the committed one. The live preview
+  now seeds the selector spring while the drag is in flight, so when the
+  settle consumes the gesture the spring's resting value already matches the
+  previewed position and the pill simply continues into its settle.
+- Verified by frame-tracking a screen recording of the pill's x-centre: the
+  previous build ran 107 → 251, jumped back to 108, then re-animated to 251;
+  the current build is monotonic with no reversal.
+
 ### Agenda root view added — 2026-09-08
 
 - Agenda is its own root destination (`PockRoute.Agenda`), separate from the
