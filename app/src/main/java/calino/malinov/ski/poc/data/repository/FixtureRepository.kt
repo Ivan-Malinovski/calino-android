@@ -27,7 +27,17 @@ data class CalinoCalendar(val id: String, val name: String, val color: Long)
 sealed interface SyncState {
     data object Idle : SyncState
     data object Loading : SyncState
-    data class Ready(val fetchedAt: java.time.Instant, val partial: Boolean = false) : SyncState
+    /**
+     * [warnings] name what could not be read, in words a person can act on.
+     * A read that is short of the whole calendar must say which part is
+     * missing -- reporting it as complete is the worse failure.
+     */
+    data class Ready(
+        val fetchedAt: java.time.Instant,
+        val warnings: List<String> = emptyList(),
+    ) : SyncState {
+        val partial: Boolean get() = warnings.isNotEmpty()
+    }
     data class Failed(val message: String, val hadPreviousData: Boolean = false) : SyncState
 }
 

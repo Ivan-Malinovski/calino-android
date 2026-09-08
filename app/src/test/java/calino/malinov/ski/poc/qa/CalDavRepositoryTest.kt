@@ -84,11 +84,29 @@ class CalDavRepositoryTest {
         MockResponse().setResponseCode(207).setBody(body)
             .setHeader("Content-Type", "application/xml; charset=utf-8")
 
-    private fun enqueueAll() {
-        server.enqueue(multiStatus(CalDavFixtures.Events))
-        server.enqueue(multiStatus(CalDavFixtures.Todos))
-        server.enqueue(multiStatus(CalDavFixtures.Journals))
+    /**
+     * Serves each component its own fixture, routed by the query body, since
+     * the three component queries run concurrently and an event query may
+     * retry without expand.
+     */
+    private fun serveAll(
+        events: MockResponse = multiStatus(CalDavFixtures.Events),
+        todos: MockResponse = multiStatus(CalDavFixtures.Todos),
+        journals: MockResponse = multiStatus(CalDavFixtures.Journals),
+    ) {
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                return when {
+                    body.contains("VTODO") -> todos
+                    body.contains("VJOURNAL") -> journals
+                    else -> events
+                }
+            }
+        }
     }
+
+    private fun enqueueAll() = serveAll()
 
     // --- the observe contract -------------------------------------------------
 
@@ -144,7 +162,11 @@ class CalDavRepositoryTest {
         val loaded = repository.snapshot().events.size
         assertTrue(loaded > 0)
 
-        repeat(3) { server.enqueue(MockResponse().setResponseCode(500)) }
+        serveAll(
+            events = MockResponse().setResponseCode(500),
+            todos = MockResponse().setResponseCode(500),
+            journals = MockResponse().setResponseCode(500),
+        )
         repository.refresh()
         val sync = repository.awaitSync()
         assertTrue("expected a failure, got $sync", sync is SyncState.Failed)
@@ -157,7 +179,7 @@ class CalDavRepositoryTest {
     @Test
     fun `an expand-ignoring server marks the result partial`() = runBlocking {
         val repository = repository()
-        server.enqueue(multiStatus(
+        serveAll(events = multiStatus(
             """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
                  <response><href>/cal/s.ics</href><propstat><prop><getetag>"e"</getetag>
                  <C:calendar-data>BEGIN:VCALENDAR
@@ -172,12 +194,16 @@ END:VCALENDAR
 </C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>
                </multistatus>"""
         ))
-        repository.setSources(listOf(source(calendar().copy(components = setOf("VEVENT")))))
+        repository.setSources(listOf(source(calendar())))
         repository.awaitSync()
 
         val sync = repository.snapshot().sync
         assertTrue(sync is SyncState.Ready)
         assertTrue("an unexpanded series is an incomplete answer", (sync as SyncState.Ready).partial)
+        assertTrue(
+            "the warning must name what is missing: ${sync.warnings}",
+            sync.warnings.any { it.contains("repeating", ignoreCase = true) },
+        )
     }
 
     // --- what the snapshot contains -------------------------------------------

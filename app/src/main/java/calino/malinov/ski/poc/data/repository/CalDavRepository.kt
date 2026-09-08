@@ -98,7 +98,7 @@ class CalDavRepository(
                     // A refetch is the server's answer, so local-only edits
                     // made against the previous answer no longer apply.
                     overlay.clear()
-                    syncState = SyncState.Ready(Instant.now(), partial = loaded.partial)
+                    syncState = SyncState.Ready(Instant.now(), warnings = loaded.warnings)
                     publish()
                 }
                 .onFailure { error ->
@@ -112,31 +112,39 @@ class CalDavRepository(
         }
     }
 
-    private data class Loaded(val data: FetchedData, val partial: Boolean)
+    private data class Loaded(val data: FetchedData, val warnings: List<String>)
 
     private suspend fun loadAll(start: LocalDate, end: LocalDate): Loaded = withContext(ioDispatcher) {
         val events = mutableListOf<CalEvent>()
         val tasks = mutableListOf<CalTask>()
         val journals = mutableListOf<JournalEntry>()
-        var partial = false
+        val warnings = mutableListOf<String>()
         var anySucceeded = false
         var lastError: Throwable? = null
 
         sources.forEach { source ->
+            val name = source.calendar.displayName
             runCatching { fetcher.fetch(source.calendar, source.credentials, start, end) }
                 .onSuccess { result ->
                     anySucceeded = true
                     events += result.events
                     tasks += result.tasks
                     journals += result.journals
-                    if (result.hadComponentFailures || result.expandUnsupported) partial = true
+                    result.failures.forEach { warnings += "$name -- ${it.describe()}" }
+                    if (result.expandUnsupported) {
+                        warnings += "$name -- the server did not expand repeating events, " +
+                            "so a repeating event shows only on its first date."
+                    }
                 }
-                .onFailure { lastError = it }
+                .onFailure { error ->
+                    lastError = error
+                    warnings += "$name -- ${calDavErrorForThrowable(error, source.calendar.url).message}"
+                }
         }
 
         // One unreachable calendar should not blank the others.
         if (!anySucceeded) throw (lastError ?: IllegalStateException("No calendars could be read."))
-        Loaded(FetchedData(events, tasks, journals), partial || lastError != null)
+        Loaded(FetchedData(events, tasks, journals), warnings)
     }
 
     // --- writes: local overlay only -------------------------------------------

@@ -45,11 +45,39 @@ class CalDavFetcherTest {
         MockResponse().setResponseCode(207).setBody(body)
             .setHeader("Content-Type", "application/xml; charset=utf-8")
 
-    private fun enqueueAll() {
-        server.enqueue(multiStatus(CalDavFixtures.Events))
-        server.enqueue(multiStatus(CalDavFixtures.Todos))
-        server.enqueue(multiStatus(CalDavFixtures.Journals))
+    /**
+     * Serves each component its own fixture, routed by the query body.
+     *
+     * The three component queries run concurrently, so a plain enqueued queue
+     * would hand responses out in arrival order and match them to the wrong
+     * component from run to run.
+     */
+    /** Request bodies seen by [serveAll], in arrival order. */
+    private val seenBodies = java.util.Collections.synchronizedList(mutableListOf<String>())
+    private val seenAuth = java.util.Collections.synchronizedList(mutableListOf<String?>())
+
+    private fun serveAll(
+        events: MockResponse = multiStatus(CalDavFixtures.Events),
+        todos: MockResponse = multiStatus(CalDavFixtures.Todos),
+        journals: MockResponse = multiStatus(CalDavFixtures.Journals),
+    ) {
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                // The body is read here to route, which drains it; record it so
+                // assertions can inspect the query that was actually sent.
+                val body = request.body.readUtf8()
+                seenBodies += body
+                seenAuth += request.getHeader("Authorization")
+                return when {
+                    body.contains("VTODO") -> todos
+                    body.contains("VJOURNAL") -> journals
+                    else -> events
+                }
+            }
+        }
     }
+
+    private fun enqueueAll() = serveAll()
 
     @Test
     fun `a full fetch returns events tasks and journals`() = runBlocking {
@@ -75,54 +103,62 @@ class CalDavFetcherTest {
     }
 
     @Test
-    fun `only advertised components are requested`() = runBlocking {
-        server.enqueue(multiStatus(CalDavFixtures.Events))
-        fetcher().fetch(calendar(components = setOf("VEVENT")), credentials, windowStart, windowEnd)
-        assertEquals("a VEVENT-only calendar should be asked once", 1, server.requestCount)
+    fun `a calendar advertising only tasks is still asked for its events`() = runBlocking {
+        // The Baikal regression. A calendar may advertise VTODO only in
+        // supported-calendar-component-set and still hold events; a calendar
+        // created by a task app commonly does. Gating the event query on that
+        // property hid the whole calendar and, since nothing had failed,
+        // reported the empty result as complete.
+        enqueueAll()
+        val result = fetcher().fetch(
+            calendar(components = setOf("VTODO")),
+            credentials, windowStart, windowEnd,
+        )
+
+        assertEquals("all three components must be requested", 3, server.requestCount)
+        assertTrue("events must be read from a VTODO-only calendar", result.events.isNotEmpty())
+        assertTrue(result.tasks.isNotEmpty())
     }
 
     @Test
     fun `a calendar advertising nothing is asked for all three components`() = runBlocking {
         enqueueAll()
-        // Absent metadata is not a statement that the calendar is empty.
         fetcher().fetch(calendar(components = emptySet()), credentials, windowStart, windowEnd)
         assertEquals(3, server.requestCount)
     }
 
     @Test
     fun `the event query asks the server to expand recurrence`() = runBlocking {
-        server.enqueue(multiStatus(CalDavFixtures.Events))
-        fetcher().fetch(calendar(components = setOf("VEVENT")), credentials, windowStart, windowEnd)
+        enqueueAll()
+        fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
         val request = server.takeRequest()
-        val body = request.body.readUtf8()
         assertEquals("REPORT", request.method)
         assertEquals("1", request.getHeader("Depth"))
-        assertTrue("the query must ask for expansion", body.contains("<c:expand"))
-        assertTrue(body.contains("""start="20260901T000000Z""""))
-        assertTrue(body.contains("""end="20261001T000000Z""""))
+
+        val eventQuery = seenBodies.first { it.contains("""name="VEVENT"""") }
+        assertTrue("the query must ask for expansion", eventQuery.contains("<c:expand"))
+        assertTrue(eventQuery.contains("""start="20260901T000000Z""""))
+        assertTrue(eventQuery.contains("""end="20261001T000000Z""""))
     }
 
     @Test
     fun `the task query is neither time-ranged nor expanded`() = runBlocking {
-        server.enqueue(multiStatus(CalDavFixtures.Todos))
-        fetcher().fetch(calendar(components = setOf("VTODO")), credentials, windowStart, windowEnd)
+        enqueueAll()
+        fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
-        val body = server.takeRequest().body.readUtf8()
+        val body = seenBodies.first { it.contains("""name="VTODO"""") }
         // A VTODO may carry no DTSTART or DUE at all, and a time-range filter
         // drops exactly those. This server also ignores expand for VTODO.
         assertFalse("tasks must not be time-ranged", body.contains("time-range"))
         assertFalse("tasks must not be expanded", body.contains("expand"))
-        assertTrue(body.contains("""name="VTODO""""))
     }
 
     @Test
     fun `one component failing does not lose the others`() = runBlocking {
         // The regression this guards: an erroring task query used to abort the
         // whole fetch and drop every event with it.
-        server.enqueue(multiStatus(CalDavFixtures.Events))
-        server.enqueue(MockResponse().setResponseCode(500))
-        server.enqueue(multiStatus(CalDavFixtures.Journals))
+        serveAll(todos = MockResponse().setResponseCode(500))
 
         val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
@@ -130,11 +166,17 @@ class CalDavFetcherTest {
         assertTrue(result.journals.isNotEmpty())
         assertTrue(result.tasks.isEmpty())
         assertTrue("a partial result must say so", result.hadComponentFailures)
+        // And it must say *what* is missing, not merely that something is.
+        val described = result.failures.joinToString { it.describe() }
+        assertTrue("the failure should name the tasks: $described", described.contains("Tasks"))
     }
 
     @Test
     fun `every component failing surfaces the error`() = runBlocking {
-        repeat(3) { server.enqueue(MockResponse().setResponseCode(401)) }
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
+                MockResponse().setResponseCode(401)
+        }
         val error = runCatching {
             fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
         }.exceptionOrNull()
@@ -160,9 +202,8 @@ END:VCALENDAR
 </C:calendar-data>
               </prop><status>HTTP/1.1 200 OK</status></propstat></response>
             </multistatus>"""
-        server.enqueue(multiStatus(unexpanded))
-
-        val result = fetcher().fetch(calendar(setOf("VEVENT")), credentials, windowStart, windowEnd)
+        serveAll(events = multiStatus(unexpanded))
+        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
         assertTrue(
             "a surviving RRULE means the whole series is showing as one event",
@@ -172,12 +213,40 @@ END:VCALENDAR
     }
 
     @Test
+    fun `a server that rejects expand still returns its events`() = runBlocking {
+        // Falling back to an unexpanded query keeps recurring events showing
+        // only on their first date -- reported via expandUnsupported -- rather
+        // than showing no events at all.
+        var firstEventQuery = true
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                return when {
+                    body.contains("VTODO") -> multiStatus(CalDavFixtures.Todos)
+                    body.contains("VJOURNAL") -> multiStatus(CalDavFixtures.Journals)
+                    body.contains("expand") && firstEventQuery -> {
+                        firstEventQuery = false
+                        MockResponse().setResponseCode(400)
+                    }
+                    else -> multiStatus(CalDavFixtures.Events)
+                }
+            }
+        }
+
+        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+
+        assertTrue("the fallback must recover the events", result.events.isNotEmpty())
+        assertTrue("and must report that recurrence is not expanded", result.expandUnsupported)
+        assertFalse("the fallback succeeded, so this is not a failure", result.hadComponentFailures)
+    }
+
+    @Test
     fun `a recurring task is reported as expanded even though events are not`() = runBlocking {
         // This server ignores expand for VTODO, so 'Water the plants' arrives
         // with its RRULE intact. That must not be mistaken for a server that
         // cannot expand events.
-        server.enqueue(multiStatus(CalDavFixtures.Todos))
-        val result = fetcher().fetch(calendar(setOf("VTODO")), credentials, windowStart, windowEnd)
+        serveAll()
+        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
         assertTrue(result.tasks.any { it.title == "Water the plants" })
         assertFalse(
@@ -187,10 +256,49 @@ END:VCALENDAR
     }
 
     @Test
+    fun `a sabre server that crashes on expand still returns its events`() = runBlocking {
+        // The Baikal regression, in the server's own words. sabre parses the
+        // collection's calendar-timezone property while expanding; a calendar
+        // holding a bare TZID there instead of a whole VCALENDAR makes the
+        // expanded query 500, which used to take every event with it and leave
+        // a calendar showing only its tasks.
+        val sabreError = MockResponse().setResponseCode(500).setBody(
+            """<?xml version="1.0" encoding="utf-8"?>
+<d:error xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
+  <s:sabredav-version>4.7.0</s:sabredav-version>
+  <s:exception>Sabre\VObject\ParseException</s:exception>
+  <s:message>This parser only supports VCARD and VCALENDAR files</s:message>
+</d:error>""",
+        )
+        var firstEventQuery = true
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                return when {
+                    body.contains("VTODO") -> multiStatus(CalDavFixtures.Todos)
+                    body.contains("VJOURNAL") -> multiStatus(CalDavFixtures.Journals)
+                    body.contains("expand") && firstEventQuery -> {
+                        firstEventQuery = false
+                        sabreError
+                    }
+                    else -> multiStatus(CalDavFixtures.Events)
+                }
+            }
+        }
+
+        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+
+        assertTrue("the events must survive the server's crash", result.events.isNotEmpty())
+        assertTrue(result.events.any { it.title == "Day off" })
+        assertTrue(result.tasks.isNotEmpty())
+        assertTrue("and the loss of expansion must be reported", result.expandUnsupported)
+    }
+
+    @Test
     fun `credentials are sent as basic auth on every request`() = runBlocking {
-        server.enqueue(multiStatus(CalDavFixtures.Events))
-        fetcher().fetch(calendar(setOf("VEVENT")), credentials, windowStart, windowEnd)
-        val header = server.takeRequest().getHeader("Authorization")
-        assertEquals("Basic dGVzdC11c2VyOnRlc3QtcGFzcw==", header)
+        enqueueAll()
+        fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+        assertEquals(3, seenAuth.size)
+        assertTrue(seenAuth.all { it == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw==" })
     }
 }

@@ -223,7 +223,9 @@ private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
         is SyncState.Ready -> {
             val stamp = remember(state.fetchedAt) { formatSyncTime(state.fetchedAt) }
             if (state.partial) {
-                "Updated $stamp" to "Some of this account could not be read in full."
+                // Name what is missing. "Some of this could not be read" left
+                // the user to guess which part of their calendar was absent.
+                "Updated $stamp, with gaps" to state.warnings.joinToString("\n")
             } else {
                 "Updated $stamp" to "Events, tasks and journal entries are current."
             }
@@ -234,8 +236,9 @@ private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
                 if (state.hadPreviousData) append(" Showing the last data that was read.")
             }
     }
-    val accent = when (state) {
-        is SyncState.Failed -> CalinoColors.Rose
+    val accent = when {
+        state is SyncState.Failed -> CalinoColors.Rose
+        state is SyncState.Ready && state.partial -> CalinoColors.Rose
         else -> CalinoColors.Ink3
     }
 

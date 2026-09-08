@@ -63,11 +63,29 @@ class CalDavLiveTest {
             fetcher.fetch(calendar, credentials(), today.minusMonths(6), today.plusMonths(6))
         }
 
-        assertTrue("no calendar returned anything", results.any { !it.isEmpty })
-        assertFalse(
-            "the server ignored expand; recurring events would render as one",
-            results.any { it.expandUnsupported },
+        // Deliberately per-kind. Asserting only "something came back" passes
+        // when every event is missing but a single task arrives -- which is
+        // exactly the shape a broken event query produces.
+        val events = results.flatMap { it.events }
+        val tasks = results.flatMap { it.tasks }
+        val journals = results.flatMap { it.journals }
+        println(
+            "LIVE: ${account.calendars.size} calendars, " +
+                "${events.size} events, ${tasks.size} tasks, ${journals.size} journals, " +
+                "componentFailures=${results.any { it.hadComponentFailures }}, " +
+                "expandUnsupported=${results.any { it.expandUnsupported }}",
         )
+        account.calendars.forEach { println("LIVE:   ${it.displayName} components=${it.components} url=${it.url}") }
+
+        assertFalse(
+            "a component query failed; the result is not the whole calendar",
+            results.any { it.hadComponentFailures },
+        )
+        assertTrue("no calendar returned anything", results.any { !it.isEmpty })
+        assertTrue("no events were read", events.isNotEmpty())
+        // Not asserted: expandUnsupported. A server may legitimately refuse to
+        // expand, and the fallback still returns the events -- which is the
+        // property that matters here.
         results.flatMap { it.events }.forEach { event ->
             assertTrue("every event needs a title", event.title.isNotBlank())
             assertTrue("every fetched event needs a UID", event.uid != null)

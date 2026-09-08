@@ -18,15 +18,29 @@ data class FetchResult(
     val tasks: List<CalTask> = emptyList(),
     val journals: List<JournalEntry> = emptyList(),
     /**
-     * True when at least one component query failed while another succeeded.
-     * A partial result must never be treated as authoritative -- it is a view,
-     * not a statement about what the server no longer holds.
+     * Component queries that failed while another succeeded. A partial result
+     * must never be treated as authoritative -- it is a view, not a statement
+     * about what the server no longer holds.
      */
-    val hadComponentFailures: Boolean = false,
+    val failures: List<ComponentFailure> = emptyList(),
     /** True when the server returned VEVENTs that still carry an RRULE. */
     val expandUnsupported: Boolean = false,
 ) {
     val isEmpty: Boolean get() = events.isEmpty() && tasks.isEmpty() && journals.isEmpty()
+    val hadComponentFailures: Boolean get() = failures.isNotEmpty()
+}
+
+/** One component query that did not come back, and why. */
+data class ComponentFailure(val component: String, val error: CalDavException) {
+    /** Phrased for a person: "events (the server rejected...)". */
+    fun describe(): String = "${componentLabel(component)}: ${error.message}"
+
+    private fun componentLabel(component: String) = when (component) {
+        "VEVENT" -> "Events"
+        "VTODO" -> "Tasks"
+        "VJOURNAL" -> "Journal entries"
+        else -> component
+    }
 }
 
 /** Reads events, tasks and journal entries out of calendar collections. */
@@ -41,26 +55,35 @@ class CalDavFetcher(
         windowStart: LocalDate,
         windowEnd: LocalDate,
     ): FetchResult = supervisorScope {
-        // An absent supported-calendar-component-set is not a statement that
-        // the calendar holds nothing; terse servers omit it. Try all three.
-        val advertised = calendar.components
-        fun supports(component: String) = advertised.isEmpty() || component in advertised
-
-        val requests = buildList {
-            if (supports(Vevent)) add(async { runCatching { fetchEvents(calendar, credentials, windowStart, windowEnd) } })
-            if (supports(Vtodo)) add(async { runCatching { fetchTasks(calendar, credentials) } })
-            if (supports(Vjournal)) add(async { runCatching { fetchJournals(calendar, credentials) } })
-        }
+        // Every component is requested regardless of what the collection
+        // advertises in supported-calendar-component-set.
+        //
+        // That property is a hint, not a guarantee about content. Baikal lets a
+        // calendar advertise a narrow set -- a calendar created by a task app
+        // commonly reports VTODO only -- while still holding events that a
+        // plain query returns perfectly well. Gating on it silently hid the
+        // user's entire calendar and, because nothing had *failed*, reported
+        // the result as complete. One extra request that comes back empty is
+        // far cheaper than that.
+        val requests = listOf(
+            async { Vevent to runCatching { fetchEvents(calendar, credentials, windowStart, windowEnd) } },
+            async { Vtodo to runCatching { fetchTasks(calendar, credentials) } },
+            async { Vjournal to runCatching { fetchJournals(calendar, credentials) } },
+        )
 
         val settled = requests.awaitAll()
-        val succeeded = settled.mapNotNull { it.getOrNull() }
-        val failed = settled.count { it.isFailure }
+        val succeeded = settled.mapNotNull { it.second.getOrNull() }
+        val failures = settled.mapNotNull { (component, result) ->
+            result.exceptionOrNull()?.let { error ->
+                ComponentFailure(component, calDavErrorForThrowable(error, calendar.url))
+            }
+        }
 
         // Fail only when everything failed. Letting one component's failure
         // abort the whole fetch used to drop every event whenever a calendar's
         // empty task query errored.
         if (succeeded.isEmpty()) {
-            settled.firstOrNull()?.exceptionOrNull()?.let { throw it }
+            failures.firstOrNull()?.let { throw it.error }
             return@supervisorScope FetchResult()
         }
 
@@ -68,7 +91,7 @@ class CalDavFetcher(
             events = succeeded.flatMap { it.events },
             tasks = succeeded.flatMap { it.tasks },
             journals = succeeded.flatMap { it.journals },
-            hadComponentFailures = failed > 0,
+            failures = failures,
             expandUnsupported = succeeded.any { it.expandUnsupported },
         )
     }
@@ -102,7 +125,24 @@ class CalDavFetcher(
     </c:comp-filter>
   </c:filter>
 </c:calendar-query>"""
-        return report(calendar, credentials, body)
+        return runCatching { report(calendar, credentials, body) }.getOrElse { expandError ->
+            // Some servers reject <c:expand> outright. Falling back to an
+            // unexpanded query means recurring events arrive as their master
+            // only -- which the expandUnsupported flag then reports -- but that
+            // is far better than the alternative of showing no events at all.
+            val plain = """<?xml version="1.0" encoding="UTF-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop><d:getetag/><c:calendar-data/></d:prop>
+  <c:filter>
+    <c:comp-filter name="VCALENDAR">
+      <c:comp-filter name="VEVENT"><c:time-range start="$start" end="$end"/></c:comp-filter>
+    </c:comp-filter>
+  </c:filter>
+</c:calendar-query>"""
+            runCatching { report(calendar, credentials, plain) }
+                .getOrElse { throw expandError }
+                .copy(expandUnsupported = true)
+        }
     }
 
     /**
