@@ -70,9 +70,10 @@ import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.NewJournal
 import calino.malinov.ski.poc.data.model.NewTask
+import calino.malinov.ski.poc.data.model.EditorDraft
+import calino.malinov.ski.poc.data.model.blankEditorDraft
+import calino.malinov.ski.poc.data.model.editorDraftFor
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
-import calino.malinov.ski.poc.data.parser.parseQuickAdd
-import calino.malinov.ski.poc.data.parser.toQuickAddDraft
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.FixtureRepository
@@ -95,6 +96,7 @@ import calino.malinov.ski.poc.ui.surfaces.PockRoute
 import calino.malinov.ski.poc.ui.surfaces.QuickAddKind
 import calino.malinov.ski.poc.ui.surfaces.QuickAddSheet
 import calino.malinov.ski.poc.ui.surfaces.QuickAddSheetState
+import calino.malinov.ski.poc.ui.surfaces.toParserKind
 import calino.malinov.ski.poc.ui.surfaces.JournalSurface
 import calino.malinov.ski.poc.ui.surfaces.SettingsSurface
 import calino.malinov.ski.poc.ui.surfaces.Tasks
@@ -227,7 +229,16 @@ fun CalinoApp() {
             )
 
         fun openQuickAdd(kind: QuickAddKind, origin: PocReturnTarget) {
+            editEventId = null
             quickAddKind = kind
+            quickAddOrigin = origin
+            route = PockRoute.QuickAdd
+        }
+
+        /** The same editor, seeded from a record that already exists. */
+        fun openEditor(event: CalEvent, origin: PocReturnTarget) {
+            editEventId = event.id
+            quickAddKind = QuickAddKind.Event
             quickAddOrigin = origin
             route = PockRoute.QuickAdd
         }
@@ -257,6 +268,7 @@ fun CalinoApp() {
         }
 
         fun dismissQuickAdd() {
+            editEventId = null
             when (quickAddOrigin) {
                 PocReturnTarget.DayModal -> {
                     route = PockRoute.Day
@@ -301,8 +313,6 @@ fun CalinoApp() {
             undoNonce += 1
         }
 
-        // EventEditDialog is a platform Dialog and owns its back gesture so
-        // its exit animation can finish before editEventId is cleared.
         BackHandler(enabled = sidebarVisible || (route != PockRoute.Detail && route != PockRoute.TaskDetail &&
             !journalEditorVisible && (journalReviewVisible || route != PockRoute.Day || showDayModal))) {
             when {
@@ -482,23 +492,19 @@ fun CalinoApp() {
                                 .ifEmpty { listOf(event) }
                         },
                         onEventSelected = { selectedEventId = it.id },
-                        onEditEvent = { editEventId = it.id },
+                        onEditEvent = { openEditor(it, PocReturnTarget.Detail) },
                         occurrenceDate = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay),
                         onBack = {
                             selectedEventId = null
                             selectedEventOccurrenceDay = null
                             restoreDetailOrigin()
                         },
-                        // Editing is an overlay state. Leave the
-                        // detail destination mounted so its surface
-                        // never blanks while the animated dialog is
-                        // entering or exiting.
+                        // The editor is an overlay route, so the selected
+                        // event stays set and a save lands back on this
+                        // detail surface.
                         onPrimaryAction = {
-                            // Keep the detail destination mounted;
-                            // the editor is an animated overlay, not
-                            // a replacement for this surface.
                             selectedEventId = event.id
-                            editEventId = event.id
+                            openEditor(event, PocReturnTarget.Detail)
                         },
                     )
                 }
@@ -550,49 +556,31 @@ fun CalinoApp() {
 
             when (route) {
                 PockRoute.QuickAdd -> {
+                    val editing = editEventId?.let { id -> snapshot.events.firstOrNull { it.id == id } }
                     QuickAddSheet(
-                        state = QuickAddSheetState(visible = true, kind = quickAddKind, date = selectedDate),
+                        state = QuickAddSheetState(
+                            visible = true,
+                            kind = quickAddKind,
+                            date = selectedDate,
+                            draft = editing
+                                ?.let(::editorDraftFor)
+                                ?: blankEditorDraft(quickAddKind.toParserKind(), selectedDate),
+                        ),
+                        calendars = snapshot.calendars,
+                        categories = snapshot.categories,
+                        relatedCandidates = remember(snapshot.tasks) {
+                            snapshot.tasks.filterNot { it.done }.map { it.id to it.title }
+                        },
                         onDismiss = ::dismissQuickAdd,
-                        // The surfaces editor calls the legacy callback for
-                        // compatibility and the draft callback with its
-                        // edited chips. Persist only the latter so date/time,
-                        // location and color changes are not discarded and a
-                        // save cannot create duplicate records.
-                        onSave = { _, _ -> },
-                        onSaveDraft = { draft, color ->
-                            val parsed = parseQuickAdd(
-                                kind = draft.kind,
-                                input = draft.body,
-                                baseDate = selectedDate,
-                            ).copy(
-                                date = draft.date,
-                                time = draft.time,
-                                durationMinutes = draft.durationMinutes,
-                                location = draft.location,
-                                body = draft.body,
-                            )
-                            when (draft.kind) {
-                                PocQuickAddKind.Event -> repository.addEvent(
-                                    NewEvent(
-                                        title = draft.title,
-                                        date = parsed.date,
-                                        startTime = parsed.time,
-                                        durationMinutes = parsed.durationMinutes ?: 60,
-                                        allDay = parsed.time == null,
-                                        color = color,
-                                        location = parsed.location,
-                                    ),
-                                )
-                                PocQuickAddKind.Task -> repository.addTask(
-                                    NewTask(title = draft.title, due = parsed.date, color = color),
-                                )
-                                PocQuickAddKind.Journal -> {
-                                    repository.addJournal(NewJournal(parsed.date, draft.title, draft.body))
-                                    journalReviewVisible = false
-                                    route = PockRoute.Journal
-                                }
+                        // The editor owns every field now, so the host only
+                        // decides between creating and updating a record.
+                        onSave = { draft ->
+                            saveEditorDraft(repository, draft)
+                            if (draft.kind == PocQuickAddKind.Journal) {
+                                journalReviewVisible = false
+                                quickAddOrigin = PocReturnTarget.Journal
                             }
-                            selectedDate = parsed.date
+                            selectedDate = draft.date
                             dismissQuickAdd()
                         },
                     )
@@ -673,18 +661,6 @@ fun CalinoApp() {
                 journals = snapshot.journals,
                 onDismiss = { journalReviewVisible = false },
             )
-        }
-        editEventId?.let { eventId ->
-            snapshot.events.firstOrNull { it.id == eventId }?.let { event ->
-                EventEditDialog(
-                    event = event,
-                    onDismiss = { editEventId = null },
-                    onSave = { updated ->
-                        repository.updateEvent(event.id, updated)
-                        editEventId = null
-                    },
-                )
-            }
         }
     }
 }
@@ -769,108 +745,20 @@ private fun JournalReviewDialog(journals: List<JournalEntry>, onDismiss: () -> U
     }
 }
 
-@Composable
-private fun EventEditDialog(
-    event: CalEvent,
-    onDismiss: () -> Unit,
-    onSave: (NewEvent) -> Unit,
-) {
-    val initial = remember(event.id) { event.toQuickAddDraft() }
-    var title by remember(event.id) { mutableStateOf(initial.title) }
-    var location by remember(event.id) { mutableStateOf(initial.location.orEmpty()) }
-    var shown by remember(event.id) { mutableStateOf(true) }
-    var pendingSave by remember(event.id) { mutableStateOf<NewEvent?>(null) }
-
-    LaunchedEffect(shown) {
-        if (!shown) {
-            delay(220)
-            pendingSave?.let(onSave) ?: onDismiss()
+/** Routes a finished draft to the add or update call for its kind. */
+private fun saveEditorDraft(repository: CalinoRepository, draft: EditorDraft) {
+    val id = draft.editingId
+    when (draft.kind) {
+        PocQuickAddKind.Event ->
+            if (id == null) repository.addEvent(draft.toNewEvent())
+            else repository.updateEvent(id, draft.toNewEvent())
+        PocQuickAddKind.Task -> {
+            val done = id?.let { taskId -> repository.tasks().firstOrNull { it.id == taskId }?.done } ?: false
+            if (id == null) repository.addTask(draft.toNewTask())
+            else repository.updateTask(id, draft.toNewTask(), done)
         }
+        PocQuickAddKind.Journal ->
+            if (id == null) repository.addJournal(draft.toNewJournal())
+            else repository.updateJournal(id, draft.toNewJournal())
     }
-
-    fun dismissAnimated() {
-        if (shown) shown = false
-    }
-
-    Dialog(onDismissRequest = ::dismissAnimated) {
-        AnimatedVisibility(
-            visible = shown,
-            enter = slideInVertically(tween(220), initialOffsetY = { it / 3 }) + fadeIn(tween(170)),
-            exit = slideOutVertically(tween(210), targetOffsetY = { it / 3 }) + fadeOut(tween(150)),
-        ) {
-        SwipeDownDismiss(
-            visible = shown,
-            onDismiss = ::dismissAnimated,
-            modifier = Modifier.fillMaxWidth(),
-            dismissDistance = 520.dp,
-        ) { dialogModifier ->
-            Surface(shape = RoundedCornerShape(24.dp), color = CalinoColors.Panel, modifier = dialogModifier) {
-                Column(Modifier.padding(20.dp)) {
-                androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Edit event", style = CalinoTypography.titleLarge)
-                        Text("Existing event · ${initial.date.format(DateLabel)}", color = CalinoColors.Ink3, fontSize = 11.sp)
-                    }
-                    IconButton(onClick = ::dismissAnimated) { Text("×", fontSize = 22.sp, color = CalinoColors.Ink2) }
-                }
-                TextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                    label = { Text("Title") },
-                    singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = CalinoColors.Canvas,
-                        unfocusedContainerColor = CalinoColors.Canvas,
-                        focusedIndicatorColor = CalinoColors.Accent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                )
-                TextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    label = { Text("Location") },
-                    singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = CalinoColors.Canvas,
-                        unfocusedContainerColor = CalinoColors.Canvas,
-                        focusedIndicatorColor = CalinoColors.Accent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                )
-                Text(
-                    text = initial.time?.let { "${initial.date.format(DateLabel)} · $it · ${initial.durationMinutes ?: 60} min" } ?: "All day · ${initial.date.format(DateLabel)}",
-                    color = CalinoColors.Ink2,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 14.dp),
-                )
-                Spacer(Modifier.height(14.dp))
-                Button(
-                    enabled = title.trim().isNotEmpty(),
-                    onClick = {
-                        pendingSave = NewEvent(
-                                title = title.trim(),
-                                date = initial.date,
-                                startTime = initial.time,
-                                durationMinutes = initial.durationMinutes,
-                                allDay = initial.time == null,
-                                color = event.color,
-                                recurrence = event.recurrence,
-                                location = location.trim().ifEmpty { null },
-                                notes = event.notes,
-                                attendees = event.attendees,
-                                calendarId = event.calendarId,
-                        )
-                        dismissAnimated()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                ) { Text("Save changes") }
-                }
-            }
-        }
-    }
-}
 }

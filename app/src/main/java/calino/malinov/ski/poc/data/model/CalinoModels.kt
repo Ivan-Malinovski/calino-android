@@ -10,6 +10,12 @@ import java.util.Locale
 /** Visual-POC data contract; persistence and sync are intentionally deferred. */
 data class Attendee(val name: String, val email: String)
 
+/** A single alarm expressed as lead time before the record's start. */
+data class Reminder(val minutesBefore: Int)
+
+/** Free/busy transparency. The POC keeps it to the two states a person picks. */
+enum class Availability { Busy, Free }
+
 data class CalEvent(
     val id: String,
     val title: String,
@@ -24,6 +30,12 @@ data class CalEvent(
     val calendarId: String,
     /** Explicit placement for all-day records; null means no all-day date. */
     val date: LocalDate? = null,
+    val availability: Availability = Availability.Busy,
+    val categories: List<String> = emptyList(),
+    val reminders: List<Reminder> = emptyList(),
+    val travelTimeMinutes: Int? = null,
+    /** Task ids this event was attached to in the editor. */
+    val relatedTo: List<String> = emptyList(),
 )
 
 /** Date-aware event matching shared by calendar and day-modal renderers. */
@@ -33,7 +45,7 @@ fun CalEvent.occursOn(day: LocalDate): Boolean {
     val fields = recurrence?.uppercase(Locale.US)?.split(';')?.mapNotNull { part ->
         part.indexOf('=').takeIf { it > 0 }?.let { separator -> part.substring(0, separator) to part.substring(separator + 1) }
     }?.toMap() ?: return false
-    if (fields["FREQ"] != "WEEKLY" || day.isBefore(anchor)) return false
+    if (day.isBefore(anchor)) return false
     val until = fields["UNTIL"]?.removeSuffix("Z")?.let { value ->
         runCatching {
             when (value.length) {
@@ -44,9 +56,20 @@ fun CalEvent.occursOn(day: LocalDate): Boolean {
         }.getOrNull()
     }
     if (until != null && day.isAfter(until)) return false
-    val defaultDay = anchor.dayOfWeek
-    val weekdays = fields["BYDAY"]?.split(',')?.mapNotNull(::dayOfWeekForCode)?.toSet().orEmpty().ifEmpty { setOf(defaultDay) }
-    return day.dayOfWeek in weekdays
+    return when (fields["FREQ"]) {
+        "DAILY" -> true
+        "WEEKLY" -> {
+            val weekdays = fields["BYDAY"]?.split(',')?.mapNotNull(::dayOfWeekForCode)?.toSet().orEmpty()
+                .ifEmpty { setOf(anchor.dayOfWeek) }
+            day.dayOfWeek in weekdays
+        }
+        // A day-of-month anchor past the length of a shorter month falls on
+        // that month's last day rather than skipping the month entirely.
+        "MONTHLY" -> day.dayOfMonth == anchor.dayOfMonth.coerceAtMost(day.lengthOfMonth())
+        "YEARLY" -> day.monthValue == anchor.monthValue &&
+            day.dayOfMonth == anchor.dayOfMonth.coerceAtMost(day.lengthOfMonth())
+        else -> false
+    }
 }
 
 private fun dayOfWeekForCode(code: String): DayOfWeek? = when (code.trim()) {
@@ -69,6 +92,9 @@ data class CalTask(
     val due: LocalDate?,
     val done: Boolean = false,
     val category: String? = null,
+    val dueTime: LocalTime? = null,
+    val notes: String? = null,
+    val reminder: Reminder? = null,
 )
 
 data class JournalEntry(val id: String, val date: LocalDate, val title: String, val body: String)
@@ -85,6 +111,11 @@ data class NewEvent(
     val notes: String? = null,
     val attendees: List<Attendee> = emptyList(),
     val calendarId: String = "personal",
+    val availability: Availability = Availability.Busy,
+    val categories: List<String> = emptyList(),
+    val reminders: List<Reminder> = emptyList(),
+    val travelTimeMinutes: Int? = null,
+    val relatedTo: List<String> = emptyList(),
 )
 
 data class NewTask(
@@ -92,6 +123,9 @@ data class NewTask(
     val due: LocalDate? = null,
     val color: Long = 0xFF5D9A78,
     val category: String? = null,
+    val dueTime: LocalTime? = null,
+    val notes: String? = null,
+    val reminder: Reminder? = null,
 )
 
 data class NewJournal(

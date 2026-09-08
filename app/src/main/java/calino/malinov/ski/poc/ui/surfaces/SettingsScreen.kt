@@ -79,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calino.malinov.ski.poc.data.repository.FixtureCategories
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.ui.components.MenuButton
@@ -398,7 +399,8 @@ private fun EventSettings() {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CategoriesSettings() {
-    var categories by remember { mutableStateOf(listOf("Work", "Personal", "Travel", "Admin", "Health")) }
+    // The editor offers the same list, so both read one fixture.
+    var categories by remember { mutableStateOf(FixtureCategories) }
     var adding by rememberSaveable { mutableStateOf(false) }
     val colors = listOf(CalinoColors.Blue, CalinoColors.Rose, CalinoColors.Amber, CalinoColors.Plum, CalinoColors.Green)
     SettingsPage("Categories") {

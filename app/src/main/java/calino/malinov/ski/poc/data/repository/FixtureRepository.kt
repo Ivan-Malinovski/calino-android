@@ -14,12 +14,26 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.util.concurrent.CopyOnWriteArrayList
 
+/** A writable calendar the editor can file a record under. */
+data class CalinoCalendar(val id: String, val name: String, val color: Long)
+
 data class CalinoSnapshot(
     val events: List<CalEvent>,
     val tasks: List<CalTask>,
     val journals: List<JournalEntry>,
     val revision: Long = 0,
+    val calendars: List<CalinoCalendar> = FixtureCalendars,
+    val categories: List<String> = FixtureCategories,
 )
+
+/** The fixture calendar set. Settings and the editor read the same list. */
+val FixtureCalendars: List<CalinoCalendar> = listOf(
+    CalinoCalendar("personal", "demo[@]example.test", 0xFFC2697F),
+    CalinoCalendar("work", "Work", 0xFF5B7FB5),
+    CalinoCalendar("travel", "Travel", 0xFFBF944E),
+)
+
+val FixtureCategories: List<String> = listOf("Work", "Personal", "Travel", "Admin", "Health", "Friends", "Sports")
 
 interface CalinoRepository {
     fun snapshot(): CalinoSnapshot
@@ -109,33 +123,37 @@ class FixtureRepository : CalinoRepository {
             attendees = input.attendees,
             calendarId = input.calendarId,
             date = if (input.allDay) input.date else null,
+            availability = input.availability,
+            categories = input.categories,
+            reminders = input.reminders,
+            travelTimeMinutes = input.travelTimeMinutes,
+            relatedTo = input.relatedTo,
         )
 
     override fun addTask(input: NewTask): CalTask {
-        val task = CalTask(
-            id = "local-task-${nextTaskId++}",
-            title = input.title,
-            color = input.color,
-            due = input.due,
-            category = input.category,
-        )
+        val task = taskFromInput("local-task-${nextTaskId++}", input, done = false)
         update { it.copy(tasks = it.tasks + task) }
         return task
     }
 
     override fun updateTask(id: String, input: NewTask, done: Boolean): CalTask {
         task(id)
-        val updated = CalTask(
-            id = id,
-            title = input.title,
-            color = input.color,
-            due = input.due,
-            done = done,
-            category = input.category,
-        )
+        val updated = taskFromInput(id, input, done)
         replaceTask(updated)
         return updated
     }
+
+    private fun taskFromInput(id: String, input: NewTask, done: Boolean): CalTask = CalTask(
+        id = id,
+        title = input.title,
+        color = input.color,
+        due = input.due,
+        done = done,
+        category = input.category,
+        dueTime = input.dueTime,
+        notes = input.notes,
+        reminder = input.reminder,
+    )
 
     override fun addJournal(input: NewJournal): JournalEntry {
         val journal = JournalEntry(

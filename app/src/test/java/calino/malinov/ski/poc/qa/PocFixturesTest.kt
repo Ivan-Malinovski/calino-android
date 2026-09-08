@@ -1,7 +1,9 @@
 package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.data.repository.FixtureRepository
+import calino.malinov.ski.poc.data.model.Availability
 import calino.malinov.ski.poc.data.model.NewEvent
+import calino.malinov.ski.poc.data.model.Reminder
 import calino.malinov.ski.poc.data.model.NewJournal
 import calino.malinov.ski.poc.data.model.NewTask
 import calino.malinov.ski.poc.data.model.occursOn
@@ -13,11 +15,61 @@ import calino.malinov.ski.poc.util.nextOccurrences
 import java.time.LocalDate
 import java.time.LocalDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PocFixturesTest {
     private val fixtureDate = LocalDate.of(2026, 5, 18)
+
+    @Test
+    fun repository_carriesTheEditorsNewFields() {
+        val repository = FixtureRepository()
+
+        val event = repository.addEvent(
+            NewEvent(
+                title = "Planning",
+                date = fixtureDate,
+                startTime = LocalTime.of(9, 0),
+                durationMinutes = 45,
+                availability = Availability.Free,
+                categories = listOf("Work"),
+                reminders = listOf(Reminder(15)),
+                travelTimeMinutes = 30,
+                relatedTo = listOf("task-inbox"),
+            ),
+        )
+        assertEquals(Availability.Free, event.availability)
+        assertEquals(listOf("Work"), event.categories)
+        assertEquals(listOf(Reminder(15)), event.reminders)
+        assertEquals(30, event.travelTimeMinutes)
+        assertEquals(listOf("task-inbox"), event.relatedTo)
+
+        val task = repository.addTask(
+            NewTask(
+                title = "Send itinerary",
+                due = fixtureDate,
+                dueTime = LocalTime.of(17, 0),
+                notes = "Attach the tickets",
+                reminder = Reminder(60),
+            ),
+        )
+        assertEquals(LocalTime.of(17, 0), task.dueTime)
+        assertEquals("Attach the tickets", task.notes)
+        assertEquals(Reminder(60), task.reminder)
+
+        val reopened = repository.updateTask(task.id, NewTask(title = "Send itinerary", due = fixtureDate), done = true)
+        assertTrue(reopened.done)
+        assertNull(reopened.dueTime)
+    }
+
+    @Test
+    fun snapshot_exposesTheCalendarAndCategoryFixtures() {
+        val snapshot = FixtureRepository().snapshot()
+
+        assertEquals(listOf("personal", "work", "travel"), snapshot.calendars.map { it.id })
+        assertTrue(snapshot.categories.containsAll(listOf("Work", "Personal", "Travel")))
+    }
 
     @Test
     fun fixtureRepository_isFrozenToMay2026() {

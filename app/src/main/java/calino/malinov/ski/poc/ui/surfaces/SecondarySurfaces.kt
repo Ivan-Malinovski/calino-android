@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -89,7 +88,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalContext
@@ -106,15 +104,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import calino.malinov.ski.poc.data.model.Attendee
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewTask
-import calino.malinov.ski.poc.data.parser.ParsedQuickAdd
+import calino.malinov.ski.poc.data.model.EditorDraft
+import calino.malinov.ski.poc.data.model.blankEditorDraft
+import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
 import calino.malinov.ski.poc.design.CalinoColors
@@ -171,22 +169,10 @@ private fun taskColor(task: CalTask) = Color(task.color)
 
 private fun recurrenceSummary(event: CalEvent): String = formatRecurrenceSummary(event)
 
-private fun defaultQuickAddTitle(kind: QuickAddKind): String = when (kind) {
-    QuickAddKind.Event -> "Lunch with Maya tomorrow at 12:30"
-    QuickAddKind.Task -> "Reschedule task for tomorrow"
-    QuickAddKind.Journal -> "Journal note for today"
-}
-
-private fun QuickAddKind.toParserKind(): PocQuickAddKind = when (this) {
+fun QuickAddKind.toParserKind(): PocQuickAddKind = when (this) {
     QuickAddKind.Event -> PocQuickAddKind.Event
     QuickAddKind.Task -> PocQuickAddKind.Task
     QuickAddKind.Journal -> PocQuickAddKind.Journal
-}
-
-private fun LocalDate.shortLabel(baseDate: LocalDate): String = when (this) {
-    baseDate -> "Today"
-    baseDate.plusDays(1) -> "Tomorrow"
-    else -> format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US))
 }
 
 private fun dayEventsFor(events: List<CalEvent>, date: LocalDate): List<CalEvent> =
@@ -1334,320 +1320,6 @@ private fun TaskRow(
     }
 }
 
-/** Shared add sheet: chips keep the native UI lightweight instead of becoming a form. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun QuickAddSurface(
-    initial: QuickAddKind = QuickAddKind.Event,
-    date: LocalDate = May18,
-    onDismiss: () -> Unit = {},
-    onSave: (QuickAddKind, String) -> Unit = { _, _ -> },
-    onSaveDraft: (ParsedQuickAdd, Long) -> Unit = { _, _ -> },
-    visible: Boolean = true,
-) {
-    var kind by remember(initial) { mutableStateOf(initial) }
-    var title by remember(initial) { mutableStateOf(defaultQuickAddTitle(initial)) }
-    var body by remember(initial) { mutableStateOf("") }
-    var generatedTitle by remember(initial) { mutableStateOf(defaultQuickAddTitle(initial)) }
-    var selectedColor by remember(initial) { mutableStateOf(CalinoColors.Rose) }
-    var shown by remember { mutableStateOf(true) }
-    var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var editedDate by remember(kind, date) { mutableStateOf(parseQuickAdd(kind.toParserKind(), title, date).date) }
-    var editedTime by remember(kind, date) { mutableStateOf(parseQuickAdd(kind.toParserKind(), title, date).time) }
-    var editedDuration by remember(kind, date) { mutableStateOf(parseQuickAdd(kind.toParserKind(), title, date).durationMinutes ?: if (kind == QuickAddKind.Event) 60 else null) }
-    var editedLocation by remember(kind, date) { mutableStateOf(parseQuickAdd(kind.toParserKind(), title, date).location) }
-    var datePickerOpen by remember { mutableStateOf(false) }
-    var timePickerOpen by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val parsed = remember(kind, title, date) { parseQuickAdd(kind.toParserKind(), title, date) }
-
-    val closeAfterAnimation: (() -> Unit) -> Unit = { action ->
-        if (shown) {
-            pendingCloseAction = action
-            shown = false
-        }
-    }
-    LaunchedEffect(shown) {
-        if (!shown) {
-            delay(240)
-            pendingCloseAction?.invoke()
-        }
-    }
-    LaunchedEffect(visible) {
-        if (!visible) closeAfterAnimation(onDismiss)
-    }
-
-    // The platform pickers keep the editor chip-first instead of introducing
-    // a second form. DisposableEffect dismisses an open platform dialog when
-    // this surface leaves composition (or the host is recreated), preventing
-    // a stale picker from surviving over the next screen.
-    DisposableEffect(context, datePickerOpen) {
-        if (datePickerOpen) {
-            val dialog = DatePickerDialog(
-                context,
-                { _, year, month, day ->
-                    editedDate = LocalDate.of(year, month + 1, day)
-                    datePickerOpen = false
-                },
-                editedDate.year,
-                editedDate.monthValue - 1,
-                editedDate.dayOfMonth,
-            )
-            dialog.setOnDismissListener { datePickerOpen = false }
-            dialog.show()
-            onDispose {
-                dialog.setOnDismissListener(null)
-                if (dialog.isShowing) dialog.dismiss()
-            }
-        } else {
-            onDispose { }
-        }
-    }
-    DisposableEffect(context, timePickerOpen) {
-        if (timePickerOpen) {
-            val dialog = TimePickerDialog(
-                context,
-                { _, hour, minute ->
-                    editedTime = LocalTime.of(hour, minute)
-                    timePickerOpen = false
-                },
-                editedTime?.hour ?: 12,
-                editedTime?.minute ?: 0,
-                false,
-            )
-            dialog.setOnDismissListener { timePickerOpen = false }
-            dialog.show()
-            onDispose {
-                dialog.setOnDismissListener(null)
-                if (dialog.isShowing) dialog.dismiss()
-            }
-        } else {
-            onDispose { }
-        }
-    }
-    val dismiss: () -> Unit = { closeAfterAnimation(onDismiss) }
-    BackHandler(enabled = shown, onBack = dismiss)
-
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier.fillMaxSize()
-                .background(Color.Black.copy(.38f))
-                .clickable { closeAfterAnimation(onDismiss) },
-        )
-        AnimatedVisibility(
-            shown,
-            enter = slideInVertically(animationSpec = tween(240)) + fadeIn(animationSpec = tween(180)),
-            exit = slideOutVertically(animationSpec = tween(240)) + fadeOut(animationSpec = tween(180)),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            SwipeDownDismiss(
-                visible = shown,
-                onDismiss = dismiss,
-                // Cover the entire host content area so the task screen/FAB
-                // cannot peek through the bottom edge of this editor. The
-                // host dock remains outside the surface's own layout scope.
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-            ) { sheetModifier ->
-                Surface(
-                    sheetModifier,
-                    shape = RoundedCornerShape(26.dp, 26.dp, 0.dp, 0.dp),
-                    color = CalinoColors.Panel,
-                ) {
-                    val formScrollState = rememberScrollState()
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .imePadding(),
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                            Box(
-                                Modifier
-                                    .align(Alignment.CenterHorizontally)
-                                    .padding(top = 16.dp)
-                                    .size(38.dp, 4.dp)
-                                    .clip(CircleShape)
-                                    .background(CalinoColors.Ink.copy(.16f)),
-                            )
-                            Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("New", modifier = Modifier.weight(1f), style = CalinoTypography.titleLarge)
-                                IconButtonGlyph("×", "Close quick add") { closeAfterAnimation(onDismiss) }
-                            }
-                            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                label("Date")
-                                Text("${editedDate.format(dateFormat)} · ${kind.name}", color = CalinoColors.Ink2, modifier = Modifier.padding(start = 10.dp))
-                            }
-                        }
-
-                        Column(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .verticalScroll(formScrollState)
-                                .padding(horizontal = 20.dp),
-                        ) {
-                            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                QuickAddKind.entries.forEach { entry ->
-                                    TextButton(
-                                        onClick = {
-                                            if (title == generatedTitle || title.isBlank()) {
-                                                title = defaultQuickAddTitle(entry)
-                                                generatedTitle = title
-                                            }
-                                            kind = entry
-                                        },
-                                        colors = ButtonDefaults.textButtonColors(containerColor = if (kind == entry) CalinoColors.Ink else CalinoColors.Ink.copy(.06f), contentColor = if (kind == entry) Color.White else CalinoColors.Ink),
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.semantics { contentDescription = "${entry.name}${if (kind == entry) ", selected" else ""}" },
-                                    ) { Text(entry.name) }
-                                }
-                            }
-                            TextField(
-                                title,
-                                { title = it; generatedTitle = "" },
-                                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Title, ${kind.name.lowercase()}" },
-                                textStyle = CalinoTypography.titleMedium.copy(fontSize = 26.sp),
-                                label = {
-                                    Text(
-                                        when (kind) {
-                                            QuickAddKind.Event -> "What is happening?"
-                                            QuickAddKind.Task -> "What needs doing?"
-                                            QuickAddKind.Journal -> "Give this note a title"
-                                        },
-                                    )
-                                },
-                                minLines = 1,
-                                maxLines = 3,
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = CalinoColors.Canvas,
-                                    unfocusedContainerColor = CalinoColors.Canvas,
-                                    focusedIndicatorColor = CalinoColors.Accent,
-                                    unfocusedIndicatorColor = CalinoColors.Ink.copy(.09f),
-                                ),
-                            )
-                            AnimatedVisibility(
-                                visible = kind == QuickAddKind.Journal,
-                                enter = expandVertically(tween(200)) + fadeIn(tween(170)),
-                                exit = shrinkVertically(tween(170)) + fadeOut(tween(130)),
-                            ) {
-                                TextField(
-                                    value = body,
-                                    onValueChange = { body = it },
-                                    modifier = Modifier.fillMaxWidth().height(150.dp).padding(top = 10.dp).semantics { contentDescription = "Journal note" },
-                                    textStyle = CalinoTypography.bodyLarge.copy(lineHeight = 23.sp),
-                                    label = { Text("Note") },
-                                    placeholder = { Text("What is on your mind?", color = CalinoColors.Ink3) },
-                                    minLines = 4,
-                                    maxLines = 7,
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = CalinoColors.Canvas,
-                                        unfocusedContainerColor = CalinoColors.Canvas,
-                                        focusedIndicatorColor = CalinoColors.Accent,
-                                        unfocusedIndicatorColor = CalinoColors.Ink.copy(.09f),
-                                    ),
-                                )
-                            }
-                            label("Parsed from what you typed · tap to change", Modifier.padding(top = 20.dp))
-                            FlowRow(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                QuickAddChip(
-                                    editedDate.shortLabel(date),
-                                    parsed.date != date,
-                                    "Change date",
-                                ) { datePickerOpen = true }
-                                if (kind == QuickAddKind.Event) {
-                                    QuickAddChip(
-                                        editedTime?.format(timeFormat) ?: "Add time",
-                                        parsed.time != null,
-                                        "Change time",
-                                    ) { timePickerOpen = true }
-                                    QuickAddChip(
-                                        formatDuration(editedDuration ?: 60),
-                                        parsed.durationMinutes != null,
-                                        "Change duration",
-                                    ) {
-                                        editedDuration = when (editedDuration) {
-                                            null, 30 -> 60
-                                            60 -> 90
-                                            else -> 30
-                                        }
-                                    }
-                                    editedLocation?.let { location ->
-                                        QuickAddChip(location, true, "Remove location $location") { editedLocation = null }
-                                    }
-                                }
-                            }
-                            Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                                label("Color")
-                                Spacer(Modifier.weight(1f))
-                                listOf(
-                                    "Rose" to CalinoColors.Rose,
-                                    "Blue" to CalinoColors.Blue,
-                                    "Green" to CalinoColors.Green,
-                                    "Amber" to CalinoColors.Amber,
-                                    "Plum" to CalinoColors.Plum,
-                                ).forEach { (name, color) ->
-                                    Box(
-                                        Modifier
-                                            .size(48.dp)
-                                            .clickable { selectedColor = color }
-                                            .semantics { contentDescription = "Select $name color${if (selectedColor == color) ", selected" else ""}" },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Box(
-                                            Modifier
-                                                .size(30.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(color)
-                                                .border(if (selectedColor == color) 3.dp else 0.dp, CalinoColors.Canvas, RoundedCornerShape(10.dp)),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Column(Modifier.fillMaxWidth()) {
-                            HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                            Button(
-                                enabled = title.trim().isNotEmpty(),
-                                onClick = {
-                                    val draft = parsed.copy(
-                                        kind = kind.toParserKind(),
-                                        date = editedDate,
-                                        time = if (kind == QuickAddKind.Event) editedTime else null,
-                                        durationMinutes = if (kind == QuickAddKind.Event) editedDuration else null,
-                                        location = if (kind == QuickAddKind.Event) editedLocation else null,
-                                        body = if (kind == QuickAddKind.Journal) body.trim() else title.trim(),
-                                    )
-                                    closeAfterAnimation {
-                                        onSave(kind, title.trim())
-                                        onSaveDraft(draft, selectedColor.toArgb().toLong() and 0xffffffffL)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).height(50.dp),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                            ) { Text("Save ${kind.name.lowercase()}") }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuickAddChip(text: String, parsed: Boolean, description: String, onClick: () -> Unit) {
-    TextButton(
-        onClick = onClick,
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (parsed) CalinoColors.Accent.copy(.12f) else CalinoColors.Ink.copy(.05f))
-            .border(1.dp, if (parsed) CalinoColors.Accent.copy(.2f) else Color.Transparent, RoundedCornerShape(999.dp))
-            .semantics { contentDescription = "$text, $description" },
-        shape = RoundedCornerShape(999.dp),
-        colors = ButtonDefaults.textButtonColors(contentColor = if (parsed) CalinoColors.Ink else CalinoColors.Ink2),
-    ) { Text(text, fontSize = 13.sp) }
-}
-
 /** Notification handoff preview, including the three channel choices and two-action ceiling. */
 @Composable
 fun NotificationPreviewSurface(data: NotificationPreviewData = NotificationPreviewData("Design review", "10:00 AM · Studio · with 2 others"), onAction: (String) -> Unit = {}) { val cards = listOf(data.title to data.text, "Buy flowers" to "Due today · Personal"); Column(Modifier.fillMaxSize().background(CalinoColors.Canvas).padding(20.dp)) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Notifications", modifier = Modifier.weight(1f), style = CalinoTypography.displayLarge); Text("Calino · 2 more", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }; Text("PREVIEW", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(top = 6.dp)); cards.forEachIndexed { index, card -> NotificationCard(card.first, card.second, index == 0, onAction) }; Spacer(Modifier.height(20.dp)); label("Channels"); listOf("Events reminders" to "Default · no sound", "Tasks due" to "Default", "Daily brief" to "Low importance").forEach { (name, setting) -> Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(9.dp).clip(CircleShape).background(CalinoColors.Accent)); Column(Modifier.padding(start = 12.dp)) { Text(name, style = CalinoTypography.bodyLarge); Text(setting, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) } } } } }
@@ -1659,7 +1331,16 @@ private fun fixtureTasks() = listOf(CalTask("task-inbox", "Review calendar notes
 
 /** Stable state contract for an embedding screen. The backdrop is supplied by that screen. */
 data class DayModalState(val date: LocalDate = May18, val visible: Boolean = true)
-data class QuickAddSheetState(val visible: Boolean = false, val kind: QuickAddKind = QuickAddKind.Event, val date: LocalDate = May18)
+/**
+ * The editor's mount contract. [draft] carries a seeded record when the host
+ * opened the editor to change something that already exists.
+ */
+data class QuickAddSheetState(
+    val visible: Boolean = false,
+    val kind: QuickAddKind = QuickAddKind.Event,
+    val date: LocalDate = May18,
+    val draft: EditorDraft = blankEditorDraft(kind.toParserKind(), date),
+)
 data class NotificationPreviewData(val title: String, val text: String, val kind: NotificationKind = NotificationKind.Event)
 enum class NotificationKind { Event, Task }
 
@@ -1716,21 +1397,25 @@ fun Tasks(
 @Composable
 fun QuickAddSheet(
     state: QuickAddSheetState = QuickAddSheetState(visible = true),
+    calendars: List<CalinoCalendar> = emptyList(),
+    categories: List<String> = emptyList(),
+    relatedCandidates: List<Pair<String, String>> = emptyList(),
     onDismiss: () -> Unit = {},
-    onSave: (QuickAddKind, String) -> Unit = { _, _ -> },
-    onSaveDraft: (ParsedQuickAdd, Long) -> Unit = { _, _ -> },
+    onSave: (EditorDraft) -> Unit = {},
 ) {
     var mounted by remember { mutableStateOf(state.visible) }
     LaunchedEffect(state.visible) {
         if (state.visible) mounted = true
     }
     if (mounted) {
-        QuickAddSurface(
-            initial = state.kind,
-            date = state.date,
+        EditorSurface(
+            initial = state.draft,
+            baseDate = state.date,
+            calendars = calendars,
+            categories = categories,
+            relatedCandidates = relatedCandidates,
             onDismiss = { mounted = false; onDismiss() },
             onSave = onSave,
-            onSaveDraft = onSaveDraft,
             visible = state.visible,
         )
     }

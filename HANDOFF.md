@@ -376,7 +376,8 @@ Important calendar implementation details:
 - A day sheet showing the selected date’s events and journal entries.
 - Event detail with title, time/duration, location, recurrence, notes, calendar,
   and attendee information when present.
-- Event editing through the UI-only editor dialog.
+- Event editing through the shared full editor (`ui/surfaces/EditorSurface.kt`),
+  opened as the Quick Add route seeded from the saved record.
 - Event create/update mutations against the local fixture repository.
 - Downward swipe dismissal from the full surface, not only from a grab handle.
 - Spring-back behavior for failed/short drags and animated host removal after a
@@ -399,10 +400,28 @@ Quick Add is a fixture-only creation flow with three modes:
 - Journal
 
 The parser accepts natural-language-looking input and exposes parsed chips for
-date, time, duration, and location. The UI also exposes title/body editing,
-calendar/color choices, and save/cancel actions. The parser is deliberately
-local and simplified; it is not a CalDAV or natural-language production
-implementation.
+date, time, duration, and location. The parser is deliberately local and
+simplified; it is not a CalDAV or natural-language production implementation.
+
+Below the typed line the same sheet is a full editor (`EditorSurface`), so the
+natural-language field pre-fills a form rather than replacing it:
+
+- Events: start/end date and time, all-day, availability, recurrence (daily,
+  weekly with BYDAY, monthly, yearly, each with an optional UNTIL), location,
+  calendar, categories, description, and a collapsed More section with travel
+  time, reminders, related tasks, and attendees.
+- Tasks: due date and time, category, description, one reminder, and colour.
+- Journal: title and note, unchanged.
+
+The draft lives in `data/model/EditorDraft.kt`, outside Compose, so the merge
+and mapping rules are unit-tested (`EditorDraftTest`). A field the person edits
+by hand is marked touched and the parser stops writing to it, so later typing
+cannot undo a deliberate edit. Opening the editor on a saved record seeds the
+draft with every touched field and the host calls the matching update instead of
+an add.
+
+Fixture calendars and the shared category list live in `FixtureRepository` and
+reach the editor through `CalinoSnapshot`; Settings reads the same list.
 
 Quick Add can originate from the calendar, day sheet, Tasks, Journal, Settings,
 or event detail. The host keeps an explicit return target so dismissing it
@@ -540,7 +559,7 @@ The host currently owns:
 - Day sheet visibility
 - Selected event and occurrence date
 - Selected task and task-detail origin
-- Event editor state
+- Editor draft seed and edit target
 - Quick Add origin/type
 - Journal editor/review state
 - Notification origin
@@ -563,7 +582,7 @@ app/src/main/java/calino/malinov/ski/poc/
   state/                           small navigation-state helpers
   ui/components/                   shared Compose components/gestures/icons
   ui/home/HomeScreen.kt            calendar and pager/zoom implementation
-  ui/surfaces/                     Journal, Tasks, Settings, modal surfaces
+  ui/surfaces/                     Journal, Tasks, Settings, editor, modal surfaces
   util/                            date/time/recurrence formatting helpers
 ```
 
