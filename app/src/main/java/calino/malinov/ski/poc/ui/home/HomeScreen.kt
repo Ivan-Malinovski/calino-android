@@ -290,13 +290,18 @@ fun HomeScreen(
     fun consumeUserSettle(pager: PagerState): Boolean =
         pagerDragOrigins.remove(pager) == currentSelectedEpoch.value
     val selectedWeekdayIndex = (selected.dayOfWeek.value - 1).coerceIn(0, 6)
+    // A day swipe across a week boundary pages the strip to the neighboring
+    // week while the drag is still live. Aim the pill at the previewed day
+    // from the moment that starts, so it travels with the incoming week
+    // instead of resting on the old column and jumping once the date commits.
+    val selectorWeekdayIndex = ((compactBoundaryDay ?: selected).dayOfWeek.value - 1).coerceIn(0, 6)
     val compactSelectorPosition = remember {
         Animatable(selectedWeekdayIndex.toFloat())
     }
 
-    LaunchedEffect(selectedWeekdayIndex) {
+    LaunchedEffect(selectorWeekdayIndex) {
         compactSelectorPosition.animateTo(
-            selectedWeekdayIndex.toFloat(),
+            selectorWeekdayIndex.toFloat(),
             animationSpec = spring(dampingRatio = .82f, stiffness = 520f),
         )
     }
@@ -1023,21 +1028,14 @@ private fun WeekStrip(
     ) {
         val committedMonday = day.with(DayOfWeek.MONDAY)
         val settledIndex = (day.dayOfWeek.value - 1).coerceIn(0, 6)
-        val liveOffset = pagerOffset.coerceIn(-1f, 1f)
-        val previewDate = when {
-            liveOffset < 0f -> day.plusDays(1)
-            liveOffset > 0f -> day.minusDays(1)
-            else -> day
-        }
-        val previewStaysInWeek = previewDate.with(DayOfWeek.MONDAY) == committedMonday
         // A day pager offset is screen travel: negative reveals tomorrow and
         // positive reveals yesterday. Keep the week row fixed, but move its
         // indicator in lockstep while the agenda is being dragged/settled.
-        val indicatorTargetIndex = if (previewStaysInWeek) {
-            selectorIndex.coerceIn(0f, 6f)
-        } else {
-            settledIndex.toFloat()
-        }
+        // [selectorIndex] already tracks the previewed day, including a
+        // boundary day in the neighboring week, so the week the strip is
+        // displaying always follows it.
+        val displayedMonday = displayedWeekDay.with(DayOfWeek.MONDAY)
+        val indicatorTargetIndex = selectorIndex.coerceIn(0f, 6f)
         HorizontalPager(
             state = state,
             modifier = Modifier
@@ -1056,11 +1054,13 @@ private fun WeekStrip(
             } else {
                 pageMonday.plusDays((day.dayOfWeek.value - 1).toLong())
             }
-            val isCommittedWeek = pageMonday == committedMonday
+            // The displayed week owns the moving indicator. Other pages keep
+            // the committed weekday so a week that is only sliding past does
+            // not animate an indicator of its own.
             WeekStripPage(
                 monday = pageMonday,
                 selected = pageDay,
-                indicatorIndex = if (isCommittedWeek) indicatorTargetIndex else settledIndex.toFloat(),
+                indicatorIndex = if (pageMonday == displayedMonday) indicatorTargetIndex else settledIndex.toFloat(),
                 events = events,
                 tasksByDueDate = tasksByDueDate,
                 interactionEnabled = interactionEnabled,

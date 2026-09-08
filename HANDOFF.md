@@ -65,6 +65,22 @@ cancelled, boundary, and reverse gestures. Use the zoom handle semantics
 validation requires an explicit request and must not be inferred from emulator
 results.
 
+### Week-strip selector follows a boundary crossing — 2026-09-08
+
+- A day swipe that crosses a week boundary no longer parks the pill on the
+  incoming week's Monday and then snaps to the real day. `WeekStrip` used to
+  draw any non-committed page's indicator at the committed weekday, so the
+  previewed week rendered the wrong column until the date committed and the
+  column changed in one frame.
+- The displayed week (`compactBoundaryDay ?: selected`) now owns the moving
+  indicator, and the selector spring aims at the previewed boundary day from
+  the moment the preview starts, so the pill travels with the incoming week.
+  Weeks that are only sliding past keep the committed weekday.
+- Frame-tracked pill x-centre, Mon 18 May to Sun 17 May: previously
+  109 → (page) → 109 held for ~200ms → 971 in one frame; now
+  109 → 238 → 485 → 651 → 849 → 967 → 971. The forward crossing and a plain
+  week swipe were checked for regressions and stay continuous.
+
 ### Week-strip selector handoff fixed — 2026-09-08
 
 - Releasing a day swipe no longer snaps the compact week pill back to the
