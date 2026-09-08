@@ -114,6 +114,11 @@ results.
 - Task rows in both the calendar and Tasks surface open a fixture-backed Task
   Details editor. Title, category, due preset, and completion state save via
   `FixtureRepository.updateTask`, preserving the task ID and origin route.
+- Commit `199a5ac` is the verified milestone. Its APK is installed and
+  running on the API 36 emulator. The requested physical-phone push was
+  attempted without stopping the phone app, but wireless ADB was unavailable
+  (`physical-device:5555` and the documented `:45095` endpoint both returned
+  no route); do not infer physical-phone validation from this pass.
 - On the warmed API 36 `calino-poc-api36` emulator, the latest single-renderer
   slow-drag reports (0→1, 1→2, 2→1) were respectively: 76/16/16/2,
   75/12/16/2, and 76/16/16/2 for total frames / 50th percentile / 95th
