@@ -556,11 +556,17 @@ fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRow
     )
 
 @Composable
-fun AgendaRow(task: CalTask, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, onCheckedChange: ((Boolean) -> Unit)? = null) {
+fun AgendaRow(
+    task: CalTask,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    onCheckedChange: ((Boolean) -> Unit)? = null,
+    compact: Boolean = false,
+) {
     val color = eventColor(task.color)
     val description = buildString {
         append(task.title)
-        task.due?.let { append(", due ").append(it.format(ShortDateFormat)) }
+        if (!compact) task.due?.let { append(", due ").append(it.format(ShortDateFormat)) }
         task.category?.let { append(", ").append(it) }
     }
     val rowPressModifier = if (onClick != null) Modifier.calinoPressable(onClick = onClick) else Modifier
@@ -573,7 +579,7 @@ fun AgendaRow(task: CalTask, modifier: Modifier = Modifier, onClick: (() -> Unit
                 contentDescription = description
                 stateDescription = if (task.done) "Completed" else "Open"
             }
-            .padding(horizontal = 8.dp, vertical = 7.dp),
+            .padding(horizontal = 8.dp, vertical = if (compact) 0.dp else 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val checkboxPressModifier = if (onCheckedChange != null) {
@@ -593,31 +599,68 @@ fun AgendaRow(task: CalTask, modifier: Modifier = Modifier, onClick: (() -> Unit
         ) {
             TaskCheckbox(task.done, color, Modifier.size(21.dp), circular = true)
         }
-        Column(Modifier.weight(1f).padding(start = 5.dp)) {
-            Text(
-                task.title,
-                fontSize = 15.sp,
-                lineHeight = 22.5.sp,
-                color = if (task.done) CalinoColors.Ink3 else CalinoColors.Ink,
-                textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (task.due != null || task.category != null) {
-                Row(
-                    modifier = Modifier.padding(top = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    task.due?.let { Text(it.format(ShortDateFormat), color = CalinoColors.Ink3, fontSize = 12.sp, lineHeight = 18.sp) }
-                    task.category?.let {
-                        Box(
-                            Modifier
-                                .clip(CircleShape)
-                                .background(eventTint(color, .14f))
-                                .padding(horizontal = 7.dp, vertical = 1.dp),
-                        ) {
-                            Text(it, color = lerp(CalinoColors.Ink, color, .7f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold)
+        if (compact) {
+            Row(
+                Modifier.weight(1f).padding(start = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    task.title,
+                    Modifier.weight(1f),
+                    fontSize = 15.sp,
+                    lineHeight = 22.5.sp,
+                    color = if (task.done) CalinoColors.Ink3 else CalinoColors.Ink,
+                    textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                task.category?.let {
+                    Box(
+                        Modifier
+                            .padding(start = 8.dp)
+                            .clip(CircleShape)
+                            .background(eventTint(color, .14f))
+                            .padding(horizontal = 7.dp, vertical = 1.dp),
+                    ) {
+                        Text(
+                            it,
+                            color = lerp(CalinoColors.Ink, color, .7f),
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        } else {
+            Column(Modifier.weight(1f).padding(start = 5.dp)) {
+                Text(
+                    task.title,
+                    fontSize = 15.sp,
+                    lineHeight = 22.5.sp,
+                    color = if (task.done) CalinoColors.Ink3 else CalinoColors.Ink,
+                    textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (task.due != null || task.category != null) {
+                    Row(
+                        modifier = Modifier.padding(top = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        task.due?.let { Text(it.format(ShortDateFormat), color = CalinoColors.Ink3, fontSize = 12.sp, lineHeight = 18.sp) }
+                        task.category?.let {
+                            Box(
+                                Modifier
+                                    .clip(CircleShape)
+                                    .background(eventTint(color, .14f))
+                                    .padding(horizontal = 7.dp, vertical = 1.dp),
+                            ) {
+                                Text(it, color = lerp(CalinoColors.Ink, color, .7f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -664,8 +707,13 @@ fun DayGroupHeader(day: LocalDate, isToday: Boolean = false, eventCount: Int? = 
 }
 
 @Composable
-fun TaskRow(task: CalTask, modifier: Modifier = Modifier, onCheckedChange: ((Boolean) -> Unit)? = null, onClick: (() -> Unit)? = null) =
-    AgendaRow(task, modifier, onClick, onCheckedChange)
+fun TaskRow(
+    task: CalTask,
+    modifier: Modifier = Modifier,
+    onCheckedChange: ((Boolean) -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+    compact: Boolean = false,
+) = AgendaRow(task, modifier, onClick, onCheckedChange, compact)
 
 /**
  * Shared compact choice control for the mobile surfaces.

@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -1227,6 +1228,7 @@ private fun CalendarTaskRow(
                 modifier = Modifier.weight(1f),
                 onCheckedChange = onTaskDone,
                 onClick = onTaskClick,
+                compact = true,
             )
             if (!task.done && onTaskRescheduleTo != null) {
                 IconButton(
@@ -2940,9 +2942,10 @@ private fun SelectedDayAgendaPage(
     onTaskClick: ((CalTask) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
+    var tasksExpanded by remember(day) { mutableStateOf(true) }
     val interactionModifier = if (active) {
         modifier.semantics {
-            contentDescription = "Selected-day agenda for ${day.format(FullDateFormatter)}"
+            contentDescription = "Agenda for ${day.format(FullDateFormatter)}"
         }
     } else {
         modifier.clearAndSetSemantics { }
@@ -2953,7 +2956,13 @@ private fun SelectedDayAgendaPage(
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("SELECTED DAY", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Ink3, modifier = Modifier.weight(1f))
+            Text(
+                day.format(AgendaDateFormatter),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                color = CalinoColors.Ink2,
+                modifier = Modifier.weight(1f),
+            )
             Text(
                 "OPEN DAY",
                 fontSize = 10.sp,
@@ -2966,23 +2975,60 @@ private fun SelectedDayAgendaPage(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
             )
         }
-        Text(day.format(AgendaDateFormatter), fontSize = 11.sp, color = CalinoColors.Ink2)
         if (dayTasks.isNotEmpty()) {
-            Text(
-                "TASKS DUE · ${dayTasks.count { !it.done }} OPEN",
-                fontSize = 10.sp,
-                letterSpacing = 1.sp,
-                color = CalinoColors.Green,
-                modifier = Modifier.padding(top = 5.dp),
-            )
-            dayTasks.forEach { task ->
-                CalendarTaskRow(
-                    task = task,
-                    onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
-                    onTaskRescheduleTo = onTaskRescheduleTo,
-                    onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
-                    modifier = Modifier.padding(vertical = 1.dp),
+            val taskVisualOffset = (-8).dp
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 44.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(
+                        enabled = active,
+                        onClickLabel = if (tasksExpanded) {
+                            "Collapse tasks due for ${day.format(FullDateFormatter)}"
+                        } else {
+                            "Expand tasks due for ${day.format(FullDateFormatter)}"
+                        },
+                    ) { tasksExpanded = !tasksExpanded }
+                    .padding(top = 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "TASKS DUE · ${dayTasks.count { !it.done }} OPEN",
+                    fontSize = 10.sp,
+                    letterSpacing = 1.sp,
+                    color = CalinoColors.Green,
+                    modifier = Modifier
+                        .weight(1f)
+                        .offset(y = taskVisualOffset),
                 )
+                Icon(
+                    imageVector = CalinoIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = CalinoColors.Green,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .offset(y = taskVisualOffset)
+                        .rotate(if (tasksExpanded) -90f else 90f),
+                )
+            }
+            AnimatedVisibility(
+                visible = tasksExpanded,
+                modifier = Modifier.offset(y = taskVisualOffset),
+                enter = expandVertically(tween(180)) + fadeIn(tween(140)),
+                exit = shrinkVertically(tween(160)) + fadeOut(tween(120)),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    dayTasks.forEach { task ->
+                        CalendarTaskRow(
+                            task = task,
+                            onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                            onTaskRescheduleTo = onTaskRescheduleTo,
+                            onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
+                            modifier = Modifier.padding(vertical = 1.dp),
+                        )
+                    }
+                }
             }
         }
         if (dayEvents.isEmpty()) {
