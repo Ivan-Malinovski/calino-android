@@ -30,18 +30,35 @@ data class CalEvent(
     val calendarId: String,
     /** Explicit placement for all-day records; null means no all-day date. */
     val date: LocalDate? = null,
+    /**
+     * Last day of a multi-day all-day span, inclusive. Null for a single day.
+     *
+     * Inclusive on purpose: iCalendar's DTEND is exclusive, and the conversion
+     * happens once at the parser rather than at every renderer.
+     */
+    val endDate: LocalDate? = null,
     val availability: Availability = Availability.Busy,
     val categories: List<String> = emptyList(),
     val reminders: List<Reminder> = emptyList(),
     val travelTimeMinutes: Int? = null,
     /** Task ids this event was attached to in the editor. */
     val relatedTo: List<String> = emptyList(),
+    /** iCalendar UID. Null for records created locally. */
+    val uid: String? = null,
+    /** Absolute CalDAV resource URL. Null for records created locally. */
+    val href: String? = null,
+    /** Server ETag, for the write path that is not built yet. */
+    val etag: String? = null,
 )
 
 /** Date-aware event matching shared by calendar and day-modal renderers. */
 fun CalEvent.occursOn(day: LocalDate): Boolean {
     val anchor = placementDate() ?: return false
     if (anchor == day) return true
+    // A multi-day all-day span covers every day through its inclusive end.
+    endDate?.let { last ->
+        if (!day.isBefore(anchor) && !day.isAfter(last)) return true
+    }
     val fields = recurrence?.uppercase(Locale.US)?.split(';')?.mapNotNull { part ->
         part.indexOf('=').takeIf { it > 0 }?.let { separator -> part.substring(0, separator) to part.substring(separator + 1) }
     }?.toMap() ?: return false
@@ -95,9 +112,24 @@ data class CalTask(
     val dueTime: LocalTime? = null,
     val notes: String? = null,
     val reminder: Reminder? = null,
+    /** iCalendar UID. Null for records created locally. */
+    val uid: String? = null,
+    /** Absolute CalDAV resource URL. Null for records created locally. */
+    val href: String? = null,
+    val etag: String? = null,
 )
 
-data class JournalEntry(val id: String, val date: LocalDate, val title: String, val body: String)
+data class JournalEntry(
+    val id: String,
+    val date: LocalDate,
+    val title: String,
+    val body: String,
+    /** iCalendar UID. Null for records created locally. */
+    val uid: String? = null,
+    /** Absolute CalDAV resource URL. Null for records created locally. */
+    val href: String? = null,
+    val etag: String? = null,
+)
 
 data class NewEvent(
     val title: String,
@@ -126,6 +158,11 @@ data class NewTask(
     val dueTime: LocalTime? = null,
     val notes: String? = null,
     val reminder: Reminder? = null,
+    /** iCalendar UID. Null for records created locally. */
+    val uid: String? = null,
+    /** Absolute CalDAV resource URL. Null for records created locally. */
+    val href: String? = null,
+    val etag: String? = null,
 )
 
 data class NewJournal(

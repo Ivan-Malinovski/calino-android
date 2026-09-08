@@ -1,0 +1,184 @@
+package calino.malinov.ski.poc.data.caldav
+
+import calino.malinov.ski.poc.data.model.CalEvent
+import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.data.model.JournalEntry
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
+import org.w3c.dom.Element
+
+/** What one fetch produced, plus how complete it is. */
+data class FetchResult(
+    val events: List<CalEvent> = emptyList(),
+    val tasks: List<CalTask> = emptyList(),
+    val journals: List<JournalEntry> = emptyList(),
+    /**
+     * True when at least one component query failed while another succeeded.
+     * A partial result must never be treated as authoritative -- it is a view,
+     * not a statement about what the server no longer holds.
+     */
+    val hadComponentFailures: Boolean = false,
+    /** True when the server returned VEVENTs that still carry an RRULE. */
+    val expandUnsupported: Boolean = false,
+) {
+    val isEmpty: Boolean get() = events.isEmpty() && tasks.isEmpty() && journals.isEmpty()
+}
+
+/** Reads events, tasks and journal entries out of calendar collections. */
+class CalDavFetcher(
+    private val http: DavHttp = DavHttp(),
+    private val mapper: ICalMapper = ICalMapper(),
+) {
+
+    suspend fun fetch(
+        calendar: DiscoveredCalendar,
+        credentials: DavCredentials,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): FetchResult = supervisorScope {
+        // An absent supported-calendar-component-set is not a statement that
+        // the calendar holds nothing; terse servers omit it. Try all three.
+        val advertised = calendar.components
+        fun supports(component: String) = advertised.isEmpty() || component in advertised
+
+        val requests = buildList {
+            if (supports(Vevent)) add(async { runCatching { fetchEvents(calendar, credentials, windowStart, windowEnd) } })
+            if (supports(Vtodo)) add(async { runCatching { fetchTasks(calendar, credentials) } })
+            if (supports(Vjournal)) add(async { runCatching { fetchJournals(calendar, credentials) } })
+        }
+
+        val settled = requests.awaitAll()
+        val succeeded = settled.mapNotNull { it.getOrNull() }
+        val failed = settled.count { it.isFailure }
+
+        // Fail only when everything failed. Letting one component's failure
+        // abort the whole fetch used to drop every event whenever a calendar's
+        // empty task query errored.
+        if (succeeded.isEmpty()) {
+            settled.firstOrNull()?.exceptionOrNull()?.let { throw it }
+            return@supervisorScope FetchResult()
+        }
+
+        FetchResult(
+            events = succeeded.flatMap { it.events },
+            tasks = succeeded.flatMap { it.tasks },
+            journals = succeeded.flatMap { it.journals },
+            hadComponentFailures = failed > 0,
+            expandUnsupported = succeeded.any { it.expandUnsupported },
+        )
+    }
+
+    /**
+     * Events over the requested window, asking the server to expand recurrence.
+     *
+     * `<c:expand>` makes the server materialise each occurrence, so the app
+     * needs no RRULE engine. The result is verified rather than trusted: a
+     * server that ignores the element returns the master with its RRULE intact,
+     * which would render a weekly series as a single event. That case is
+     * reported, not silently displayed.
+     */
+    private suspend fun fetchEvents(
+        calendar: DiscoveredCalendar,
+        credentials: DavCredentials,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): FetchResult {
+        val start = windowStart.atStartOfDay().toInstant(ZoneOffset.UTC).format()
+        val end = windowEnd.atStartOfDay().toInstant(ZoneOffset.UTC).format()
+        val body = """<?xml version="1.0" encoding="UTF-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:getetag/>
+    <c:calendar-data><c:expand start="$start" end="$end"/></c:calendar-data>
+  </d:prop>
+  <c:filter>
+    <c:comp-filter name="VCALENDAR">
+      <c:comp-filter name="VEVENT"><c:time-range start="$start" end="$end"/></c:comp-filter>
+    </c:comp-filter>
+  </c:filter>
+</c:calendar-query>"""
+        return report(calendar, credentials, body)
+    }
+
+    /**
+     * Tasks, unbounded and unexpanded.
+     *
+     * No time-range filter: a VTODO may carry no DTSTART or DUE at all, and a
+     * time-ranged query drops exactly those. No expand either -- this server
+     * ignores it for VTODO, and the task model has no recurrence field to hold
+     * expanded instances in any case, so a recurring task shows once at its
+     * due date.
+     */
+    private suspend fun fetchTasks(calendar: DiscoveredCalendar, credentials: DavCredentials): FetchResult =
+        report(calendar, credentials, componentQuery(Vtodo))
+
+    private suspend fun fetchJournals(calendar: DiscoveredCalendar, credentials: DavCredentials): FetchResult =
+        report(calendar, credentials, componentQuery(Vjournal))
+
+    private fun componentQuery(component: String) = """<?xml version="1.0" encoding="UTF-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop><d:getetag/><c:calendar-data/></d:prop>
+  <c:filter>
+    <c:comp-filter name="VCALENDAR"><c:comp-filter name="$component"/></c:comp-filter>
+  </c:filter>
+</c:calendar-query>"""
+
+    private suspend fun report(
+        calendar: DiscoveredCalendar,
+        credentials: DavCredentials,
+        body: String,
+    ): FetchResult {
+        val response = http.request(
+            method = "REPORT",
+            url = calendar.url,
+            credentials = credentials,
+            headers = mapOf("Depth" to "1", "Content-Type" to "application/xml; charset=utf-8"),
+            body = body,
+        )
+        if (!response.isMultiStatus) throw calDavErrorForStatus(response.status, calendar.url)
+        val root = DavXml.parse(response.body)
+            ?: throw CalDavException(CalDavErrorCode.NotCalDav, "The server's reply could not be read.")
+        return parseMultiStatus(root, calendar)
+    }
+
+    private fun parseMultiStatus(root: Element, calendar: DiscoveredCalendar): FetchResult {
+        val events = mutableListOf<CalEvent>()
+        val tasks = mutableListOf<CalTask>()
+        val journals = mutableListOf<JournalEntry>()
+        var unexpanded = false
+
+        DavXml.elements(root, DavNs.Dav, "response").forEach { entry ->
+            val href = DavXml.text(entry, DavNs.Dav, "href")?.let { resolveHref(calendar.url, it) }
+                ?: return@forEach
+            val data = DavXml.text(entry, DavNs.CalDav, "calendar-data") ?: return@forEach
+            val etag = DavXml.text(entry, DavNs.Dav, "getetag")?.trim('"')
+            val parsed = mapper.parse(
+                icalText = data,
+                calendarId = calendar.url,
+                color = calendar.color,
+                href = href,
+                etag = etag,
+            )
+            events += parsed.events
+            tasks += parsed.tasks
+            journals += parsed.journals
+            if (parsed.sawUnexpandedRecurrence) unexpanded = true
+        }
+        return FetchResult(events, tasks, journals, expandUnsupported = unexpanded)
+    }
+
+    private companion object {
+        const val Vevent = "VEVENT"
+        const val Vtodo = "VTODO"
+        const val Vjournal = "VJOURNAL"
+        val UtcStamp: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC)
+
+        fun Instant.format(): String = UtcStamp.format(this)
+    }
+}

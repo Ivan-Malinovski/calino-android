@@ -2,8 +2,14 @@
 
 This repository contains the standalone native Android application formerly
 developed as Calino’s native UI POC. It is a Kotlin + Jetpack Compose app. It
-does not use the parent Calino repository, WebView, Capacitor, CalDAV, CardDAV,
-webcal, accounts, credentials, or network services.
+does not use the parent Calino repository, WebView, Capacitor, CardDAV, or
+webcal.
+
+It **does** now speak real CalDAV, read-only: a connected account's events,
+tasks, and journal entries are fetched over HTTPS and replace the fixture data
+in every calendar surface. That was previously prohibited here and was opened by
+explicit user request. Nothing is written back to the server; see “CalDAV
+scope” below.
 
 Read [`HANDOFF.md`](HANDOFF.md) before making substantial changes. It contains
 the current feature inventory, known gaps, architecture notes, and the review
@@ -11,12 +17,39 @@ plan for the next model.
 
 ## Scope
 
-- The current product is a fixture-backed UI and interaction prototype.
+- The product is a UI and interaction prototype that now reads real calendar
+  data. With no account connected it still serves the fixture repository, so the
+  sample surfaces remain reachable.
 - Keep the frozen May 2026 fixture contract unless the task explicitly changes
-  it.
-- Do not integrate real CalDAV networking or other remote functionality until
-  the UI state model, gesture behavior, and tests have been reviewed. Replacing
-  `FixtureCalDavClient` with an HTTP implementation is that separate step.
+  it. `FixtureRepository` is unchanged and is still the no-account default.
+- Do not add other remote functionality (CardDAV, webcal, telemetry, or any
+  other host) beyond the CalDAV read path described below.
+
+## CalDAV scope
+
+Read-only, and deliberately so. What exists:
+
+- `data/caldav/` — OkHttp transport, discovery, fetching, iCalendar mapping,
+  error classification, and Keystore-backed credential storage.
+- `data/repository/CalDavRepository.kt` — a second `CalinoRepository` fed by
+  those collections, selected once an account is connected.
+
+What is **not** built, and must not be added without a separate review:
+
+- Writing to the server. The app's write methods apply to an in-memory overlay
+  (`LocalOverlay`) that a refetch discards, and the accounts surface says so on
+  screen. Do not quietly turn those into `PUT`/`DELETE`.
+- `sync-collection` / sync-token incremental sync, the offline change queue,
+  ETag `If-Match` conflict handling.
+- Client-side RRULE expansion. Recurrence is expanded by the server via
+  `<c:expand>`, and a server that ignores it is reported rather than rendered
+  wrong.
+
+Credentials: the password lives only in the sheet's draft state and in
+`KeystoreCredentialStore`, encrypted under an Android Keystore key.
+`CalDavAccount` has no password field, and nothing secret is written to the
+account JSON. Never log a password, and never commit real credentials — the
+live test reads them from the environment.
 - Do not edit `<sibling-calino>` or the old
   `<sibling-native-poc>` copy while working here.
 - Do not commit credentials, local environment files, keystores, generated
@@ -166,9 +199,9 @@ After implementing a meaningful UI change:
 7. Report changed files, checks, emulator/phone validation, and any remaining
    uncertainty.
 
-Do not silently expand scope into sync, persistence, account management, or
-production release work. The simulated calendar-account flow is the agreed
-extent of account management.
+Do not silently expand scope into sync, server writes, or production release
+work. Read-only CalDAV plus the account list and its encrypted credentials is
+the agreed extent.
 
 ## Git and handoff rules
 

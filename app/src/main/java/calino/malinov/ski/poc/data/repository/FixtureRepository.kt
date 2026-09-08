@@ -17,6 +17,20 @@ import java.util.concurrent.CopyOnWriteArrayList
 /** A writable calendar the editor can file a record under. */
 data class CalinoCalendar(val id: String, val name: String, val color: Long)
 
+/**
+ * How current the snapshot is.
+ *
+ * The fixture repository is always [Idle]: it has nothing to load and nothing
+ * that can fail. Only the CalDAV-backed repository moves through the other
+ * states, so every existing consumer can ignore this field.
+ */
+sealed interface SyncState {
+    data object Idle : SyncState
+    data object Loading : SyncState
+    data class Ready(val fetchedAt: java.time.Instant, val partial: Boolean = false) : SyncState
+    data class Failed(val message: String, val hadPreviousData: Boolean = false) : SyncState
+}
+
 data class CalinoSnapshot(
     val events: List<CalEvent>,
     val tasks: List<CalTask>,
@@ -24,6 +38,7 @@ data class CalinoSnapshot(
     val revision: Long = 0,
     val calendars: List<CalinoCalendar> = FixtureCalendars,
     val categories: List<String> = FixtureCategories,
+    val sync: SyncState = SyncState.Idle,
 )
 
 /** The fixture calendar set. Settings and the editor read the same list. */

@@ -11,14 +11,38 @@ import java.io.Closeable
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Process-local holder for connected CalDAV accounts, kept deliberately apart
- * from [CalinoRepository] so the frozen fixture contract stays untouched. It
- * mirrors that repository's `mutableStateOf` plus observer shape so the UI
- * reads both the same way. Nothing here is persisted, and no password is ever
- * stored: only the URL, username, and discovered collections survive the sheet.
+ * Persistence for the account list.
+ *
+ * Passwords never travel through here -- they live in the credential store,
+ * encrypted. This holds only what is safe to write as plain JSON: server URL,
+ * username, display name, and the discovered collections with their enabled
+ * flags.
  */
-class CalDavAccountStore {
-    private val state = mutableStateOf<List<CalDavAccount>>(emptyList())
+interface CalDavAccountPersistence {
+    fun load(): List<CalDavAccount>
+    fun save(accounts: List<CalDavAccount>)
+
+    /** Keeps the store in-memory, as it was before accounts persisted. */
+    object None : CalDavAccountPersistence {
+        override fun load(): List<CalDavAccount> = emptyList()
+        override fun save(accounts: List<CalDavAccount>) = Unit
+    }
+}
+
+/**
+ * Holder for connected CalDAV accounts, kept deliberately apart from
+ * [CalinoRepository] so the frozen fixture contract stays untouched. It mirrors
+ * that repository's `mutableStateOf` plus observer shape so the UI reads both
+ * the same way.
+ *
+ * No password is ever stored here: only the URL, username, and discovered
+ * collections. The password goes to the credential store, encrypted under an
+ * Android Keystore key.
+ */
+class CalDavAccountStore(
+    private val persistence: CalDavAccountPersistence = CalDavAccountPersistence.None,
+) {
+    private val state = mutableStateOf<List<CalDavAccount>>(persistence.load())
     private val listeners = CopyOnWriteArrayList<(List<CalDavAccount>) -> Unit>()
 
     fun accounts(): List<CalDavAccount> = state.value
@@ -64,12 +88,22 @@ class CalDavAccountStore {
         }
     }
 
+    /** Replaces an account's collections after a rediscovery. */
+    fun replaceCalendars(accountId: String, calendars: List<CalDavCalendar>) {
+        update { accounts ->
+            accounts.map { account ->
+                if (account.id == accountId) account.copy(calendars = calendars) else account
+            }
+        }
+    }
+
     fun removeAccount(accountId: String) {
         update { accounts -> accounts.filterNot { it.id == accountId } }
     }
 
     private fun update(transform: (List<CalDavAccount>) -> List<CalDavAccount>) {
         state.value = transform(state.value)
+        persistence.save(state.value)
         listeners.forEach { it(state.value) }
     }
 }

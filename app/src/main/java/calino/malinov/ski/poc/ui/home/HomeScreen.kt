@@ -237,7 +237,10 @@ internal fun monthForPage(page: Int): YearMonth =
  */
 @Composable
 fun HomeScreen(
-    repository: CalinoRepository = remember { FixtureRepository() },
+    // Required, with no fixture default. A default here silently constructed a
+    // second, unconnected repository at any call site that omitted it, which
+    // now means quietly showing sample data instead of the user's calendar.
+    repository: CalinoRepository,
     journals: List<JournalEntry> = emptyList(),
     tasks: List<CalTask> = repository.tasks(),
     modifier: Modifier = Modifier,

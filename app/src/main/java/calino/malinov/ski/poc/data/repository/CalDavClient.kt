@@ -10,9 +10,11 @@ import java.util.Locale
 
 /**
  * The seam a real CalDAV implementation would fill: principal lookup followed
- * by calendar-home discovery. The prototype ships only [FixtureCalDavClient],
- * so the app keeps its no-network posture while the flow's states stay
- * reachable in the emulator and assertable in tests.
+ * by calendar-home discovery.
+ *
+ * `CalDavDiscovery` is the real implementation the app now uses.
+ * [FixtureCalDavClient] remains for tests and for exercising the sheet's
+ * states without a server.
  */
 interface CalDavClient {
     suspend fun discover(form: CalDavForm): CalDavConnectResult

@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response><href>/test-user/bed21d90-1639-2490-b6f5-721e0517aee6/13-journal.ics</href><propstat><prop><getetag>"c5cf4949547c5dc351cc6824cb598d31e3c373a604c7c6bc068617d776bc962c"</getetag><C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+CALSCALE:GREGORIAN
+PRODID:-//Calino Test Fixtures//EN
+BEGIN:VJOURNAL
+DESCRIPTION:Journal entry. Timed series now carry a TZID instead of a bare 
+ UTC instant\, so BYDAY is evaluated on the weekdays actually picked.
+DTSTAMP:20260819T090000Z
+DTSTART;VALUE=DATE:20260819
+SUMMARY:Notes: recurrence rework
+UID:fixture-journal
+END:VJOURNAL
+END:VCALENDAR
+</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>

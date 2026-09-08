@@ -63,6 +63,7 @@ import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalDavCalendar
 import calino.malinov.ski.poc.data.model.CalDavForm
 import calino.malinov.ski.poc.data.repository.CalDavClient
+import calino.malinov.ski.poc.data.repository.SyncState
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoShapes
@@ -107,6 +108,8 @@ fun CalendarAccountsSurface(
     onStartAddingConsumed: () -> Unit = {},
     focusAccountId: String? = null,
     onFocusAccountConsumed: () -> Unit = {},
+    syncState: SyncState = SyncState.Idle,
+    onRefresh: () -> Unit = {},
 ) {
     // Whether the sheet is open survives rotation; the credentials inside it
     // deliberately do not.
@@ -143,7 +146,7 @@ fun CalendarAccountsSurface(
                     modifier = Modifier.padding(top = 3.dp),
                 )
                 Text(
-                    "UI preview · connecting is simulated. No server is contacted and no password is stored.",
+                    "Reading only · Calino shows what the server holds. Nothing is written back yet.",
                     style = CalinoTypography.bodySmall,
                     color = CalinoColors.Ink3,
                     modifier = Modifier.padding(top = 5.dp),
@@ -161,6 +164,9 @@ fun CalendarAccountsSurface(
                 ),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                if (accounts.isNotEmpty()) {
+                    item { SyncStatusCard(syncState, onRefresh) }
+                }
                 if (accounts.isEmpty()) {
                     item { EmptyAccountsCard() }
                 } else {
@@ -201,6 +207,83 @@ fun CalendarAccountsSurface(
         }
     }
 }
+
+/**
+ * How the last read went, and a way to try again.
+ *
+ * A failure keeps whatever was already fetched on screen and says so, rather
+ * than blanking the calendar: stale data with a visible warning is more useful
+ * than nothing.
+ */
+@Composable
+private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
+    val (label, detail) = when (state) {
+        SyncState.Idle -> "Not connected" to "No calendars are being read yet."
+        SyncState.Loading -> "Reading calendars\u2026" to "Fetching events, tasks and journal entries."
+        is SyncState.Ready -> {
+            val stamp = remember(state.fetchedAt) { formatSyncTime(state.fetchedAt) }
+            if (state.partial) {
+                "Updated $stamp" to "Some of this account could not be read in full."
+            } else {
+                "Updated $stamp" to "Events, tasks and journal entries are current."
+            }
+        }
+        is SyncState.Failed ->
+            "Could not update" to buildString {
+                append(state.message)
+                if (state.hadPreviousData) append(" Showing the last data that was read.")
+            }
+    }
+    val accent = when (state) {
+        is SyncState.Failed -> CalinoColors.Rose
+        else -> CalinoColors.Ink3
+    }
+
+    EditorSection(null) {
+        Column(Modifier.fillMaxWidth().semantics { contentDescription = "$label. $detail" }) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (state is SyncState.Loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = CalinoColors.Ink3,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                }
+                Text(
+                    label,
+                    style = CalinoTypography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = accent,
+                )
+                Spacer(Modifier.weight(1f))
+                if (state !is SyncState.Loading) {
+                    TextButton(onClick = onRefresh) {
+                        Text("Refresh", style = CalinoTypography.bodyMedium, color = CalinoColors.Accent)
+                    }
+                }
+            }
+            Text(
+                detail,
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            // The write path is not built yet, and pretending otherwise would
+            // lose a user's edit silently.
+            Text(
+                "Changes you make here stay on this device until sync is added.",
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+private fun formatSyncTime(instant: java.time.Instant): String =
+    java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+        .withZone(java.time.ZoneId.systemDefault())
+        .format(instant)
 
 @Composable
 private fun EmptyAccountsCard() = EditorSection("No accounts yet") {

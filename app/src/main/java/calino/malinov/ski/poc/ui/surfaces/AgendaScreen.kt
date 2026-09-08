@@ -78,7 +78,7 @@ private val AgendaTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.US
  */
 @Composable
 fun AgendaScreen(
-    repository: CalinoRepository,
+    events: List<CalEvent>,
     tasks: List<CalTask>,
     modifier: Modifier = Modifier,
     initialDate: LocalDate = FixtureDate,
@@ -94,7 +94,6 @@ fun AgendaScreen(
     LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
     val selected = LocalDate.ofEpochDay(selectedEpoch)
 
-    val events = repository.events()
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = monthPageFor(YearMonth.from(initialDate))) { MonthPagerPageCount }
 

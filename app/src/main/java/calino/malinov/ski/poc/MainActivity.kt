@@ -1,5 +1,6 @@
 package calino.malinov.ski.poc
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -43,6 +44,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import calino.malinov.ski.poc.data.caldav.CalDavConnectionManager
+import calino.malinov.ski.poc.data.caldav.CalDavDiscovery
+import calino.malinov.ski.poc.data.caldav.CalDavFetcher
+import calino.malinov.ski.poc.data.caldav.CredentialStore
+import calino.malinov.ski.poc.data.caldav.DavHttp
+import calino.malinov.ski.poc.data.caldav.KeystoreCredentialStore
+import calino.malinov.ski.poc.data.caldav.SharedPreferencesAccountPersistence
+import calino.malinov.ski.poc.data.model.CalDavCalendar
+import calino.malinov.ski.poc.data.model.CalDavForm
+import calino.malinov.ski.poc.data.repository.CalDavRepository
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -78,7 +91,6 @@ import calino.malinov.ski.poc.data.model.editorDraftFor
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.repository.CalDavAccountStore
 import calino.malinov.ski.poc.data.repository.CalDavClient
-import calino.malinov.ski.poc.data.repository.FixtureCalDavClient
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.FixtureRepository
@@ -192,17 +204,83 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** Retains the in-memory POC repository across configuration changes only. */
-class PocRepositoryViewModel : ViewModel() {
-    val repository = FixtureRepository()
+/**
+ * Holds the data layer across configuration changes.
+ *
+ * Two repositories exist and one is active at a time. With no account
+ * connected the fixture repository serves the frozen May 2026 sample data, so
+ * the app is never an empty shell; connecting an account switches to the
+ * CalDAV-backed one. [activeRepository] is Compose state, so the swap
+ * recomposes and the observer bridge re-subscribes on its own.
+ */
+class PocRepositoryViewModel(application: Application) : AndroidViewModel(application) {
 
-    /**
-     * Connected CalDAV accounts live beside the fixture repository rather than
-     * inside it, so the frozen fixture contract stays untouched. The client is
-     * a simulation: the app still makes no network calls.
-     */
-    val accountStore = CalDavAccountStore()
-    val calDavClient: CalDavClient = FixtureCalDavClient()
+    private val fixtureRepository = FixtureRepository()
+
+    private val credentialStore: CredentialStore = KeystoreCredentialStore(application)
+
+    val accountStore = CalDavAccountStore(SharedPreferencesAccountPersistence(application))
+
+    /** Real discovery. This is the seam `FixtureCalDavClient` used to fill. */
+    val calDavClient: CalDavClient = CalDavDiscovery(sharedHttp)
+
+    private val calDavRepository = CalDavRepository(
+        fetcher = CalDavFetcher(sharedHttp),
+        scope = viewModelScope,
+    )
+
+    private val connections = CalDavConnectionManager(
+        accountStore = accountStore,
+        credentialStore = credentialStore,
+        repository = calDavRepository,
+        discovery = CalDavDiscovery(sharedHttp),
+        scope = viewModelScope,
+    )
+
+    private val repositoryState = mutableStateOf<CalinoRepository>(fixtureRepository)
+    val activeRepository: CalinoRepository get() = repositoryState.value
+
+    private val hasAccountsState = mutableStateOf(accountStore.accounts().isNotEmpty())
+
+    /** Whether any CalDAV account is connected. Drives the calendar's anchor date. */
+    val hasAccounts: Boolean get() = hasAccountsState.value
+
+    init {
+        // A persisted account restores and refetches without asking for the
+        // password again; the credential store still holds it.
+        connections.restore()
+        updateActiveRepository()
+    }
+
+    fun onAccountConnected(form: CalDavForm, calendars: List<CalDavCalendar>) {
+        val account = accountStore.addAccount(form, calendars)
+        connections.onAccountConnected(account, form.password)
+        updateActiveRepository()
+    }
+
+    fun onCalendarEnabled(accountId: String, calendarId: String, enabled: Boolean) {
+        accountStore.setCalendarEnabled(accountId, calendarId, enabled)
+        connections.onCalendarsToggled()
+    }
+
+    fun onAccountRemoved(accountId: String) {
+        accountStore.removeAccount(accountId)
+        connections.onAccountRemoved(accountId)
+        updateActiveRepository()
+    }
+
+    fun refresh() = calDavRepository.refresh()
+
+    private fun updateActiveRepository() {
+        val connected = accountStore.accounts().isNotEmpty()
+        hasAccountsState.value = connected
+        repositoryState.value = if (connected) calDavRepository else fixtureRepository
+    }
+
+    private companion object {
+        /** One OkHttp instance so discovery and fetching share the pool. */
+        val sharedHttp = DavHttp()
+    }
 }
 
 /** The launch shell for the fixture-only native POC. No WebView or Capacitor is involved. */
@@ -210,13 +288,24 @@ class PocRepositoryViewModel : ViewModel() {
 fun CalinoApp() {
     CalinoTheme {
         val pocViewModel = viewModel<PocRepositoryViewModel>()
-        val repository = pocViewModel.repository
+        val repository = pocViewModel.activeRepository
         val accountStore = pocViewModel.accountStore
         val snapshot = rememberRepositorySnapshot(repository)
         val calDavAccounts = rememberCalDavAccounts(accountStore)
         val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
         var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
-        var selectedDate by rememberSaveable(stateSaver = LocalDateSaver) { mutableStateOf(FixtureDate) }
+        // The fixture data lives around May 2026, so that is where the sample
+        // app opens. Real calendars are anchored on the actual date instead --
+        // landing a connected account on the fixture month shows an empty
+        // calendar and reads as a broken integration.
+        var selectedDate by rememberSaveable(stateSaver = LocalDateSaver) {
+            mutableStateOf(if (pocViewModel.hasAccounts) LocalDate.now() else FixtureDate)
+        }
+        // Connecting the first account mid-session moves the calendar to today
+        // for the same reason.
+        LaunchedEffect(pocViewModel.hasAccounts) {
+            if (pocViewModel.hasAccounts && selectedDate == FixtureDate) selectedDate = LocalDate.now()
+        }
         var showDayModal by rememberSaveable { mutableStateOf(false) }
         var selectedEventId by rememberSaveable { mutableStateOf<String?>(null) }
         // Keep the calendar occurrence separate from the event's series
@@ -452,7 +541,10 @@ fun CalinoApp() {
                             onSplitPaneChanged = { splitDayPaneVisible = it },
                         )
                         PockRoute.Agenda -> AgendaScreen(
-                            repository = repository,
+                            // The snapshot rather than a direct repository
+                            // read: a plain read inside composition does not
+                            // subscribe, so an async refresh would not repaint.
+                            events = snapshot.events,
                             tasks = snapshot.tasks,
                             modifier = Modifier.fillMaxSize(),
                             initialDate = selectedDate,
@@ -521,11 +613,13 @@ fun CalinoApp() {
                         PockRoute.Accounts -> CalendarAccountsSurface(
                             accounts = calDavAccounts,
                             client = pocViewModel.calDavClient,
-                            onAddAccount = { form, calendars -> accountStore.addAccount(form, calendars) },
+                            onAddAccount = { form, calendars -> pocViewModel.onAccountConnected(form, calendars) },
                             onCalendarEnabled = { accountId, calendarId, enabled ->
-                                accountStore.setCalendarEnabled(accountId, calendarId, enabled)
+                                pocViewModel.onCalendarEnabled(accountId, calendarId, enabled)
                             },
-                            onRemoveAccount = { accountStore.removeAccount(it) },
+                            onRemoveAccount = { pocViewModel.onAccountRemoved(it) },
+                            syncState = snapshot.sync,
+                            onRefresh = { pocViewModel.refresh() },
                             modifier = Modifier.fillMaxSize(),
                             onOpenMenu = { sidebarVisible = true },
                             startAdding = accountsAutoAdd,

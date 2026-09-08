@@ -6,11 +6,17 @@ continue the UI work.
 
 ## Current state
 
-This is a Kotlin + Jetpack Compose fixture-backed Android application. It is a
-standalone repository and does not load the Calino web app, WebView, Capacitor,
-CalDAV, CardDAV, webcal, credentials, or network services. It does now carry an
-add-CalDAV-account *flow*, but that flow is simulated end to end: no HTTP
-client, no INTERNET permission, no discovery request, and no stored password.
+This is a Kotlin + Jetpack Compose Android application. It is a standalone
+repository and does not load the Calino web app, WebView, Capacitor, CardDAV, or
+webcal.
+
+It now carries a **real, read-only CalDAV integration**: an OkHttp transport,
+well-known/principal/calendar-home discovery, `calendar-query` REPORTs with
+server-side recurrence expansion, iCalendar mapping via biweekly, and
+Keystore-encrypted credential storage. The app declares `INTERNET`. With no
+account connected it still serves the frozen May 2026 fixture data, so the
+sample surfaces stay reachable. **Nothing is written back to the server** --
+local edits apply to an in-memory overlay that a refetch discards.
 
 The current build identity is intentionally still provisional:
 
@@ -653,11 +659,11 @@ finger, and the host should own the final dismissal/removal transition.
 These are known and should be treated as review targets, not silently assumed
 to be complete:
 
-1. There is no CalDAV, CardDAV, webcal, auth, sync, or network layer. The
-   calendar-account surface is UI only: `FixtureCalDavClient` fabricates the
-   discovery result from the typed host, `CalDavAccountStore` is process-local,
-   and the typed password is discarded with the sheet. `CalDavClient` is the
-   interface a real implementation would replace.
+1. CalDAV is **read-only**. Discovery and fetching are real (`data/caldav/`),
+   but there is no write path, no `sync-collection` incremental sync, no ETag
+   conflict handling, and no offline queue. Local edits go to `LocalOverlay`
+   and are discarded on refetch; the accounts surface states this on screen.
+   There is still no CardDAV or webcal.
 2. The fixture repository is process-local; settings, event changes, task
    changes, and journal changes are not durable.
 3. Many settings use local state inside section composables. Switching away and
@@ -681,8 +687,11 @@ to be complete:
     the product identity settles.
 11. Text scaling, split-screen/freeform windows, RTL, localization, and very
     narrow widths have not been comprehensively validated.
-12. The UI is fixture-backed and intentionally optimistic: error, loading,
-    conflict, offline, and partial-sync states do not exist yet.
+12. Loading, error, and partial-read states exist for CalDAV
+    (`CalinoSnapshot.sync`, shown by the accounts surface's status card), but
+    conflict and offline-queue states do not, because there is no write path.
+    The calendar surfaces themselves show no sync banner yet -- a failed
+    refresh keeps the last data on screen and is only reported under Calendars.
 
 ## What the next model should review first
 
@@ -827,10 +836,12 @@ account into view.
 
 ## Safe continuation rules
 
-- Do not add real CalDAV networking until the UI state/data boundaries have
-  been reviewed and the fixture flows have reliable tests. The simulated
-  add-account flow is the agreed shape; replacing `FixtureCalDavClient` with an
-  HTTP implementation is the separate, reviewed step.
+- CalDAV is read-only and must stay that way until the write path is reviewed
+  separately. Do not turn `LocalOverlay` edits into server writes, and do not
+  add sync tokens, conflict resolution, or an offline queue as a side effect of
+  other work.
+- Never commit credentials. `CalDavLiveTest` reads them from
+  `CALINO_CALDAV_URL` / `_USER` / `_PASS` and skips when they are unset.
 - Do not edit the original `<sibling-native-poc>` copy when
   working on this repository. The standalone repo is the source of truth from
   this handoff onward.

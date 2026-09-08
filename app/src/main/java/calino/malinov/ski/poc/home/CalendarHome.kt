@@ -3,6 +3,7 @@ package calino.malinov.ski.poc.home
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.ui.home.HomeScreen
 
@@ -13,13 +14,14 @@ import calino.malinov.ski.poc.ui.home.HomeScreen
 @Deprecated("Use ui.home.HomeScreen")
 @Composable
 fun CalinoCalendarHome(
-    repository: FixtureRepository = remember { FixtureRepository() },
+    repository: CalinoRepository,
     modifier: Modifier = Modifier,
 ) {
     HomeScreen(repository = repository, modifier = modifier)
 }
 
+/** Preview only: the fixture repository is constructed here on purpose. */
 @Composable
 fun CalinoCalendarHomePreview() {
-    CalinoCalendarHome()
+    CalinoCalendarHome(repository = remember { FixtureRepository() })
 }
