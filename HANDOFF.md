@@ -11,12 +11,20 @@ repository and does not load the Calino web app, WebView, Capacitor, CardDAV, or
 webcal.
 
 It now carries a **real, read-only CalDAV integration**: an OkHttp transport,
-well-known/principal/calendar-home discovery, `calendar-query` REPORTs with
-server-side recurrence expansion, iCalendar mapping via biweekly, and
-Keystore-encrypted credential storage. The app declares `INTERNET`. With no
-account connected it still serves the frozen May 2026 fixture data, so the
-sample surfaces stay reachable. **Nothing is written back to the server** --
-local edits apply to an in-memory overlay that a refetch discards.
+well-known/principal/calendar-home discovery, `calendar-query` REPORTs,
+iCalendar mapping via biweekly, and Keystore-encrypted credential storage. The
+app declares `INTERNET`. With no account connected it still serves the frozen
+May 2026 fixture data, so the sample surfaces stay reachable.
+
+Two limits worth knowing before touching it:
+
+- **Nothing is written back to the server.** Local edits apply to an in-memory
+  overlay that a refetch discards.
+- **Recurrence is expanded by the server.** On a server that will not expand,
+  a repeating event shows only on its first date. The app detects this and says
+  so, but does not work around it.
+
+See "CalDAV (real, read-only)" and "CalDAV — what still needs doing".
 
 The current build identity is intentionally still provisional:
 
@@ -30,12 +38,21 @@ The current build identity is intentionally still provisional:
 - Main validation AVD: `calino-poc-api36`
 
 The app is a polished visual and interaction POC, not a production calendar
-client. Its date/data contract is frozen around Monday, 18 May 2026 so that
-visual and gesture behavior is deterministic.
+client. Its **fixture** date/data contract is frozen around Monday, 18 May 2026
+so that visual and gesture behavior is deterministic. That anchor applies only
+when no account is connected; a connected account opens the calendar on today.
 
 The initial standalone repository snapshot is commit `32c0664`.
 
-## NEXT TASK — continue fixture-backed calendar functionality after the interaction polish pass
+## NEXT TASK — see "CalDAV — what still needs doing"
+
+Read-only CalDAV landed after the section below was written. The highest-value
+work is now in **"CalDAV — what still needs doing"** near the end of this file;
+item 1 (recurring events on a server that will not expand) is the one a user
+notices. The fixture-backed test-coverage work described immediately below
+remains valid and unfinished.
+
+## Earlier task list — fixture-backed calendar functionality after the interaction polish pass
 
 The zoom performance pass, swipable week strip, swipable Settings categories,
 and task detail/editor flow are complete. Preserve the frozen May 2026 fixture contract and the three
@@ -59,7 +76,8 @@ completion/undo/detail editing, calendar rescheduling, Settings category
 paging, and boundary cancellation, then continue with other fixture-backed
 Calino surface gaps. Event/task
 drag-and-drop remains deferred until those state and gesture contracts are
-reviewed; do not add sync, persistence, or remote services.
+reviewed. Do not add server writes or sync; read-only CalDAV plus the account
+list and its encrypted credentials is the agreed extent.
 
 For each meaningful UI change, use the required full check:
 
@@ -659,13 +677,15 @@ finger, and the host should own the final dismissal/removal transition.
 These are known and should be treated as review targets, not silently assumed
 to be complete:
 
-1. CalDAV is **read-only**. Discovery and fetching are real (`data/caldav/`),
-   but there is no write path, no `sync-collection` incremental sync, no ETag
-   conflict handling, and no offline queue. Local edits go to `LocalOverlay`
-   and are discarded on refetch; the accounts surface states this on screen.
-   There is still no CardDAV or webcal.
-2. The fixture repository is process-local; settings, event changes, task
-   changes, and journal changes are not durable.
+1. CalDAV is **read-only**, and recurring events are only correct on a server
+   that honours `<c:expand>`. See "CalDAV — what still needs doing" for the
+   full list; there is no write path, no incremental sync, no ETag conflict
+   handling, and no offline queue. Local edits go to `LocalOverlay` and are
+   discarded on refetch; the accounts surface states this on screen. There is
+   still no CardDAV or webcal.
+2. Persistence is limited to CalDAV accounts and their credentials. Settings,
+   event changes, task changes, and journal changes are still not durable, and
+   the fixture repository remains process-local.
 3. Many settings use local state inside section composables. Switching away and
    back can restore the hard-coded preview default. Decide whether the eventual
    state belongs in a settings state holder or repository before wiring real
@@ -804,35 +824,205 @@ Tests should assert user-visible state and committed dates, not private pixel
 coordinates or animation implementation details. Keep a small set of emulator
 screenshot checkpoints for visual regressions.
 
-## Calendar accounts (simulated CalDAV)
+## CalDAV (real, read-only)
+
+The app reads a connected account's events, tasks, and journal entries over
+HTTPS. With no account connected `FixtureRepository` still serves the frozen
+May 2026 sample data, so the sample surfaces stay reachable. **Nothing is
+written back to the server.**
+
+### Layers
+
+`data/caldav/`
+
+| File | Role |
+|---|---|
+| `DavHttp.kt` | OkHttp transport. Not `HttpURLConnection`: it raises `ProtocolException` on `PROPFIND` and `REPORT`. |
+| `DavCredentials.kt` | Basic auth, UTF-8 per RFC 7617. `toString()` masks the password. |
+| `DavXml.kt` | DOM parsing for multistatus, namespace-aware **with a local-name fallback**. |
+| `CalDavDiscovery.kt` | Well-known probe, principal, calendar-home, collection listing. Implements the existing `CalDavClient` seam. |
+| `CalDavFetcher.kt` | The three component queries, expansion, and partial-result handling. |
+| `ICalMapper.kt` | biweekly → `CalEvent` / `CalTask` / `JournalEntry`. |
+| `CalDavErrors.kt` | `CalDavErrorCode` and the status/throwable classifiers. |
+| `CredentialStore.kt` | `KeystoreCredentialStore` (AES-GCM under an Android Keystore key) and an in-memory one for tests. |
+| `CalDavAccountJson.kt` | Account-list persistence in private `SharedPreferences`. |
+| `CalDavConnectionManager.kt` | Turns the account list into the repository's sources. |
+
+`data/repository/CalDavRepository.kt` implements `CalinoRepository`, so
+`rememberRepositorySnapshot` consumes it unchanged. `PocRepositoryViewModel`
+holds both repositories and swaps `activeRepository` when an account connects.
+
+### Behaviour that is load-bearing
+
+Each of these was paid for once; do not undo them casually.
+
+- **Well-known probing is judged by status (207 or 401), never by the URL it
+  lands on.** Radicale redirects `/.well-known/caldav` to `/` and on to its web
+  UI; a path check accepts that HTML page as the DAV root. A 401 counts because
+  an auth challenge proves the endpoint understood `PROPFIND`.
+- **XML lookups fall back to local-name matching.** Strict namespace matching
+  alone breaks against real servers.
+- **Address books and scheduling collections are filtered out** of the calendar
+  home by `resourcetype`. Both test servers list them.
+- **A collection reporting no privilege information is writable**, not
+  read-only. Absent metadata is not a denial.
+- **`supported-calendar-component-set` is a hint, not a gate.** All three
+  components are always requested. A Baikal calendar advertising `VTODO` only
+  still returned 81 events to a plain query; gating on that property hid the
+  whole calendar and, since nothing had *failed*, reported the result as
+  complete.
+- **Component queries are independent.** One failing must not lose the others,
+  and a partial result is never authoritative about what the server no longer
+  holds.
+- **Events are time-ranged and expanded; tasks and journals are neither.** A
+  `VTODO` may carry no `DTSTART` or `DUE` at all, and a time-range filter drops
+  exactly those.
+- **A rejected `<c:expand>` falls back to an unexpanded query** — see the
+  Baikal note below.
+- **`DTEND` is exclusive.** All-day spans carry an inclusive `CalEvent.endDate`
+  instead, converted once in the parser.
+- **`ICalMapper.toLocalDateTime` is separate and directly tested.** Expanded
+  instances arrive in UTC; a 23:00 Europe/Copenhagen event arrives as `21:00Z`
+  and must not slide onto the next day.
+- **VTODO takes its value type from `DTSTART` over `DUE`.** Trusting `DUE`
+  flips a timed task to all-day.
+- **A leading BOM is stripped before parsing**, or the parse silently yields
+  zero components.
+
+### The Baikal expand failure
+
+Worth knowing before debugging a "no events" report.
+
+sabre parses a collection's `calendar-timezone` property while expanding. A
+calendar storing a bare `Europe/Copenhagen` there, rather than a whole
+`VCALENDAR` wrapping a `VTIMEZONE` as RFC 4791 requires, makes the expanded
+query fail:
+
+```
+HTTP 500  Sabre\VObject\ParseException: This parser only supports VCARD and VCALENDAR files
+```
+
+Two of three calendars on the maintainer's server are in that state; the third,
+which has no `calendar-timezone` at all, expands fine. Reproduce by setting a
+bare TZID on any Baikal calendar: expand 500, plain 207.
+
+`CalDavFetcher.fetchEvents` retries without `expand` and sets
+`expandUnsupported`, so events still render — but **repeating events then show
+only on their first date**, which the status card says in as many words.
+
+### Write posture
+
+`CalinoRepository` carries the app's write methods and live UI paths call them,
+so they apply to `data/repository/LocalOverlay.kt`, an in-memory layer over the
+fetched data that a refetch discards. Making them throw was rejected: the
+editor and task list would crash rather than degrade. The accounts surface
+states the limitation on screen.
+
+### Sync state
+
+`CalinoSnapshot.sync` is `Idle | Loading | Ready(fetchedAt, warnings) | Failed`.
+`Ready.warnings` names each affected calendar and what is missing; the status
+card in `CalendarAccountsSurface` renders them in red. A read that is short of
+the whole calendar must say **which part** is missing — reporting it as
+complete is the worse failure, and was the reason the Baikal bug took a
+reproduction to find rather than a glance.
+
+A failed refresh keeps the previously fetched data on screen. Blanking the
+calendar because a refresh failed is worse than stale data beside a clear error.
+
+### Credentials
+
+The password exists in the sheet's draft state (plain `remember`, never
+`rememberSaveable`) and in `KeystoreCredentialStore`, encrypted under a
+Keystore key that never leaves the Keystore. `CalDavAccount` has no password
+field by construction, and the persisted account JSON carries no secret. Never
+log a password; `DavCredentials.toString()` masks it.
+
+### Account surface and navigation
 
 `PockRoute.Accounts` renders `CalendarAccountsSurface`
 (`ui/surfaces/CalDavScreen.kt`), reachable from the sidebar's calendar group and
-from Settings → Sync. It lists connected accounts, toggles individual
-collections, and removes an account.
+from Settings → Sync. `AddCalDavAccountSheet` is the three-step add flow —
+credentials, connecting, choose calendars — hosted in `BottomDetailCard` and
+stepped with `AnimatedContent`.
 
-`AddCalDavAccountSheet` is the three-step add flow — credentials, connecting,
-choose calendars — hosted in `BottomDetailCard` and stepped with
-`AnimatedContent`.
-
-State and rules:
-
-- `data/model/CalDavAccount.kt` — the account, collection, and form types. The
-  stored `CalDavAccount` has no password field by construction.
-- `state/CalDavRules.kt` — URL normalization, per-field validation, default
-  display name, and the stable account id. Pure Kotlin, covered by
-  `qa/CalDavRulesTest.kt`.
-- `data/repository/CalDavClient.kt` — the `CalDavClient` seam and its fixture.
-  A host containing `bad`/`invalid` fails as unreachable; the password `wrong`
-  fails as rejected credentials. Everything else discovers four collections.
-- `data/repository/CalDavAccountStore.kt` — process-local, deliberately outside
-  `CalinoRepository` so the frozen fixture contract is untouched. Held by
-  `PocRepositoryViewModel`.
+`state/CalDavRules.kt` (URL normalization, per-field validation, default display
+name, stable account id) is pure Kotlin and transferred to the real client
+unchanged. `FixtureCalDavClient` remains for tests and for exercising the
+sheet's states without a server.
 
 Origin handling mirrors `notificationOrigin`: `accountsOrigin` sends back to
 Settings or the calendar, `accountsAutoAdd` opens the sheet on arrival from the
 Settings add button, and `accountsFocusId` scrolls a Settings `Manage` row's
 account into view.
+
+### The calendar's anchor date
+
+`selectedDate` starts at `FixtureDate` (May 2026) only when no account is
+connected; with one it starts at today, and connecting the first account
+mid-session moves it. Landing a connected account on the fixture month shows an
+empty calendar and reads as a broken integration.
+
+### Tests
+
+`app/src/test/resources/caldav/` holds verbatim responses captured from a live
+Radicale server, so parsing tests run against what a server actually sends.
+
+| Test | Covers |
+|---|---|
+| `CalDavDiscoveryTest` | Collection filtering, colours, privileges, prefix variation, error mapping |
+| `ICalMapperTest` | Day bucketing, exclusive `DTEND`, VTODO value type, BOM, expand verification |
+| `CalDavFetcherTest` | Query shapes, partial failures, the VTODO-only regression, the sabre-500 fallback |
+| `CalDavRepositoryTest` | `observe` contract, sync transitions, source filtering, overlay posture |
+| `CalDavViewingTest` | Month-grid placement, ordering, account JSON round trip, credential hygiene |
+| `CalDavLiveTest` | Opt-in, against a real server |
+
+MockWebServer routes by **query body, not queue order** — the three component
+queries run concurrently, so an enqueued queue matches responses to the wrong
+component from run to run.
+
+The live test is gated on environment variables and skips without them:
+
+```bash
+CALINO_CALDAV_URL=https://example.com/dav.php \
+CALINO_CALDAV_USER=you CALINO_CALDAV_PASS=... \
+  distrobox enter android-sdk -- bash -lc './gradlew test --tests "*CalDavLiveTest*"'
+```
+
+## CalDAV — what still needs doing
+
+Roughly in the order that would deliver the most.
+
+1. **Recurring events on a server that will not expand.** Today they show only
+   on their first date. Two routes: fix the server's `calendar-timezone`
+   property (a `PROPPATCH` per calendar, restores server expansion and costs no
+   app code), or add a client-side RRULE expander. The second is the portable
+   answer and the larger job — the web app's `src/lib/occurrenceExpansion.ts`
+   is the reference, including its UTC-anchored all-day arithmetic and its
+   override-beats-`EXDATE` ordering (RFC 5545 §3.8.5.1).
+2. **The write path.** `LocalOverlay` edits never reach the server. Needs
+   `PUT`/`DELETE` with `If-Match`, and `CalEvent.etag`/`href` already exist to
+   carry it. Gated behind its own review.
+3. **Incremental sync.** Every refresh refetches the whole window.
+   `sync-collection` (RFC 6578) and the stored `ctag` would fix that. Port the
+   web app's rules: any non-2xx invalidates the token, and a tombstone is a
+   `<status>` that is a **direct child** of `<response>`.
+4. **A sync indicator on the calendar surfaces.** `snapshot.sync` is only
+   rendered under Calendars, so a failed refresh is invisible from the month or
+   agenda view.
+5. **Fetch-window paging.** The window is today ±6 months
+   (`CalDavRepository.DefaultWindowMonths`) and does not extend when the user
+   pages beyond it — events simply stop.
+6. **`monthEventIndex` cost.** It is O(events × 42) per month page with three
+   months composed at once, and a real expanded calendar is far larger than the
+   38 fixtures it was written against. Not yet observed to be slow; measure
+   before rewriting.
+7. **Multiple accounts** are modelled but only lightly exercised; only one has
+   been used at a time.
+8. **A task with a midnight `DUE` renders as `00:00`** in the agenda rather
+   than as an all-day task. Cosmetic, seen on real data.
+9. **No instrumented tests.** There is still no `androidTest` source set, so
+   none of this is covered at the Compose layer.
 
 ## Safe continuation rules
 
@@ -863,8 +1053,12 @@ adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 adb -s emulator-5554 shell am force-stop calino.malinov.ski.poc
 adb -s emulator-5554 shell am start -W -n calino.malinov.ski.poc/.MainActivity
 
-# Connected physical device, only when explicitly requested
-adb -s physical-device:45095 install -r app/build/outputs/apk/debug/app-debug.apk
+# Connected physical device, only when explicitly requested.
+# The wireless serial changes; take it from `adb devices`. The Galaxy Z Fold
+# has multiple displays, so screencap needs an explicit display id:
+#   adb -s <serial> exec-out screencap -p -d <id> > shot.png
+# with the id from `adb -s <serial> shell dumpsys SurfaceFlinger --display-id`.
+adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The debug APK is:
