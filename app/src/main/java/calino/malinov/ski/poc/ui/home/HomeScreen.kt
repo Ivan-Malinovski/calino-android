@@ -1253,7 +1253,7 @@ private fun CalendarTaskRow(
                 IconButton(
                     onClick = { rescheduleOpen = !rescheduleOpen },
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(36.dp)
                         .semantics {
                             contentDescription = if (rescheduleOpen) {
                                 "Hide reschedule options for ${task.title}"
@@ -2971,8 +2971,8 @@ private fun SelectedDayAgendaPage(
     }
     Column(
         interactionModifier
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -2989,17 +2989,16 @@ private fun SelectedDayAgendaPage(
                 color = CalinoColors.Accent,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = 36.dp)
                     .clickable(enabled = onOpenDay != null) { onOpenDay?.invoke(day) }
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
         if (dayTasks.isNotEmpty()) {
-            val taskVisualOffset = (-8).dp
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = 32.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .clickable(
                         enabled = active,
@@ -3017,9 +3016,7 @@ private fun SelectedDayAgendaPage(
                     fontSize = 10.sp,
                     letterSpacing = 1.sp,
                     color = CalinoColors.Green,
-                    modifier = Modifier
-                        .weight(1f)
-                        .offset(y = taskVisualOffset),
+                    modifier = Modifier.weight(1f),
                 )
                 Icon(
                     imageVector = CalinoIcons.ChevronRight,
@@ -3027,24 +3024,21 @@ private fun SelectedDayAgendaPage(
                     tint = CalinoColors.Green,
                     modifier = Modifier
                         .size(18.dp)
-                        .offset(y = taskVisualOffset)
                         .rotate(if (tasksExpanded) -90f else 90f),
                 )
             }
             AnimatedVisibility(
                 visible = tasksExpanded,
-                modifier = Modifier.offset(y = taskVisualOffset),
                 enter = expandVertically(tween(180)) + fadeIn(tween(140)),
                 exit = shrinkVertically(tween(160)) + fadeOut(tween(120)),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
                     dayTasks.forEach { task ->
                         CalendarTaskRow(
                             task = task,
                             onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
                             onTaskRescheduleTo = onTaskRescheduleTo,
                             onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
-                            modifier = Modifier.padding(vertical = 1.dp),
                         )
                     }
                 }
@@ -3053,8 +3047,13 @@ private fun SelectedDayAgendaPage(
         if (dayEvents.isEmpty()) {
             Text("Nothing scheduled", fontSize = 13.sp, color = CalinoColors.Ink3, modifier = Modifier.padding(vertical = 8.dp))
         } else {
-            dayEvents.forEach { event ->
-                EventChip(event, minHeight = 44.dp, onClick = onEvent?.let { callback -> { callback(event) } }, agendaStyle = true)
+            Column(
+                Modifier.padding(top = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                dayEvents.forEach { event ->
+                    EventChip(event, minHeight = 44.dp, onClick = onEvent?.let { callback -> { callback(event) } }, agendaStyle = true)
+                }
             }
         }
     }

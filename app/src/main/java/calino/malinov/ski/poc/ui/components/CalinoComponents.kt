@@ -573,7 +573,7 @@ fun AgendaRow(
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 44.dp)
+            .heightIn(min = if (compact) 36.dp else 44.dp)
             .then(rowPressModifier)
             .semantics(mergeDescendants = true) {
                 contentDescription = description
@@ -589,7 +589,7 @@ fun AgendaRow(
         }
         Box(
             Modifier
-                .size(44.dp)
+                .size(if (compact) 36.dp else 44.dp)
                 .then(checkboxPressModifier)
                 .semantics {
                     contentDescription = "${task.title}, checkbox"
