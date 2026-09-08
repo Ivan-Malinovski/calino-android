@@ -148,6 +148,29 @@ results.
   work. Comprehensive emulator gesture/frame review was interrupted; no
   physical-phone validation was performed in this pass.
 
+### Bottom detail cards and event paging — 2026-09-08
+
+- Event details, task details, and journal entries now open as rounded cards
+  sliding up over their mounted originating page and a dimmed backdrop.
+- `ui/components/BottomDetailCard.kt` shares the backdrop, entry/exit motion,
+  card shape, and grab handle. Android Back and backdrop taps use the same
+  animated dismissal as the card controls. Journal unsaved-edit confirmation
+  remains in place; save/delete/discard also animate before removing the card.
+- Events page horizontally through the selected day's occurrences, all-day
+  first and then by start time. Each pager page owns a complete rounded card,
+  including the event-colored handle area. There are no Previous/Next buttons
+  or page-counter row. Neighboring cards remain mounted before a swipe; the
+  selected event ID commits on pager settlement and Edit targets that event.
+- `SwipeDownDismiss` now reads the latest dismissal callback, preventing a
+  long-lived pointer handler from bypassing newly dirty journal state.
+- Ivan confirmed whole-card swiping and Android Back work. API 36 emulator
+  spot checks covered event/task/journal card rendering, horizontal swipes,
+  short downward spring-back, slow/fast dismissal, and event Android Back via
+  key and edge swipe. Comprehensive gesture automation, keyboard layouts,
+  and physical-phone validation remain outstanding. No phone deployment was
+  performed for this change.
+- The full `test lintDebug assembleDebug` check passed for the card/pager work.
+
 ### Future only — concrete drag-and-drop implementation checklist
 
 Do not start this checklist until the zoom measurements and Ivan’s visual
@@ -307,7 +330,7 @@ and animated enter/exit behavior.
 - A completion undo banner with a five-second-style local window.
 - Local rescheduling flow and date selection.
 - Task cards with category/color presentation.
-- Tappable task bodies with a full-screen detail/editor route.
+- Tappable task bodies with a bottom-card detail/editor route.
 - Local task title/category/due/completion edits that preserve task identity.
 - New task action through Quick Add.
 - Bottom viewport padding so the last item does not sit under the fixed action.

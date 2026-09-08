@@ -44,6 +44,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -74,6 +76,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -118,6 +122,9 @@ import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.qa.TaskBucket
 import calino.malinov.ski.poc.qa.taskBucket
+import calino.malinov.ski.poc.ui.components.BottomDetailOverlay
+import calino.malinov.ski.poc.ui.components.DetailCardSurface
+import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
@@ -468,17 +475,12 @@ fun EventDetailSurface(
     onBack: () -> Unit = {},
     onPrimary: () -> Unit = {},
     occurrenceDate: LocalDate? = null,
+    events: List<CalEvent> = listOf(event),
+    onEventSelected: (CalEvent) -> Unit = {},
+    onEditEvent: (CalEvent) -> Unit = { onPrimary() },
 ) {
-    val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
-    var entered by remember(event.id) { mutableStateOf(false) }
-    var shown by remember(event.id) { mutableStateOf(true) }
-    var moreOpen by remember { mutableStateOf(false) }
+    var shown by remember { mutableStateOf(true) }
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val enterProgress by animateFloatAsState(if (entered) 1f else 0f, animationSpec = tween(280), label = "detail enter")
-    val exitProgress by animateFloatAsState(if (shown) 0f else 1f, animationSpec = tween(220), label = "detail exit")
-    val exitDistancePx = with(LocalDensity.current) { 980.dp.toPx() }
-
-    LaunchedEffect(Unit) { entered = true }
     LaunchedEffect(shown) {
         if (!shown) {
             delay(220)
@@ -493,80 +495,113 @@ fun EventDetailSurface(
     }
     BackHandler(enabled = shown) { closeAfterAnimation(onBack) }
 
-    SwipeDownDismiss(
+    val pager = rememberPagerState(
+        initialPage = events.indexOfFirst { it.id == event.id }.coerceAtLeast(0),
+        pageCount = { events.size },
+    )
+    val currentSelectionCallback by rememberUpdatedState(onEventSelected)
+    LaunchedEffect(pager, events) {
+        snapshotFlow { pager.settledPage }.collect { page ->
+            events.getOrNull(page)?.let(currentSelectionCallback)
+        }
+    }
+    BottomDetailOverlay(
         visible = shown,
-        onDismiss = {
-            if (shown) closeAfterAnimation(onBack)
-        },
-        modifier = Modifier.fillMaxSize(),
-        dismissDistance = 980.dp,
-    ) { detailModifier ->
-        Box(
-            detailModifier
-                .background(CalinoColors.Canvas)
-                .offset { IntOffset(0, ((1f - enterProgress) * 28f).roundToInt()) }
-                .graphicsLayer {
-                    translationY = exitProgress * exitDistancePx
-                    alpha = 1f - exitProgress * .14f
-                },
-        ) {
-        Column(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxWidth().background(tint).padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 24.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    IconButtonGlyph("‹", "Back", { closeAfterAnimation(onBack) })
-                    Box {
-                        IconButtonGlyph("⋮", "More actions", { moreOpen = true })
-                        DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(if (event.location?.startsWith("http") == true) "Edit event" else "Edit") },
-                                onClick = { moreOpen = false; onPrimary() },
-                            )
-                        }
+        onDismiss = { closeAfterAnimation(onBack) },
+    ) { overlayModifier ->
+        HorizontalPager(
+            state = pager,
+            key = { events[it].id },
+            beyondViewportPageCount = 1,
+            userScrollEnabled = shown,
+            modifier = overlayModifier,
+        ) { page ->
+            val pageEvent = events[page]
+            Box(Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
+                SwipeDownDismiss(
+                    visible = shown,
+                    onDismiss = { closeAfterAnimation(onBack) },
+                    modifier = Modifier.fillMaxSize(),
+                    dismissDistance = 980.dp,
+                ) { dragModifier ->
+                    DetailCardSurface(
+                        modifier = dragModifier,
+                        handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
+                    ) {
+                        EventDetailContent(pageEvent, occurrenceDate,
+                            onBack = { closeAfterAnimation(onBack) },
+                            onPrimary = { if (!pager.isScrollInProgress) onEditEvent(pageEvent) })
                     }
                 }
-                label(event.calendarId, Modifier.padding(top = 12.dp))
-                Text(event.title, style = CalinoTypography.headlineLarge, modifier = Modifier.padding(top = 6.dp))
-                Text(
-                    eventHeaderText(event, occurrenceDate),
-                    style = CalinoTypography.bodyLarge,
-                    color = CalinoColors.Ink2,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            LazyColumn(Modifier.weight(1f).padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                event.location?.let { location -> item(key = "location") { DetailRow("⌖", "Location", location) } }
-                event.notes?.let { notes -> item(key = "notes") { DetailRow("≡", "Notes", notes) } }
-                if (event.attendees.isNotEmpty()) item(key = "attendees") { Attendees(event.attendees) }
-                if (event.recurrence != null) item(key = "occurrences") {
-                    Column(Modifier.padding(top = 20.dp, bottom = 16.dp)) {
-                        label("Next occurrences")
-                        Text(recurrenceSummary(event), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 5.dp))
-                        nextOccurrences(event, occurrenceDate ?: May18).forEach { occurrence ->
-                            Text(
-                                occurrence.format(dateFormat) + " · " + occurrence.format(timeFormat),
-                                style = CalinoTypography.bodyLarge,
-                                modifier = Modifier.padding(top = 10.dp),
-                            )
-                        }
-                    }
-                }
-            }
-            Row(Modifier.fillMaxWidth().padding(16.dp, 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onPrimary,
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                ) { Text(if (event.location?.startsWith("http") == true) "Join call" else "Edit") }
-                OutlinedButton(
-                    onClick = { moreOpen = true },
-                    modifier = Modifier.size(50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, CalinoColors.Ink.copy(.12f)),
-                ) { Text("···", color = CalinoColors.Ink) }
             }
         }
     }
+}
+
+@Composable
+private fun EventDetailContent(
+    event: CalEvent,
+    occurrenceDate: LocalDate?,
+    onBack: () -> Unit,
+    onPrimary: () -> Unit,
+) {
+    val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
+    var moreOpen by remember(event.id) { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxWidth().background(tint).padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 24.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                IconButtonGlyph("‹", "Back", { onBack() })
+                Box {
+                    IconButtonGlyph("⋮", "More actions", { moreOpen = true })
+                    DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (event.location?.startsWith("http") == true) "Edit event" else "Edit") },
+                            onClick = { moreOpen = false; onPrimary() },
+                        )
+                    }
+                }
+            }
+            label(event.calendarId, Modifier.padding(top = 12.dp))
+            Text(event.title, style = CalinoTypography.headlineLarge, modifier = Modifier.padding(top = 6.dp))
+            Text(
+                eventHeaderText(event, occurrenceDate),
+                style = CalinoTypography.bodyLarge,
+                color = CalinoColors.Ink2,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        LazyColumn(Modifier.weight(1f).padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            event.location?.let { location -> item(key = "location") { DetailRow("⌖", "Location", location) } }
+            event.notes?.let { notes -> item(key = "notes") { DetailRow("≡", "Notes", notes) } }
+            if (event.attendees.isNotEmpty()) item(key = "attendees") { Attendees(event.attendees) }
+            if (event.recurrence != null) item(key = "occurrences") {
+                Column(Modifier.padding(top = 20.dp, bottom = 16.dp)) {
+                    label("Next occurrences")
+                    Text(recurrenceSummary(event), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 5.dp))
+                    nextOccurrences(event, occurrenceDate ?: May18).forEach { occurrence ->
+                        Text(
+                            occurrence.format(dateFormat) + " · " + occurrence.format(timeFormat),
+                            style = CalinoTypography.bodyLarge,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                    }
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(16.dp, 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(
+                onClick = onPrimary,
+                modifier = Modifier.weight(1f).height(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
+            ) { Text(if (event.location?.startsWith("http") == true) "Join call" else "Edit") }
+            OutlinedButton(
+                onClick = { moreOpen = true },
+                modifier = Modifier.size(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, CalinoColors.Ink.copy(.12f)),
+            ) { Text("···", color = CalinoColors.Ink) }
+        }
     }
 }
 
@@ -613,7 +648,7 @@ fun TaskDetailSurface(
     }
     BackHandler(enabled = shown) { dismiss(false) }
 
-    SwipeDownDismiss(
+    BottomDetailCard(
         visible = shown,
         onDismiss = { dismiss(false) },
         modifier = Modifier.fillMaxSize(),
@@ -1666,7 +1701,10 @@ fun EventDetail(
     onBack: () -> Unit = {},
     onPrimaryAction: () -> Unit = {},
     occurrenceDate: LocalDate? = null,
-) = EventDetailSurface(event, onBack, onPrimaryAction, occurrenceDate)
+    events: List<CalEvent> = listOf(event),
+    onEventSelected: (CalEvent) -> Unit = {},
+    onEditEvent: (CalEvent) -> Unit = { onPrimaryAction() },
+) = EventDetailSurface(event, onBack, onPrimaryAction, occurrenceDate, events, onEventSelected, onEditEvent)
 
 @Composable
 fun TaskDetail(

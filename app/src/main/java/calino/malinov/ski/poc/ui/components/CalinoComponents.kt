@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -125,6 +126,7 @@ fun SwipeDownDismiss(
     content: @Composable (Modifier) -> Unit,
 ) {
     var dragY by remember { mutableFloatStateOf(0f) }
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
     var dismissing by remember { mutableStateOf(false) }
     var animationJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
@@ -214,7 +216,7 @@ fun SwipeDownDismiss(
                         // finger's final position and let that host animation
                         // own the remaining travel.
                         dismissing = true
-                        onDismiss()
+                        currentOnDismiss()
                     } else {
                         animateOffsetTo(0f)
                     }

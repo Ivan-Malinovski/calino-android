@@ -75,7 +75,7 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
-import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
+import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -143,93 +143,80 @@ fun JournalSurface(
         editingId = null
     }
 
-    BackHandler(enabled = editing != null) { editing?.let(::closeEntry) }
-
-    Column(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
-        AnimatedContent(
-            targetState = editingId,
-            modifier = Modifier.fillMaxSize(),
-            transitionSpec = {
-            val direction = if (targetState != null) 1 else -1
-                (slideInHorizontally(tween(250)) { direction * it / 3 } + fadeIn(tween(190))) togetherWith
-                    (slideOutHorizontally(tween(210)) { -direction * it / 3 } + fadeOut(tween(150)))
-            },
-            label = "journal editor transition",
-        ) { currentEditingId ->
-            val currentEntry = visibleEntries.firstOrNull { it.id == currentEditingId }
-            if (currentEntry != null) {
-                JournalEditor(
-                    entry = currentEntry,
-                    onDismiss = { closeEntry(currentEntry) },
-                    onSave = { updated ->
-                        if (draft?.id == updated.id) {
-                            draft?.commit(updated.title, updated.body)?.let(onCreate)
-                            draftId = null
-                            draftDateEpochDay = null
-                        } else {
-                            onUpdate(updated)
-                        }
-                        editingId = null
-                    },
-                    onDelete = { deleted ->
-                        if (draft?.id == deleted.id) {
-                            draftId = null
-                            draftDateEpochDay = null
-                        } else {
-                            onDelete(deleted)
-                        }
-                        editingId = null
-                    },
-                )
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalAlignment = Alignment.Top) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Journal", style = CalinoTypography.displayLarge)
-                            Text("A place for what the calendar cannot hold.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
-                        }
-                    }
-
-                    CompactSegmentedControl(
-                        options = JournalMode.entries.map { if (it == JournalMode.All) "All entries" else "By month" },
-                        selectedIndex = JournalMode.entries.indexOf(mode),
-                        onSelected = { modeName = JournalMode.entries[it].name },
-                        modifier = Modifier
-                            .padding(horizontal = 20.dp)
-                            .fillMaxWidth(),
-                        semanticLabel = "Journal list view",
-                        maxControlWidth = 248.dp,
-                    )
-
-                    AnimatedContent(
-                        targetState = mode,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        transitionSpec = {
-                            val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                            (slideInHorizontally(tween(210)) { direction * it / 3 } + fadeIn(tween(170))) togetherWith
-                                (slideOutHorizontally(tween(170)) { -direction * it / 3 } + fadeOut(tween(130)))
-                        },
-                        label = "journal mode transition",
-                    ) { currentMode ->
-                        when (currentMode) {
-                            JournalMode.All -> JournalRecentList(sorted) { editingId = it.id }
-                            JournalMode.Month -> JournalMonthList(sorted) { editingId = it.id }
-                        }
-                    }
-
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(CalinoColors.Panel)
-                            .border(1.dp, CalinoColors.Line)
-                            .padding(horizontal = 20.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Write a note for today", Modifier.weight(1f), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink2)
-                        Button(onClick = ::startNewEntry, shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.buttonColors(CalinoColors.Ink), modifier = Modifier.size(48.dp).semantics { contentDescription = "Add journal entry" }, contentPadding = PaddingValues(0.dp)) { Text("+", fontSize = 25.sp) }
-                    }
+    Box(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text("Journal", style = CalinoTypography.displayLarge)
+                    Text("A place for what the calendar cannot hold.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
                 }
             }
+
+            CompactSegmentedControl(
+                options = JournalMode.entries.map { if (it == JournalMode.All) "All entries" else "By month" },
+                selectedIndex = JournalMode.entries.indexOf(mode),
+                onSelected = { modeName = JournalMode.entries[it].name },
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .fillMaxWidth(),
+                semanticLabel = "Journal list view",
+                maxControlWidth = 248.dp,
+            )
+
+            AnimatedContent(
+                targetState = mode,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                transitionSpec = {
+                    val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                    (slideInHorizontally(tween(210)) { direction * it / 3 } + fadeIn(tween(170))) togetherWith
+                        (slideOutHorizontally(tween(170)) { -direction * it / 3 } + fadeOut(tween(130)))
+                },
+                label = "journal mode transition",
+            ) { currentMode ->
+                when (currentMode) {
+                    JournalMode.All -> JournalRecentList(sorted) { editingId = it.id }
+                    JournalMode.Month -> JournalMonthList(sorted) { editingId = it.id }
+                }
+            }
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(CalinoColors.Panel)
+                    .border(1.dp, CalinoColors.Line)
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Write a note for today", Modifier.weight(1f), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink2)
+                Button(onClick = ::startNewEntry, shape = RoundedCornerShape(15.dp), colors = ButtonDefaults.buttonColors(CalinoColors.Ink), modifier = Modifier.size(48.dp).semantics { contentDescription = "Add journal entry" }, contentPadding = PaddingValues(0.dp)) { Text("+", fontSize = 25.sp) }
+            }
+        }
+        val currentEntry = visibleEntries.firstOrNull { it.id == editingId }
+        if (currentEntry != null) {
+            JournalEditor(
+                entry = currentEntry,
+                onDismiss = { closeEntry(currentEntry) },
+                onSave = { updated ->
+                    if (draft?.id == updated.id) {
+                        draft?.commit(updated.title, updated.body)?.let(onCreate)
+                        draftId = null
+                        draftDateEpochDay = null
+                    } else {
+                        onUpdate(updated)
+                    }
+                    editingId = null
+                },
+                onDelete = { deleted ->
+                    if (draft?.id == deleted.id) {
+                        draftId = null
+                        draftDateEpochDay = null
+                    } else {
+                        onDelete(deleted)
+                    }
+                    editingId = null
+                },
+            )
+
         }
     }
 }
@@ -350,8 +337,17 @@ private fun JournalEditor(
         label = "journal save status color",
     )
 
+    var shown by remember(entry.id) { mutableStateOf(true) }
+    var closeAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun closeAnimated(action: () -> Unit) {
+        if (shown) { closeAction = action; shown = false }
+    }
+    LaunchedEffect(shown) {
+        if (!shown) { kotlinx.coroutines.delay(220); closeAction?.invoke() }
+    }
+
     fun dismissEditor() {
-        if (dirty) showDiscard = true else onDismiss()
+        if (dirty) showDiscard = true else closeAnimated(onDismiss)
     }
 
     BackHandler {
@@ -364,8 +360,8 @@ private fun JournalEditor(
         }
     }
 
-    SwipeDownDismiss(
-        visible = true,
+    BottomDetailCard(
+        visible = shown,
         onDismiss = ::dismissEditor,
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 720.dp,
@@ -398,7 +394,7 @@ private fun JournalEditor(
             TextButton(
                 enabled = canSave,
                 onClick = {
-                    onSave(entry.copy(title = title.trim(), body = body.trim()))
+                    closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) }
                 },
                 modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Save journal entry" },
             ) {
@@ -505,7 +501,7 @@ private fun JournalEditor(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Remove this note?", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onDelete(entry) }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Confirm delete journal entry" }) {
+                    TextButton(onClick = { closeAnimated { onDelete(entry) } }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Confirm delete journal entry" }) {
                         Text("Delete", color = CalinoColors.Rose)
                     }
                 }
@@ -523,7 +519,7 @@ private fun JournalEditor(
             ) {
                 Text("Discard your changes?", style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
                 TextButton(onClick = { showDiscard = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Keep editing", color = CalinoColors.Panel) }
-                TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" }) { Text("Discard", color = CalinoColors.AccentSoft) }
+                TextButton(onClick = { closeAnimated(onDismiss) }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" }) { Text("Discard", color = CalinoColors.AccentSoft) }
             }
         }
         }

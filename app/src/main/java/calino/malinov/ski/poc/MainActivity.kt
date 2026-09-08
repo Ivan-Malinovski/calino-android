@@ -65,6 +65,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import calino.malinov.ski.poc.data.model.CalEvent
+import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.NewJournal
@@ -276,7 +277,8 @@ fun CalinoApp() {
 
         // EventEditDialog is a platform Dialog and owns its back gesture so
         // its exit animation can finish before editEventId is cleared.
-        BackHandler(enabled = journalReviewVisible || route != PockRoute.Day || showDayModal) {
+        BackHandler(enabled = route != PockRoute.Detail && route != PockRoute.TaskDetail &&
+            !journalEditorVisible && (journalReviewVisible || route != PockRoute.Day || showDayModal)) {
             when {
                 journalReviewVisible -> journalReviewVisible = false
                 route == PockRoute.QuickAdd -> dismissQuickAdd()
@@ -306,13 +308,17 @@ fun CalinoApp() {
                 PockRoute.Tasks -> PockRoute.Tasks
                 PockRoute.Journal -> PockRoute.Journal
                 PockRoute.Settings -> PockRoute.Settings
-                PockRoute.Detail -> PockRoute.Detail
-                PockRoute.TaskDetail -> PockRoute.TaskDetail
+                PockRoute.Detail -> when (detailOrigin) {
+                    PocReturnTarget.Tasks -> PockRoute.Tasks
+                    PocReturnTarget.Journal -> PockRoute.Journal
+                    else -> PockRoute.Day
+                }
+                PockRoute.TaskDetail -> if (taskDetailOrigin == PocReturnTarget.Tasks) PockRoute.Tasks else PockRoute.Day
                 PockRoute.QuickAdd -> when (quickAddOrigin) {
                     PocReturnTarget.Tasks -> PockRoute.Tasks
                     PocReturnTarget.Journal -> PockRoute.Journal
                     PocReturnTarget.Settings -> PockRoute.Settings
-                    PocReturnTarget.Detail -> PockRoute.Detail
+                    PocReturnTarget.Detail -> PockRoute.Day
                     else -> PockRoute.Day
                 }
                 PockRoute.Notifications -> PockRoute.Notifications
@@ -391,42 +397,7 @@ fun CalinoApp() {
                                 route = PockRoute.Notifications
                             },
                         )
-                        PockRoute.Detail -> selectedEvent?.let { event ->
-                            EventDetail(
-                                event = event,
-                                occurrenceDate = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay),
-                                onBack = {
-                                    selectedEventId = null
-                                    selectedEventOccurrenceDay = null
-                                    restoreDetailOrigin()
-                                },
-                                // Editing is an overlay state. Leave the
-                                // detail destination mounted so its surface
-                                // never blanks while the animated dialog is
-                                // entering or exiting.
-                                onPrimaryAction = {
-                                    // Keep the detail destination mounted;
-                                    // the editor is an animated overlay, not
-                                    // a replacement for this surface.
-                                    selectedEventId = event.id
-                                    editEventId = event.id
-                                },
-                            )
-                        }
-                        PockRoute.TaskDetail -> selectedTask?.let { task ->
-                            TaskDetail(
-                                task = task,
-                                onBack = {
-                                    selectedTaskId = null
-                                    restoreTaskDetailOrigin()
-                                },
-                                onSave = { input, done ->
-                                    repository.updateTask(task.id, input, done)
-                                    selectedTaskId = null
-                                    restoreTaskDetailOrigin()
-                                },
-                            )
-                        }
+                        PockRoute.Detail, PockRoute.TaskDetail -> Unit
                         PockRoute.Notifications -> NotificationPreview(
                             data = calino.malinov.ski.poc.ui.surfaces.NotificationPreviewData(
                                 "Design review", "10:00 AM · Studio · with 2 others",
@@ -436,6 +407,55 @@ fun CalinoApp() {
                         PockRoute.QuickAdd -> Unit
                     }
                 }
+            }
+
+            when (route) {
+                PockRoute.Detail -> selectedEvent?.let { event ->
+                    EventDetail(
+                        event = event,
+                        events = remember(snapshot.events, selectedEventOccurrenceDay) {
+                            snapshot.events.filter {
+                                it.occursOn(selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay) ?: selectedDate)
+                            }.sortedWith(compareBy<CalEvent> { !it.allDay }
+                                .thenBy { it.start?.toLocalTime() }.thenBy { it.id })
+                                .ifEmpty { listOf(event) }
+                        },
+                        onEventSelected = { selectedEventId = it.id },
+                        onEditEvent = { editEventId = it.id },
+                        occurrenceDate = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay),
+                        onBack = {
+                            selectedEventId = null
+                            selectedEventOccurrenceDay = null
+                            restoreDetailOrigin()
+                        },
+                        // Editing is an overlay state. Leave the
+                        // detail destination mounted so its surface
+                        // never blanks while the animated dialog is
+                        // entering or exiting.
+                        onPrimaryAction = {
+                            // Keep the detail destination mounted;
+                            // the editor is an animated overlay, not
+                            // a replacement for this surface.
+                            selectedEventId = event.id
+                            editEventId = event.id
+                        },
+                    )
+                }
+                PockRoute.TaskDetail -> selectedTask?.let { task ->
+                    TaskDetail(
+                        task = task,
+                        onBack = {
+                            selectedTaskId = null
+                            restoreTaskDetailOrigin()
+                        },
+                        onSave = { input, done ->
+                            repository.updateTask(task.id, input, done)
+                            selectedTaskId = null
+                            restoreTaskDetailOrigin()
+                        },
+                    )
+                }
+                else -> Unit
             }
 
             if (calendarDayModalVisible) {
