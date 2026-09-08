@@ -79,8 +79,13 @@ fun NavSidebar(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The calendar views come first as a group; the rule separates them from
+    // the other surfaces.
+    val calendarItems = listOf(
+        NavItem("Month", PockRoute.Day, CalinoIcons.Calendar),
+        NavItem("Agenda", PockRoute.Agenda, CalinoIcons.AgendaList),
+    )
     val items = listOf(
-        NavItem("Calendar", PockRoute.Day, CalinoIcons.Calendar),
         NavItem("Tasks", PockRoute.Tasks, CalinoIcons.ListChecks),
         NavItem("Journal", PockRoute.Journal, CalinoIcons.BookOpen),
         NavItem("Settings", PockRoute.Settings, CalinoIcons.Settings),
@@ -165,6 +170,19 @@ fun NavSidebar(
                             "Calino",
                             style = CalinoTypography.titleLarge.copy(fontSize = 22.sp),
                             modifier = Modifier.padding(start = 10.dp, bottom = 10.dp),
+                        )
+                        calendarItems.forEach { item ->
+                            NavRow(item, selected = selectedRoute == item.route) {
+                                onRoute(item.route)
+                                onDismiss()
+                            }
+                        }
+                        Box(
+                            Modifier
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(CalinoColors.Line),
                         )
                         items.forEach { item ->
                             NavRow(item, selected = selectedRoute == item.route) {

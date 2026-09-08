@@ -1,0 +1,307 @@
+package calino.malinov.ski.poc.ui.surfaces
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import calino.malinov.ski.poc.data.model.CalEvent
+import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.data.repository.CalinoRepository
+import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoShapes
+import calino.malinov.ski.poc.design.CalinoSpacing
+import calino.malinov.ski.poc.state.tasksDueOn
+import calino.malinov.ski.poc.ui.components.AgendaRow
+import calino.malinov.ski.poc.ui.components.AgendaRowVariant
+import calino.malinov.ski.poc.ui.components.eventColor
+import calino.malinov.ski.poc.ui.components.AgendaTaskRow
+import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
+import calino.malinov.ski.poc.ui.components.calinoPressable
+import calino.malinov.ski.poc.ui.home.FixtureDate
+import calino.malinov.ski.poc.ui.home.MonthPagerPageCount
+import calino.malinov.ski.poc.ui.home.monthEventIndex
+import calino.malinov.ski.poc.ui.home.monthForPage
+import calino.malinov.ski.poc.ui.home.monthPageFor
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+
+private val AgendaDayFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
+private val AgendaTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.US)
+
+/**
+ * The month-paged agenda: one page per month, every day of that month listed
+ * with its events and due tasks. It is a root destination of its own, distinct
+ * from the zooming calendar surface, and shares the calendar's month heading
+ * and month-page arithmetic so both stay on the same page for the same date.
+ */
+@Composable
+fun AgendaScreen(
+    repository: CalinoRepository,
+    tasks: List<CalTask>,
+    modifier: Modifier = Modifier,
+    initialDate: LocalDate = FixtureDate,
+    onOpenMenu: (() -> Unit)? = null,
+    onDateChanged: (LocalDate) -> Unit = {},
+    /** Carries the row's own day: an agenda row is not always the selected date. */
+    onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
+    onTaskClick: ((CalTask) -> Unit)? = null,
+    onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
+    onAddOn: (LocalDate) -> Unit = {},
+) {
+    var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
+    LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
+    val selected = LocalDate.ofEpochDay(selectedEpoch)
+
+    val events = repository.events()
+    val scope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(initialPage = monthPageFor(YearMonth.from(initialDate))) { MonthPagerPageCount }
+
+    // Only a user drag may commit a month. Programmatic syncs must not feed
+    // intermediate pages back into the selected date, the same discipline the
+    // calendar pagers use.
+    val currentSelectedEpoch = rememberUpdatedState(selectedEpoch)
+    var dragOrigin by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(pagerState) {
+        pagerState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) dragOrigin = currentSelectedEpoch.value
+        }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress to pagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { (inProgress, page) ->
+                if (inProgress) return@collect
+                if (dragOrigin != currentSelectedEpoch.value) return@collect
+                dragOrigin = null
+                val month = monthForPage(page)
+                val current = LocalDate.ofEpochDay(currentSelectedEpoch.value)
+                if (YearMonth.from(current) == month) return@collect
+                // Keep the day-of-month where it can exist, so paging a month
+                // forward from the 31st does not silently jump elsewhere.
+                val day = current.dayOfMonth.coerceAtMost(month.lengthOfMonth())
+                val next = month.atDay(day)
+                selectedEpoch = next.toEpochDay()
+                onDateChanged(next)
+            }
+    }
+    LaunchedEffect(selectedEpoch) {
+        val target = monthPageFor(YearMonth.from(LocalDate.ofEpochDay(selectedEpoch)))
+        if (pagerState.currentPage != target && !pagerState.isScrollInProgress) {
+            pagerState.animateScrollToPage(target)
+        }
+    }
+
+    fun goToPage(page: Int) {
+        scope.launch { pagerState.animateScrollToPage(page.coerceIn(0, MonthPagerPageCount - 1)) }
+        val month = monthForPage(page.coerceIn(0, MonthPagerPageCount - 1))
+        val current = LocalDate.ofEpochDay(currentSelectedEpoch.value)
+        val next = month.atDay(current.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
+        selectedEpoch = next.toEpochDay()
+        onDateChanged(next)
+    }
+
+    Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+        CalinoMonthHeading(
+            day = selected,
+            onOpenMenu = onOpenMenu,
+            onPreviousMonth = { goToPage(pagerState.currentPage - 1) },
+            onNextMonth = { goToPage(pagerState.currentPage + 1) },
+            onToday = {
+                selectedEpoch = FixtureDate.toEpochDay()
+                onDateChanged(FixtureDate)
+            },
+            showToday = selected != FixtureDate,
+            subtitle = null,
+        )
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1,
+            key = { it },
+        ) { page ->
+            AgendaMonthPage(
+                month = monthForPage(page),
+                selected = selected,
+                events = events,
+                tasks = tasks,
+                onEventClick = onEventClick,
+                onTaskClick = onTaskClick,
+                onTaskDone = onTaskDone,
+                onAddOn = onAddOn,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgendaMonthPage(
+    month: YearMonth,
+    selected: LocalDate,
+    events: List<CalEvent>,
+    tasks: List<CalTask>,
+    onEventClick: ((LocalDate, CalEvent) -> Unit)?,
+    onTaskClick: ((CalTask) -> Unit)?,
+    onTaskDone: (CalTask, Boolean) -> Unit,
+    onAddOn: (LocalDate) -> Unit,
+) {
+    val days = remember(month) { (1..month.lengthOfMonth()).map(month::atDay) }
+    val eventsByDay = remember(events, month) { monthEventIndex(events, month) }
+    val tasksByDay = remember(tasks, month) {
+        days.associateWith { day -> tasksDueOn(tasks, day) }.filterValues { it.isNotEmpty() }
+    }
+    val listState = rememberLazyListState()
+
+    // Entering the agenda from a chosen date should land on that date rather
+    // than on the first of the month. Only the page that owns it scrolls.
+    LaunchedEffect(month) {
+        if (YearMonth.from(selected) == month && selected.dayOfMonth > 1) {
+            listState.scrollToItem(selected.dayOfMonth - 1)
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = CalinoSpacing.PillClearance),
+    ) {
+        items(days.size, key = { days[it].toEpochDay() }) { index ->
+            val day = days[index]
+            val dayEvents = eventsByDay[day].orEmpty().sortedWith(
+                compareBy<CalEvent> { !it.allDay }.thenBy { it.start?.toLocalTime() }.thenBy { it.id },
+            )
+            val dayTasks = tasksByDay[day].orEmpty()
+            Column(Modifier.padding(bottom = 10.dp)) {
+                AgendaDayHeader(day = day, onAdd = { onAddOn(day) })
+                if (dayEvents.isEmpty() && dayTasks.isEmpty()) {
+                    Text(
+                        "Nothing scheduled",
+                        color = CalinoColors.Ink3,
+                        fontSize = 13.sp,
+                        lineHeight = 19.5.sp,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        dayEvents.forEach { event ->
+                            // 24h keeps the times inside the mono column, the
+                            // same clock the day rail uses.
+                            AgendaRow(
+                                title = event.title,
+                                color = eventColor(event.color),
+                                time = if (event.allDay) null else event.start?.format(AgendaTimeFormatter),
+                                subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
+                                variant = AgendaRowVariant.Card,
+                                onClick = onEventClick?.let { click -> { click(day, event) } },
+                            )
+                        }
+                        dayTasks.forEach { task ->
+                            AgendaTaskRow(
+                                task = task,
+                                time = task.due?.let { AgendaTimeFormatter.format(it.atStartOfDay()) },
+                                onClick = onTaskClick?.let { click -> { click(task) } },
+                                onCheckedChange = { done -> onTaskDone(task, done) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A day separator in the agenda: the weekday, the date, and the day's own add
+ * affordance. Today's date is carried by the accent chip rather than by color
+ * alone.
+ */
+@Composable
+private fun AgendaDayHeader(day: LocalDate, onAdd: () -> Unit) {
+    val isToday = day == FixtureDate
+    val weekday = day.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        .replaceFirstChar { it.uppercase() }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            weekday,
+            color = CalinoColors.Accent,
+            fontSize = 15.sp,
+            lineHeight = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.width(9.dp))
+        Box(
+            Modifier
+                .clip(CircleShape)
+                .background(if (isToday) CalinoColors.AccentSoft else CalinoColors.Canvas)
+                .padding(horizontal = if (isToday) 8.dp else 0.dp, vertical = if (isToday) 2.dp else 0.dp),
+        ) {
+            Text(
+                day.format(AgendaDayFormatter),
+                color = if (isToday) CalinoColors.Accent else CalinoColors.Ink3,
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp,
+                fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        Box(
+            Modifier
+                .heightIn(min = 44.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Chip))
+                .calinoPressable(onClick = onAdd)
+                .semantics { contentDescription = "Add on ${day.format(AgendaDayFormatter)}" }
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("+ Add", color = CalinoColors.Ink3, fontSize = 12.5.sp, lineHeight = 18.sp)
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line2))
+    Spacer(Modifier.height(8.dp))
+}

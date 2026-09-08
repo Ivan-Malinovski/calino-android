@@ -65,6 +65,31 @@ cancelled, boundary, and reverse gestures. Use the zoom handle semantics
 validation requires an explicit request and must not be inferred from emulator
 results.
 
+### Agenda root view added — 2026-09-08
+
+- Agenda is its own root destination (`PockRoute.Agenda`), separate from the
+  zooming month surface. `ui/surfaces/AgendaScreen.kt` renders one month per
+  `HorizontalPager` page, listing every day of that month with its events and
+  due tasks, a per-day `+ Add`, and a "Nothing scheduled" line on empty days.
+- Order is `Month, Agenda | Tasks, Journal, Settings` in the sidebar (with a
+  rule between the two calendar views and the rest) and
+  `Month → Agenda → Tasks → Journal` in the add-pill swipe order. The former
+  "Calendar" sidebar label is now "Month".
+- The agenda shares the calendar's month-page arithmetic (`monthPageFor` /
+  `monthForPage`), its per-day event index (`monthEventIndex`) and its header,
+  which moved to `ui/components/CalinoMonthHeading` — `HomeScreen.MonthHeading`
+  now delegates to it and supplies the `Week N · …` subtitle. Those helpers and
+  `FixtureDate` became `internal` for this.
+- `AgendaTaskRow` in `ui/components/CalinoComponents.kt` is the agenda shape of
+  a due task: the event row's rail/time/card geometry with the completion circle
+  as a trailing control. The checkbox-first `AgendaRow(task, …)` remains the
+  Tasks-surface shape.
+- Agenda times are 24h so they fit the row's mono time column, matching the
+  day rail. Event rows pass their own day to the detail route, since an agenda
+  row is not necessarily the selected date.
+- `PocReturnTarget.Agenda` carries the origin so detail, task detail, and Quick
+  Add all return to the agenda.
+
 ### Zoom, week-navigation, and calendar-task pass completed — 2026-09-08
 
 - `HomeScreen.kt` keeps the month/day surfaces at stable measured sizes during

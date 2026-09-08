@@ -110,6 +110,7 @@ import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
+import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.TaskRow
@@ -134,15 +135,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 
-private val FixtureDate = LocalDate.of(2026, 5, 18)
+internal val FixtureDate = LocalDate.of(2026, 5, 18)
 private const val DaytimeScrollHour = 9
 private const val ZoomStepDp = 280f
 private const val DayPagerCenter = 100_000
 private const val DayPagerPageCount = DayPagerCenter * 2 + 1
 private const val WeekPagerCenter = 10_000
 private const val WeekPagerPageCount = WeekPagerCenter * 2 + 1
-private const val MonthPagerCenter = 10_000
-private const val MonthPagerPageCount = MonthPagerCenter * 2 + 1
+internal const val MonthPagerCenter = 10_000
+internal const val MonthPagerPageCount = MonthPagerCenter * 2 + 1
 // Retained by the deprecated compatibility month renderer below. The active
 // calendar path uses StaticMonthGrid and does not use these crossfade bounds.
 private const val CompactMonthRowPlaceholderThreshold = .62f
@@ -212,13 +213,13 @@ private fun weekPageFor(date: LocalDate): Int {
 private fun mondayForWeekPage(page: Int): LocalDate =
     FixtureDate.with(DayOfWeek.MONDAY).plusWeeks((page - WeekPagerCenter).toLong())
 
-private fun monthPageFor(month: YearMonth): Int {
+internal fun monthPageFor(month: YearMonth): Int {
     val fixtureMonth = YearMonth.from(FixtureDate)
     return (MonthPagerCenter + (month.year - fixtureMonth.year) * 12 + month.monthValue - fixtureMonth.monthValue)
         .coerceIn(0, MonthPagerPageCount - 1)
 }
 
-private fun monthForPage(page: Int): YearMonth =
+internal fun monthForPage(page: Int): YearMonth =
     YearMonth.from(FixtureDate).plusMonths((page - MonthPagerCenter).toLong())
 
 /**
@@ -943,58 +944,15 @@ private fun MonthHeading(
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onToday: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        onOpenMenu?.let { MenuButton(onClick = it) }
-        IconButton(
-            onClick = onPreviousMonth,
-            modifier = Modifier.semantics { contentDescription = "Previous month" },
-        ) { Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink2) }
-        Column(Modifier.weight(1f).padding(horizontal = 2.dp)) {
-            AnimatedContent(
-                targetState = YearMonth.from(day),
-                transitionSpec = {
-                    val direction = if (targetState.isAfter(initialState)) 1 else -1
-                    slideInHorizontally(tween(190)) { direction * it / 4 } + fadeIn(tween(150)) togetherWith
-                        slideOutHorizontally(tween(150)) { -direction * it / 4 } + fadeOut(tween(110))
-                },
-                label = "month heading",
-            ) { month ->
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).replaceFirstChar { it.uppercase() },
-                        style = CalinoTypography.titleLarge.copy(fontSize = 27.sp, lineHeight = 30.sp),
-                    )
-                    Text(month.year.toString(), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 7.dp, bottom = 2.dp))
-                }
-            }
-            AnimatedContent(
-                targetState = day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR),
-                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
-                label = "week heading",
-            ) { week ->
-                Text("Week $week · ${day.format(ShortDateFormatter)}", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(top = 1.dp))
-            }
-        }
-        if (day != FixtureDate) {
-            TextButton(
-                onClick = onToday,
-                modifier = Modifier.semantics { contentDescription = "Go to today" },
-            ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
-        }
-        IconButton(
-            onClick = onNextMonth,
-            modifier = Modifier.semantics { contentDescription = "Next month" },
-        ) { Icon(CalinoIcons.ChevronRight, contentDescription = null, tint = CalinoColors.Ink2) }
-    }
-    Box(
-        Modifier.fillMaxWidth().height(2.dp).padding(horizontal = 16.dp)
-            .background(CalinoColors.Accent.copy(alpha = .22f)),
-    )
-}
+) = CalinoMonthHeading(
+    day = day,
+    onOpenMenu = onOpenMenu,
+    onPreviousMonth = onPreviousMonth,
+    onNextMonth = onNextMonth,
+    onToday = onToday,
+    showToday = day != FixtureDate,
+    subtitle = "Week ${day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)} · ${day.format(ShortDateFormatter)}",
+)
 
 @Composable
 private fun WeekStrip(
@@ -2470,7 +2428,7 @@ private fun CompactMonthRow(
     }
 }
 
-private fun monthEventIndex(events: List<CalEvent>, month: YearMonth): Map<LocalDate, List<CalEvent>> {
+internal fun monthEventIndex(events: List<CalEvent>, month: YearMonth): Map<LocalDate, List<CalEvent>> {
     val first = month.atDay(1)
     val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
     val cellCount = monthGridRows(month) * 7

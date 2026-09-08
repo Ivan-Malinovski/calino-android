@@ -10,6 +10,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -43,6 +45,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -90,6 +94,7 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -479,6 +484,9 @@ fun AgendaRow(
     modifier: Modifier = Modifier,
     variant: AgendaRowVariant = AgendaRowVariant.Card,
     onClick: (() -> Unit)? = null,
+    trailingDescription: String? = null,
+    struck: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(CalinoShapes.Row)
     val surface = if (variant == AgendaRowVariant.Card) {
@@ -500,6 +508,7 @@ fun AgendaRow(
                     append(title)
                     time?.let { append(", ").append(it) }
                     subtitle?.let { append(", ").append(it) }
+                    trailingDescription?.let { append(", ").append(it) }
                 }
             }
             .padding(vertical = if (variant == AgendaRowVariant.Card) 9.dp else 6.dp),
@@ -526,10 +535,11 @@ fun AgendaRow(
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
                 title,
-                color = CalinoColors.Ink,
+                color = if (struck) CalinoColors.Ink3 else CalinoColors.Ink,
                 fontSize = 14.5.sp,
                 lineHeight = 21.75.sp,
                 fontWeight = FontWeight.Medium,
+                textDecoration = if (struck) TextDecoration.LineThrough else TextDecoration.None,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -541,6 +551,10 @@ fun AgendaRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        trailing?.let {
+            it()
+            Spacer(Modifier.width(4.dp))
         }
     }
 }
@@ -556,6 +570,53 @@ fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRow
         variant = variant,
         onClick = onClick,
     )
+
+/**
+ * The agenda-list shape of a due task: the same rail/time/card geometry as an
+ * event row, with the completion circle as a trailing control. The
+ * checkbox-first [AgendaRow] overload below stays the list shape used by the
+ * Tasks surface.
+ */
+@Composable
+fun AgendaTaskRow(
+    task: CalTask,
+    modifier: Modifier = Modifier,
+    time: String? = null,
+    onClick: (() -> Unit)? = null,
+    onCheckedChange: ((Boolean) -> Unit)? = null,
+) {
+    val color = eventColor(task.color)
+    AgendaRow(
+        title = task.title,
+        color = color,
+        time = time,
+        subtitle = task.category,
+        modifier = modifier,
+        variant = AgendaRowVariant.Card,
+        onClick = onClick,
+        trailingDescription = if (task.done) "completed" else "open",
+        struck = task.done,
+        trailing = {
+            val checkboxPressModifier = if (onCheckedChange != null) {
+                Modifier.calinoPressable(role = Role.Checkbox) { onCheckedChange(!task.done) }
+            } else {
+                Modifier
+            }
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .then(checkboxPressModifier)
+                    .semantics {
+                        contentDescription = "${task.title}, checkbox"
+                        stateDescription = if (task.done) "Checked" else "Not checked"
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                TaskCheckbox(task.done, color, Modifier.size(19.dp), circular = true)
+            }
+        },
+    )
+}
 
 @Composable
 fun AgendaRow(
@@ -669,6 +730,75 @@ fun AgendaRow(
             }
         }
     }
+}
+
+/**
+ * The shared calendar header: menu, month title with year, an optional
+ * secondary line, previous/next month, and a Today shortcut. Used by both the
+ * zooming calendar and the agenda so their headers stay identical.
+ */
+@Composable
+fun CalinoMonthHeading(
+    day: LocalDate,
+    onOpenMenu: (() -> Unit)?,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onToday: () -> Unit,
+    showToday: Boolean,
+    subtitle: String? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        onOpenMenu?.let { MenuButton(onClick = it) }
+        IconButton(
+            onClick = onPreviousMonth,
+            modifier = Modifier.semantics { contentDescription = "Previous month" },
+        ) { Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink2) }
+        Column(Modifier.weight(1f).padding(horizontal = 2.dp)) {
+            AnimatedContent(
+                targetState = YearMonth.from(day),
+                transitionSpec = {
+                    val direction = if (targetState.isAfter(initialState)) 1 else -1
+                    slideInHorizontally(tween(190)) { direction * it / 4 } + fadeIn(tween(150)) togetherWith
+                        slideOutHorizontally(tween(150)) { -direction * it / 4 } + fadeOut(tween(110))
+                },
+                label = "month heading",
+            ) { month ->
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).replaceFirstChar { it.uppercase() },
+                        style = CalinoTypography.titleLarge.copy(fontSize = 27.sp, lineHeight = 30.sp),
+                    )
+                    Text(month.year.toString(), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 7.dp, bottom = 2.dp))
+                }
+            }
+            if (subtitle != null) {
+                AnimatedContent(
+                    targetState = subtitle,
+                    transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
+                    label = "week heading",
+                ) { line ->
+                    Text(line, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(top = 1.dp))
+                }
+            }
+        }
+        if (showToday) {
+            TextButton(
+                onClick = onToday,
+                modifier = Modifier.semantics { contentDescription = "Go to today" },
+            ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
+        }
+        IconButton(
+            onClick = onNextMonth,
+            modifier = Modifier.semantics { contentDescription = "Next month" },
+        ) { Icon(CalinoIcons.ChevronRight, contentDescription = null, tint = CalinoColors.Ink2) }
+    }
+    Box(
+        Modifier.fillMaxWidth().height(2.dp).padding(horizontal = 16.dp)
+            .background(CalinoColors.Accent.copy(alpha = .22f)),
+    )
 }
 
 @Composable

@@ -90,6 +90,7 @@ import calino.malinov.ski.poc.ui.surfaces.DayModalSurface
 import calino.malinov.ski.poc.ui.surfaces.EventDetail
 import calino.malinov.ski.poc.ui.surfaces.TaskDetail
 import calino.malinov.ski.poc.ui.surfaces.NotificationPreview
+import calino.malinov.ski.poc.ui.surfaces.AgendaScreen
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
 import calino.malinov.ski.poc.ui.surfaces.QuickAddKind
 import calino.malinov.ski.poc.ui.surfaces.QuickAddSheet
@@ -119,6 +120,7 @@ private val RouteSaver = Saver<PockRoute, String>(
     save = { it.saveableKey() },
     restore = { key ->
         when (key) {
+            "agenda" -> PockRoute.Agenda
             "detail" -> PockRoute.Detail
             "task-detail" -> PockRoute.TaskDetail
             "tasks" -> PockRoute.Tasks
@@ -143,6 +145,7 @@ private val QuickAddKindSaver = Saver<QuickAddKind, String>(
 
 private fun PockRoute.saveableKey(): String = when (this) {
     PockRoute.Day -> "calendar"
+    PockRoute.Agenda -> "agenda"
     PockRoute.Detail -> "detail"
     PockRoute.TaskDetail -> "task-detail"
     PockRoute.Tasks -> "tasks"
@@ -154,17 +157,18 @@ private fun PockRoute.saveableKey(): String = when (this) {
 
 private fun PockRoute.rootOrder(): Int = when (this) {
     PockRoute.Day -> 0
-    PockRoute.Tasks -> 1
-    PockRoute.Journal -> 2
-    PockRoute.Settings -> 3
+    PockRoute.Agenda -> 1
+    PockRoute.Tasks -> 2
+    PockRoute.Journal -> 3
+    PockRoute.Settings -> 4
     // Detail and notification previews are pushed destinations. Keeping them
     // after the root destinations makes opening them enter from the right and
     // returning from them reverse the same motion, instead of treating them
     // as another instance of the calendar route.
-    PockRoute.Detail -> 4
-    PockRoute.TaskDetail -> 4
-    PockRoute.Notifications -> 4
-    PockRoute.QuickAdd -> 4
+    PockRoute.Detail -> 5
+    PockRoute.TaskDetail -> 5
+    PockRoute.Notifications -> 5
+    PockRoute.QuickAdd -> 5
 }
 
 class MainActivity : ComponentActivity() {
@@ -234,6 +238,7 @@ fun CalinoApp() {
                     route = PockRoute.Day
                     showDayModal = true
                 }
+                PocReturnTarget.Agenda -> route = PockRoute.Agenda
                 PocReturnTarget.Tasks -> route = PockRoute.Tasks
                 PocReturnTarget.Journal -> route = PockRoute.Journal
                 else -> {
@@ -244,7 +249,11 @@ fun CalinoApp() {
         }
 
         fun restoreTaskDetailOrigin() {
-            route = if (taskDetailOrigin == PocReturnTarget.Tasks) PockRoute.Tasks else PockRoute.Day
+            route = when (taskDetailOrigin) {
+                PocReturnTarget.Tasks -> PockRoute.Tasks
+                PocReturnTarget.Agenda -> PockRoute.Agenda
+                else -> PockRoute.Day
+            }
         }
 
         fun dismissQuickAdd() {
@@ -267,6 +276,10 @@ fun CalinoApp() {
                 }
                 PocReturnTarget.Detail -> route = PockRoute.Detail
                 PocReturnTarget.TaskDetail -> route = PockRoute.TaskDetail
+                PocReturnTarget.Agenda -> {
+                    route = PockRoute.Agenda
+                    showDayModal = false
+                }
                 PocReturnTarget.Calendar -> {
                     route = PockRoute.Day
                     showDayModal = false
@@ -319,16 +332,23 @@ fun CalinoApp() {
             Box(Modifier.weight(1f).fillMaxWidth()) {
             val rootRoute = when (route) {
                 PockRoute.Day -> PockRoute.Day
+                PockRoute.Agenda -> PockRoute.Agenda
                 PockRoute.Tasks -> PockRoute.Tasks
                 PockRoute.Journal -> PockRoute.Journal
                 PockRoute.Settings -> PockRoute.Settings
                 PockRoute.Detail -> when (detailOrigin) {
+                    PocReturnTarget.Agenda -> PockRoute.Agenda
                     PocReturnTarget.Tasks -> PockRoute.Tasks
                     PocReturnTarget.Journal -> PockRoute.Journal
                     else -> PockRoute.Day
                 }
-                PockRoute.TaskDetail -> if (taskDetailOrigin == PocReturnTarget.Tasks) PockRoute.Tasks else PockRoute.Day
+                PockRoute.TaskDetail -> when (taskDetailOrigin) {
+                    PocReturnTarget.Agenda -> PockRoute.Agenda
+                    PocReturnTarget.Tasks -> PockRoute.Tasks
+                    else -> PockRoute.Day
+                }
                 PockRoute.QuickAdd -> when (quickAddOrigin) {
+                    PocReturnTarget.Agenda -> PockRoute.Agenda
                     PocReturnTarget.Tasks -> PockRoute.Tasks
                     PocReturnTarget.Journal -> PockRoute.Journal
                     PocReturnTarget.Settings -> PockRoute.Settings
@@ -376,6 +396,30 @@ fun CalinoApp() {
                                 selectedTaskId = task.id
                                 taskDetailOrigin = PocReturnTarget.Calendar
                                 route = PockRoute.TaskDetail
+                            },
+                        )
+                        PockRoute.Agenda -> AgendaScreen(
+                            repository = repository,
+                            tasks = snapshot.tasks,
+                            modifier = Modifier.fillMaxSize(),
+                            initialDate = selectedDate,
+                            onOpenMenu = { sidebarVisible = true },
+                            onDateChanged = { selectedDate = it },
+                            onEventClick = { day, event ->
+                                selectedEventId = event.id
+                                selectedEventOccurrenceDay = day.toEpochDay()
+                                detailOrigin = PocReturnTarget.Agenda
+                                route = PockRoute.Detail
+                            },
+                            onTaskClick = { task ->
+                                selectedTaskId = task.id
+                                taskDetailOrigin = PocReturnTarget.Agenda
+                                route = PockRoute.TaskDetail
+                            },
+                            onTaskDone = { task, done -> showUndo(repository.setTaskDone(task.id, done)) },
+                            onAddOn = { date ->
+                                selectedDate = date
+                                openQuickAdd(QuickAddKind.Event, PocReturnTarget.Agenda)
                             },
                         )
                         PockRoute.Tasks -> Tasks(
@@ -580,6 +624,7 @@ fun CalinoApp() {
             // layout space; every scrollable root reserves PillClearance for it.
             val pillVisible = when (rootRoute) {
                 PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
+                PockRoute.Agenda -> route == PockRoute.Agenda
                 PockRoute.Tasks -> route == PockRoute.Tasks
                 PockRoute.Journal -> route == PockRoute.Journal && !journalEditorVisible
                 else -> false
@@ -593,7 +638,7 @@ fun CalinoApp() {
             ) {
                 // The pill also carries the three main views: a horizontal
                 // drag steps through them in the same order the sidebar lists.
-                val pillRoutes = listOf(PockRoute.Day, PockRoute.Tasks, PockRoute.Journal)
+                val pillRoutes = listOf(PockRoute.Day, PockRoute.Agenda, PockRoute.Tasks, PockRoute.Journal)
                 val pillIndex = pillRoutes.indexOf(rootRoute)
                 AddPill(
                     canSwipe = { direction -> pillIndex >= 0 && (pillIndex + direction) in pillRoutes.indices },
