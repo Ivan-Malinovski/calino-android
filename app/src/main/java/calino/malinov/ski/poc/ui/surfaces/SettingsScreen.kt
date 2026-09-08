@@ -79,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.repository.FixtureCategories
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
@@ -115,7 +116,14 @@ private enum class SettingRowControlLayout {
 }
 
 @Composable
-fun SettingsSurface(onOpenNotifications: () -> Unit = {}, onOpenMenu: (() -> Unit)? = null) {
+fun SettingsSurface(
+    onOpenNotifications: () -> Unit = {},
+    onOpenMenu: (() -> Unit)? = null,
+    calDavAccounts: List<CalDavAccount> = emptyList(),
+    // A non-null id asks the calendars surface to scroll that account into
+    // view; `startAdding` asks it to open the add sheet on arrival.
+    onOpenAccounts: (startAdding: Boolean, focusAccountId: String?) -> Unit = { _, _ -> },
+) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.General.name) }
     val section = remember(sectionName) {
         runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.General)
@@ -221,7 +229,7 @@ fun SettingsSurface(onOpenNotifications: () -> Unit = {}, onOpenMenu: (() -> Uni
             beyondViewportPageCount = 1,
             key = { page -> SettingsSection.entries[page].name },
         ) { page ->
-            SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications)
+            SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications, calDavAccounts, onOpenAccounts)
         }
     }
 }
@@ -278,7 +286,12 @@ private fun SettingsNavChip(section: SettingsSection, selected: Boolean, onClick
 }
 
 @Composable
-private fun SettingsSectionContent(section: SettingsSection, onOpenNotifications: () -> Unit) {
+private fun SettingsSectionContent(
+    section: SettingsSection,
+    onOpenNotifications: () -> Unit,
+    calDavAccounts: List<CalDavAccount>,
+    onOpenAccounts: (Boolean, String?) -> Unit,
+) {
     when (section) {
         SettingsSection.General -> GeneralSettings()
         SettingsSection.Appearance -> AppearanceSettings()
@@ -286,7 +299,7 @@ private fun SettingsSectionContent(section: SettingsSection, onOpenNotifications
         SettingsSection.Events -> EventSettings()
         SettingsSection.Categories -> CategoriesSettings()
         SettingsSection.Notifications -> NotificationSettings(onOpenNotifications)
-        SettingsSection.Sync -> SyncSettings()
+        SettingsSection.Sync -> SyncSettings(calDavAccounts, onOpenAccounts)
         SettingsSection.Data -> DataSettings()
     }
 }
@@ -467,22 +480,40 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
 }
 
 @Composable
-private fun SyncSettings() {
+private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean, String?) -> Unit) {
     var launchSync by rememberSaveable { mutableStateOf(true) }
     SettingsPage("Sync") {
         SettingsGroup("Connected accounts") {
-            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(CalinoColors.AccentSoft), contentAlignment = Alignment.Center) {
-                    Icon(CalinoIcons.Calendar, "", tint = CalinoColors.Accent, modifier = Modifier.size(21.dp))
+            if (accounts.isEmpty()) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(CalinoColors.AccentSoft), contentAlignment = Alignment.Center) {
+                        Icon(CalinoIcons.Calendar, "", tint = CalinoColors.Accent, modifier = Modifier.size(21.dp))
+                    }
+                    Column(Modifier.weight(1f).padding(start = 13.dp)) {
+                        Text("No calendar accounts", style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                        Text("Local records only · nothing connected", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                    }
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(CalinoColors.Amber))
                 }
-                Column(Modifier.weight(1f).padding(start = 13.dp)) {
-                    Text("Personal calendar", style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-                    Text("Preview only · CalDAV not connected", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+            } else {
+                accounts.forEachIndexed { index, account ->
+                    if (index > 0) SettingDivider()
+                    val active = account.calendars.count { it.enabled }
+                    SettingActionRow(
+                        title = account.displayName,
+                        description = "${account.username} · $active of ${account.calendars.size} calendars on",
+                        action = "Manage",
+                        enabled = true,
+                        onClick = { onOpenAccounts(false, account.id) },
+                    )
                 }
-                Box(Modifier.size(8.dp).clip(CircleShape).background(CalinoColors.Amber))
             }
             SettingDivider()
-            TextButton(enabled = false, onClick = {}, modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)) { Text("+  Add calendar account", color = CalinoColors.Ink3) }
+            TextButton(
+                onClick = { onOpenAccounts(true, null) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)
+                    .semantics { contentDescription = "Add calendar account" },
+            ) { Text("+  Add calendar account", color = CalinoColors.Accent) }
         }
         SettingsGroup("Sync settings") {
             SettingRow("Sync frequency", "How often the cache would refresh") { SettingValue("When Calino opens") }

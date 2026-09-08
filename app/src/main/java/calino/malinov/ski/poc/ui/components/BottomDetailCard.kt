@@ -54,7 +54,10 @@ fun BottomDetailOverlay(
         if (entered && visible) 1f else 0f,
         tween(CalinoMotion.SurfaceFadeMillis), label = "bottom card slide",
     )
-    BoxWithConstraints(modifier.fillMaxSize().imePadding()) {
+    // No imePadding here: the route host already pads by safeDrawing, which
+    // includes the IME. Adding it again subtracted the keyboard twice and
+    // crushed the card to its header and action row.
+    BoxWithConstraints(modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(CalinoColors.Ink.copy(alpha = .28f * progress))
             .semantics { contentDescription = "Dismiss detail card" }
             .clickable(onClick = onDismiss))

@@ -84,6 +84,7 @@ fun NavSidebar(
     val calendarItems = listOf(
         NavItem("Month", PockRoute.Day, CalinoIcons.Calendar),
         NavItem("Agenda", PockRoute.Agenda, CalinoIcons.AgendaList),
+        NavItem("Calendars", PockRoute.Accounts, CalinoIcons.Repeat),
     )
     val items = listOf(
         NavItem("Tasks", PockRoute.Tasks, CalinoIcons.ListChecks),

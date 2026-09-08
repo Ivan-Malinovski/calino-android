@@ -8,7 +8,9 @@ continue the UI work.
 
 This is a Kotlin + Jetpack Compose fixture-backed Android application. It is a
 standalone repository and does not load the Calino web app, WebView, Capacitor,
-CalDAV, CardDAV, webcal, accounts, credentials, or network services.
+CalDAV, CardDAV, webcal, credentials, or network services. It does now carry an
+add-CalDAV-account *flow*, but that flow is simulated end to end: no HTTP
+client, no INTERNET permission, no discovery request, and no stored password.
 
 The current build identity is intentionally still provisional:
 
@@ -480,8 +482,11 @@ horizontal section rail and these sections:
 
 The page includes representative controls for regional defaults, theme,
 accent, font size, calendar display, event defaults, reminders, categories,
-connected-account preview, import/export placeholders, and danger-zone
-placeholders. Controls change local Compose preview state only.
+import/export placeholders, and danger-zone placeholders. Controls change
+local Compose preview state only, with one exception: the Sync section's
+connected-accounts group reads live `CalDavAccountStore` state, and both its
+per-account `Manage` row and its `+ Add calendar account` button navigate to
+`PockRoute.Accounts`.
 
 The Settings layout has an important defensive rule: every setting row gets a
 full-width label measurement on phone-sized layouts; controls are placed below
@@ -619,7 +624,11 @@ finger, and the host should own the final dismissal/removal transition.
 These are known and should be treated as review targets, not silently assumed
 to be complete:
 
-1. There is no CalDAV, CardDAV, webcal, account, auth, sync, or network layer.
+1. There is no CalDAV, CardDAV, webcal, auth, sync, or network layer. The
+   calendar-account surface is UI only: `FixtureCalDavClient` fabricates the
+   discovery result from the typed host, `CalDavAccountStore` is process-local,
+   and the typed password is discarded with the sheet. `CalDavClient` is the
+   interface a real implementation would replace.
 2. The fixture repository is process-local; settings, event changes, task
    changes, and journal changes are not durable.
 3. Many settings use local state inside section composables. Switching away and
@@ -757,10 +766,42 @@ Tests should assert user-visible state and committed dates, not private pixel
 coordinates or animation implementation details. Keep a small set of emulator
 screenshot checkpoints for visual regressions.
 
+## Calendar accounts (simulated CalDAV)
+
+`PockRoute.Accounts` renders `CalendarAccountsSurface`
+(`ui/surfaces/CalDavScreen.kt`), reachable from the sidebar's calendar group and
+from Settings → Sync. It lists connected accounts, toggles individual
+collections, and removes an account.
+
+`AddCalDavAccountSheet` is the three-step add flow — credentials, connecting,
+choose calendars — hosted in `BottomDetailCard` and stepped with
+`AnimatedContent`.
+
+State and rules:
+
+- `data/model/CalDavAccount.kt` — the account, collection, and form types. The
+  stored `CalDavAccount` has no password field by construction.
+- `state/CalDavRules.kt` — URL normalization, per-field validation, default
+  display name, and the stable account id. Pure Kotlin, covered by
+  `qa/CalDavRulesTest.kt`.
+- `data/repository/CalDavClient.kt` — the `CalDavClient` seam and its fixture.
+  A host containing `bad`/`invalid` fails as unreachable; the password `wrong`
+  fails as rejected credentials. Everything else discovers four collections.
+- `data/repository/CalDavAccountStore.kt` — process-local, deliberately outside
+  `CalinoRepository` so the frozen fixture contract is untouched. Held by
+  `PocRepositoryViewModel`.
+
+Origin handling mirrors `notificationOrigin`: `accountsOrigin` sends back to
+Settings or the calendar, `accountsAutoAdd` opens the sheet on arrival from the
+Settings add button, and `accountsFocusId` scrolls a Settings `Manage` row's
+account into view.
+
 ## Safe continuation rules
 
-- Do not add real CalDAV functionality until the UI state/data boundaries have
-  been reviewed and the fixture flows have reliable tests.
+- Do not add real CalDAV networking until the UI state/data boundaries have
+  been reviewed and the fixture flows have reliable tests. The simulated
+  add-account flow is the agreed shape; replacing `FixtureCalDavClient` with an
+  HTTP implementation is the separate, reviewed step.
 - Do not edit the original `<sibling-native-poc>` copy when
   working on this repository. The standalone repo is the source of truth from
   this handoff onward.
