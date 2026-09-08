@@ -132,6 +132,22 @@ results.
   endpoint, ownership, and calendar-task reschedule changes. Drag-and-drop
   remains deferred.
 
+### Month-to-week continuity correction — 2026-09-08
+
+- Selected-row date/event positions interpolate from their month positions
+  into the centered week content, removing the layout switch at drag onset.
+- One weekday heading set travels from the month header to the week strip;
+  it is drawn above the selection pill without a fade-out/fade-in handoff.
+- The month Canvas now paints events only: task counts/dots and journal dots
+  are removed. Due-task rows and week-pager task counts remain available.
+- When the active week is the first row, its center and date positions move
+  directly between endpoint layouts instead of following the expanding row
+  center, removing the down/up bounce.
+- The full `test lintDebug assembleDebug` check passed and the APK was
+  installed on the API 36 emulator. Ivan confirmed both transition corrections
+  work. Comprehensive emulator gesture/frame review was interrupted; no
+  physical-phone validation was performed in this pass.
+
 ### Future only — concrete drag-and-drop implementation checklist
 
 Do not start this checklist until the zoom measurements and Ivan’s visual

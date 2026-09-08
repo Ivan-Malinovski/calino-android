@@ -1825,7 +1825,6 @@ private fun StaticMonthGrid(
         val detailedDateSizePx = with(density) { 25.dp.toPx() }
         val eventMarkerGapPx = with(density) { 3.dp.toPx() }
         val eventAreaHeightPx = with(density) { 7.dp.toPx() }
-        val journalRadiusPx = with(density) { 2.dp.toPx() }
         val chipHeightPx = with(density) { 20.dp.toPx() }
         val chipHorizontalPaddingPx = with(density) { 2.dp.toPx() }
         val chipTextStartPx = with(density) { 8.dp.toPx() }
@@ -1865,16 +1864,6 @@ private fun StaticMonthGrid(
         }
         val cellEvents = remember(month, events) {
             cellDates.map { date -> monthEvents[date].orEmpty() }
-        }
-        val cellTasks = remember(month, tasksByDueDate) {
-            cellDates.map { date -> tasksByDueDate[date].orEmpty() }
-        }
-        val taskCountStyle = remember { ComposeTextStyle(fontSize = 8.sp, lineHeight = 9.sp) }
-        val taskCountLayouts = remember(month, tasksByDueDate, density) {
-            cellTasks.map { dueTasks ->
-                val openCount = dueTasks.count { !it.done }
-                if (openCount > 0) textMeasurer.measure(openCount.toString(), taskCountStyle) else null
-            }
         }
         val inMonthFlags = remember(month) {
             cellDates.map { date -> YearMonth.from(date) == month }
@@ -1939,7 +1928,12 @@ private fun StaticMonthGrid(
                 val stripGeometryProgress = smoothStep((zoom / .22f).coerceIn(0f, 1f))
                 val naturalWeekTop = rowTopFor(compactWeekRow)
                 val naturalWeekHeight = rowHeightFor(compactWeekRow)
-                val compactWeekCenter = compactStartHeightPx / 2f +
+                val compactWeekCenter = if (compactWeekRow == 0) {
+                    // The first week is already at the top. Do not track the
+                    // weighted row's expanding center and then spring back.
+                    val monthCenter = headerHeightPx + compactEqualRowHeightPx / 2f
+                    monthCenter + (compactStartHeightPx / 2f - monthCenter) * compactProgress
+                } else compactStartHeightPx / 2f +
                     (naturalWeekTop + naturalWeekHeight / 2f - compactStartHeightPx / 2f) *
                     stripGeometryProgress
                 val compactWeekInsetPx = with(density) { CompactWeekMetrics.HorizontalPadding.toPx() }
@@ -1952,19 +1946,22 @@ private fun StaticMonthGrid(
                     alpha = color.alpha * drawAlpha * factor * contentFade,
                 )
 
-                val headerFade = 1f - compactProgress
-                if (headerFade > .001f) {
+                // Reuse the month headings at the week endpoint, without a
+                // second set fading into the selected row.
+                val compactWeekContentTop = compactWeekCenter - compactWeekContentHeightPx / 2f
+                fun drawWeekdayHeadings() {
                     WeekdayLetters.forEachIndexed { column, _ ->
                         val layout = weekdayLayouts[column]
                         drawText(
                             layout,
                             topLeft = Offset(
                                 horizontalPaddingPx + cellWidthPx * column + (cellWidthPx - layout.size.width) / 2f,
-                                (contentHeaderHeightPx - layout.size.height) / 2f,
+                                (headerHeightPx - layout.size.height) / 2f * (1f - compactProgress) +
+                                    (compactStartHeightPx - compactWeekContentHeightPx) / 2f * compactProgress,
                             ),
                             color = faded(
-                                CalinoColors.Ink3,
-                                headerFade,
+                                lerpColor(CalinoColors.Ink3, Color.White,
+                                    (1f - abs(compactSelectorIndex - column)).coerceIn(0f, 1f) * compactProgress),
                             ),
                         )
                     }
@@ -2009,25 +2006,17 @@ private fun StaticMonthGrid(
                     } else {
                         0f
                     }
-                    val compactWeekContentTop = compactWeekCenter - compactWeekContentHeightPx / 2f
-                    val dateTop = if (compactWeekStyle && compactProgress > .001f) {
-                        compactWeekContentTop + weekdayLayouts[column].size.height + with(density) { 4.dp.toPx() }
+                    val dateTop = if (compactWeekStyle) {
+                        val monthDateTop = if (compactWeekRow == 0) {
+                            headerHeightPx + dateTopPaddingPx
+                        } else cellTop + dateTopPaddingPx
+                        val weekContentTop = if (compactWeekRow == 0) {
+                            (compactStartHeightPx - compactWeekContentHeightPx) / 2f
+                        } else compactWeekContentTop
+                        val weekDateTop = weekContentTop + weekdayLayouts[column].size.height + with(density) { 4.dp.toPx() }
+                        monthDateTop + (weekDateTop - monthDateTop) * compactProgress
                     } else {
                         cellTop + dateTopPaddingPx
-                    }
-                    if (compactWeekStyle && compactProgress > .001f) {
-                        val weekdayLayout = weekdayLayouts[column]
-                        drawText(
-                            weekdayLayout,
-                            topLeft = Offset(
-                                cellLeft + (cellWidthPx - weekdayLayout.size.width) / 2f,
-                                compactWeekContentTop,
-                            ),
-                            color = faded(
-                                lerpColor(CalinoColors.Ink3, Color.White, compactWeekSelectionWeight),
-                                compactProgress,
-                            ),
-                        )
                     }
                     val compactFill = when {
                         isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f * (1f - compactProgress))
@@ -2168,36 +2157,10 @@ private fun StaticMonthGrid(
                             )
                         }
                     }
-                    val openTaskCount = cellTasks[index].count { !it.done }
-                    if (openTaskCount > 0) {
-                        drawCircle(
-                            color = faded(CalinoColors.Green),
-                            radius = with(density) { 2.5.dp.toPx() },
-                            center = Offset(
-                                cellLeft + cellWidthPx / 2f,
-                                cellTop + cellRowHeight - with(density) { 8.dp.toPx() },
-                            ),
-                        )
-                        taskCountLayouts[index]?.let { layout ->
-                            drawText(
-                                layout,
-                                topLeft = Offset(
-                                    cellLeft + cellWidthPx / 2f + with(density) { 5.dp.toPx() },
-                                    cellTop + cellRowHeight - with(density) { 12.dp.toPx() },
-                                ),
-                                color = faded(CalinoColors.Green),
-                            )
-                        }
-                    }
-                    if (date in monthJournalDates) {
-                        drawCircle(
-                            color = faded(CalinoColors.Plum),
-                            radius = journalRadiusPx,
-                            center = Offset(cellLeft + cellWidthPx / 2f, cellTop + cellRowHeight - journalRadiusPx - 1.dp.toPx()),
-                        )
-                    }
                 }
             }
+                contentFade = 1f
+                drawWeekdayHeadings()
             }
             MonthGridHitTargets(
                 selected = selected,
