@@ -1,6 +1,5 @@
 package calino.malinov.ski.poc.ui.surfaces
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -8,10 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +31,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -60,6 +58,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,6 +84,7 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** The mobile settings sections mirror the eight-section web handoff. */
 enum class SettingsSection(val title: String, val shortTitle: String) {
@@ -116,10 +117,33 @@ fun SettingsSurface(onOpenNotifications: () -> Unit = {}) {
     val section = remember(sectionName) {
         runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.General)
     }
+    val currentSection by rememberUpdatedState(section)
     val sectionRailState = rememberLazyListState()
+    val sectionPagerState = rememberPagerState(initialPage = section.ordinal) { SettingsSection.entries.size }
 
     LaunchedEffect(section) {
         sectionRailState.animateScrollToItem(SettingsSection.entries.indexOf(section))
+        // A chip tap is an explicit destination. Let animateScrollToPage use
+        // the pager's scroll mutex to replace an in-progress finger settle;
+        // skipping while scrolling lets the old settle overwrite the tap.
+        if (sectionPagerState.currentPage != section.ordinal ||
+            kotlin.math.abs(sectionPagerState.currentPageOffsetFraction) > .001f
+        ) {
+            sectionPagerState.animateScrollToPage(section.ordinal)
+        }
+    }
+
+    // The section rail remains an accessible shortcut, while the pager is the
+    // primary touch path for moving between settings categories. Commit the
+    // section only after the page settles so the selected chip and page body
+    // cannot disagree during a swipe.
+    LaunchedEffect(sectionPagerState) {
+        snapshotFlow { sectionPagerState.settledPage }
+            .distinctUntilChanged()
+            .collect { page ->
+                val next = SettingsSection.entries[page.coerceIn(0, SettingsSection.entries.lastIndex)]
+                if (next != currentSection) sectionName = next.name
+            }
     }
 
     Column(
@@ -185,17 +209,13 @@ fun SettingsSurface(onOpenNotifications: () -> Unit = {}) {
 
         Spacer(Modifier.height(10.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-        AnimatedContent(
-            targetState = section,
+        HorizontalPager(
+            state = sectionPagerState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            transitionSpec = {
-                val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
-                (slideInHorizontally(tween(220)) { direction * it / 3 } + fadeIn(tween(180))) togetherWith
-                    (slideOutHorizontally(tween(180)) { -direction * it / 3 } + fadeOut(tween(140)))
-            },
-            label = "settings section transition",
-        ) { current ->
-            SettingsSectionContent(current, onOpenNotifications)
+            beyondViewportPageCount = 1,
+            key = { page -> SettingsSection.entries[page].name },
+        ) { page ->
+            SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications)
         }
     }
 }

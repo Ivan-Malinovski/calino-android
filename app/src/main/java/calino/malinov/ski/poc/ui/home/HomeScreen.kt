@@ -14,6 +14,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -70,6 +72,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -88,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.zIndex
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -121,6 +125,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
@@ -152,14 +157,37 @@ private val ShortDateFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale
 private val AgendaDateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
 private val AddDateFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
+/**
+ * Geometry shared by the compact month endpoint and its interactive pager.
+ * Keeping these values together prevents the ownership handoff from moving
+ * the selected week by a few pixels when the pager becomes visible.
+ */
+private object CompactWeekMetrics {
+    val Height = 80.dp
+    val HorizontalPadding = 14.dp
+    val VerticalPadding = 7.dp
+    val PillHeight = 58.dp
+    val PillHorizontalPadding = 3.dp
+    val PillRadius = 14.dp
+}
+
 private data class BoundaryPagerSnapshot(
     val compactBoundaryDay: LocalDate?,
+    val blockedBoundaryDay: LocalDate?,
     val committedEpochDay: Long,
     val dayInProgress: Boolean,
     val dayTargetPage: Int,
     val daySettledPage: Int,
     val monthInProgress: Boolean,
     val monthSettledPage: Int,
+)
+
+private data class WeekPreviewSuppression(
+    val targetPage: Int,
+    val committedPage: Int,
+    val boundaryDay: LocalDate,
+    val generation: Long,
+    val cancelled: Boolean = false,
 )
 
 private fun dayPageFor(date: LocalDate): Int =
@@ -208,6 +236,7 @@ fun HomeScreen(
     onEventClick: ((CalEvent) -> Unit)? = null,
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
     onTaskRescheduleTo: (CalTask, LocalDate?) -> Unit = { _, _ -> },
+    onTaskClick: ((CalTask) -> Unit)? = null,
     onOpenDay: ((LocalDate) -> Unit)? = null,
     interactionEnabled: Boolean = true,
 ) {
@@ -232,10 +261,26 @@ fun HomeScreen(
     // Boundary previews move the week pager ahead of the committed date so
     // the compact row can stay continuous. Do not let that visual sync
     // become a second, possibly wrong date commit when it settles.
-    var suppressedWeekPage by remember { mutableStateOf<Int?>(null) }
+    var suppressedWeekPreview by remember { mutableStateOf<WeekPreviewSuppression?>(null) }
+    var weekPreviewGeneration by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var compactBoundaryDay by remember { mutableStateOf<LocalDate?>(null) }
+    var blockedBoundaryDay by remember { mutableStateOf<LocalDate?>(null) }
+    var weekUserGestureActive by remember { mutableStateOf(false) }
     var zoomJob by remember { mutableStateOf<Job?>(null) }
+    var weekRollbackJob by remember { mutableStateOf<Job?>(null) }
     val currentZoom = zoomState
     val currentSelectedEpoch = rememberUpdatedState(selectedEpoch)
+    val selectedWeekdayIndex = (selected.dayOfWeek.value - 1).coerceIn(0, 6)
+    val compactSelectorPosition = remember {
+        Animatable(selectedWeekdayIndex.toFloat())
+    }
+
+    LaunchedEffect(selectedWeekdayIndex) {
+        compactSelectorPosition.animateTo(
+            selectedWeekdayIndex.toFloat(),
+            animationSpec = spring(dampingRatio = .82f, stiffness = 520f),
+        )
+    }
 
     fun cancelMotion() {
         zoomJob?.cancel()
@@ -285,9 +330,29 @@ fun HomeScreen(
         snapshotFlow { weekPagerState.settledPage }
             .distinctUntilChanged()
             .collect {
-                if (suppressedWeekPage == it) {
-                    suppressedWeekPage = null
-                    return@collect
+                val suppression = suppressedWeekPreview
+                if (suppression?.targetPage == it) {
+                    val activeGeneration = suppression.generation == weekPreviewGeneration
+                    val activeBoundary = compactBoundaryDay == suppression.boundaryDay
+                    // A live boundary preview is synthetic and must not write
+                    // the selected date. A cancelled preview is also ignored
+                    // until its rollback reaches the committed page. The
+                    // latter closes the race where a stale synthetic target
+                    // settles after the day gesture has been cancelled.
+                    if (suppression.cancelled || (activeGeneration && activeBoundary)) {
+                        if (suppression.committedPage == it) {
+                            suppressedWeekPreview = null
+                        }
+                        return@collect
+                    }
+                    // The token no longer owns this settle (for example a
+                    // user gesture invalidated it), so let the real pager
+                    // destination commit normally.
+                    suppressedWeekPreview = null
+                } else if (suppression?.committedPage == it) {
+                    // Clear a token when rollback reaches its owner even if
+                    // the target page was cancelled before settling.
+                    suppressedWeekPreview = null
                 }
                 val targetMonday = mondayForWeekPage(it)
                 val currentDate = LocalDate.ofEpochDay(currentSelectedEpoch.value)
@@ -296,6 +361,18 @@ fun HomeScreen(
                     selectedEpoch = targetDate.toEpochDay()
                     onDateChanged(targetDate)
                 }
+            }
+    }
+
+    // A cancelled tap/drag can return to the current week without changing
+    // settledPage. Clear the user-ownership guard when the pager's settle
+    // animation is actually finished so a later boundary transition is not
+    // mistaken for the original gesture.
+    LaunchedEffect(weekPagerState) {
+        snapshotFlow { weekPagerState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (!scrolling) weekUserGestureActive = false
             }
     }
 
@@ -359,6 +436,22 @@ fun HomeScreen(
             if (abs(distance) <= 1.05f) distance.coerceIn(-1f, 1f) else 0f
         }
     }
+    val compactSelectorIndex by remember(dayPagerTravel, selectedWeekdayIndex) {
+        derivedStateOf {
+            val liveOffset = dayPagerTravel.coerceIn(-1f, 1f)
+            val previewDate = when {
+                liveOffset < 0f -> selected.plusDays(1)
+                liveOffset > 0f -> selected.minusDays(1)
+                else -> selected
+            }
+            val sameWeek = previewDate.with(DayOfWeek.MONDAY) == selected.with(DayOfWeek.MONDAY)
+            if (sameWeek && abs(liveOffset) > .001f) {
+                (selectedWeekdayIndex - liveOffset).coerceIn(0f, 6f)
+            } else {
+                compactSelectorPosition.value
+            }
+        }
+    }
 
     /**
      * One locked recognizer owns vertical zoom on the strip, month pager, and
@@ -413,11 +506,11 @@ fun HomeScreen(
     // can report that scrolling has stopped one frame before its settled-page
     // collector commits the new date, which otherwise exposes a blank/old
     // month row at the handoff.
-    var compactBoundaryDay by remember { mutableStateOf<LocalDate?>(null) }
     LaunchedEffect(dayPagerState, monthPagerState) {
         snapshotFlow {
             BoundaryPagerSnapshot(
                 compactBoundaryDay = compactBoundaryDay,
+                blockedBoundaryDay = blockedBoundaryDay,
                 committedEpochDay = currentSelectedEpoch.value,
                 dayInProgress = dayPagerState.isScrollInProgress,
                 dayTargetPage = dayPagerState.targetPage,
@@ -430,10 +523,11 @@ fun HomeScreen(
             val target = dateForDayPage(snapshot.dayTargetPage)
             val targetIsBoundary = target.with(DayOfWeek.MONDAY) != committed.with(DayOfWeek.MONDAY)
 
-            if (snapshot.dayInProgress && targetIsBoundary) {
+            if (snapshot.dayInProgress && targetIsBoundary && target != snapshot.blockedBoundaryDay) {
                 // Start the preview as soon as the day pager chooses a
                 // boundary destination. The selected date itself remains
                 // committed by the settled-page collector above.
+                blockedBoundaryDay = null
                 compactBoundaryDay = target
             } else {
                 val boundary = snapshot.compactBoundaryDay
@@ -458,8 +552,24 @@ fun HomeScreen(
                     if (daySettledElsewhere ||
                         (dayTransitionComplete && monthTransitionComplete && committed == boundary)
                     ) {
+                        if (daySettledElsewhere) {
+                            // Mark the synthetic week target as cancelled
+                            // before clearing the boundary state. This write
+                            // must happen in the same snapshot as the clear;
+                            // otherwise the week settled collector could see
+                            // a late target between the two effects and commit
+                            // the cancelled preview as a real date change.
+                            suppressedWeekPreview?.let { preview ->
+                                if (preview.boundaryDay == boundary && !preview.cancelled) {
+                                    suppressedWeekPreview = preview.copy(cancelled = true)
+                                }
+                            }
+                        }
                         compactBoundaryDay = null
                     }
+                }
+                if (!snapshot.dayInProgress && blockedBoundaryDay != null) {
+                    blockedBoundaryDay = null
                 }
             }
         }
@@ -467,21 +577,71 @@ fun HomeScreen(
     LaunchedEffect(compactBoundaryDay, selectedEpoch) {
         val boundary = compactBoundaryDay
         if (boundary == null) {
+            // A real week swipe owns the pager while it is settling. Do not
+            // let clearing a concurrent day-boundary preview start a rollback
+            // that fights the user's horizontal gesture.
+            if (weekUserGestureActive) return@LaunchedEffect
+            weekRollbackJob?.cancel()
+            weekRollbackJob = null
             // A boundary drag can cancel after the week preview animation has
             // already reached its destination but before its settled-page
             // collector runs. Return that visual preview to the committed
             // week instead of allowing a stale suppression token to leave the
             // week pager ahead of the selected date.
             val committedWeekPage = weekPageFor(selected)
-            if (!weekPagerState.isScrollInProgress && weekPagerState.currentPage != committedWeekPage) {
-                weekPagerState.animateScrollToPage(committedWeekPage)
+            val preview = suppressedWeekPreview
+            if (preview != null) {
+                if (preview.targetPage == committedWeekPage) {
+                    // The boundary target is already the committed week; no
+                    // suppression is needed if the collector has not consumed
+                    // it yet.
+                    suppressedWeekPreview = null
+                } else if (!preview.cancelled) {
+                    // Retain a tombstone until rollback reaches the owner.
+                    // Clearing this immediately would let a late synthetic
+                    // target settle into selected-date state.
+                    suppressedWeekPreview = preview.copy(cancelled = true)
+                }
+            }
+            if (weekPagerState.currentPage != committedWeekPage ||
+                weekPagerState.targetPage != committedWeekPage
+            ) {
+                // Supersede an in-flight preview immediately. Waiting for
+                // isScrollInProgress to clear leaves a race in which the
+                // stale target can settle before the rollback starts. A user
+                // gesture can invalidate this rollback through the observer
+                // above; it cancels this job and invalidates its generation.
+                weekRollbackJob?.cancel()
+                val rollbackGeneration = weekPreviewGeneration
+                weekRollbackJob = scope.launch {
+                    val runningJob = currentCoroutineContext()[Job]
+                    try {
+                        if (weekUserGestureActive || weekPreviewGeneration != rollbackGeneration) {
+                            return@launch
+                        }
+                        weekPagerState.animateScrollToPage(committedWeekPage)
+                    } finally {
+                        if (weekRollbackJob === runningJob) {
+                            weekRollbackJob = null
+                        }
+                    }
+                }
             }
             return@LaunchedEffect
         }
 
         val targetWeekPage = weekPageFor(boundary)
+        weekRollbackJob?.cancel()
+        weekRollbackJob = null
         if (!weekPagerState.isScrollInProgress && weekPagerState.currentPage != targetWeekPage) {
-            suppressedWeekPage = targetWeekPage
+            val committedWeekPage = weekPageFor(selected)
+            weekPreviewGeneration += 1
+            suppressedWeekPreview = WeekPreviewSuppression(
+                targetPage = targetWeekPage,
+                committedPage = committedWeekPage,
+                boundaryDay = boundary,
+                generation = weekPreviewGeneration,
+            )
             var completed = false
             try {
                 weekPagerState.animateScrollToPage(targetWeekPage)
@@ -493,8 +653,8 @@ fun HomeScreen(
                 // genuine week swipe. A completed animation keeps its token
                 // until the settled collector consumes it or the cancellation
                 // path above animates back to the committed week.
-                if (!completed && suppressedWeekPage == targetWeekPage) {
-                    suppressedWeekPage = null
+                if (!completed && suppressedWeekPreview?.targetPage == targetWeekPage) {
+                    suppressedWeekPreview = null
                 }
             }
         }
@@ -586,26 +746,54 @@ fun HomeScreen(
                 // at the exact shared row instead of painting a separate
                 // week surface on top of a fading month.
                 if (zoomState.value < MonthEndpointBlendEnd) {
-                    WeekStrip(
+                        WeekStrip(
                         state = weekPagerState,
                         day = selected,
                         displayedWeekDay = weekStripDay,
                         events = events,
                         tasksByDueDate = tasksByDueDate,
                         pagerOffset = dayPagerTravel,
+                        selectorIndex = compactSelectorIndex,
                         gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
                         interactionEnabled = interactionEnabled,
+                            onUserSwipeStart = {
+                                weekRollbackJob?.cancel()
+                                weekRollbackJob = null
+                                weekUserGestureActive = true
+                                compactBoundaryDay?.let { boundary ->
+                                    // Prevent the day-boundary observer from
+                                    // recreating this preview while the real
+                                    // week pager gesture owns the strip.
+                                    blockedBoundaryDay = boundary
+                                    compactBoundaryDay = null
+                                }
+                                weekPreviewGeneration += 1
+                                // A human horizontal gesture takes ownership
+                                // from any boundary preview. Without this
+                                // invalidation, a quick swipe to the same page as
+                                // a cancelled synthetic preview could be mistaken
+                                // for that preview's settle.
+                                suppressedWeekPreview = null
+                            },
                         modifier = Modifier
                             .zIndex(1f)
                             .fillMaxWidth()
-                            .requiredHeight(80.dp)
+                            .requiredHeight(CompactWeekMetrics.Height)
                             .drawWithContent {
                                 // The month Canvas owns the idle endpoint.
-                                // Bring this pager renderer above it only
-                                // while a neighboring week is previewed.
+                                // During a horizontal preview this layer
+                                // becomes the sole owner of the whole compact
+                                // lane. The opaque backing is important: a
+                                // transparent pager would leave the committed
+                                // month row visible underneath and create the
+                                // reported double-strip effect.
                                 val previewVisible = weekPagerState.isScrollInProgress ||
+                                    abs(weekPagerState.currentPageOffsetFraction) > .001f ||
                                     weekPageFor(weekStripDay) != weekPagerState.settledPage
-                                if (previewVisible) drawContent()
+                                if (previewVisible) {
+                                    drawRect(CalinoColors.Canvas)
+                                    drawContent()
+                                }
                             },
                         onDay = { date ->
                             if (interactionEnabled) {
@@ -635,6 +823,7 @@ fun HomeScreen(
                         compactGridHeight = splitGridHeight,
                         detailedGridHeight = detailedGridHeight,
                         compactDay = weekStripDay,
+                        compactSelectorIndex = compactSelectorIndex,
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
                         modifier = Modifier.fillMaxSize(),
                         gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
@@ -703,6 +892,7 @@ fun HomeScreen(
                         onEvent = onEventClick,
                         onTaskDone = onTaskDone,
                         onTaskRescheduleTo = onTaskRescheduleTo,
+                        onTaskClick = onTaskClick,
                         onOpenDay = splitOpenDay,
                     )
                 }
@@ -787,14 +977,55 @@ private fun WeekStrip(
     events: List<CalEvent>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     pagerOffset: Float,
+    selectorIndex: Float,
     gestureModifier: Modifier,
     interactionEnabled: Boolean,
+    onUserSwipeStart: () -> Unit,
     modifier: Modifier = Modifier,
     onDay: (LocalDate) -> Unit,
 ) {
     val semanticsModifier = if (interactionEnabled) Modifier else Modifier.clearAndSetSemantics { }
+    val currentOnUserSwipeStart = rememberUpdatedState(onUserSwipeStart)
+    val touchSlop = LocalViewConfiguration.current.touchSlop
+    val observeHorizontalSwipe = Modifier.pointerInput(interactionEnabled, touchSlop) {
+        if (interactionEnabled) {
+            awaitEachGesture {
+                val down = awaitFirstDown(
+                    requireUnconsumed = false,
+                    pass = PointerEventPass.Initial,
+                )
+                var lastPosition = down.position
+                var totalX = 0f
+                var totalY = 0f
+                var axisDecided = false
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) break
+                    val delta = change.position - lastPosition
+                    lastPosition = change.position
+                    totalX += delta.x
+                    totalY += delta.y
+                    if (!axisDecided &&
+                        (abs(totalX) > touchSlop || abs(totalY) > touchSlop)
+                    ) {
+                        axisDecided = true
+                        if (abs(totalX) > abs(totalY)) {
+                            currentOnUserSwipeStart.value()
+                        }
+                    }
+                }
+            }
+        }
+    }
     Box(
-        modifier.fillMaxWidth().height(80.dp).then(gestureModifier).then(semanticsModifier).clipToBounds(),
+        modifier
+            .fillMaxWidth()
+            .height(CompactWeekMetrics.Height)
+            .then(observeHorizontalSwipe)
+            .then(gestureModifier)
+            .then(semanticsModifier)
+            .clipToBounds(),
     ) {
         val committedMonday = day.with(DayOfWeek.MONDAY)
         val settledIndex = (day.dayOfWeek.value - 1).coerceIn(0, 6)
@@ -809,13 +1040,18 @@ private fun WeekStrip(
         // positive reveals yesterday. Keep the week row fixed, but move its
         // indicator in lockstep while the agenda is being dragged/settled.
         val indicatorTargetIndex = if (previewStaysInWeek) {
-            (settledIndex - liveOffset).coerceIn(0f, 6f)
+            selectorIndex.coerceIn(0f, 6f)
         } else {
             settledIndex.toFloat()
         }
         HorizontalPager(
             state = state,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 7.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = CompactWeekMetrics.HorizontalPadding,
+                    vertical = CompactWeekMetrics.VerticalPadding,
+                ),
             beyondViewportPageCount = 0,
             userScrollEnabled = interactionEnabled,
             key = { page -> page },
@@ -830,8 +1066,7 @@ private fun WeekStrip(
             WeekStripPage(
                 monday = pageMonday,
                 selected = pageDay,
-                indicatorTargetIndex = if (isCommittedWeek && previewStaysInWeek) indicatorTargetIndex else null,
-                followPager = isCommittedWeek && abs(liveOffset) > .001f && previewStaysInWeek,
+                indicatorIndex = if (isCommittedWeek) indicatorTargetIndex else settledIndex.toFloat(),
                 events = events,
                 tasksByDueDate = tasksByDueDate,
                 interactionEnabled = interactionEnabled,
@@ -845,8 +1080,7 @@ private fun WeekStrip(
 private fun WeekStripPage(
     monday: LocalDate,
     selected: LocalDate,
-    indicatorTargetIndex: Float?,
-    followPager: Boolean,
+    indicatorIndex: Float,
     events: List<CalEvent>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     interactionEnabled: Boolean,
@@ -855,24 +1089,7 @@ private fun WeekStripPage(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val cellWidth = maxWidth / 7
         val selectedIndex = (selected.dayOfWeek.value - 1).coerceIn(0, 6)
-        val indicatorPosition = remember(monday) { Animatable(selectedIndex.toFloat()) }
-        LaunchedEffect(indicatorTargetIndex, followPager) {
-            val target = indicatorTargetIndex ?: selectedIndex.toFloat()
-            if (followPager) {
-                // During the gesture the pill is physically attached to the
-                // pager offset, so it cannot lag behind or spring ahead.
-                indicatorPosition.snapTo(target)
-            } else {
-                // This covers both a committed page and a cancelled swipe.
-                // Animating from the current position avoids the old target
-                // flashing back at release.
-                indicatorPosition.animateTo(
-                    target,
-                    animationSpec = spring(dampingRatio = .82f, stiffness = 520f),
-                )
-            }
-        }
-        val indicatorIndex = indicatorPosition.value
+        val indicatorIndex = indicatorIndex.coerceIn(0f, 6f)
 
         Box(Modifier.fillMaxSize()) {
             // This is one indicator shared by the whole strip. Its animated
@@ -881,10 +1098,10 @@ private fun WeekStripPage(
             Box(
                 Modifier.offset(x = cellWidth * indicatorIndex)
                     .width(cellWidth)
-                    .height(58.dp)
+                    .height(CompactWeekMetrics.PillHeight)
                     .align(Alignment.CenterStart)
-                    .padding(horizontal = 3.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .padding(horizontal = CompactWeekMetrics.PillHorizontalPadding)
+                    .clip(RoundedCornerShape(CompactWeekMetrics.PillRadius))
                     .background(CalinoColors.Ink.copy(alpha = .95f)),
             )
             Row(Modifier.fillMaxSize()) {
@@ -994,6 +1211,7 @@ private fun CalendarTaskRow(
     task: CalTask,
     onTaskDone: ((Boolean) -> Unit)?,
     onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
+    onTaskClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     var rescheduleOpen by remember(task.id) { mutableStateOf(false) }
@@ -1008,6 +1226,7 @@ private fun CalendarTaskRow(
                 task = task,
                 modifier = Modifier.weight(1f),
                 onCheckedChange = onTaskDone,
+                onClick = onTaskClick,
             )
             if (!task.done && onTaskRescheduleTo != null) {
                 IconButton(
@@ -1090,6 +1309,7 @@ private fun MonthPager(
     compactGridHeight: Dp,
     detailedGridHeight: Dp,
     compactDay: LocalDate,
+    compactSelectorIndex: Float,
     compactBoundaryTransition: Boolean,
     modifier: Modifier,
     gestureModifier: Modifier,
@@ -1153,6 +1373,7 @@ private fun MonthPager(
                         compactGridHeight = compactGridHeight,
                         detailedGridHeight = detailedGridHeight,
                         compactDay = compactDay,
+                        compactSelectorIndex = compactSelectorIndex,
                         interactionEnabled = monthInteractive,
                         onDay = onDay,
                     )
@@ -1195,7 +1416,7 @@ private fun MorphingMonthGrid(
     val eventStyle = remember { ComposeTextStyle(fontSize = 10.5.sp, lineHeight = 12.sp) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val horizontalPadding = 16.dp
+        val horizontalPadding = CompactWeekMetrics.HorizontalPadding
         val headerHeight = 22.dp
         val cellWidth = ((maxWidth - horizontalPadding * 2) / 7).coerceAtLeast(0.dp)
         val eventTextMaxWidth = with(density) {
@@ -1478,7 +1699,7 @@ private fun MonthGridHitTargets(
         },
         modifier = Modifier.fillMaxWidth(),
     ) { measurables, constraints ->
-        val horizontalPaddingPx = 16.dp.roundToPx()
+        val horizontalPaddingPx = CompactWeekMetrics.HorizontalPadding.roundToPx()
         val headerHeightPx = 22.dp.roundToPx().toFloat()
         val compactHeightPx = compactGridHeight.roundToPx().toFloat()
         val detailedHeightPx = detailedGridHeight.roundToPx().toFloat()
@@ -1492,7 +1713,7 @@ private fun MonthGridHitTargets(
         val compactWeekRow = ((compactWeekStart.toEpochDay() - start.toEpochDay()) / 7L)
             .toInt()
             .coerceIn(0, rows - 1)
-        val compactStartHeightPx = 80.dp.roundToPx().toFloat()
+        val compactStartHeightPx = CompactWeekMetrics.Height.roundToPx().toFloat()
         val visibleHeightPx = if (zoom <= 1f) {
             compactStartHeightPx + (compactHeightPx - compactStartHeightPx) * zoom
         } else {
@@ -1567,6 +1788,7 @@ private fun StaticMonthGrid(
     compactGridHeight: Dp,
     detailedGridHeight: Dp,
     compactDay: LocalDate,
+    compactSelectorIndex: Float,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
@@ -1587,7 +1809,7 @@ private fun StaticMonthGrid(
         ComposeTextStyle(fontSize = 10.5.sp, lineHeight = 12.sp)
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val horizontalPadding = 16.dp
+        val horizontalPadding = CompactWeekMetrics.HorizontalPadding
         val headerHeight = 22.dp
         val gridWidth = (maxWidth - horizontalPadding * 2).coerceAtLeast(0.dp)
         val cellWidth = gridWidth / 7
@@ -1686,7 +1908,7 @@ private fun StaticMonthGrid(
                     .toInt()
                     .coerceIn(0, rows - 1)
                 val contentHeaderHeightPx = headerHeightPx * (1f - compactProgress)
-                val compactStartHeightPx = with(density) { 80.dp.toPx() }
+                val compactStartHeightPx = with(density) { CompactWeekMetrics.Height.toPx() }
                 val compactVisibleHeightPx = compactStartHeightPx +
                     (compactGridHeightPx - compactStartHeightPx) * zoom.coerceIn(0f, 1f)
                 val compactAvailableHeightPx = (compactVisibleHeightPx - contentHeaderHeightPx).coerceAtLeast(0f)
@@ -1711,6 +1933,20 @@ private fun StaticMonthGrid(
                     repeat(row) { previous -> top += rowHeightFor(previous) }
                     return top
                 }
+                // The compact selected row starts as the 80dp week lane. Its
+                // natural month-grid center is introduced gradually so the
+                // first frames of the morph do not nudge the strip downward.
+                val stripGeometryProgress = smoothStep((zoom / .22f).coerceIn(0f, 1f))
+                val naturalWeekTop = rowTopFor(compactWeekRow)
+                val naturalWeekHeight = rowHeightFor(compactWeekRow)
+                val compactWeekCenter = compactStartHeightPx / 2f +
+                    (naturalWeekTop + naturalWeekHeight / 2f - compactStartHeightPx / 2f) *
+                    stripGeometryProgress
+                val compactWeekInsetPx = with(density) { CompactWeekMetrics.HorizontalPadding.toPx() }
+                val compactWeekCellWidthPx =
+                    ((size.width - compactWeekInsetPx * 2f) / 7f).coerceAtLeast(0f)
+                val compactWeekContentHeightPx = weekdayLayouts.maxOf { it.size.height } +
+                    with(density) { 4.dp.toPx() } + compactDateSizePx + dateGapPx + eventAreaHeightPx
                 var contentFade = 1f
                 fun faded(color: Color, factor: Float = 1f): Color = color.copy(
                     alpha = color.alpha * drawAlpha * factor * contentFade,
@@ -1733,13 +1969,29 @@ private fun StaticMonthGrid(
                         )
                     }
                 }
+                if (zoom < 1f && compactProgress > .001f) {
+                    val pillHeight = min(
+                        with(density) { CompactWeekMetrics.PillHeight.toPx() },
+                        naturalWeekHeight.coerceAtLeast(1f),
+                    )
+                    drawRoundRect(
+                        color = faded(CalinoColors.Ink.copy(alpha = .95f), compactProgress),
+                        topLeft = Offset(
+                            compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(0f, 6f),
+                            compactWeekCenter - pillHeight / 2f,
+                        ),
+                        size = Size(compactWeekCellWidthPx, pillHeight),
+                        cornerRadius = CornerRadius(with(density) { CompactWeekMetrics.PillRadius.toPx() }),
+                    )
+                }
                 repeat(rows * 7) { index ->
                     val row = index / 7
                     val column = index % 7
                     val date = cellDates[index]
-                    val cellLeft = horizontalPaddingPx + cellWidthPx * column
                     val cellTop = rowTopFor(row)
                     val cellRowHeight = rowHeightFor(row)
+                    val compactWeekStyle = zoom < 1f && row == compactWeekRow
+                    val cellLeft = horizontalPaddingPx + cellWidthPx * column
                     contentFade = if (zoom <= 1f && row != compactWeekRow) 1f - compactProgress else 1f
                     clipRect(
                         left = cellLeft,
@@ -1749,14 +2001,17 @@ private fun StaticMonthGrid(
                     ) {
                     val isSelected = date == selected
                     val isToday = date == FixtureDate
-                    val compactWeekStyle = zoom < 1f && row == compactWeekRow
                     val dateSizePx = compactDateSizePx +
                         (detailedDateSizePx - compactDateSizePx) * detailProgress
-                    val compactWeekContentHeight = weekdayLayouts[column].size.height +
-                        with(density) { 4.dp.toPx() } + dateSizePx + dateGapPx + eventAreaHeightPx
+                    val compactWeekSelectionWeight = if (compactWeekStyle) {
+                        (1f - abs(compactSelectorIndex.coerceIn(0f, 6f) - column.toFloat()))
+                            .coerceIn(0f, 1f) * compactProgress
+                    } else {
+                        0f
+                    }
+                    val compactWeekContentTop = compactWeekCenter - compactWeekContentHeightPx / 2f
                     val dateTop = if (compactWeekStyle && compactProgress > .001f) {
-                        cellTop + ((cellRowHeight - compactWeekContentHeight) / 2f).coerceAtLeast(0f) +
-                            weekdayLayouts[column].size.height + with(density) { 4.dp.toPx() }
+                        compactWeekContentTop + weekdayLayouts[column].size.height + with(density) { 4.dp.toPx() }
                     } else {
                         cellTop + dateTopPaddingPx
                     }
@@ -1766,35 +2021,12 @@ private fun StaticMonthGrid(
                             weekdayLayout,
                             topLeft = Offset(
                                 cellLeft + (cellWidthPx - weekdayLayout.size.width) / 2f,
-                                cellTop + ((cellRowHeight - compactWeekContentHeight) / 2f).coerceAtLeast(0f),
+                                compactWeekContentTop,
                             ),
                             color = faded(
-                                if (isSelected) Color.White else CalinoColors.Ink3,
+                                lerpColor(CalinoColors.Ink3, Color.White, compactWeekSelectionWeight),
                                 compactProgress,
                             ),
-                        )
-                    }
-                    if (compactWeekStyle && isSelected && compactProgress > .001f) {
-                        val selectedHeight = with(density) { 58.dp.toPx() }
-                        drawRoundRect(
-                            color = faded(CalinoColors.Ink.copy(alpha = .95f), compactProgress),
-                            topLeft = Offset(
-                                cellLeft,
-                                cellTop + ((cellRowHeight - selectedHeight) / 2f).coerceAtLeast(0f),
-                            ),
-                            size = Size(cellWidthPx, selectedHeight.coerceAtMost(cellRowHeight)),
-                            cornerRadius = CornerRadius(with(density) { 14.dp.toPx() }),
-                        )
-                        // The selected pill is painted after the compact
-                        // weekday row, so redraw its letter above the fill.
-                        val selectedWeekdayLayout = weekdayLayouts[column]
-                        drawText(
-                            selectedWeekdayLayout,
-                            topLeft = Offset(
-                                cellLeft + (cellWidthPx - selectedWeekdayLayout.size.width) / 2f,
-                                cellTop + ((cellRowHeight - compactWeekContentHeight) / 2f).coerceAtLeast(0f),
-                            ),
-                            color = faded(Color.White, compactProgress),
                         )
                     }
                     val compactFill = when {
@@ -1842,7 +2074,13 @@ private fun StaticMonthGrid(
                             cellLeft + (cellWidthPx - dateLayout.size.width) / 2f,
                             dateTop + (dateSizePx - dateLayout.size.height) / 2f,
                         ),
-                        color = faded(if (isSelected) {
+                        color = faded(if (compactWeekStyle && compactWeekSelectionWeight > .001f) {
+                            lerpColor(
+                                if (inMonthFlags[index]) CalinoColors.Ink2 else CalinoColors.Ink3.copy(.5f),
+                                Color.White,
+                                compactWeekSelectionWeight,
+                            )
+                        } else if (isSelected) {
                             Color.White
                         } else if (inMonthFlags[index]) {
                             CalinoColors.Ink2
@@ -2653,6 +2891,7 @@ private fun DayPagerSurface(
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: (CalTask, Boolean) -> Unit,
     onTaskRescheduleTo: (CalTask, LocalDate?) -> Unit,
+    onTaskClick: ((CalTask) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
     val dayRailVisibility = Modifier.drawWithContent {
@@ -2687,6 +2926,7 @@ private fun DayPagerSurface(
                     onEvent = if (dayRailOwnsInput) onEvent else null,
                     onTaskDone = if (dayRailOwnsInput) onTaskDone else null,
                     onTaskRescheduleTo = if (dayRailOwnsInput) onTaskRescheduleTo else null,
+                    onTaskClick = if (dayRailOwnsInput) onTaskClick else null,
                 )
             }
             Box(
@@ -2716,6 +2956,7 @@ private fun DayPagerSurface(
                     onEvent = if (agendaOwnsInput) onEvent else null,
                     onTaskDone = if (agendaOwnsInput) onTaskDone else null,
                     onTaskRescheduleTo = if (agendaOwnsInput) onTaskRescheduleTo else null,
+                    onTaskClick = if (agendaOwnsInput) onTaskClick else null,
                     onOpenDay = if (agendaOwnsInput) onOpenDay else null,
                 )
             }
@@ -2733,6 +2974,7 @@ private fun SelectedDayAgendaPage(
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
     onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
+    onTaskClick: ((CalTask) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
     val interactionModifier = if (active) {
@@ -2775,6 +3017,7 @@ private fun SelectedDayAgendaPage(
                     task = task,
                     onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
                     onTaskRescheduleTo = onTaskRescheduleTo,
+                    onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
                     modifier = Modifier.padding(vertical = 1.dp),
                 )
             }
@@ -2800,6 +3043,7 @@ private fun DayRailPage(
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
     onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
+    onTaskClick: ((CalTask) -> Unit)?,
 ) {
     val interactionModifier = if (active) Modifier else Modifier.clearAndSetSemantics { }
     Column(interactionModifier.fillMaxSize()) {
@@ -2816,6 +3060,7 @@ private fun DayRailPage(
                         task = task,
                         onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
                         onTaskRescheduleTo = onTaskRescheduleTo,
+                        onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
                         modifier = Modifier.padding(vertical = 1.dp),
                     )
                 }

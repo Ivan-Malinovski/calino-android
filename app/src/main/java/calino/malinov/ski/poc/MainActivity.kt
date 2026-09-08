@@ -85,6 +85,7 @@ import calino.malinov.ski.poc.ui.home.HomeScreen
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.surfaces.DayModalSurface
 import calino.malinov.ski.poc.ui.surfaces.EventDetail
+import calino.malinov.ski.poc.ui.surfaces.TaskDetail
 import calino.malinov.ski.poc.ui.surfaces.NotificationPreview
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
 import calino.malinov.ski.poc.ui.surfaces.QuickAddKind
@@ -116,6 +117,7 @@ private val RouteSaver = Saver<PockRoute, String>(
     restore = { key ->
         when (key) {
             "detail" -> PockRoute.Detail
+            "task-detail" -> PockRoute.TaskDetail
             "tasks" -> PockRoute.Tasks
             "journal" -> PockRoute.Journal
             "settings" -> PockRoute.Settings
@@ -139,6 +141,7 @@ private val QuickAddKindSaver = Saver<QuickAddKind, String>(
 private fun PockRoute.saveableKey(): String = when (this) {
     PockRoute.Day -> "calendar"
     PockRoute.Detail -> "detail"
+    PockRoute.TaskDetail -> "task-detail"
     PockRoute.Tasks -> "tasks"
     PockRoute.Journal -> "journal"
     PockRoute.Settings -> "settings"
@@ -156,6 +159,7 @@ private fun PockRoute.rootOrder(): Int = when (this) {
     // returning from them reverse the same motion, instead of treating them
     // as another instance of the calendar route.
     PockRoute.Detail -> 4
+    PockRoute.TaskDetail -> 4
     PockRoute.Notifications -> 4
     PockRoute.QuickAdd -> 4
 }
@@ -190,6 +194,8 @@ fun CalinoApp() {
         var selectedEventOccurrenceDay by rememberSaveable { mutableStateOf<Long?>(null) }
         var editEventId by rememberSaveable { mutableStateOf<String?>(null) }
         var detailOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
+        var selectedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+        var taskDetailOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
         var quickAddOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
         var quickAddKind by rememberSaveable(stateSaver = QuickAddKindSaver) { mutableStateOf(QuickAddKind.Event) }
         var notificationOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
@@ -205,6 +211,7 @@ fun CalinoApp() {
         }
 
         val selectedEvent = snapshot.events.firstOrNull { it.id == selectedEventId }
+        val selectedTask = snapshot.tasks.firstOrNull { it.id == selectedTaskId }
         val calendarDayModalVisible = showDayModal && (
             route == PockRoute.Day ||
                 (route == PockRoute.QuickAdd && quickAddOrigin == PocReturnTarget.DayModal)
@@ -231,6 +238,10 @@ fun CalinoApp() {
             }
         }
 
+        fun restoreTaskDetailOrigin() {
+            route = if (taskDetailOrigin == PocReturnTarget.Tasks) PockRoute.Tasks else PockRoute.Day
+        }
+
         fun dismissQuickAdd() {
             when (quickAddOrigin) {
                 PocReturnTarget.DayModal -> {
@@ -250,6 +261,7 @@ fun CalinoApp() {
                     showDayModal = false
                 }
                 PocReturnTarget.Detail -> route = PockRoute.Detail
+                PocReturnTarget.TaskDetail -> route = PockRoute.TaskDetail
                 PocReturnTarget.Calendar -> {
                     route = PockRoute.Day
                     showDayModal = false
@@ -273,6 +285,10 @@ fun CalinoApp() {
                     selectedEventOccurrenceDay = null
                     restoreDetailOrigin()
                 }
+                route == PockRoute.TaskDetail -> {
+                    selectedTaskId = null
+                    restoreTaskDetailOrigin()
+                }
                 route == PockRoute.Notifications -> route = if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
                 showDayModal -> showDayModal = false
                 else -> route = PockRoute.Day
@@ -291,6 +307,7 @@ fun CalinoApp() {
                 PockRoute.Journal -> PockRoute.Journal
                 PockRoute.Settings -> PockRoute.Settings
                 PockRoute.Detail -> PockRoute.Detail
+                PockRoute.TaskDetail -> PockRoute.TaskDetail
                 PockRoute.QuickAdd -> when (quickAddOrigin) {
                     PocReturnTarget.Tasks -> PockRoute.Tasks
                     PocReturnTarget.Journal -> PockRoute.Journal
@@ -335,12 +352,22 @@ fun CalinoApp() {
                             onTaskRescheduleTo = { task, date ->
                                 showUndo(repository.rescheduleTask(task.id, date))
                             },
+                            onTaskClick = { task ->
+                                selectedTaskId = task.id
+                                taskDetailOrigin = PocReturnTarget.Calendar
+                                route = PockRoute.TaskDetail
+                            },
                         )
                         PockRoute.Tasks -> Tasks(
                             tasks = snapshot.tasks,
                             onComplete = { task -> repository.setTaskDone(task.id, true) },
                             onReschedule = { task -> showUndo(repository.rescheduleTask(task.id, fallbackRescheduleDate(task.due, selectedDate))) },
                             onRescheduleTo = { task, date -> showUndo(repository.rescheduleTask(task.id, date)) },
+                            onTaskClick = { task ->
+                                selectedTaskId = task.id
+                                taskDetailOrigin = PocReturnTarget.Tasks
+                                route = PockRoute.TaskDetail
+                            },
                             onUndoComplete = { task -> repository.setTaskDone(task.id, false) },
                             onAddTask = { openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks) },
                         )
@@ -383,6 +410,20 @@ fun CalinoApp() {
                                     // a replacement for this surface.
                                     selectedEventId = event.id
                                     editEventId = event.id
+                                },
+                            )
+                        }
+                        PockRoute.TaskDetail -> selectedTask?.let { task ->
+                            TaskDetail(
+                                task = task,
+                                onBack = {
+                                    selectedTaskId = null
+                                    restoreTaskDetailOrigin()
+                                },
+                                onSave = { input, done ->
+                                    repository.updateTask(task.id, input, done)
+                                    selectedTaskId = null
+                                    restoreTaskDetailOrigin()
                                 },
                             )
                         }

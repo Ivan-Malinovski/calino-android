@@ -27,10 +27,10 @@ visual and gesture behavior is deterministic.
 
 The initial standalone repository snapshot is commit `32c0664`.
 
-## NEXT TASK — continue fixture-backed calendar functionality after the zoom/week/task pass
+## NEXT TASK — continue fixture-backed calendar functionality after the interaction polish pass
 
-The zoom performance pass, swipable week strip, and calendar task projection
-are complete. Preserve the frozen May 2026 fixture contract and the three
+The zoom performance pass, swipable week strip, swipable Settings categories,
+and task detail/editor flow are complete. Preserve the frozen May 2026 fixture contract and the three
 calendar rest states:
 
 - UI 1 is `zoom == 0f`: the seven-day week endpoint and selected-day hour rail.
@@ -39,14 +39,17 @@ calendar rest states:
 
 The month Canvas owns the idle compact endpoint. The week `HorizontalPager`
 remains hoisted for interaction and draws only while previewing another week,
-so the selected row physically continues into the month geometry. Keep
-committed date state separate from pager preview state, keep boundary previews
+so the selected row physically continues into the month geometry. The pager
+has exclusive opaque ownership during horizontal preview; the Canvas and
+pager share compact-week metrics and one selector position. Keep committed
+date/route state separate from pager preview state, keep boundary previews
 mounted, and keep one pointer owner per gesture.
 
-Next scoped work should be task/calendar behavior coverage: add
+Next scoped work should be task/calendar/settings behavior coverage: add
 Compose/device tests for week paging, compact hit-target gating, task
-completion/undo, calendar rescheduling, and boundary cancellation, then
-continue with other fixture-backed Calino surface gaps. Event/task
+completion/undo/detail editing, calendar rescheduling, Settings category
+paging, and boundary cancellation, then continue with other fixture-backed
+Calino surface gaps. Event/task
 drag-and-drop remains deferred until those state and gesture contracts are
 reviewed; do not add sync, persistence, or remote services.
 
@@ -99,6 +102,18 @@ results.
 - Calendar due-task rows now expose an animated reschedule control with
   Tomorrow, Next week, and No date choices. Each choice goes through the same
   local repository mutation and undo banner as the Tasks surface.
+- The selected-week pill is driven by one hoisted spring position shared by
+  the compact Canvas and pager. Week-strip preview uses an opaque backing lane
+  so the moving pager cannot reveal a stuck Canvas row underneath.
+- Compact-week geometry uses shared height, inset, pill, and center metrics in
+  the Canvas, pager, and hit-target layout. Boundary preview suppression has a
+  generation/tombstone state and invalidates on a real horizontal week gesture.
+- Settings categories are hosted by a dedicated `HorizontalPager`; the chip
+  rail remains an accessible shortcut and a chip destination replaces an
+  in-progress pager settle rather than being overwritten by it.
+- Task rows in both the calendar and Tasks surface open a fixture-backed Task
+  Details editor. Title, category, due preset, and completion state save via
+  `FixtureRepository.updateTask`, preserving the task ID and origin route.
 - On the warmed API 36 `calino-poc-api36` emulator, the latest single-renderer
   slow-drag reports (0→1, 1→2, 2→1) were respectively: 76/16/16/2,
   75/12/16/2, and 76/16/16/2 for total frames / 50th percentile / 95th
@@ -271,6 +286,8 @@ and animated enter/exit behavior.
 - A completion undo banner with a five-second-style local window.
 - Local rescheduling flow and date selection.
 - Task cards with category/color presentation.
+- Tappable task bodies with a full-screen detail/editor route.
+- Local task title/category/due/completion edits that preserve task identity.
 - New task action through Quick Add.
 - Bottom viewport padding so the last item does not sit under the fixed action.
 - A shared compact segmented control for the filter.
@@ -316,6 +333,8 @@ The Settings layout has an important defensive rule: every setting row gets a
 full-width label measurement on phone-sized layouts; controls are placed below
 the label when needed. This prevents the former `Timezone` failure where the
 label was measured at intrinsic width and rendered one character per line.
+Category bodies are swipable through the dedicated pager; the horizontal chip
+rail remains available as a direct-access and accessibility shortcut.
 
 ### Bottom dock
 
@@ -385,6 +404,7 @@ The host currently owns:
 - Selected date
 - Day sheet visibility
 - Selected event and occurrence date
+- Selected task and task-detail origin
 - Event editor state
 - Quick Add origin/type
 - Journal editor/review state

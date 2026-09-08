@@ -140,6 +140,30 @@ class PocFixturesTest {
     }
 
     @Test
+    fun updateTask_replacesEditableFields_withoutChangingItsId() {
+        val repository = FixtureRepository()
+        val original = repository.tasks().first { it.id == "task-inbox" }
+
+        val updated = repository.updateTask(
+            original.id,
+            NewTask(
+                title = "Review the revised calendar notes",
+                due = fixtureDate.plusDays(1),
+                color = original.color,
+                category = "Personal",
+            ),
+            done = true,
+        )
+
+        assertEquals(original.id, updated.id)
+        assertEquals("Review the revised calendar notes", updated.title)
+        assertEquals(fixtureDate.plusDays(1), updated.due)
+        assertTrue(updated.done)
+        assertEquals("Personal", updated.category)
+        assertEquals(1, repository.tasks().count { it.id == original.id })
+    }
+
+    @Test
     fun recurringFixture_hasReadableSummary_andHonorsEndDate() {
         val event = FixtureRepository().events().first { it.id == "evt-design" }
 

@@ -30,6 +30,7 @@ interface CalinoRepository {
     fun addEvent(input: NewEvent): CalEvent
     fun updateEvent(id: String, input: NewEvent): CalEvent
     fun addTask(input: NewTask): CalTask
+    fun updateTask(id: String, input: NewTask, done: Boolean): CalTask
     fun addJournal(input: NewJournal): JournalEntry
     fun updateJournal(id: String, input: NewJournal): JournalEntry
     fun deleteJournal(id: String)
@@ -120,6 +121,20 @@ class FixtureRepository : CalinoRepository {
         )
         update { it.copy(tasks = it.tasks + task) }
         return task
+    }
+
+    override fun updateTask(id: String, input: NewTask, done: Boolean): CalTask {
+        task(id)
+        val updated = CalTask(
+            id = id,
+            title = input.title,
+            color = input.color,
+            due = input.due,
+            done = done,
+            category = input.category,
+        )
+        replaceTask(updated)
+        return updated
     }
 
     override fun addJournal(input: NewJournal): JournalEntry {

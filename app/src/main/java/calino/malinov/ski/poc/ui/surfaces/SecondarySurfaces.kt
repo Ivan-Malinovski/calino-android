@@ -109,6 +109,7 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
+import calino.malinov.ski.poc.data.model.NewTask
 import calino.malinov.ski.poc.data.parser.ParsedQuickAdd
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
@@ -136,6 +137,7 @@ import kotlinx.coroutines.launch
 sealed interface PockRoute {
     data object Day : PockRoute
     data object Detail : PockRoute
+    data object TaskDetail : PockRoute
     data object Tasks : PockRoute
     data object Journal : PockRoute
     data object Settings : PockRoute
@@ -568,6 +570,171 @@ fun EventDetailSurface(
     }
 }
 
+/**
+ * Fixture-backed task detail/editor. The task body is the primary tap target
+ * in both the calendar and task ledger; completion and rescheduling remain
+ * separate row actions so opening a task never mutates it accidentally.
+ */
+@Composable
+fun TaskDetailSurface(
+    task: CalTask,
+    onBack: () -> Unit = {},
+    onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+) {
+    var title by remember(task.id) { mutableStateOf(task.title) }
+    var category by remember(task.id) { mutableStateOf(task.category.orEmpty()) }
+    var due by remember(task.id) { mutableStateOf(task.due) }
+    var done by remember(task.id) { mutableStateOf(task.done) }
+    var shown by remember(task.id) { mutableStateOf(true) }
+    var pendingSave by remember(task.id) { mutableStateOf(false) }
+
+    LaunchedEffect(shown) {
+        if (!shown) {
+            delay(220)
+            if (pendingSave) {
+                onSave(
+                    NewTask(
+                        title = title.trim(),
+                        due = due,
+                        color = task.color,
+                        category = category.trim().ifEmpty { null },
+                    ),
+                    done,
+                )
+            } else {
+                onBack()
+            }
+        }
+    }
+    fun dismiss(save: Boolean) {
+        if (!shown) return
+        pendingSave = save
+        shown = false
+    }
+    BackHandler(enabled = shown) { dismiss(false) }
+
+    SwipeDownDismiss(
+        visible = shown,
+        onDismiss = { dismiss(false) },
+        modifier = Modifier.fillMaxSize(),
+        dismissDistance = 980.dp,
+    ) { detailModifier ->
+        Column(
+            detailModifier
+                .fillMaxSize()
+                .background(CalinoColors.Canvas),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 16.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButtonGlyph("‹", "Back", { dismiss(false) })
+                Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                    Text("Task details", style = CalinoTypography.titleLarge)
+                    Text("Local fixture task", color = CalinoColors.Ink3, fontSize = 11.sp)
+                }
+                Box(
+                    Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(taskColor(task))
+                        .semantics { contentDescription = "Task category color" },
+                )
+            }
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                label("Task")
+                TextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Title") },
+                    singleLine = false,
+                    minLines = 2,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = CalinoColors.Panel,
+                        unfocusedContainerColor = CalinoColors.Panel,
+                        focusedIndicatorColor = CalinoColors.Accent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                )
+                TextField(
+                    value = category,
+                    onValueChange = { category = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Category") },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = CalinoColors.Panel,
+                        unfocusedContainerColor = CalinoColors.Panel,
+                        focusedIndicatorColor = CalinoColors.Accent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    label("Due date")
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        val choices = listOf(
+                            May18 to "Today",
+                            May18.plusDays(1) to "Tomorrow",
+                            May18.plusDays(7) to "Next week",
+                            null to "No date",
+                        )
+                        choices.forEach { (date, text) ->
+                            val selected = due == date
+                            TextButton(
+                                onClick = { due = date },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 44.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(if (selected) CalinoColors.AccentSoft else CalinoColors.Panel)
+                                    .semantics {
+                                        contentDescription = if (selected) "$text, selected" else "Set due date to $text"
+                                    },
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                            ) {
+                                Text(text, fontSize = 10.sp, color = if (selected) CalinoColors.Accent else CalinoColors.Ink2, maxLines = 1)
+                            }
+                        }
+                    }
+                    due?.let { selectedDue ->
+                        Text(
+                            selectedDue.format(dateFormat),
+                            color = CalinoColors.Ink3,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(start = 3.dp),
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = { done = !done },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, if (done) CalinoColors.Green else CalinoColors.Line),
+                ) {
+                    Text(if (done) "Completed · mark open" else "Open · mark completed", color = if (done) CalinoColors.Green else CalinoColors.Ink2)
+                }
+            }
+            Button(
+                enabled = title.trim().isNotEmpty(),
+                onClick = { dismiss(true) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).height(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
+            ) { Text("Save changes") }
+        }
+    }
+}
+
 private fun formatDuration(minutes: Int): String = when {
     minutes % 60 == 0 -> "${minutes / 60} h"
     minutes > 60 -> "${minutes / 60} h ${minutes % 60} min"
@@ -634,6 +801,7 @@ fun TasksSurface(
     onComplete: (CalTask) -> Unit = {},
     onReschedule: (CalTask) -> Unit = {},
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { task, _ -> onReschedule(task) },
+    onTaskClick: (CalTask) -> Unit = {},
     onUndoComplete: (CalTask) -> Unit = {},
     onAddTask: (() -> Unit)? = null,
 ) {
@@ -724,6 +892,7 @@ fun TasksSurface(
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
+                        onTaskClick,
                     )
                     TaskBucket(
                         "Today",
@@ -733,6 +902,7 @@ fun TasksSurface(
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
+                        onTaskClick,
                     )
                     TaskBucket(
                         "This week",
@@ -742,6 +912,7 @@ fun TasksSurface(
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
+                        onTaskClick,
                     )
                     TaskBucket(
                         "Later",
@@ -751,6 +922,7 @@ fun TasksSurface(
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
+                        onTaskClick,
                     )
                     TaskBucket(
                         "No date",
@@ -760,6 +932,7 @@ fun TasksSurface(
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
+                        onTaskClick,
                     )
                     TaskBucket(
                         "Completed",
@@ -769,6 +942,7 @@ fun TasksSurface(
                         { _, _ -> },
                         reschedulingTaskId,
                         renderTask,
+                        onTaskClick,
                     )
                     if (activeVisible.isEmpty()) {
                         item(key = "tasks-empty:${activeFilter.name}") {
@@ -904,6 +1078,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     onRescheduleTo: (CalTask, LocalDate) -> Unit,
     reschedulingTaskId: String?,
     renderTask: (CalTask) -> CalTask,
+    onTaskClick: (CalTask) -> Unit,
 ) {
     if (tasks.isNotEmpty()) {
         item(key = "bucket:$name") {
@@ -927,6 +1102,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                     onReschedule = onRequestReschedule,
                     showReschedule = reschedulingTaskId == task.id,
                     onRescheduleTo = onRescheduleTo,
+                    onClick = { onTaskClick(task) },
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -942,6 +1118,7 @@ private fun TaskRow(
     onReschedule: (CalTask) -> Unit,
     showReschedule: Boolean = false,
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { _, _ -> },
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var drag by remember(task.id) { mutableStateOf(0f) }
@@ -1050,7 +1227,16 @@ private fun TaskRow(
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 44.dp)
+                        .clickable(enabled = onClick != null, onClick = { onClick?.invoke() })
+                        .semantics {
+                            contentDescription = "Open task: ${task.title}"
+                        }
+                        .padding(vertical = 4.dp),
+                ) {
                     Text(
                         task.title,
                         style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
@@ -1482,6 +1668,13 @@ fun EventDetail(
     occurrenceDate: LocalDate? = null,
 ) = EventDetailSurface(event, onBack, onPrimaryAction, occurrenceDate)
 
+@Composable
+fun TaskDetail(
+    task: CalTask,
+    onBack: () -> Unit = {},
+    onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+) = TaskDetailSurface(task, onBack, onSave)
+
 /** Task ledger; horizontal drag reveals completion/rescheduling affordances. */
 @Composable
 fun Tasks(
@@ -1489,9 +1682,10 @@ fun Tasks(
     onComplete: (CalTask) -> Unit = {},
     onReschedule: (CalTask) -> Unit = {},
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { task, _ -> onReschedule(task) },
+    onTaskClick: (CalTask) -> Unit = {},
     onUndoComplete: (CalTask) -> Unit = {},
     onAddTask: (() -> Unit)? = null,
-) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onUndoComplete, onAddTask)
+) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onUndoComplete, onAddTask)
 
 /** Shared animated Event/Task/Journal editor sheet. */
 @Composable
