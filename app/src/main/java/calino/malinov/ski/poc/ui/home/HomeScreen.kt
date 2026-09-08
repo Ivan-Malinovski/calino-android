@@ -14,6 +14,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -271,6 +272,21 @@ fun HomeScreen(
     var weekRollbackJob by remember { mutableStateOf<Job?>(null) }
     val currentZoom = zoomState
     val currentSelectedEpoch = rememberUpdatedState(selectedEpoch)
+    // Only a user drag may commit a pager destination. Synchronizing a pager
+    // to a clicked date must never feed intermediate pages back into selection.
+    val pagerDragOrigins = remember { androidx.compose.runtime.mutableStateMapOf<PagerState, Long>() }
+    listOf(dayPagerState, weekPagerState, monthPagerState).forEach { pager ->
+        LaunchedEffect(pager) {
+            pager.interactionSource.interactions.collect { interaction ->
+                if (interaction is DragInteraction.Start) {
+                    pagerDragOrigins[pager] = currentSelectedEpoch.value
+                }
+            }
+        }
+    }
+
+    fun consumeUserSettle(pager: PagerState): Boolean =
+        pagerDragOrigins.remove(pager) == currentSelectedEpoch.value
     val selectedWeekdayIndex = (selected.dayOfWeek.value - 1).coerceIn(0, 6)
     val compactSelectorPosition = remember {
         Animatable(selectedWeekdayIndex.toFloat())
@@ -313,9 +329,10 @@ fun HomeScreen(
     // the selected date remains stable while the visible page is allowed to
     // preview its neighbor.
     LaunchedEffect(dayPagerState) {
-        snapshotFlow { dayPagerState.settledPage }
+        snapshotFlow { dayPagerState.isScrollInProgress to dayPagerState.settledPage }
             .distinctUntilChanged()
-            .collect {
+            .collect { (scrolling, it) ->
+                if (scrolling || !consumeUserSettle(dayPagerState)) return@collect
                 val date = dateForDayPage(it)
                 if (date.toEpochDay() != currentSelectedEpoch.value) {
                     selectedEpoch = date.toEpochDay()
@@ -328,9 +345,10 @@ fun HomeScreen(
     // whole week while preserving the selected weekday; the committed date is
     // still written only after the pager settles.
     LaunchedEffect(weekPagerState) {
-        snapshotFlow { weekPagerState.settledPage }
+        snapshotFlow { weekPagerState.isScrollInProgress to weekPagerState.settledPage }
             .distinctUntilChanged()
-            .collect {
+            .collect { (scrolling, it) ->
+                if (scrolling || !consumeUserSettle(weekPagerState)) return@collect
                 val suppression = suppressedWeekPreview
                 if (suppression?.targetPage == it) {
                     val activeGeneration = suppression.generation == weekPreviewGeneration
@@ -380,9 +398,10 @@ fun HomeScreen(
     // A month swipe preserves the selected day number where possible. The
     // date-keyed pages keep the grid's hit regions aligned with what is drawn.
     LaunchedEffect(monthPagerState) {
-        snapshotFlow { monthPagerState.settledPage }
+        snapshotFlow { monthPagerState.isScrollInProgress to monthPagerState.settledPage }
             .distinctUntilChanged()
-            .collect {
+            .collect { (scrolling, it) ->
+                if (scrolling || !consumeUserSettle(monthPagerState)) return@collect
                 val targetMonth = monthForPage(it)
                 val currentDate = LocalDate.ofEpochDay(currentSelectedEpoch.value)
                 if (YearMonth.from(currentDate) != targetMonth) {
@@ -426,6 +445,7 @@ fun HomeScreen(
     val selectedDayPage = dayPageFor(selected)
     val dayPagerTravel by remember(dayPagerState, selectedDayPage) {
         derivedStateOf {
+            if (pagerDragOrigins[dayPagerState] != selected.toEpochDay()) return@derivedStateOf 0f
             // This API accounts for currentPageOffsetFraction flipping when
             // currentPage crosses the halfway point. Building this from
             // currentPage + fraction manually makes the indicator jump to
@@ -513,7 +533,8 @@ fun HomeScreen(
                 compactBoundaryDay = compactBoundaryDay,
                 blockedBoundaryDay = blockedBoundaryDay,
                 committedEpochDay = currentSelectedEpoch.value,
-                dayInProgress = dayPagerState.isScrollInProgress,
+                dayInProgress = dayPagerState.isScrollInProgress &&
+                    pagerDragOrigins[dayPagerState] == currentSelectedEpoch.value,
                 dayTargetPage = dayPagerState.targetPage,
                 daySettledPage = dayPagerState.settledPage,
                 monthInProgress = monthPagerState.isScrollInProgress,
@@ -708,11 +729,13 @@ fun HomeScreen(
             day = selected,
             onPreviousMonth = {
                 scope.launch {
+                    pagerDragOrigins[monthPagerState] = selectedEpoch
                     monthPagerState.animateScrollToPage((monthPagerState.currentPage - 1).coerceAtLeast(0))
                 }
             },
             onNextMonth = {
                 scope.launch {
+                    pagerDragOrigins[monthPagerState] = selectedEpoch
                     monthPagerState.animateScrollToPage((monthPagerState.currentPage + 1).coerceAtMost(MonthPagerPageCount - 1))
                 }
             },
@@ -1101,7 +1124,6 @@ private fun WeekStripPage(
                     .width(cellWidth)
                     .height(CompactWeekMetrics.PillHeight)
                     .align(Alignment.CenterStart)
-                    .padding(horizontal = CompactWeekMetrics.PillHorizontalPadding)
                     .clip(RoundedCornerShape(CompactWeekMetrics.PillRadius))
                     .background(CalinoColors.Ink.copy(alpha = .95f)),
             )
@@ -1177,31 +1199,28 @@ private fun WeekDay(
     ) {
         Text(
             date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
-            fontSize = 10.sp,
+            style = ComposeTextStyle(fontSize = 10.sp),
             color = weekdayColor,
         )
-        Text(
-            date.dayOfMonth.toString(),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = dateColor,
-        )
+        Spacer(Modifier.height(4.dp))
+        Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
+            Text(
+                date.dayOfMonth.toString(),
+                style = ComposeTextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.Medium),
+                color = dateColor,
+            )
+        }
+        Spacer(Modifier.height(1.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.height(10.dp),
+            modifier = Modifier.height(7.dp),
         ) {
-            eventsFor(events, date).take(3).forEach { event ->
-                Box(Modifier.size(4.dp).clip(CircleShape).background(Color(event.color)))
-            }
-            if (tasksDueCount > 0) {
-                Box(Modifier.size(5.dp).clip(CircleShape).background(CalinoColors.Green))
-                Text(
-                    tasksDueCount.toString(),
-                    fontSize = 8.sp,
-                    lineHeight = 9.sp,
-                    color = if (selectedWeight > .5f) Color.White.copy(.9f) else CalinoColors.Green,
-                )
+            eventsFor(events, date).take(4).forEach { event ->
+                Box(Modifier.size(
+                    width = if (event.allDay) 18.dp else 5.dp,
+                    height = if (event.allDay) 3.dp else 5.dp,
+                ).clip(RoundedCornerShape(2.dp)).background(Color(event.color)))
             }
         }
     }

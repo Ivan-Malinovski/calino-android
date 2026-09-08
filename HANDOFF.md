@@ -171,6 +171,45 @@ results.
   performed for this change.
 - The full `test lintDebug assembleDebug` check passed for the card/pager work.
 
+### Calendar selection feedback correction — 2026-09-08
+
+- Pager settlement now commits a date only for an explicit navigation action:
+  a drag registered by that pager's interaction source, or a month arrow.
+  The action remembers its originating selection, so a later date click also
+  invalidates an older settling gesture. Programmatic day/week/month alignment
+  cannot feed intermediate dates back into the selected date.
+- Day-driven selector travel and boundary previews only follow a user-owned
+  day gesture. The agenda catching up after a week swipe no longer sends the
+  selector to another weekday and back.
+- Moving week cells now use the resting Canvas's event-only marker count,
+  all-day bars, date typography, spacing, and selection-pill width. Task rows
+  and task accessibility information remain available.
+- Full `test lintDebug assembleDebug` passed. API 36 emulator checks covered
+  slow forward and fast reverse week swipes, short canceled swipes, and seven
+  month date selections across different rows/weekday columns. Recorded week
+  transition frames were inspected. No phone deployment or validation.
+- Repeat the selection regression with
+  `python3 scripts/check_calendar_selection.py` after installing the debug APK;
+  it uses the SDK Distrobox and explicitly targets `emulator-5554`.
+- Automated Compose interaction coverage and exhaustive interrupted/boundary
+  gesture coverage remain outstanding.
+
+### Compact calendar task rows — 2026-09-08
+
+- Calendar-context task rows use a compact single-line presentation with the
+  category inline and no repeated due date; the full Tasks surface keeps its
+  existing date metadata.
+- The selected-day agenda now puts the date and `OPEN DAY` action on one
+  compact line, with a tappable `TASKS DUE · … OPEN` header that animates the
+  task rows open and closed.
+- Agenda task labels keep their full touch lanes while using a tighter visual
+  offset, and event cards retain a small separation instead of touching.
+- The compact rows retain the 44dp interaction lane and completion,
+  reschedule, detail, and accessibility behavior.
+- Full `test lintDebug assembleDebug` passed. The API 36 emulator was
+  inspected at the compact month/selected-day state; no physical-phone
+  validation was performed.
+
 ### Future only — concrete drag-and-drop implementation checklist
 
 Do not start this checklist until the zoom measurements and Ivan’s visual
