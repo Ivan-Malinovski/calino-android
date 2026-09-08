@@ -14,8 +14,9 @@ plan for the next model.
 - The current product is a fixture-backed UI and interaction prototype.
 - Keep the frozen May 2026 fixture contract unless the task explicitly changes
   it.
-- Do not integrate real CalDAV or other remote functionality until the UI
-  state model, gesture behavior, and tests have been reviewed.
+- Do not integrate real CalDAV networking or other remote functionality until
+  the UI state model, gesture behavior, and tests have been reviewed. Replacing
+  `FixtureCalDavClient` with an HTTP implementation is that separate step.
 - Do not edit `<sibling-calino>` or the old
   `<sibling-native-poc>` copy while working here.
 - Do not commit credentials, local environment files, keystores, generated
@@ -47,7 +48,7 @@ app/src/main/java/calino/malinov/ski/poc/
   state/                           navigation-state helpers
   ui/components/                   shared Compose components and gestures
   ui/home/HomeScreen.kt            calendar, pagers, zoom, and agenda
-  ui/surfaces/                     Tasks, Journal, Settings, and modals
+  ui/surfaces/                     Tasks, Journal, Settings, calendar accounts, and modals
   util/                            formatting and recurrence helpers
 ```
 
@@ -166,7 +167,8 @@ After implementing a meaningful UI change:
    uncertainty.
 
 Do not silently expand scope into sync, persistence, account management, or
-production release work.
+production release work. The simulated calendar-account flow is the agreed
+extent of account management.
 
 ## Git and handoff rules
 

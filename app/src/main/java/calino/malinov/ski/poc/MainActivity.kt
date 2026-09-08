@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
+import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.JournalEntry
@@ -75,6 +76,9 @@ import calino.malinov.ski.poc.data.model.EditorDraft
 import calino.malinov.ski.poc.data.model.blankEditorDraft
 import calino.malinov.ski.poc.data.model.editorDraftFor
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
+import calino.malinov.ski.poc.data.repository.CalDavAccountStore
+import calino.malinov.ski.poc.data.repository.CalDavClient
+import calino.malinov.ski.poc.data.repository.FixtureCalDavClient
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.FixtureRepository
@@ -95,6 +99,7 @@ import calino.malinov.ski.poc.ui.surfaces.EventDetail
 import calino.malinov.ski.poc.ui.surfaces.TaskDetail
 import calino.malinov.ski.poc.ui.surfaces.NotificationPreview
 import calino.malinov.ski.poc.ui.surfaces.AgendaScreen
+import calino.malinov.ski.poc.ui.surfaces.CalendarAccountsSurface
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
 import calino.malinov.ski.poc.ui.surfaces.QuickAddKind
 import calino.malinov.ski.poc.ui.surfaces.QuickAddSheet
@@ -131,6 +136,7 @@ private val RouteSaver = Saver<PockRoute, String>(
             "tasks" -> PockRoute.Tasks
             "journal" -> PockRoute.Journal
             "settings" -> PockRoute.Settings
+            "accounts" -> PockRoute.Accounts
             "quick-add" -> PockRoute.QuickAdd
             "notifications" -> PockRoute.Notifications
             else -> PockRoute.Day
@@ -156,6 +162,7 @@ private fun PockRoute.saveableKey(): String = when (this) {
     PockRoute.Tasks -> "tasks"
     PockRoute.Journal -> "journal"
     PockRoute.Settings -> "settings"
+    PockRoute.Accounts -> "accounts"
     PockRoute.QuickAdd -> "quick-add"
     PockRoute.Notifications -> "notifications"
 }
@@ -166,14 +173,15 @@ private fun PockRoute.rootOrder(): Int = when (this) {
     PockRoute.Tasks -> 2
     PockRoute.Journal -> 3
     PockRoute.Settings -> 4
+    PockRoute.Accounts -> 5
     // Detail and notification previews are pushed destinations. Keeping them
     // after the root destinations makes opening them enter from the right and
     // returning from them reverse the same motion, instead of treating them
     // as another instance of the calendar route.
-    PockRoute.Detail -> 5
-    PockRoute.TaskDetail -> 5
-    PockRoute.Notifications -> 5
-    PockRoute.QuickAdd -> 5
+    PockRoute.Detail -> 6
+    PockRoute.TaskDetail -> 6
+    PockRoute.Notifications -> 6
+    PockRoute.QuickAdd -> 6
 }
 
 class MainActivity : ComponentActivity() {
@@ -187,14 +195,25 @@ class MainActivity : ComponentActivity() {
 /** Retains the in-memory POC repository across configuration changes only. */
 class PocRepositoryViewModel : ViewModel() {
     val repository = FixtureRepository()
+
+    /**
+     * Connected CalDAV accounts live beside the fixture repository rather than
+     * inside it, so the frozen fixture contract stays untouched. The client is
+     * a simulation: the app still makes no network calls.
+     */
+    val accountStore = CalDavAccountStore()
+    val calDavClient: CalDavClient = FixtureCalDavClient()
 }
 
 /** The launch shell for the fixture-only native POC. No WebView or Capacitor is involved. */
 @Composable
 fun CalinoApp() {
     CalinoTheme {
-        val repository = viewModel<PocRepositoryViewModel>().repository
+        val pocViewModel = viewModel<PocRepositoryViewModel>()
+        val repository = pocViewModel.repository
+        val accountStore = pocViewModel.accountStore
         val snapshot = rememberRepositorySnapshot(repository)
+        val calDavAccounts = rememberCalDavAccounts(accountStore)
         val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
         var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
         var selectedDate by rememberSaveable(stateSaver = LocalDateSaver) { mutableStateOf(FixtureDate) }
@@ -211,6 +230,14 @@ fun CalinoApp() {
         var quickAddOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
         var quickAddKind by rememberSaveable(stateSaver = QuickAddKindSaver) { mutableStateOf(QuickAddKind.Event) }
         var notificationOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
+        // Calendars is reachable from the sidebar and from Settings, so back
+        // has to return to whichever one opened it.
+        var accountsOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
+        // Set when Settings opens the surface via its add button, so the add
+        // sheet is already showing on arrival.
+        var accountsAutoAdd by rememberSaveable { mutableStateOf(false) }
+        // Which account a Settings "Manage" row asked to be brought into view.
+        var accountsFocusId by rememberSaveable { mutableStateOf<String?>(null) }
         var journalReviewVisible by rememberSaveable { mutableStateOf(false) }
         var journalEditorVisible by rememberSaveable { mutableStateOf(false) }
         var journalOpenEntryId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -292,6 +319,10 @@ fun CalinoApp() {
                     route = PockRoute.Settings
                     showDayModal = false
                 }
+                PocReturnTarget.Accounts -> {
+                    route = PockRoute.Accounts
+                    showDayModal = false
+                }
                 PocReturnTarget.Detail -> route = PockRoute.Detail
                 PocReturnTarget.TaskDetail -> route = PockRoute.TaskDetail
                 PocReturnTarget.Agenda -> {
@@ -335,6 +366,10 @@ fun CalinoApp() {
                     restoreTaskDetailOrigin()
                 }
                 route == PockRoute.Notifications -> route = if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
+                route == PockRoute.Accounts -> {
+                    accountsAutoAdd = false
+                    route = if (accountsOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
+                }
                 showDayModal -> showDayModal = false
                 else -> route = PockRoute.Day
             }
@@ -352,6 +387,7 @@ fun CalinoApp() {
                 PockRoute.Tasks -> PockRoute.Tasks
                 PockRoute.Journal -> PockRoute.Journal
                 PockRoute.Settings -> PockRoute.Settings
+                PockRoute.Accounts -> PockRoute.Accounts
                 PockRoute.Detail -> when (detailOrigin) {
                     PocReturnTarget.Agenda -> PockRoute.Agenda
                     PocReturnTarget.Tasks -> PockRoute.Tasks
@@ -474,6 +510,28 @@ fun CalinoApp() {
                                 route = PockRoute.Notifications
                             },
                             onOpenMenu = { sidebarVisible = true },
+                            calDavAccounts = calDavAccounts,
+                            onOpenAccounts = { startAdding, focusAccountId ->
+                                accountsOrigin = PocReturnTarget.Settings
+                                accountsAutoAdd = startAdding
+                                accountsFocusId = focusAccountId
+                                route = PockRoute.Accounts
+                            },
+                        )
+                        PockRoute.Accounts -> CalendarAccountsSurface(
+                            accounts = calDavAccounts,
+                            client = pocViewModel.calDavClient,
+                            onAddAccount = { form, calendars -> accountStore.addAccount(form, calendars) },
+                            onCalendarEnabled = { accountId, calendarId, enabled ->
+                                accountStore.setCalendarEnabled(accountId, calendarId, enabled)
+                            },
+                            onRemoveAccount = { accountStore.removeAccount(it) },
+                            modifier = Modifier.fillMaxSize(),
+                            onOpenMenu = { sidebarVisible = true },
+                            startAdding = accountsAutoAdd,
+                            onStartAddingConsumed = { accountsAutoAdd = false },
+                            focusAccountId = accountsFocusId,
+                            onFocusAccountConsumed = { accountsFocusId = null },
                         )
                         PockRoute.Detail, PockRoute.TaskDetail -> Unit
                         PockRoute.Notifications -> NotificationPreview(
@@ -684,6 +742,16 @@ fun CalinoApp() {
     }
 }
 
+}
+
+@Composable
+private fun rememberCalDavAccounts(store: CalDavAccountStore): List<CalDavAccount> {
+    var accounts by remember(store) { mutableStateOf(store.accounts()) }
+    DisposableEffect(store) {
+        val subscription = store.observe { accounts = it }
+        onDispose { subscription.close() }
+    }
+    return accounts
 }
 
 @Composable

@@ -149,6 +149,7 @@ sealed interface PockRoute {
     data object Tasks : PockRoute
     data object Journal : PockRoute
     data object Settings : PockRoute
+    data object Accounts : PockRoute
     data object QuickAdd : PockRoute
     data object Notifications : PockRoute
 }

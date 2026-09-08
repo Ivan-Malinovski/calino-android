@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Switch
@@ -46,6 +47,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.design.CalinoColors
@@ -68,6 +70,13 @@ private val FieldColors: @Composable () -> androidx.compose.material3.TextFieldC
         unfocusedContainerColor = CalinoColors.Canvas,
         focusedIndicatorColor = CalinoColors.Accent,
         unfocusedIndicatorColor = CalinoColors.Ink.copy(.09f),
+        // Material's default error container is off-palette lavender. Keep the
+        // field on the Calino canvas and let the indicator carry the error.
+        errorContainerColor = CalinoColors.Canvas,
+        errorIndicatorColor = CalinoColors.Rose,
+        errorLabelColor = CalinoColors.Rose,
+        errorSupportingTextColor = CalinoColors.Rose,
+        errorCursorColor = CalinoColors.Rose,
     )
 }
 
@@ -83,17 +92,28 @@ fun CalinoTextField(
     minLines: Int = 1,
     maxLines: Int = if (singleLine) 1 else 5,
     textStyle: androidx.compose.ui.text.TextStyle = CalinoTypography.bodyLarge,
+    errorText: String? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailingIcon: (@Composable () -> Unit)? = null,
 ) {
     TextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth().semantics { contentDescription = description },
+        modifier = modifier.fillMaxWidth().semantics {
+            contentDescription = errorText?.let { "$description, $it" } ?: description
+        },
         textStyle = textStyle,
         label = { Text(label) },
         placeholder = placeholder?.let { { Text(it, color = CalinoColors.Ink3) } },
         singleLine = singleLine,
         minLines = minLines,
         maxLines = maxLines,
+        isError = errorText != null,
+        supportingText = errorText?.let { { Text(it, style = CalinoTypography.bodySmall) } },
+        keyboardOptions = keyboardOptions,
+        visualTransformation = visualTransformation,
+        trailingIcon = trailingIcon,
         colors = FieldColors(),
     )
 }
