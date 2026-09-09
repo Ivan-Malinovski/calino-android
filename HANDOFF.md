@@ -16,13 +16,11 @@ iCalendar mapping via biweekly, and Keystore-encrypted credential storage. The
 app declares `INTERNET`. With no account connected it still serves the frozen
 May 2026 fixture data, so the sample surfaces stay reachable.
 
-Two limits worth knowing before touching it:
+Recurrence is expanded **on the client**, so a repeating event lands on every
+occurrence in the fetch window regardless of what the server will do.
 
-- **Nothing is written back to the server.** Local edits apply to an in-memory
-  overlay that a refetch discards.
-- **Recurrence is expanded by the server.** On a server that will not expand,
-  a repeating event shows only on its first date. The app detects this and says
-  so, but does not work around it.
+One limit worth knowing before touching it: **nothing is written back to the
+server.** Local edits apply to an in-memory overlay that a refetch discards.
 
 See "CalDAV (real, read-only)" and "CalDAV — what still needs doing".
 
@@ -46,11 +44,10 @@ The initial standalone repository snapshot is commit `32c0664`.
 
 ## NEXT TASK — see "CalDAV — what still needs doing"
 
-Read-only CalDAV landed after the section below was written. The highest-value
-work is now in **"CalDAV — what still needs doing"** near the end of this file;
-item 1 (recurring events on a server that will not expand) is the one a user
-notices. The fixture-backed test-coverage work described immediately below
-remains valid and unfinished.
+Read-only CalDAV landed after the section below was written, and client-side
+recurrence expansion after that. The remaining work is in **"CalDAV — what
+still needs doing"** near the end of this file. The fixture-backed
+test-coverage work described immediately below remains valid and unfinished.
 
 ## Earlier task list — fixture-backed calendar functionality after the interaction polish pass
 
@@ -90,6 +87,51 @@ cancelled, boundary, and reverse gestures. Use the zoom handle semantics
 `Change calendar zoom, level … of 3` for repeatable bounds. Physical-phone
 validation requires an explicit request and must not be inferred from emulator
 results.
+
+### Client-side recurrence and a real clock — 2026-09-09
+
+Two user-reported defects, both fixed and both verified on the emulator against
+the maintainer's live Baikal server.
+
+**Recurring events showed only on their first date.** `<c:expand>` is gone from
+the event query; `ICalMapper` expands instead. The whole story, including the
+rules that expansion depends on, is under "Recurrence" in the CalDAV section —
+read that before touching `ICalMapper.expandSeries` or `applyExceptions`.
+
+**"Today" was a constant, in four different places.** The day rail's red
+current-time marker was drawn at a literal `11.33f * 62` dp — an unmoving
+11:20, painted on *every* day page rather than on today's. Separately,
+`FixtureDate`/`May18` was copied into `HomeScreen`, `MainActivity`,
+`FixtureRepository` and `SecondarySurfaces`, and `isToday` highlights, the
+Today button, the Today/Tomorrow/Next week reschedule presets and the overdue
+tint all compared against it. With an account connected the app therefore
+opened on the real date while insisting today was in May 2026.
+
+- `state/CalinoClock.kt` is the single source: `CalinoNow(today, time)`,
+  `LocalCalinoNow`, and `rememberCalinoNow(live)`. It re-reads on the *minute
+  boundary* rather than on an interval, so the marker lands on the minute and
+  the date turns over exactly at midnight.
+- `live` is `pocViewModel.hasAccounts`. With no account it holds `FixtureNow`
+  (18 May 2026, 11:20), which keeps the fixture contract deterministic and
+  keeps the marker where it has always been drawn.
+- `CalinoApp` split into a thin shell plus `CalinoAppContent`, so the provider
+  can wrap the content without re-indenting the host.
+- The marker now draws only when `day == now.today` and carries a
+  `contentDescription`.
+- **`PagerEpoch` in `HomeScreen.kt` is deliberately still a constant.** It is
+  the origin for day/week/month page-index arithmetic, not "today". If it ever
+  starts advancing, every mounted pager silently renumbers its pages at
+  midnight. It was renamed away from `FixtureDate` to make the two roles
+  impossible to confuse.
+- `May18` survives in `SecondarySurfaces.kt` for sample records and preview
+  defaults only, and is now derived from `FixtureNow.today`.
+
+Covered by `CalinoClockTest`. Emulator (`calino-poc-api36`, clock at
+2026-09-09 08:30 CEST): the marker sits between 08:00 and 09:00 on today's rail
+and is absent on 4 Sep; `💰 Work` renders on 9 Sep and on Mon–Thu of that week
+but not Sat/Sun; 4 Sep is empty of it, honouring `EXDATE:20260904T060000Z`; the
+Today button appears and targets the real date. The full
+`test lintDebug assembleDebug` check passed. No physical-phone validation.
 
 ### Landscape split view on the month root — 2026-09-08
 
@@ -677,8 +719,7 @@ finger, and the host should own the final dismissal/removal transition.
 These are known and should be treated as review targets, not silently assumed
 to be complete:
 
-1. CalDAV is **read-only**, and recurring events are only correct on a server
-   that honours `<c:expand>`. See "CalDAV — what still needs doing" for the
+1. CalDAV is **read-only**. See "CalDAV — what still needs doing" for the
    full list; there is no write path, no incremental sync, no ETag conflict
    handling, and no offline queue. Local edits go to `LocalOverlay` and are
    discarded on refetch; the accounts surface states this on screen. There is
@@ -707,7 +748,9 @@ to be complete:
     the product identity settles.
 11. Text scaling, split-screen/freeform windows, RTL, localization, and very
     narrow widths have not been comprehensively validated.
-12. Loading, error, and partial-read states exist for CalDAV
+12. A recurring VTODO still shows once at its due date; `CalTask` has no
+    recurrence field. Events are expanded, tasks are not.
+13. Loading, error, and partial-read states exist for CalDAV
     (`CalinoSnapshot.sync`, shown by the accounts surface's status card), but
     conflict and offline-queue states do not, because there is no write path.
     The calendar surfaces themselves show no sync banner yet -- a failed
@@ -874,11 +917,9 @@ Each of these was paid for once; do not undo them casually.
 - **Component queries are independent.** One failing must not lose the others,
   and a partial result is never authoritative about what the server no longer
   holds.
-- **Events are time-ranged and expanded; tasks and journals are neither.** A
-  `VTODO` may carry no `DTSTART` or `DUE` at all, and a time-range filter drops
-  exactly those.
-- **A rejected `<c:expand>` falls back to an unexpanded query** — see the
-  Baikal note below.
+- **Events are time-ranged; tasks and journals are not.** A `VTODO` may carry
+  no `DTSTART` or `DUE` at all, and a time-range filter drops exactly those.
+- **`<c:expand>` is never requested.** See "Recurrence" below.
 - **`DTEND` is exclusive.** All-day spans carry an inclusive `CalEvent.endDate`
   instead, converted once in the parser.
 - **`ICalMapper.toLocalDateTime` is separate and directly tested.** Expanded
@@ -889,26 +930,63 @@ Each of these was paid for once; do not undo them casually.
 - **A leading BOM is stripped before parsing**, or the parse silently yields
   zero components.
 
-### The Baikal expand failure
+### Recurrence
 
-Worth knowing before debugging a "no events" report.
+Expanded by `ICalMapper`, not by the server. The event query asks for plain
+`calendar-data`; a `CalDavFetcherTest` case asserts that no request contains
+the string `expand` at all.
 
-sabre parses a collection's `calendar-timezone` property while expanding. A
-calendar storing a bare `Europe/Copenhagen` there, rather than a whole
-`VCALENDAR` wrapping a `VTIMEZONE` as RFC 4791 requires, makes the expanded
-query fail:
+**Why the server is not trusted with it.** sabre parses a collection's
+`calendar-timezone` property while expanding. A calendar storing a bare
+`Europe/Copenhagen` there, rather than a whole `VCALENDAR` wrapping a
+`VTIMEZONE` as RFC 4791 requires, makes the expanded query fail:
 
 ```
 HTTP 500  Sabre\VObject\ParseException: This parser only supports VCARD and VCALENDAR files
 ```
 
-Two of three calendars on the maintainer's server are in that state; the third,
-which has no `calendar-timezone` at all, expands fine. Reproduce by setting a
-bare TZID on any Baikal calendar: expand 500, plain 207.
+Two of three calendars on the maintainer's server are in that state. Other
+servers ignore `<c:expand>` silently instead, which is worse: the master comes
+back with its RRULE intact and a weekday series renders as one event. Both
+failures are gone now; expansion costs the same on every server.
 
-`CalDavFetcher.fetchEvents` retries without `expand` and sets
-`expandUnsupported`, so events still render — but **repeating events then show
-only on their first date**, which the status card says in as many words.
+The engine is `Google2445Utils.getDateIterator`, Google's rfc2445 code shaded
+into biweekly 0.6.8. **No new dependency was added.** It unions RRULE + RDATE
+and subtracts EXRULE, so INTERVAL, COUNT, UNTIL, BYDAY, BYMONTH and BYSETPOS
+all come for free, and `advanceTo` skips an old series forward to the window
+without materialising the years between.
+
+Load-bearing rules, each paid for once:
+
+- **The window bounds expansion, and it is not optional.** The maintainer's own
+  `FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR` has no UNTIL and no COUNT. It is infinite.
+  `MaxOccurrencesPerSeries` (2000) is a second stop for a pathological rule.
+- **VEVENTs are grouped by UID before anything else.** One `.ics` resource
+  carries the master and its `RECURRENCE-ID` detached instances together, and
+  neither can be read without the other. Ungrouped, a master and its override
+  both render and the day shows the occurrence twice.
+- **An override beats an EXDATE naming the same instant** (RFC 5545 §3.8.5.1).
+  Moving an occurrence and cancelling it are different acts.
+- **EXDATE matching is two-tier: exact instant first, then whole day.** EXDATEs
+  are lifted off the component and applied by `applyExceptions` rather than by
+  the iterator, precisely so the second tier is possible. Real files carry
+  EXDATEs written at the wrong time of day -- the maintainer's weekday series
+  is stored at `06:00Z` with eight of its fourteen EXDATEs stamped `T000000Z`
+  -- and under a strict reading those cancelled days reappear as work days. A
+  day-level fallback applies only to an EXDATE inside the window that cancelled
+  nothing exactly.
+- **`CalEvent.recurrence` stays null on expanded instances.** `occursOn()` in
+  `data/model/CalinoModels.kt` is a second, hand-rolled expander that fires
+  whenever `recurrence` is set. Populating it would place every occurrence
+  twice. If a series summary is ever wanted on the detail card, add a
+  display-only field that `occursOn` does not consult.
+- **Occurrence id is `"$uid@$instant"`**, so occurrences are individually
+  addressable while `CalEvent.uid` still names the series for editing. A
+  detached instance is keyed on its `RECURRENCE-ID`, not its own moved start,
+  so its id survives a reschedule. A non-recurring event keeps `uid` as its id.
+
+Verified against the live server: the `💰 Work` series now expands to 198
+occurrences over the ±6-month window, where it previously produced one.
 
 ### Write posture
 
@@ -958,7 +1036,7 @@ account into view.
 
 ### The calendar's anchor date
 
-`selectedDate` starts at `FixtureDate` (May 2026) only when no account is
+`selectedDate` starts at `FixtureNow.today` (May 2026) only when no account is
 connected; with one it starts at today, and connecting the first account
 mid-session moves it. Landing a connected account on the fixture month shows an
 empty calendar and reads as a broken integration.
@@ -993,13 +1071,8 @@ CALINO_CALDAV_USER=you CALINO_CALDAV_PASS=... \
 
 Roughly in the order that would deliver the most.
 
-1. **Recurring events on a server that will not expand.** Today they show only
-   on their first date. Two routes: fix the server's `calendar-timezone`
-   property (a `PROPPATCH` per calendar, restores server expansion and costs no
-   app code), or add a client-side RRULE expander. The second is the portable
-   answer and the larger job — the web app's `src/lib/occurrenceExpansion.ts`
-   is the reference, including its UTC-anchored all-day arithmetic and its
-   override-beats-`EXDATE` ordering (RFC 5545 §3.8.5.1).
+1. **Recurring tasks.** `CalTask` has no recurrence field, so a repeating
+   VTODO still shows once at its due date. Events are handled; tasks are not.
 2. **The write path.** `LocalOverlay` edits never reach the server. Needs
    `PUT`/`DELETE` with `If-Match`, and `CalEvent.etag`/`href` already exist to
    carry it. Gated behind its own review.

@@ -116,6 +116,8 @@ import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.state.FixtureNow
+import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
@@ -161,7 +163,14 @@ private data class CompletionUndo(val task: CalTask)
 private const val CompletionVisualSettleMillis = 400L
 private const val CompletionUndoWindowMillis = 5_000L
 
-private val May18 = LocalDate.of(2026, 5, 18)
+/**
+ * The fixture anchor, for sample records and preview defaults only.
+ *
+ * Anything that means "today" reads [LocalCalinoNow] instead -- this used to be
+ * a fourth frozen copy of the date and it made every Today/Tomorrow control
+ * point at May 2026 even with a real account connected.
+ */
+private val May18 = FixtureNow.today
 private val dateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
 private val timeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 
@@ -243,6 +252,7 @@ fun DayModalSurface(
     onDateChanged: (LocalDate) -> Unit = {},
     visible: Boolean = true,
 ) {
+    val today = LocalCalinoNow.current.today
     var displayedDate by remember(date) { mutableStateOf(date) }
     var shown by remember { mutableStateOf(true) }
     var dragX by remember { mutableStateOf(0f) }
@@ -416,7 +426,7 @@ fun DayModalSurface(
                             Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.Top) {
                                 Column(Modifier.weight(1f)) {
                                     Text(pageDate.format(dateFormat), style = CalinoTypography.titleLarge)
-                                    label(if (pageDate == May18) "Today · ${dayEvents.size} events" else "${dayEvents.size} events")
+                                    label(if (pageDate == today) "Today · ${dayEvents.size} events" else "${dayEvents.size} events")
                                 }
                                 IconButtonGlyph("×", "Close day", dismiss)
                             }
@@ -568,7 +578,7 @@ private fun EventDetailContent(
                 Column(Modifier.padding(top = 20.dp, bottom = 16.dp)) {
                     label("Next occurrences")
                     Text(recurrenceSummary(event), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 5.dp))
-                    nextOccurrences(event, occurrenceDate ?: May18).forEach { occurrence ->
+                    nextOccurrences(event, occurrenceDate ?: LocalCalinoNow.current.today).forEach { occurrence ->
                         Text(
                             occurrence.format(dateFormat) + " · " + occurrence.format(timeFormat),
                             style = CalinoTypography.bodyLarge,
@@ -606,6 +616,7 @@ fun TaskDetailSurface(
     onBack: () -> Unit = {},
     onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
 ) {
+    val today = LocalCalinoNow.current.today
     var title by remember(task.id) { mutableStateOf(task.title) }
     var category by remember(task.id) { mutableStateOf(task.category.orEmpty()) }
     var due by remember(task.id) { mutableStateOf(task.due) }
@@ -708,9 +719,9 @@ fun TaskDetailSurface(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         val choices = listOf(
-                            May18 to "Today",
-                            May18.plusDays(1) to "Tomorrow",
-                            May18.plusDays(7) to "Next week",
+                            today to "Today",
+                            today.plusDays(1) to "Tomorrow",
+                            today.plusDays(7) to "Next week",
                             null to "No date",
                         )
                         choices.forEach { (date, text) ->
@@ -830,6 +841,7 @@ fun TasksSurface(
     onUndoComplete: (CalTask) -> Unit = {},
     onOpenMenu: (() -> Unit)? = null,
 ) {
+    val today = LocalCalinoNow.current.today
     var filter by remember { mutableStateOf(TaskFilter.All) }
     var pendingCompletionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var completionUndo by remember { mutableStateOf<List<CompletionUndo>>(emptyList()) }
@@ -868,7 +880,7 @@ fun TasksSurface(
     // finishes, so All and Active never briefly lose it or move it underneath
     // the undo affordance.
     val displayBucket = { task: CalTask ->
-        taskBucket(if (isPending(task)) task.copy(done = false) else task, May18)
+        taskBucket(if (isPending(task)) task.copy(done = false) else task, today)
     }
     val renderTask: (CalTask) -> CalTask = { task ->
         if (isPending(task)) task.copy(done = true) else task
@@ -1130,6 +1142,7 @@ private fun TaskRow(
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val today = LocalCalinoNow.current.today
     var drag by remember(task.id) { mutableStateOf(0f) }
     var isDragging by remember(task.id) { mutableStateOf(false) }
     val animatedOffset by animateFloatAsState(
@@ -1262,7 +1275,7 @@ private fun TaskRow(
                         task.due?.let { due ->
                             Text(
                                 due.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)),
-                                color = if (due.isBefore(May18) && !task.done) CalinoColors.Rose else CalinoColors.Ink3,
+                                color = if (due.isBefore(today) && !task.done) CalinoColors.Rose else CalinoColors.Ink3,
                                 style = CalinoTypography.bodySmall,
                             )
                         }
@@ -1305,7 +1318,7 @@ private fun TaskRow(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                listOf(May18 to "Today", May18.plusDays(1) to "Tomorrow", May18.plusDays(7) to "Next week").forEach { (date, labelText) ->
+                listOf(today to "Today", today.plusDays(1) to "Tomorrow", today.plusDays(7) to "Next week").forEach { (date, labelText) ->
                     TextButton(
                         onClick = { onRescheduleTo(task, date) },
                         modifier = Modifier

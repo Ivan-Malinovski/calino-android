@@ -54,7 +54,8 @@ import calino.malinov.ski.poc.ui.components.eventColor
 import calino.malinov.ski.poc.ui.components.AgendaTaskRow
 import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.calinoPressable
-import calino.malinov.ski.poc.ui.home.FixtureDate
+import calino.malinov.ski.poc.state.FixtureNow
+import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.ui.home.MonthPagerPageCount
 import calino.malinov.ski.poc.ui.home.monthEventIndex
 import calino.malinov.ski.poc.ui.home.monthForPage
@@ -81,7 +82,7 @@ fun AgendaScreen(
     events: List<CalEvent>,
     tasks: List<CalTask>,
     modifier: Modifier = Modifier,
-    initialDate: LocalDate = FixtureDate,
+    initialDate: LocalDate = FixtureNow.today,
     onOpenMenu: (() -> Unit)? = null,
     onDateChanged: (LocalDate) -> Unit = {},
     /** Carries the row's own day: an agenda row is not always the selected date. */
@@ -93,6 +94,7 @@ fun AgendaScreen(
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
     LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
     val selected = LocalDate.ofEpochDay(selectedEpoch)
+    val today = LocalCalinoNow.current.today
 
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = monthPageFor(YearMonth.from(initialDate))) { MonthPagerPageCount }
@@ -148,10 +150,10 @@ fun AgendaScreen(
             onPreviousMonth = { goToPage(pagerState.currentPage - 1) },
             onNextMonth = { goToPage(pagerState.currentPage + 1) },
             onToday = {
-                selectedEpoch = FixtureDate.toEpochDay()
-                onDateChanged(FixtureDate)
+                selectedEpoch = today.toEpochDay()
+                onDateChanged(today)
             },
-            showToday = selected != FixtureDate,
+            showToday = selected != today,
             subtitle = null,
         )
         HorizontalPager(
@@ -323,7 +325,7 @@ fun DayPane(
  */
 @Composable
 internal fun AgendaDayHeader(day: LocalDate, onAdd: () -> Unit) {
-    val isToday = day == FixtureDate
+    val isToday = day == LocalCalinoNow.current.today
     val weekday = day.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
         .replaceFirstChar { it.uppercase() }
     Row(

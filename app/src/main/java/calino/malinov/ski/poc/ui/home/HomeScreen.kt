@@ -110,6 +110,8 @@ import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.state.FixtureNow
+import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
@@ -143,7 +145,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 
-internal val FixtureDate = LocalDate.of(2026, 5, 18)
+/**
+ * The fixed origin for pager page arithmetic.
+ *
+ * Deliberately *not* "today". Page indices are offsets from this date, so it
+ * has to be a constant: were it to advance at midnight, every mounted pager
+ * would silently renumber its pages under the user. Today lives in
+ * [LocalCalinoNow].
+ */
+private val PagerEpoch = LocalDate.of(2026, 5, 18)
 private const val DaytimeScrollHour = 9
 private const val ZoomStepDp = 280f
 private const val DayPagerCenter = 100_000
@@ -203,15 +213,15 @@ private data class WeekPreviewSuppression(
 )
 
 private fun dayPageFor(date: LocalDate): Int =
-    (DayPagerCenter.toLong() + date.toEpochDay() - FixtureDate.toEpochDay())
+    (DayPagerCenter.toLong() + date.toEpochDay() - PagerEpoch.toEpochDay())
         .coerceIn(0L, (DayPagerPageCount - 1).toLong())
         .toInt()
 
 private fun dateForDayPage(page: Int): LocalDate =
-    FixtureDate.plusDays((page - DayPagerCenter).toLong())
+    PagerEpoch.plusDays((page - DayPagerCenter).toLong())
 
 private fun weekPageFor(date: LocalDate): Int {
-    val fixtureMonday = FixtureDate.with(DayOfWeek.MONDAY)
+    val fixtureMonday = PagerEpoch.with(DayOfWeek.MONDAY)
     val monday = date.with(DayOfWeek.MONDAY)
     return (WeekPagerCenter + ((monday.toEpochDay() - fixtureMonday.toEpochDay()) / 7L))
         .coerceIn(0L, (WeekPagerPageCount - 1).toLong())
@@ -219,16 +229,16 @@ private fun weekPageFor(date: LocalDate): Int {
 }
 
 private fun mondayForWeekPage(page: Int): LocalDate =
-    FixtureDate.with(DayOfWeek.MONDAY).plusWeeks((page - WeekPagerCenter).toLong())
+    PagerEpoch.with(DayOfWeek.MONDAY).plusWeeks((page - WeekPagerCenter).toLong())
 
 internal fun monthPageFor(month: YearMonth): Int {
-    val fixtureMonth = YearMonth.from(FixtureDate)
+    val fixtureMonth = YearMonth.from(PagerEpoch)
     return (MonthPagerCenter + (month.year - fixtureMonth.year) * 12 + month.monthValue - fixtureMonth.monthValue)
         .coerceIn(0, MonthPagerPageCount - 1)
 }
 
 internal fun monthForPage(page: Int): YearMonth =
-    YearMonth.from(FixtureDate).plusMonths((page - MonthPagerCenter).toLong())
+    YearMonth.from(PagerEpoch).plusMonths((page - MonthPagerCenter).toLong())
 
 /**
  * The native, single-surface calendar. The host only needs to call
@@ -244,7 +254,7 @@ fun HomeScreen(
     journals: List<JournalEntry> = emptyList(),
     tasks: List<CalTask> = repository.tasks(),
     modifier: Modifier = Modifier,
-    initialDate: LocalDate = FixtureDate,
+    initialDate: LocalDate = FixtureNow.today,
     onOpenMenu: (() -> Unit)? = null,
     onDateChanged: (LocalDate) -> Unit = {},
     onDayClick: ((LocalDate) -> Unit)? = null,
@@ -263,6 +273,7 @@ fun HomeScreen(
     LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
 
     val selected = LocalDate.ofEpochDay(selectedEpoch)
+    val today = LocalCalinoNow.current.today
     val events = repository.events()
     val tasksByDueDate = remember(tasks) {
         tasks.filter { it.due != null }
@@ -786,8 +797,8 @@ fun HomeScreen(
                 }
             },
             onToday = {
-                selectedEpoch = FixtureDate.toEpochDay()
-                onDateChanged(FixtureDate)
+                selectedEpoch = today.toEpochDay()
+                onDateChanged(today)
             },
             onDay = { date ->
                 // A first tap selects the day into the pane. Only a tap on the
@@ -821,8 +832,8 @@ fun HomeScreen(
                 }
             },
             onToday = {
-                selectedEpoch = FixtureDate.toEpochDay()
-                onDateChanged(FixtureDate)
+                selectedEpoch = today.toEpochDay()
+                onDateChanged(today)
             },
         )
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
@@ -1153,7 +1164,7 @@ private fun MonthHeading(
     onPreviousMonth = onPreviousMonth,
     onNextMonth = onNextMonth,
     onToday = onToday,
-    showToday = day != FixtureDate,
+    showToday = day != LocalCalinoNow.current.today,
     subtitle = "Week ${day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)} · ${day.format(ShortDateFormatter)}",
 )
 
@@ -1394,7 +1405,7 @@ private fun CalendarTaskRow(
     modifier: Modifier = Modifier,
 ) {
     var rescheduleOpen by remember(task.id) { mutableStateOf(false) }
-    val baseDate = task.due ?: FixtureDate
+    val baseDate = task.due ?: LocalCalinoNow.current.today
 
     Column(modifier.fillMaxWidth()) {
         Row(
@@ -1582,6 +1593,8 @@ private fun MorphingMonthGrid(
     targetHeight: Dp,
     onDay: (LocalDate) -> Unit,
 ) {
+    // Read here rather than inside the draw scope, which is not composable.
+    val today = LocalCalinoNow.current.today
     val first = month.atDay(1)
     val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
     val rows = monthGridRows(month)
@@ -1683,7 +1696,7 @@ private fun MorphingMonthGrid(
                     val cellLeft = horizontalPaddingPx + cellWidthPx * column
                     val cellTop = headerHeightPx + rowHeightPx * row
                     val isSelected = date == selected
-                    val isToday = date == FixtureDate
+                    val isToday = date == today
                     val cellFill = when {
                         isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f)
                         isToday -> CalinoColors.AccentSoft.copy(alpha = .45f)
@@ -1843,6 +1856,8 @@ private fun MonthGridHitTargets(
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
+    // Read here rather than inside the draw scope, which is not composable.
+    val today = LocalCalinoNow.current.today
     val first = month.atDay(1)
     val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
     val rows = monthGridRows(month)
@@ -1972,6 +1987,8 @@ private fun StaticMonthGrid(
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
+    // Read here rather than inside the draw scope, which is not composable.
+    val today = LocalCalinoNow.current.today
     val first = month.atDay(1)
     val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
     val rows = monthGridRows(month)
@@ -2177,7 +2194,7 @@ private fun StaticMonthGrid(
                         bottom = cellTop + cellRowHeight,
                     ) {
                     val isSelected = date == selected
-                    val isToday = date == FixtureDate
+                    val isToday = date == today
                     val dateSizePx = compactDateSizePx +
                         (detailedDateSizePx - compactDateSizePx) * detailProgress
                     val compactWeekSelectionWeight = if (compactWeekStyle) {
@@ -2373,6 +2390,8 @@ private fun MonthGrid(
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
+    // Read here rather than inside the draw scope, which is not composable.
+    val today = LocalCalinoNow.current.today
     val first = month.atDay(1)
     val start = first.minusDays((first.dayOfWeek.value - 1).toLong())
     val rows = monthGridRows(month)
@@ -2538,11 +2557,12 @@ private fun CompactMonthRow(
     modifier: Modifier,
     onDay: (LocalDate) -> Unit,
 ) {
+    val calinoToday = LocalCalinoNow.current.today
     Row(modifier) {
         repeat(7) { column ->
             val date = start.plusDays(column.toLong())
             val inMonth = YearMonth.from(date) == month
-            val today = date == FixtureDate
+            val today = date == calinoToday
             val dayEvents = events[date].orEmpty()
             val dateDescription = remember(date, dayEvents) {
                 buildString {
@@ -2669,7 +2689,7 @@ private fun DayCell(
     modifier: Modifier,
     onDay: () -> Unit,
 ) {
-    val today = date == FixtureDate
+    val today = date == LocalCalinoNow.current.today
     val compactFade = (1f - compactProgress).coerceIn(0f, 1f)
     val selectedWeight = max(compactFade.takeIf { selected } ?: 0f, compactSelectedWeight)
         .coerceIn(0f, 1f)
@@ -3261,7 +3281,7 @@ private fun DayRailPage(
         }
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             Column(Modifier.fillMaxWidth().verticalScroll(scrollState, enabled = scrollEnabled)) {
-                HourRailContent(dayEvents, onEvent)
+                HourRailContent(day, dayEvents, onEvent)
                 // The add pill floats over this rail; keep the last hours
                 // scrollable clear of it.
                 Spacer(Modifier.height(CalinoSpacing.PillClearance))
@@ -3271,7 +3291,7 @@ private fun DayRailPage(
 }
 
 @Composable
-private fun HourRailContent(dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> Unit)?) {
+private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> Unit)?) {
     Box(Modifier.fillMaxWidth().height(1488.dp)) {
         Canvas(Modifier.fillMaxSize()) {
             repeat(24) { hour ->
@@ -3331,9 +3351,20 @@ private fun HourRailContent(dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> U
                 }
             }
         }
-        Canvas(Modifier.fillMaxWidth().offset(y = (11.33f * 62).dp).height(8.dp)) {
-            drawLine(CalinoColors.Rose, androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
-            drawCircle(CalinoColors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()))
+        // The current-time marker, on today's rail only. It used to be drawn at
+        // a hard-coded 11.33 hours on every page, so every day claimed to be
+        // 11:20 and the line never moved. LocalCalinoNow re-reads on the minute.
+        val now = LocalCalinoNow.current
+        if (day == now.today) {
+            Canvas(
+                Modifier.fillMaxWidth()
+                    .offset(y = (now.hourOfDay * 62).dp)
+                    .height(8.dp)
+                    .semantics { contentDescription = "Current time, ${now.time.format(TimeFormatter)}" },
+            ) {
+                drawLine(CalinoColors.Rose, androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
+                drawCircle(CalinoColors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()))
+            }
         }
     }
 }
