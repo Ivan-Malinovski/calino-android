@@ -71,7 +71,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -112,6 +118,7 @@ import calino.malinov.ski.poc.state.SplitPaneWidthDp
 import calino.malinov.ski.poc.state.PocReturnTarget
 import calino.malinov.ski.poc.ui.components.AddPill
 import calino.malinov.ski.poc.ui.components.NavSidebar
+import calino.malinov.ski.poc.ui.components.pockRouteLabel
 import calino.malinov.ski.poc.ui.home.HomeScreen
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.surfaces.DayModalSurface
@@ -532,9 +539,21 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             }
             PockRoute.Notifications -> PockRoute.Notifications
         }
+        // The add pill is frosted glass over whatever surface is behind it, so
+        // that surface is recorded here and the pill draws a blurred copy of
+        // its own patch of it. The pill is a sibling of this stack, never a
+        // child, so nothing recurses.
+        val surfaceLayer = rememberGraphicsLayer()
+        var surfaceOrigin by remember { mutableStateOf(Offset.Zero) }
         AnimatedContent(
             targetState = rootRoute,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { surfaceOrigin = it.positionInRoot() }
+                .drawWithContent {
+                    surfaceLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(surfaceLayer)
+                },
             transitionSpec = {
                 val direction = if (targetState.rootOrder() >= initialState.rootOrder()) 1 else -1
                 (slideInHorizontally(tween(260)) { direction * it / 4 } + fadeIn(tween(180))) togetherWith
@@ -833,7 +852,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 contentAlignment = Alignment.Center,
             ) {
             AddPill(
+                backdrop = surfaceLayer,
+                backdropOrigin = { surfaceOrigin },
                 canSwipe = { direction -> pillIndex >= 0 && (pillIndex + direction) in pillRoutes.indices },
+                destinationLabel = { direction ->
+                    pillRoutes.getOrNull(pillIndex + direction)?.let(::pockRouteLabel)
+                },
                 onSwipe = { direction ->
                     pillRoutes.getOrNull(pillIndex + direction)?.let(::navigateRoot)
                 },

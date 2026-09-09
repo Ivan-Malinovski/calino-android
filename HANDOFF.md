@@ -261,6 +261,55 @@ Today button appears and targets the real date. The full
   selected weekday while swiping a whole week, previews neighboring weeks,
   and commits the selected date only when the week pager settles. The current
   emulator check committed Week 21 → Week 22 and preserved Monday selection.
+- At the compact endpoint the day rail reaches up behind the zoom handle and
+  the week strip (`CompactLaneOverlap` in `HomeScreen.kt`) instead of starting
+  below them, so hours slide under a frosted lane rather than stopping at a
+  hard edge. `CompactLaneScrim` paints that lane: opaque canvas, a subtle
+  blurred copy of the rail over it (`GraphicsLayer` + `BlurEffect`, Android 12+
+  only; below that the lane is simply opaque), and a short gradient at the
+  lower edge so content emerges instead of clipping on a line. The rail erases
+  itself inside the lane band: drawn twice, once crisp and once blurred, it
+  read as smudged text rather than as something underneath. The scrim tint
+  turns fully opaque as the month grid takes the lane, which is what keeps the
+  rail from bleeding through the grid.
+- The `AddPill` uses the same glass. `MainActivity` records the root
+  `AnimatedContent` into a `GraphicsLayer` and hands it to the pill, which
+  blurs its own patch of it and lays the ink over at 93%. The pill is a sibling
+  of that stack, never a child, so the recording cannot recurse. Its position
+  comes from `positionInRoot` on both nodes.
+- The zoom handle occupies a half-height band (`ZoomHandleHeight`, 22dp) but
+  keeps a 44dp touch lane (`ZoomHandleTouchHeight`) that overflows that band
+  evenly, so compacting the bar did not shrink what a finger has to hit.
+- The zoom handle occupies a half-height band (`ZoomHandleHeight`, 22dp) but
+  keeps a 44dp touch lane (`ZoomHandleTouchHeight`) that overflows that band
+  evenly, so compacting the bar did not shrink what a finger has to hit. It can
+  be turned off entirely -- Settings > Calendar > "Show pull bar", on by
+  default, persisted through `CalinoPreferences.showZoomHandle`. Hidden, it
+  gives its band back to the day surface.
+- The zoom drag is hosted on the calendar container (`calendarZoomGesture`),
+  not on the layers it moves. Two bugs lived in the old arrangement, and both
+  made a continuous morph behave like a switch:
+  - The week strip leaves the composition at `MonthEndpointBlendEnd`, so a drag
+    that started on it died a fifth of the way through. The container outlives
+    every layer.
+  - `positionChange()` returns zero once the gesture has consumed a change, so
+    after the first frame the drag contributed nothing and only the settling
+    fling changed a level. It reads `positionChangeIgnoreConsumed()`.
+  It watches the initial pointer pass and claims only once the drag is
+  decisively vertical, leaving taps and the pagers' horizontal swipes to the
+  children; a drag starting below the calendar band belongs to the day rail and
+  is never claimed. The strip, the grid and the handle no longer carry gestures
+  of their own. Turning the pull bar off depends on this.
+- The all-day / due-task strip is now an overlay on that lane rather than a row
+  above the rail. It still never scrolls. With neither tasks nor all-day events
+  it renders nothing at all -- the old "NO ALL-DAY EVENTS" placeholder is gone,
+  since an absent row already says it.
+- Dragging the `AddPill` reveals the destination view's name on the edge the
+  pill vacates; the chip fills in at the commit threshold, so the swipe is no
+  longer a blind commit. Route names come from `pockRouteLabel` in
+  `NavSidebar.kt`, shared with the sidebar.
+- The month heading's subtitle is the week number only; the selected date it
+  used to repeat is already shown by the grid's selection pill.
 - The idle compact endpoint is painted by the same month Canvas as the
   month-to-week morph. The week pager remains hoisted for taps and horizontal
   preview, but its separate renderer is transparent at rest; this removes the

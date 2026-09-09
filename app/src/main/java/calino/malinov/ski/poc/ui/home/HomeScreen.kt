@@ -1,27 +1,31 @@
 package calino.malinov.ski.poc.ui.home
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -42,11 +46,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -59,8 +65,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -69,27 +75,40 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.lerp as lerpColor
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,14 +118,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
@@ -114,30 +127,31 @@ import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.design.CalinoColors
-import calino.malinov.ski.poc.design.CalinoShapes
-import calino.malinov.ski.poc.state.FixtureNow
-import calino.malinov.ski.poc.state.LocalCalinoNow
-import calino.malinov.ski.poc.state.LocalTimeFormat
-import calino.malinov.ski.poc.util.CalinoTimeFormat
-import calino.malinov.ski.poc.util.DayRailSlot
-import calino.malinov.ski.poc.util.formatCalinoDuration
-import calino.malinov.ski.poc.util.layoutDayRail
 import calino.malinov.ski.poc.design.CalinoMotion
+import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
-import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
-import calino.malinov.ski.poc.ui.components.MenuButton
-import calino.malinov.ski.poc.ui.components.CalinoIcons
-import calino.malinov.ski.poc.ui.components.TaskRow
-import calino.malinov.ski.poc.ui.components.calinoPressable
-import calino.malinov.ski.poc.ui.surfaces.DayPane
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
+import calino.malinov.ski.poc.state.FixtureNow
+import calino.malinov.ski.poc.state.LocalCalinoNow
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
+import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.state.SplitPaneWidthDp
 import calino.malinov.ski.poc.state.openTasksDueOn
 import calino.malinov.ski.poc.state.shouldSplit
 import calino.malinov.ski.poc.state.tasksDueOn
+import calino.malinov.ski.poc.ui.components.CalinoIcons
+import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
+import calino.malinov.ski.poc.ui.components.MenuButton
+import calino.malinov.ski.poc.ui.components.TaskRow
+import calino.malinov.ski.poc.ui.components.calinoPressable
+import calino.malinov.ski.poc.ui.surfaces.DayPane
+import calino.malinov.ski.poc.util.CalinoTimeFormat
+import calino.malinov.ski.poc.util.DayRailSlot
+import calino.malinov.ski.poc.util.formatCalinoDuration
+import calino.malinov.ski.poc.util.layoutDayRail
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -151,9 +165,9 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 /**
  * The fixed origin for pager page arithmetic.
@@ -183,9 +197,9 @@ private const val MonthEndpointBlendStart = .10f
 private const val MonthEndpointBlendEnd = .18f
 private const val DaySurfaceBlendStart = .38f
 private const val DaySurfaceBlendEnd = .62f
+
 private val WeekdayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
 private val FullDateFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)
-private val ShortDateFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
 private val AgendaDateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
 
 /**
@@ -201,6 +215,27 @@ private object CompactWeekMetrics {
     val PillHorizontalPadding = 3.dp
     val PillRadius = 14.dp
 }
+
+/**
+ * The space the zoom handle takes between the calendar and the day surface.
+ * Its touch lane stays at [ZoomHandleTouchHeight] and overflows this band, so
+ * halving the painted bar did not halve what a finger has to hit.
+ */
+private val ZoomHandleHeight = 22.dp
+
+private val ZoomHandleTouchHeight = 44.dp
+
+/**
+ * How far the day rail reaches up behind the compact strip and the zoom
+ * handle: the whole of both, so the glass starts at the very top of the strip
+ * rather than partway down the dates. It changes only with the pull-bar
+ * setting, never during a zoom drag, so the overlap stays out of that measure
+ * pass.
+ */
+private fun compactLaneOverlap(handleHeight: Dp) = CompactWeekMetrics.Height + handleHeight
+
+/** The height over which the lane's scrim dissolves into the rail below it. */
+private val CompactLaneSoftEdge = 10.dp
 
 private data class BoundaryPagerSnapshot(
     val compactBoundaryDay: LocalDate?,
@@ -529,45 +564,6 @@ fun HomeScreen(
      * touch/slop/fling machinery. Pulling down increases zoom; pulling up
      * decreases it.
      */
-    val calendarGesture = Modifier.pointerInput(Unit) {
-        var anchor = 0
-        var velocityTracker = VelocityTracker()
-
-        detectVerticalDragGestures(
-            onDragStart = {
-                cancelMotion()
-                anchor = zoomState.floatValue.roundToInt().coerceIn(0, 2)
-                velocityTracker = VelocityTracker()
-            },
-            onVerticalDrag = { change, delta ->
-                velocityTracker.addPosition(change.uptimeMillis, change.position)
-                change.consume()
-                // The detector only starts after vertical touch-slop wins the
-                // gesture, so HorizontalPager retains horizontal swipes.
-                // Down is positive in screen coordinates and expands.
-                zoomState.floatValue = zoomAfterVerticalDrag(
-                    zoomState.floatValue,
-                    with(density) { delta.toDp().value },
-                    ZoomStepDp,
-                )
-            },
-            onDragEnd = {
-                val velocity = velocityTracker.calculateVelocity()
-                animateZoomTo(
-                    zoomSettleLevel(
-                        zoom = zoomState.floatValue,
-                        anchorLevel = anchor,
-                        // Positive y velocity means the user pulled down.
-                        zoomVelocityDpPerSecond = with(density) { velocity.y.toDp().value },
-                    ).toFloat(),
-                )
-            },
-            onDragCancel = {
-                animateZoomTo(anchor.toFloat())
-            },
-        )
-    }
-
     val splitOpenDay = if (interactionEnabled) onOpenDay ?: onDayClick else null
     // A boundary week should begin its own transition as soon as the pager
     // has selected that destination, rather than waiting for settledPage to
@@ -846,7 +842,9 @@ fun HomeScreen(
             },
         )
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val handleHeight = 44.dp
+            val showZoomHandle = LocalCalinoPreferences.current.showZoomHandle
+            val handleHeight = if (showZoomHandle) ZoomHandleHeight else 0.dp
+
             val splitGridHeight = 292.dp
             val detailedGridHeight = (maxHeight - handleHeight).coerceAtLeast(splitGridHeight)
             val daySurfaceHeight = (maxHeight - handleHeight - 80.dp).coerceAtLeast(0.dp)
@@ -864,7 +862,93 @@ fun HomeScreen(
                     }
                 }
             }
-            Box(Modifier.fillMaxSize().clipToBounds()) {
+
+            /**
+             * The zoom drag, hosted on the container rather than on the
+             * layers it moves.
+             *
+             * The week strip leaves the composition at [MonthEndpointBlendEnd],
+             * so a drag that started on it died a fifth of the way through and
+             * the rest of the travel was lost -- the zoom stopped following
+             * the finger and snapped, which is what made the gesture feel like
+             * an either/or rather than the continuous morph it is. The
+             * container outlives every layer, so one drag stays gradual from
+             * the first pixel to release.
+             *
+             * It watches the initial pointer pass and claims the gesture only
+             * once it is decisively vertical, leaving taps and the pagers'
+             * horizontal swipes to the children. A drag that begins below the
+             * calendar band belongs to the day rail and is never claimed.
+             */
+            val calendarZoomGesture = Modifier.pointerInput(handleHeight) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val bandPx = (calendarHeight.value + handleHeight).toPx()
+                    if (down.position.y > bandPx) return@awaitEachGesture
+                    var travel = Offset.Zero
+                    var owned = false
+                    var anchorLevel = 0
+                    var velocityTracker = VelocityTracker()
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) {
+                            if (owned) {
+                                val velocity = velocityTracker.calculateVelocity()
+                                animateZoomTo(
+                                    zoomSettleLevel(
+                                        zoom = zoomState.floatValue,
+                                        anchorLevel = anchorLevel,
+                                        // Positive y velocity means a downward pull.
+                                        zoomVelocityDpPerSecond = velocity.y.toDp().value,
+                                    ).toFloat(),
+                                )
+                            }
+                            break
+                        }
+                        // Ignore-consumed: once this gesture consumes a change,
+                        // `positionChange` reports zero for the rest of the
+                        // drag. Reading that, the zoom stopped following the
+                        // finger after the first frame and only the settling
+                        // fling moved it -- which is what made a continuous
+                        // morph behave like a switch.
+                        travel += change.positionChangeIgnoreConsumed()
+                        var claimed = 0f
+                        if (!owned) {
+                            if (abs(travel.y) > viewConfiguration.touchSlop * .5f &&
+                                abs(travel.y) > abs(travel.x)
+                            ) {
+                                owned = true
+                                cancelMotion()
+                                anchorLevel = zoomState.floatValue.roundToInt().coerceIn(0, 2)
+                                velocityTracker = VelocityTracker()
+                                // The travel spent deciding belongs to the same
+                                // drag; dropping it made the calendar jump in
+                                // rather than start under the finger.
+                                claimed = travel.y
+                            } else if (abs(travel.x) > viewConfiguration.touchSlop) {
+                                break
+                            }
+                        }
+                        if (owned) {
+                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                            change.consume()
+                            val delta = if (claimed != 0f) claimed else change.positionChangeIgnoreConsumed().y
+                            zoomState.floatValue = zoomAfterVerticalDrag(
+                                zoomState.floatValue,
+                                delta.toDp().value,
+                                ZoomStepDp,
+                            )
+                        }
+                    }
+                }
+            }
+            val laneOverlap = compactLaneOverlap(handleHeight)
+            Box(
+                Modifier.fillMaxSize()
+                    .clipToBounds()
+                    .then(if (interactionEnabled) calendarZoomGesture else Modifier),
+            ) {
                 // The week pager is the compact endpoint of the same
                 // selected-week geometry drawn by StaticMonthGrid. Keeping it
                 // underneath the morphing canvas lets the canvas take over
@@ -879,7 +963,7 @@ fun HomeScreen(
                         tasksByDueDate = tasksByDueDate,
                         pagerOffset = dayPagerTravel,
                         selectorIndex = compactSelectorIndex,
-                        gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
+                        gestureModifier = Modifier,
                         interactionEnabled = interactionEnabled,
                             onUserSwipeStart = {
                                 weekRollbackJob?.cancel()
@@ -930,6 +1014,18 @@ fun HomeScreen(
                 }
                 Box(
                     Modifier.fillMaxWidth()
+                        // The grid stays measured at its full height so the
+                        // zoom drag never remeasures it, but the lane it
+                        // *occupies* has to end where it is visible: the rail
+                        // now sits under this layer, and a full-height touch
+                        // box would hand every scroll on the day list to the
+                        // calendar's zoom gesture instead.
+                        .clipToBounds()
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            val visible = calendarHeight.value.roundToPx().coerceIn(0, placeable.height)
+                            layout(placeable.width, visible) { placeable.place(0, 0) }
+                        }
                         .requiredHeight(detailedGridHeight)
                         .drawWithContent {
                             val visibleHeight = calendarHeight.value.toPx().coerceIn(0f, size.height)
@@ -951,7 +1047,7 @@ fun HomeScreen(
                         compactSelectorIndex = compactSelectorIndex,
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
                         modifier = Modifier.fillMaxSize(),
-                        gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
+                        gestureModifier = Modifier,
                         // At the compact endpoint the week pager is the sole
                         // horizontal owner. Disable the month pager as soon
                         // as the visual morph reaches its handoff threshold,
@@ -972,33 +1068,49 @@ fun HomeScreen(
                     )
                 }
                 // The handle stays attached to the shared surface, so it
-                // travels with the month-to-week morph as one gesture affordance.
-                Box(
-                    Modifier.fillMaxWidth()
-                        .requiredHeight(handleHeight)
-                        .offset {
-                            IntOffset(0, with(density) { calendarHeight.value.roundToPx() })
-                        },
-                ) {
-                    ZoomHandle(
-                        zoomLevel = zoomLevel,
-                        zoomBand = zoomBand,
-                        gestureModifier = if (interactionEnabled) calendarGesture else Modifier,
-                        onTap = {
-                            val level = zoomState.floatValue.roundToInt().coerceIn(0, 2)
-                            animateZoomTo(if (level < 2) level + 1f else 1f)
-                        },
-                    )
+                // travels with the month-to-week morph as one gesture
+                // affordance. Turned off, it gives its band back to the day
+                // surface and the vertical drag on the grid remains the way to
+                // change zoom.
+                if (showZoomHandle) {
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .requiredHeight(handleHeight)
+                            .offset {
+                                IntOffset(0, with(density) { calendarHeight.value.roundToPx() })
+                            },
+                        // The bar occupies a half-height band but keeps a full
+                        // touch lane, which overflows this box evenly.
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ZoomHandle(
+                            zoomLevel = zoomLevel,
+                            zoomBand = zoomBand,
+                            gestureModifier = Modifier,
+                            onTap = {
+                                val level = zoomState.floatValue.roundToInt().coerceIn(0, 2)
+                                animateZoomTo(if (level < 2) level + 1f else 1f)
+                            },
+                        )
+                    }
                 }
 
+                // The rail runs up behind the handle and the compact strip
+                // instead of starting below them, so hours slide under a
+                // translucent lane rather than stopping at a hard edge. The
+                // overlap only changes with the pull-bar setting, so this
+                // never remeasures during a zoom drag; the lane's own scrim is
+                // what hides the rail again once the month grid owns that
+                // space.
                 Box(
                     Modifier.fillMaxWidth()
-                        .requiredHeight(daySurfaceHeight)
+                        .zIndex(-1f)
+                        .requiredHeight(daySurfaceHeight + laneOverlap)
                         .offset {
                             IntOffset(
                                 0,
                                 with(density) {
-                                    (calendarHeight.value + handleHeight).roundToPx()
+                                    (calendarHeight.value + handleHeight - laneOverlap).roundToPx()
                                 },
                             )
                         }
@@ -1012,6 +1124,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         interactionEnabled = interactionEnabled,
                         zoomState = currentZoom,
+                        laneOverlap = laneOverlap,
                         dayRailOwnsInput = dayRailOwnsInput,
                         agendaOwnsInput = agendaOwnsInputNow,
                         onEvent = onEventClick,
@@ -1174,7 +1287,9 @@ private fun MonthHeading(
     onNextMonth = onNextMonth,
     onToday = onToday,
     showToday = day != LocalCalinoNow.current.today,
-    subtitle = "Week ${day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)} · ${day.format(ShortDateFormatter)}",
+    // The grid's own selection pill already says which day is selected, so the
+    // subtitle carries only what the grid cannot show.
+    subtitle = "Week ${day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)}",
 )
 
 @Composable
@@ -3210,6 +3325,7 @@ private fun DayPagerSurface(
     modifier: Modifier,
     interactionEnabled: Boolean,
     zoomState: androidx.compose.runtime.State<Float>,
+    laneOverlap: Dp,
     dayRailOwnsInput: Boolean,
     agendaOwnsInput: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
@@ -3245,6 +3361,8 @@ private fun DayPagerSurface(
                     dayEvents = dayEvents,
                     scrollState = scrollState,
                     dayTasks = dayTasks,
+                    laneOverlap = laneOverlap,
+                    laneBlend = { (1f - zoomState.value / MonthEndpointBlendEnd).coerceIn(0f, 1f) },
                     active = dayRailOwnsInput,
                     scrollEnabled = dayRailOwnsInput,
                     onEvent = if (dayRailOwnsInput) onEvent else null,
@@ -3254,7 +3372,7 @@ private fun DayPagerSurface(
                 )
             }
             Box(
-                Modifier.fillMaxSize().drawWithContent {
+                Modifier.fillMaxSize().padding(top = laneOverlap).drawWithContent {
                     val zoom = zoomState.value
                     if (zoom > DaySurfaceBlendStart && zoom < 1.99f) {
                         val reveal = if (zoom < DaySurfaceBlendEnd) {
@@ -3407,48 +3525,155 @@ private fun DayRailPage(
     scrollState: androidx.compose.foundation.ScrollState,
     active: Boolean,
     scrollEnabled: Boolean,
+    laneOverlap: Dp,
+    laneBlend: () -> Float,
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
     onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onTaskClick: ((CalTask) -> Unit)?,
 ) {
     val interactionModifier = if (active) Modifier else Modifier.clearAndSetSemantics { }
-    Column(interactionModifier.fillMaxSize()) {
-        // This strip deliberately sits outside the scrolling rail so changing
-        // hours never makes the all-day context disappear.
+    val density = LocalDensity.current
+    // The all-day strip still never scrolls, but it is now an overlay rather
+    // than a row above the rail: the rail has to start at the very top of the
+    // lane for hours to pass under it and under the compact strip.
+    val allDayEvents = dayEvents.filter { it.allDay }
+    val hasHeader = dayTasks.isNotEmpty() || allDayEvents.isNotEmpty()
+    var measuredHeader by remember { mutableStateOf(0.dp) }
+    // A day with nothing above the hours gives the space straight back.
+    val headerHeight = if (hasHeader) measuredHeader else 0.dp
+    val railLayer = rememberGraphicsLayer()
+
+    Box(interactionModifier.fillMaxSize()) {
+        val laneHeight = laneOverlap + headerHeight
         Column(
-            Modifier.fillMaxWidth().padding(start = 52.dp, end = 20.dp, top = 5.dp, bottom = 5.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (dayTasks.isNotEmpty()) {
-                Text("TASKS DUE", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Green)
-                dayTasks.forEach { task ->
-                    CalendarTaskRow(
-                        task = task,
-                        onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
-                        onTaskRescheduleTo = onTaskRescheduleTo,
-                        onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
-                        modifier = Modifier.padding(vertical = 1.dp),
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    // Recorded so the lane above can draw a blurred copy of
+                    // exactly what is passing under it.
+                    railLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(railLayer)
+                    // The lane owns its own band: the rail stops drawing there
+                    // so what shows through the glass is only the blurred
+                    // copy. Drawn twice -- once crisp, once blurred -- it read
+                    // as smudged text instead of as something underneath.
+                    val fadeIn = CompactLaneSoftEdge.toPx()
+                    val laneBottom = laneHeight.toPx().coerceIn(0f, size.height)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0f to Color.Transparent,
+                                (laneBottom / size.height).coerceIn(0f, 1f) to Color.Transparent,
+                                ((laneBottom + fadeIn) / size.height).coerceIn(0f, 1f) to Color.Black,
+                            ),
+                        ),
+                        blendMode = BlendMode.DstIn,
                     )
                 }
-            }
-            if (dayEvents.any { it.allDay }) {
-                dayEvents.filter { it.allDay }.take(2).forEach { event ->
+                .verticalScroll(scrollState, enabled = scrollEnabled),
+        ) {
+            // At rest the hours sit where they always did; this is the space
+            // the lane and the all-day strip occupy above them.
+            Spacer(Modifier.height(laneOverlap + headerHeight))
+            HourRailContent(day, dayEvents, onEvent)
+            // The add pill floats over this rail; keep the last hours
+            // scrollable clear of it.
+            Spacer(Modifier.height(CalinoSpacing.PillClearance))
+        }
+
+        CompactLaneScrim(
+            source = railLayer,
+            blend = laneBlend,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(laneHeight + CompactLaneSoftEdge)
+                .align(Alignment.TopCenter),
+        )
+
+        if (hasHeader) {
+            Column(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .offset(y = laneOverlap)
+                    .onSizeChanged { size ->
+                        measuredHeader = with(density) { size.height.toDp() }
+                    }
+                    .padding(start = 52.dp, end = 20.dp, top = 5.dp, bottom = 5.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (dayTasks.isNotEmpty()) {
+                    Text("TASKS DUE", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Green)
+                    dayTasks.forEach { task ->
+                        CalendarTaskRow(
+                            task = task,
+                            onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                            onTaskRescheduleTo = onTaskRescheduleTo,
+                            onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
+                            modifier = Modifier.padding(vertical = 1.dp),
+                        )
+                    }
+                }
+                allDayEvents.take(2).forEach { event ->
                     EventChip(event, minHeight = 40.dp, onClick = onEvent?.let { callback -> { callback(event) } }, agendaStyle = true)
                 }
-            } else {
-                Text("NO ALL-DAY EVENTS", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Ink3)
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-            Column(Modifier.fillMaxWidth().verticalScroll(scrollState, enabled = scrollEnabled)) {
-                HourRailContent(day, dayEvents, onEvent)
-                // The add pill floats over this rail; keep the last hours
-                // scrollable clear of it.
-                Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
         }
     }
+}
+
+/**
+ * The frosted lane the compact strip, the zoom handle, and the all-day strip
+ * sit on. It is deliberately not a bar: it is mildly transparent over a blurred
+ * copy of the rail, and its lower edge dissolves rather than ending on a line,
+ * so hours read as passing underneath.
+ *
+ * [blend] is 1 at the compact endpoint and 0 once the month grid owns the
+ * space, where the lane turns fully opaque again so the rail behind it cannot
+ * bleed through the grid.
+ */
+@Composable
+private fun CompactLaneScrim(
+    source: GraphicsLayer,
+    blend: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    val blurred = rememberGraphicsLayer()
+    // RenderEffect is Android 12+. Below it, the tint and the dissolving edge
+    // carry the effect on their own.
+    val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    Box(
+        modifier
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawBehind {
+                val laneBlend = blend().coerceIn(0f, 1f)
+                if (canBlur && laneBlend > 0f) {
+                    // The rail has erased itself here, so this copy is the
+                    // only thing showing through the glass.
+                    blurred.renderEffect = BlurEffect(26f, 26f, TileMode.Clamp)
+                    blurred.record { drawLayer(source) }
+                    drawLayer(blurred)
+                    // The tint mutes it to a suggestion of what is underneath
+                    // and keeps the strip on top legible. It goes fully opaque
+                    // as the month grid takes the lane.
+                    drawRect(CalinoColors.Canvas.copy(alpha = lerp(1f, .74f, laneBlend)))
+                } else {
+                    drawRect(CalinoColors.Canvas)
+                }
+                val softEdge = CompactLaneSoftEdge.toPx().coerceAtMost(size.height)
+                val fadeStart = ((size.height - softEdge) / size.height).coerceIn(0f, 1f)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black,
+                        fadeStart to Color.Black,
+                        1f to Color.Transparent,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
+    )
 }
 
 @Composable
@@ -3553,7 +3778,7 @@ private fun ZoomHandle(
     onTap: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().height(44.dp).then(gestureModifier)
+        Modifier.fillMaxWidth().requiredHeight(ZoomHandleTouchHeight).then(gestureModifier)
             .clickable(onClick = onTap)
             .semantics(mergeDescendants = true) { contentDescription = "Change calendar zoom, level ${zoomLevel + 1} of 3" }
             .padding(horizontal = 20.dp),

@@ -82,14 +82,14 @@ fun NavSidebar(
     // The calendar views come first as a group; the rule separates them from
     // the other surfaces.
     val calendarItems = listOf(
-        NavItem("Month", PockRoute.Day, CalinoIcons.Calendar),
-        NavItem("Agenda", PockRoute.Agenda, CalinoIcons.AgendaList),
-        NavItem("Calendars", PockRoute.Accounts, CalinoIcons.Repeat),
+        NavItem(pockRouteLabel(PockRoute.Day), PockRoute.Day, CalinoIcons.Calendar),
+        NavItem(pockRouteLabel(PockRoute.Agenda), PockRoute.Agenda, CalinoIcons.AgendaList),
+        NavItem(pockRouteLabel(PockRoute.Accounts), PockRoute.Accounts, CalinoIcons.Repeat),
     )
     val items = listOf(
-        NavItem("Tasks", PockRoute.Tasks, CalinoIcons.ListChecks),
-        NavItem("Journal", PockRoute.Journal, CalinoIcons.BookOpen),
-        NavItem("Settings", PockRoute.Settings, CalinoIcons.Settings),
+        NavItem(pockRouteLabel(PockRoute.Tasks), PockRoute.Tasks, CalinoIcons.ListChecks),
+        NavItem(pockRouteLabel(PockRoute.Journal), PockRoute.Journal, CalinoIcons.BookOpen),
+        NavItem(pockRouteLabel(PockRoute.Settings), PockRoute.Settings, CalinoIcons.Settings),
     )
 
     var dragX by remember { mutableFloatStateOf(0f) }
@@ -197,6 +197,24 @@ fun NavSidebar(
             }
         }
     }
+}
+
+/**
+ * The name a route goes by in the UI. The sidebar and the add pill's swipe
+ * preview both point at the same views, so they read from one list rather than
+ * drifting apart.
+ */
+fun pockRouteLabel(route: PockRoute): String = when (route) {
+    PockRoute.Day -> "Month"
+    PockRoute.Agenda -> "Agenda"
+    PockRoute.Accounts -> "Calendars"
+    PockRoute.Tasks -> "Tasks"
+    PockRoute.Journal -> "Journal"
+    PockRoute.Settings -> "Settings"
+    PockRoute.Detail -> "Event"
+    PockRoute.TaskDetail -> "Task"
+    PockRoute.QuickAdd -> "Quick add"
+    PockRoute.Notifications -> "Notifications"
 }
 
 private data class NavItem(

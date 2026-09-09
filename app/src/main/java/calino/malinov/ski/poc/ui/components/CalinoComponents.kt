@@ -1,18 +1,19 @@
 package calino.malinov.ski.poc.ui.components
 
+import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
@@ -30,8 +31,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -40,17 +41,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,14 +65,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -78,14 +90,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.platform.LocalDensity
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.design.CalinoColors
@@ -93,9 +104,9 @@ import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
+import calino.malinov.ski.poc.state.LocalTimeFormat
 import java.time.LocalDate
 import java.time.YearMonth
-import calino.malinov.ski.poc.state.LocalTimeFormat
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -1053,23 +1064,37 @@ fun SectionLabel(text: String, count: Int? = null, modifier: Modifier = Modifier
 
 /**
  * The floating add affordance. A horizontal drag on the pill moves between the
- * three main views, so the destination can be changed without opening the
- * sidebar; [canSwipe] lets the host refuse a direction at the ends of the row,
- * where the pill springs back instead of committing.
+ * main views, so the destination can be changed without opening the sidebar;
+ * [canSwipe] lets the host refuse a direction at the ends of the row, where the
+ * pill springs back instead of committing.
+ *
+ * The drag used to be a blind commit: nothing said where releasing would land
+ * until it already had. [destinationLabel] names the view a direction leads to
+ * and a chip carrying that name is revealed from under the pill as it travels,
+ * filling in once the drag is past the commit threshold.
  */
 @Composable
 fun AddPill(
     label: String,
     modifier: Modifier = Modifier,
+    backdrop: GraphicsLayer? = null,
+    backdropOrigin: () -> Offset = { Offset.Zero },
     canSwipe: (Int) -> Boolean = { false },
+    destinationLabel: (Int) -> String? = { null },
     onSwipe: (Int) -> Unit = {},
     onClick: () -> Unit,
 ) {
     var dragX by remember { mutableFloatStateOf(0f) }
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentCanSwipe by rememberUpdatedState(canSwipe)
+    val currentDestinationLabel by rememberUpdatedState(destinationLabel)
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    // Frosted glass over the surface behind it: a blurred patch of the
+    // recorded backdrop, then the ink at just under full opacity.
+    val blurred = rememberGraphicsLayer()
+    val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    var pillOrigin by remember { mutableStateOf(Offset.Zero) }
     val commitPx = with(density) { 56.dp.toPx() }
     // A refused direction still moves, but only enough to read as a limit.
     val maxTravelPx = with(density) { 88.dp.toPx() }
@@ -1081,43 +1106,134 @@ fun AddPill(
         }
     }
 
+    // A drag left moves forward through the views, matching the direction the
+    // root content slides in.
+    val dragDirection = if (dragX < 0f) 1 else -1
+    val destination = if (dragX != 0f && currentCanSwipe(dragDirection)) currentDestinationLabel(dragDirection) else null
+    val progress = (abs(dragX) / commitPx).coerceIn(0f, 1f)
+
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (destination != null) {
+            // The chip sits on the edge the pill is vacating and trails it, so
+            // it reads as something uncovered rather than a second floating
+            // control. Unbounded so revealing it never resizes the lane.
+            SwipeDestinationChip(
+                label = destination,
+                direction = dragDirection,
+                progress = progress,
+                modifier = Modifier
+                    .align(if (dragDirection == 1) Alignment.CenterEnd else Alignment.CenterStart)
+                    .wrapContentSize(unbounded = true)
+                    // It slides out as the pill retreats, so the reveal reads
+                    // as twice the travel and the name is legible early.
+                    .offset { IntOffset((-dragX * .3f).roundToInt(), 0) },
+            )
+        }
+        Row(
+            Modifier
+                .offset { IntOffset(dragX.roundToInt(), 0) }
+                .shadow(14.dp, RoundedCornerShape(CalinoShapes.Pill), clip = false)
+                .clip(RoundedCornerShape(CalinoShapes.Pill))
+                .onGloballyPositioned { pillOrigin = it.positionInRoot() }
+                .drawBehind {
+                    if (backdrop != null && canBlur) {
+                        blurred.renderEffect = BlurEffect(24f, 24f, TileMode.Clamp)
+                        val offset = pillOrigin - backdropOrigin()
+                        blurred.record {
+                            translate(-offset.x, -offset.y) { drawLayer(backdrop) }
+                        }
+                        drawLayer(blurred)
+                        drawRect(CalinoColors.Ink.copy(alpha = .86f))
+                    } else {
+                        drawRect(CalinoColors.Ink)
+                    }
+                }
+                .calinoPressable(pressedScale = .97f, onClick = onClick)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
+                            if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
+                            settle()
+                        },
+                        onDragCancel = { settle() },
+                    ) { change, amount ->
+                        change.consume()
+                        val next = dragX + amount
+                        val direction = if (next < 0f) 1 else -1
+                        val limit = if (currentCanSwipe(direction)) maxTravelPx else edgeTravelPx
+                        dragX = next.coerceIn(-limit, limit)
+                    }
+                }
+                .semantics(mergeDescendants = true) { contentDescription = label }
+                .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Canvas, modifier = Modifier.size(19.dp), contentDescription = null)
+            AnimatedContent(
+                targetState = label,
+                transitionSpec = { fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith fadeOut(tween(CalinoMotion.FadeThroughMillis)) },
+                label = "add pill label",
+            ) { text ->
+                Text(text, color = CalinoColors.Canvas, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/**
+ * The destination preview revealed by an [AddPill] drag. Below the commit
+ * threshold it stays outlined and muted; at the threshold it fills in, which is
+ * the only cue that says "release now and you land here".
+ */
+@Composable
+private fun SwipeDestinationChip(
+    label: String,
+    direction: Int,
+    progress: Float,
+    modifier: Modifier = Modifier,
+) {
+    val committed = progress >= 1f
+    // Reaching the threshold used to flip the chip to solid ink, which read as
+    // a different control appearing rather than the same one arming. It warms
+    // to the accent instead, and animates rather than snapping.
+    val background by animateColorAsState(
+        if (committed) CalinoColors.Accent.copy(alpha = .16f) else CalinoColors.Panel,
+        tween(CalinoMotion.FadeThroughMillis),
+        label = "swipe destination fill",
+    )
+    val foreground by animateColorAsState(
+        if (committed) CalinoColors.Accent else CalinoColors.Ink2,
+        tween(CalinoMotion.FadeThroughMillis),
+        label = "swipe destination tint",
+    )
+    val outline by animateColorAsState(
+        CalinoColors.Accent.copy(alpha = if (committed) .38f else 0f),
+        tween(CalinoMotion.FadeThroughMillis),
+        label = "swipe destination outline",
+    )
+    val scale = .94f + .06f * progress
     Row(
         modifier
-            .offset { IntOffset(dragX.roundToInt(), 0) }
-            .shadow(14.dp, RoundedCornerShape(CalinoShapes.Pill), clip = false)
-            .clip(RoundedCornerShape(CalinoShapes.Pill))
-            .background(CalinoColors.Ink)
-            .calinoPressable(pressedScale = .97f, onClick = onClick)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = {
-                        // A drag left moves forward through the views, matching
-                        // the direction the root content slides in.
-                        val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
-                        if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
-                        settle()
-                    },
-                    onDragCancel = { settle() },
-                ) { change, amount ->
-                    change.consume()
-                    val next = dragX + amount
-                    val direction = if (next < 0f) 1 else -1
-                    val limit = if (currentCanSwipe(direction)) maxTravelPx else edgeTravelPx
-                    dragX = next.coerceIn(-limit, limit)
-                }
+            .graphicsLayer {
+                alpha = progress
+                scaleX = scale
+                scaleY = scale
             }
-            .semantics(mergeDescendants = true) { contentDescription = label }
-            .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
+            .clip(RoundedCornerShape(CalinoShapes.Pill))
+            .background(background)
+            .border(1.dp, if (committed) outline else CalinoColors.Ink.copy(alpha = .12f), RoundedCornerShape(CalinoShapes.Pill))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Canvas, modifier = Modifier.size(19.dp), contentDescription = null)
-        AnimatedContent(
-            targetState = label,
-            transitionSpec = { fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith fadeOut(tween(CalinoMotion.FadeThroughMillis)) },
-            label = "add pill label",
-        ) { text ->
-            Text(text, color = CalinoColors.Canvas, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (direction == -1) {
+            CalinoIcon(CalinoIcon.Back, tint = foreground, modifier = Modifier.size(15.dp), contentDescription = null)
+        }
+        Text(label, color = foreground, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        if (direction == 1) {
+            CalinoIcon(CalinoIcon.Forward, tint = foreground, modifier = Modifier.size(15.dp), contentDescription = null)
         }
     }
 }
@@ -1290,6 +1406,10 @@ private fun PreviewComponents() {
         EventDots(listOf(CalinoColors.Rose, CalinoColors.Blue, CalinoColors.Green))
         AgendaRow("Design review", CalinoColors.Blue, "10:00 AM", "Studio", variant = AgendaRowVariant.Card)
         SegmentedControl(listOf("Open", "Scheduled", "Done"), selected, { selected = it })
-        AddPill("Add on Tuesday, May 19") {}
+        AddPill(
+            label = "Add on Tuesday, May 19",
+            canSwipe = { true },
+            destinationLabel = { direction -> if (direction == 1) "Agenda" else "Month" },
+        ) {}
     }
 }

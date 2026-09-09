@@ -21,6 +21,13 @@ import calino.malinov.ski.poc.util.CalinoTimeFormat
 data class CalinoPreferences(
     val timeFormat: CalinoTimeFormat = CalinoTimeFormat.Default,
     val setTimeFormat: (CalinoTimeFormat) -> Unit = {},
+    /**
+     * Whether the calendar shows the pull bar between the grid and the day
+     * surface. On by default: it is the discoverable way to change zoom, and
+     * turning it off leaves the vertical drag on the grid itself.
+     */
+    val showZoomHandle: Boolean = true,
+    val setShowZoomHandle: (Boolean) -> Unit = {},
 )
 
 val LocalCalinoPreferences = staticCompositionLocalOf { CalinoPreferences() }
@@ -36,11 +43,16 @@ val LocalTimeFormat: CalinoTimeFormat
 interface CalinoPreferenceStore {
     fun loadTimeFormat(): CalinoTimeFormat
     fun saveTimeFormat(format: CalinoTimeFormat)
+    fun loadShowZoomHandle(): Boolean
+    fun saveShowZoomHandle(show: Boolean)
 
     object InMemory : CalinoPreferenceStore {
         private var value = CalinoTimeFormat.Default
+        private var zoomHandle = true
         override fun loadTimeFormat() = value
         override fun saveTimeFormat(format: CalinoTimeFormat) { value = format }
+        override fun loadShowZoomHandle() = zoomHandle
+        override fun saveShowZoomHandle(show: Boolean) { zoomHandle = show }
     }
 }
 
@@ -56,7 +68,16 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         prefs.edit().putString(TimeFormatKey, format.name).apply()
     }
 
-    private companion object { const val TimeFormatKey = "time_format" }
+    override fun loadShowZoomHandle(): Boolean = prefs.getBoolean(ShowZoomHandleKey, true)
+
+    override fun saveShowZoomHandle(show: Boolean) {
+        prefs.edit().putBoolean(ShowZoomHandleKey, show).apply()
+    }
+
+    private companion object {
+        const val TimeFormatKey = "time_format"
+        const val ShowZoomHandleKey = "show_zoom_handle"
+    }
 }
 
 /**
@@ -68,11 +89,19 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
     var timeFormat by androidx.compose.runtime.remember(store) {
         mutableStateOf(store.loadTimeFormat())
     }
+    var showZoomHandle by androidx.compose.runtime.remember(store) {
+        mutableStateOf(store.loadShowZoomHandle())
+    }
     return CalinoPreferences(
         timeFormat = timeFormat,
         setTimeFormat = { format ->
             timeFormat = format
             store.saveTimeFormat(format)
+        },
+        showZoomHandle = showZoomHandle,
+        setShowZoomHandle = { show ->
+            showZoomHandle = show
+            store.saveShowZoomHandle(show)
         },
     )
 }

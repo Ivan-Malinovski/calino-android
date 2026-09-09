@@ -392,6 +392,15 @@ private fun CalendarSettings() {
         SettingsGroup("Display") {
             SettingRow("Default view", "The view Calino opens first", controlLayout = SettingRowControlLayout.AdaptiveSegmented) { SettingSegmented("Default view", listOf("Month", "Week", "Day"), 0) }
             SettingToggleRow("Show week numbers", "Add ISO week numbers to the grid", weekNumbers) { weekNumbers = it }
+            // Wired through, unlike its neighbours: this one changes the
+            // calendar itself. With the bar hidden, a vertical drag on the
+            // grid still changes zoom.
+            val preferences = LocalCalinoPreferences.current
+            SettingToggleRow(
+                "Show pull bar",
+                "The zoom bar between the calendar and the day",
+                preferences.showZoomHandle,
+            ) { preferences.setShowZoomHandle(it) }
             SettingRow("Event density", "How much detail to show in a month", controlLayout = SettingRowControlLayout.AdaptiveSegmented) { SettingSegmented("Event density", listOf("Quiet", "Balanced", "Dense"), 1) }
         }
         SettingsGroup("Grid behaviour") {
