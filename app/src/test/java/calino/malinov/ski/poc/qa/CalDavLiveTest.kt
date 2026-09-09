@@ -5,6 +5,7 @@ import calino.malinov.ski.poc.data.caldav.CalDavFetcher
 import calino.malinov.ski.poc.data.caldav.DavCredentials
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -72,8 +73,7 @@ class CalDavLiveTest {
         println(
             "LIVE: ${account.calendars.size} calendars, " +
                 "${events.size} events, ${tasks.size} tasks, ${journals.size} journals, " +
-                "componentFailures=${results.any { it.hadComponentFailures }}, " +
-                "expandUnsupported=${results.any { it.expandUnsupported }}",
+                "componentFailures=${results.any { it.hadComponentFailures }}",
         )
         account.calendars.forEach { println("LIVE:   ${it.displayName} components=${it.components} url=${it.url}") }
 
@@ -83,9 +83,29 @@ class CalDavLiveTest {
         )
         assertTrue("no calendar returned anything", results.any { !it.isEmpty })
         assertTrue("no events were read", events.isNotEmpty())
-        // Not asserted: expandUnsupported. A server may legitimately refuse to
-        // expand, and the fallback still returns the events -- which is the
-        // property that matters here.
+
+        // Recurrence is expanded on the client, so a repeating series must
+        // reach more than one date. This is the assertion that would have
+        // caught the sabre expand failure: the server 500s on <c:expand> for
+        // two of this account's three calendars.
+        // Keyed by calendar too: the same UID legitimately appears in two
+        // collections when an event has been copied between them.
+        val bySeries = events.filter { it.uid != null }.groupBy { it.calendarId to it.uid }
+        val repeating = bySeries.values.filter { it.size > 1 }
+        assertTrue(
+            "no series reached more than one date; recurrence is not being expanded",
+            repeating.isNotEmpty(),
+        )
+        repeating.forEach { occurrences ->
+            assertEquals(
+                "occurrences of one series must be individually addressable: " +
+                    occurrences.first().title,
+                occurrences.size,
+                occurrences.map { it.id }.distinct().size,
+            )
+        }
+        println("LIVE: ${repeating.size} repeating series, largest ${repeating.maxOf { it.size }} occurrences")
+
         results.flatMap { it.events }.forEach { event ->
             assertTrue("every event needs a title", event.title.isNotBlank())
             assertTrue("every fetched event needs a UID", event.uid != null)

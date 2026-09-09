@@ -177,7 +177,7 @@ class CalDavRepositoryTest {
     }
 
     @Test
-    fun `an expand-ignoring server marks the result partial`() = runBlocking {
+    fun `a server that will not expand is no longer a partial result`() = runBlocking {
         val repository = repository()
         serveAll(events = multiStatus(
             """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
@@ -199,11 +199,13 @@ END:VCALENDAR
 
         val sync = repository.snapshot().sync
         assertTrue(sync is SyncState.Ready)
-        assertTrue("an unexpanded series is an incomplete answer", (sync as SyncState.Ready).partial)
-        assertTrue(
-            "the warning must name what is missing: ${sync.warnings}",
-            sync.warnings.any { it.contains("repeating", ignoreCase = true) },
-        )
+        // The app expands recurrence itself now, so a master with its RRULE
+        // intact is the expected reply rather than a gap in the answer.
+        assertFalse("nothing is missing; the client expands", (sync as SyncState.Ready).partial)
+        assertTrue("no warning is warranted: ${sync.warnings}", sync.warnings.isEmpty())
+        val events = repository.snapshot().events
+        assertTrue("the weekly series must reach many dates", events.size > 20)
+        assertEquals(1, events.mapNotNull { it.uid }.distinct().size)
     }
 
     // --- what the snapshot contains -------------------------------------------

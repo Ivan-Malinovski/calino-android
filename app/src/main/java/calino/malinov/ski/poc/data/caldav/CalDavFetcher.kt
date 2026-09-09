@@ -23,8 +23,6 @@ data class FetchResult(
      * about what the server no longer holds.
      */
     val failures: List<ComponentFailure> = emptyList(),
-    /** True when the server returned VEVENTs that still carry an RRULE. */
-    val expandUnsupported: Boolean = false,
 ) {
     val isEmpty: Boolean get() = events.isEmpty() && tasks.isEmpty() && journals.isEmpty()
     val hadComponentFailures: Boolean get() = failures.isNotEmpty()
@@ -92,18 +90,19 @@ class CalDavFetcher(
             tasks = succeeded.flatMap { it.tasks },
             journals = succeeded.flatMap { it.journals },
             failures = failures,
-            expandUnsupported = succeeded.any { it.expandUnsupported },
         )
     }
 
     /**
-     * Events over the requested window, asking the server to expand recurrence.
+     * Events over the requested window.
      *
-     * `<c:expand>` makes the server materialise each occurrence, so the app
-     * needs no RRULE engine. The result is verified rather than trusted: a
-     * server that ignores the element returns the master with its RRULE intact,
-     * which would render a weekly series as a single event. That case is
-     * reported, not silently displayed.
+     * The query deliberately does not ask for `<c:expand>`. Server-side
+     * expansion is not dependable -- sabre (Baikal) returns HTTP 500 for any
+     * collection whose `calendar-timezone` holds a bare zone id rather than a
+     * VCALENDAR, and other servers ignore the element and return the master
+     * with its RRULE intact. Both failures render a repeating event on its
+     * first date only. `ICalMapper` expands instead, identically everywhere,
+     * which is why the window is handed to it here.
      */
     private suspend fun fetchEvents(
         calendar: DiscoveredCalendar,
@@ -113,24 +112,9 @@ class CalDavFetcher(
     ): FetchResult {
         val start = windowStart.atStartOfDay().toInstant(ZoneOffset.UTC).format()
         val end = windowEnd.atStartOfDay().toInstant(ZoneOffset.UTC).format()
+        // The time-range filter selects resources whose series overlaps the
+        // window; the master it returns still carries the whole rule.
         val body = """<?xml version="1.0" encoding="UTF-8"?>
-<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-  <d:prop>
-    <d:getetag/>
-    <c:calendar-data><c:expand start="$start" end="$end"/></c:calendar-data>
-  </d:prop>
-  <c:filter>
-    <c:comp-filter name="VCALENDAR">
-      <c:comp-filter name="VEVENT"><c:time-range start="$start" end="$end"/></c:comp-filter>
-    </c:comp-filter>
-  </c:filter>
-</c:calendar-query>"""
-        return runCatching { report(calendar, credentials, body) }.getOrElse { expandError ->
-            // Some servers reject <c:expand> outright. Falling back to an
-            // unexpanded query means recurring events arrive as their master
-            // only -- which the expandUnsupported flag then reports -- but that
-            // is far better than the alternative of showing no events at all.
-            val plain = """<?xml version="1.0" encoding="UTF-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop><d:getetag/><c:calendar-data/></d:prop>
   <c:filter>
@@ -139,20 +123,16 @@ class CalDavFetcher(
     </c:comp-filter>
   </c:filter>
 </c:calendar-query>"""
-            runCatching { report(calendar, credentials, plain) }
-                .getOrElse { throw expandError }
-                .copy(expandUnsupported = true)
-        }
+        return report(calendar, credentials, body, windowStart, windowEnd)
     }
 
     /**
      * Tasks, unbounded and unexpanded.
      *
      * No time-range filter: a VTODO may carry no DTSTART or DUE at all, and a
-     * time-ranged query drops exactly those. No expand either -- this server
-     * ignores it for VTODO, and the task model has no recurrence field to hold
-     * expanded instances in any case, so a recurring task shows once at its
-     * due date.
+     * time-ranged query drops exactly those. Not expanded either: the task
+     * model has no recurrence field to hold expanded instances, so a recurring
+     * task shows once at its due date.
      */
     private suspend fun fetchTasks(calendar: DiscoveredCalendar, credentials: DavCredentials): FetchResult =
         report(calendar, credentials, componentQuery(Vtodo))
@@ -172,6 +152,8 @@ class CalDavFetcher(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
         body: String,
+        windowStart: LocalDate = LocalDate.MIN,
+        windowEnd: LocalDate = LocalDate.MAX,
     ): FetchResult {
         val response = http.request(
             method = "REPORT",
@@ -183,14 +165,18 @@ class CalDavFetcher(
         if (!response.isMultiStatus) throw calDavErrorForStatus(response.status, calendar.url)
         val root = DavXml.parse(response.body)
             ?: throw CalDavException(CalDavErrorCode.NotCalDav, "The server's reply could not be read.")
-        return parseMultiStatus(root, calendar)
+        return parseMultiStatus(root, calendar, windowStart, windowEnd)
     }
 
-    private fun parseMultiStatus(root: Element, calendar: DiscoveredCalendar): FetchResult {
+    private fun parseMultiStatus(
+        root: Element,
+        calendar: DiscoveredCalendar,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): FetchResult {
         val events = mutableListOf<CalEvent>()
         val tasks = mutableListOf<CalTask>()
         val journals = mutableListOf<JournalEntry>()
-        var unexpanded = false
 
         DavXml.elements(root, DavNs.Dav, "response").forEach { entry ->
             val href = DavXml.text(entry, DavNs.Dav, "href")?.let { resolveHref(calendar.url, it) }
@@ -203,13 +189,14 @@ class CalDavFetcher(
                 color = calendar.color,
                 href = href,
                 etag = etag,
+                windowStart = windowStart,
+                windowEnd = windowEnd,
             )
             events += parsed.events
             tasks += parsed.tasks
             journals += parsed.journals
-            if (parsed.sawUnexpandedRecurrence) unexpanded = true
         }
-        return FetchResult(events, tasks, journals, expandUnsupported = unexpanded)
+        return FetchResult(events, tasks, journals)
     }
 
     private companion object {

@@ -6,6 +6,8 @@ import biweekly.component.VEvent
 import biweekly.component.VJournal
 import biweekly.component.VTodo
 import biweekly.property.DateOrDateTimeProperty
+import biweekly.property.ExceptionDates
+import biweekly.property.ICalProperty
 import calino.malinov.ski.poc.data.model.Attendee
 import calino.malinov.ski.poc.data.model.Availability
 import calino.malinov.ski.poc.data.model.CalEvent
@@ -17,6 +19,8 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import java.util.Date
+import java.util.TimeZone
 
 /**
  * Turns iCalendar text from a CalDAV response into the app's models.
@@ -30,29 +34,34 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val events: List<CalEvent> = emptyList(),
         val tasks: List<CalTask> = emptyList(),
         val journals: List<JournalEntry> = emptyList(),
-        /** True when a VEVENT still carried an RRULE, i.e. expand was ignored. */
-        val sawUnexpandedRecurrence: Boolean = false,
     )
 
+    /**
+     * @param windowStart first day the caller wants occurrences for.
+     * @param windowEnd last day, inclusive.
+     *
+     * The window is not decoration. A rule like `FREQ=DAILY` with no `UNTIL`
+     * or `COUNT` is infinite, so expansion has to be bounded by something the
+     * caller chooses.
+     */
     fun parse(
         icalText: String,
         calendarId: String,
         color: Long,
         href: String,
         etag: String? = null,
+        windowStart: LocalDate = LocalDate.MIN,
+        windowEnd: LocalDate = LocalDate.MAX,
     ): Parsed {
         val calendars = parseCalendars(icalText) ?: return Parsed()
         val events = mutableListOf<CalEvent>()
         val tasks = mutableListOf<CalTask>()
         val journals = mutableListOf<JournalEntry>()
-        var unexpanded = false
 
         calendars.forEach { calendar ->
-            calendar.events.forEach { vevent ->
-                if (vevent.recurrenceRule != null) unexpanded = true
-                runCatching { mapEvent(vevent, calendarId, color, href, etag) }
-                    .getOrNull()?.let(events::add)
-            }
+            events += runCatching {
+                mapEvents(calendar, calendarId, color, href, etag, windowStart, windowEnd)
+            }.getOrDefault(emptyList())
             calendar.todos.forEach { vtodo ->
                 runCatching { mapTask(vtodo, color, href) }.getOrNull()?.let(tasks::add)
             }
@@ -60,7 +69,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 runCatching { mapJournal(vjournal, href) }.getOrNull()?.let(journals::add)
             }
         }
-        return Parsed(events, tasks, journals, unexpanded)
+        return Parsed(events, tasks, journals)
     }
 
     /**
@@ -78,6 +87,180 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
     // --- VEVENT ---------------------------------------------------------------
 
+    /**
+     * Expands every VEVENT series in one calendar object.
+     *
+     * Recurrence is expanded here rather than by the server. `<c:expand>` is not
+     * dependable: sabre (Baikal) throws a 500 while expanding any collection
+     * whose `calendar-timezone` property holds a bare zone id instead of a
+     * VCALENDAR, and other servers ignore the element entirely. Expanding on
+     * the client is the same work on every server.
+     *
+     * Grouping by UID is what makes overrides possible: one `.ics` resource
+     * carries the master VEVENT and its `RECURRENCE-ID` detached instances
+     * together, and neither can be interpreted without the other.
+     */
+    private fun mapEvents(
+        calendar: ICalendar,
+        calendarId: String,
+        color: Long,
+        href: String,
+        etag: String?,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): List<CalEvent> {
+        val out = mutableListOf<CalEvent>()
+        calendar.events
+            .filter { it.uid?.value != null && it.dateStart != null }
+            .groupBy { it.uid.value }
+            .forEach { (_, group) ->
+                val master = group.firstOrNull { it.recurrenceId == null }
+                val overrides = group.filter { it.recurrenceId != null }
+
+                // An override wins over everything, including an EXDATE naming
+                // the same instant (RFC 5545 3.8.5.1): moving an occurrence and
+                // cancelling it are different acts, and the move is the later
+                // statement of intent.
+                overrides.forEach { override ->
+                    runCatching { mapEvent(override, calendarId, color, href, etag) }
+                        .getOrNull()
+                        ?.takeIf { it.withinWindow(windowStart, windowEnd) }
+                        ?.let(out::add)
+                }
+
+                if (master == null) return@forEach
+                if (master.recurrenceRule == null && master.recurrenceDates.isEmpty()) {
+                    runCatching { mapEvent(master, calendarId, color, href, etag) }
+                        .getOrNull()?.let(out::add)
+                    return@forEach
+                }
+                out += runCatching {
+                    expandSeries(
+                        calendar, master, overrides, calendarId, color, href, etag,
+                        windowStart, windowEnd,
+                    )
+                }.getOrDefault(emptyList())
+            }
+        return out
+    }
+
+    private fun expandSeries(
+        calendar: ICalendar,
+        master: VEvent,
+        overrides: List<VEvent>,
+        calendarId: String,
+        color: Long,
+        href: String,
+        etag: String?,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): List<CalEvent> {
+        val base = mapEvent(master, calendarId, color, href, etag) ?: return emptyList()
+        val timeZone = timeZoneFor(calendar, master.dateStart)
+        val iterationZone = timeZone.toZoneId()
+
+        // EXDATEs are lifted off the component and applied below instead of by
+        // the iterator, so that an EXDATE which matches no instance exactly can
+        // still be honoured. See applyExceptions.
+        val exceptions = master.getProperties(ExceptionDates::class.java)
+            .flatMap { it.values.orEmpty() }
+            .mapNotNull { runCatching { it.toInstant() }.getOrNull() }
+        master.removeProperties(ExceptionDates::class.java)
+
+        val from = windowStart.atStartOfDay(iterationZone).toInstant()
+        val until = windowEnd.plusDays(1).atStartOfDay(iterationZone).toInstant()
+
+        val instants = mutableListOf<Instant>()
+        val iterator = master.getDateIterator(timeZone)
+        // advanceTo skips a long-running series forward without materialising
+        // the years before the window.
+        iterator.advanceTo(Date.from(from))
+        while (iterator.hasNext() && instants.size < MaxOccurrencesPerSeries) {
+            val instant = iterator.next().toInstant()
+            if (instant >= until) break
+            instants += instant
+        }
+
+        val overrideInstants = overrides
+            .mapNotNull { runCatching { it.recurrenceId?.value?.toInstant() }.getOrNull() }
+            .toSet()
+
+        val seriesStart = master.dateStart.value.toInstant()
+        return applyExceptions(instants, exceptions, iterationZone, from, until)
+            .asSequence()
+            .filterNot { it in overrideInstants }
+            .map { instant -> base.occurrenceAt(instant, seriesStart, iterationZone) }
+            .toList()
+    }
+
+    /**
+     * Removes the EXDATEd occurrences, exact matches first.
+     *
+     * RFC 5545 says an EXDATE cancels the instance whose start it equals, and
+     * that is tried first. But real files carry EXDATEs written at the wrong
+     * time of day -- the maintainer's own weekday series is stored at 06:00Z
+     * with eight of its fourteen EXDATEs stamped `T000000Z` -- and under a
+     * strict reading those cancelled days reappear on the calendar. So an
+     * EXDATE inside the window that cancelled nothing exactly is treated as
+     * naming a whole day instead.
+     */
+    private fun applyExceptions(
+        instants: List<Instant>,
+        exceptions: List<Instant>,
+        iterationZone: ZoneId,
+        from: Instant,
+        until: Instant,
+    ): List<Instant> {
+        if (exceptions.isEmpty()) return instants
+        val exact = exceptions.toSet()
+        val generated = instants.toSet()
+        val unmatchedDays = exceptions
+            // Only judge an EXDATE the window could have shown. One outside it
+            // matched nothing here for the trivial reason that nothing was
+            // generated there.
+            .filter { it !in generated && it >= from && it < until }
+            .map { it.atZone(iterationZone).toLocalDate() }
+            .toSet()
+        return instants.filterNot {
+            it in exact || it.atZone(iterationZone).toLocalDate() in unmatchedDays
+        }
+    }
+
+    /** The occurrence of a series that starts at [instant]. */
+    private fun CalEvent.occurrenceAt(
+        instant: Instant,
+        seriesStart: Instant,
+        iterationZone: ZoneId,
+    ): CalEvent {
+        val id = occurrenceId(uid ?: id, instant)
+        return if (allDay) {
+            // The iterator yields each occurrence's start; a multi-day all-day
+            // event keeps its length by carrying the same span forward.
+            val day = instant.atZone(iterationZone).toLocalDate()
+            val span = date?.let { start -> endDate?.let { java.time.temporal.ChronoUnit.DAYS.between(start, it) } }
+            copy(id = id, date = day, endDate = span?.let { day.plusDays(it) })
+        } else {
+            copy(id = id, start = toLocalDateTime(instant))
+        }
+    }
+
+    private fun CalEvent.withinWindow(windowStart: LocalDate, windowEnd: LocalDate): Boolean {
+        val day = start?.toLocalDate() ?: date ?: return true
+        val last = endDate ?: day
+        return !day.isAfter(windowEnd) && !last.isBefore(windowStart)
+    }
+
+    /**
+     * The zone a component's times are written in.
+     *
+     * A `TZID` resolves through the calendar's own VTIMEZONE definitions;
+     * anything else -- UTC, or a floating time -- falls back to the app's zone,
+     * which is what the rest of the mapper reads times in.
+     */
+    private fun timeZoneFor(calendar: ICalendar, property: ICalProperty?): TimeZone =
+        property?.let { calendar.timezoneInfo.getTimezone(it)?.timeZone }
+            ?: TimeZone.getTimeZone(zone)
+
     private fun mapEvent(
         vevent: VEvent,
         calendarId: String,
@@ -89,10 +272,11 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val start = vevent.dateStart ?: return null
         val allDay = start.isDateOnly()
 
-        // An expanded instance is identified by its RECURRENCE-ID, so every
-        // occurrence of a series gets a distinct, stable id.
-        val recurrenceId = vevent.recurrenceId?.value?.let { formatInstantId(it.toInstant()) }
-        val id = if (recurrenceId != null) "$uid-$recurrenceId" else uid
+        // A detached instance is identified by the occurrence it replaces, not
+        // by its own (possibly moved) start, so its id stays stable across a
+        // reschedule.
+        val recurrenceInstant = vevent.recurrenceId?.value?.toInstant()
+        val id = if (recurrenceInstant != null) occurrenceId(uid, recurrenceInstant) else uid
 
         val summary = vevent.summary?.value?.trim().orEmpty().ifEmpty { "(no title)" }
 
@@ -262,7 +446,21 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
     private companion object {
         const val DefaultDurationMinutes = 60
-        fun formatInstantId(instant: Instant): String = instant.toString()
+
+        /**
+         * A hard stop on one series, in case a rule the app has not seen
+         * before iterates far more densely than a calendar ever should. The
+         * window normally bounds expansion long before this does.
+         */
+        const val MaxOccurrencesPerSeries = 2000
+
+        /**
+         * Occurrence identity: the series UID plus the instant this occurrence
+         * belongs to. Stable across refetches, and distinct per occurrence, so
+         * the calendar can address one instance while `CalEvent.uid` still
+         * names the series for editing.
+         */
+        fun occurrenceId(uid: String, instant: Instant): String = "$uid@$instant"
     }
 }
 

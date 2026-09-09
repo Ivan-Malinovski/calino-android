@@ -128,7 +128,7 @@ class CalDavFetcherTest {
     }
 
     @Test
-    fun `the event query asks the server to expand recurrence`() = runBlocking {
+    fun `the event query is time-ranged and never asks the server to expand`() = runBlocking {
         enqueueAll()
         fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
@@ -137,7 +137,10 @@ class CalDavFetcherTest {
         assertEquals("1", request.getHeader("Depth"))
 
         val eventQuery = seenBodies.first { it.contains("""name="VEVENT"""") }
-        assertTrue("the query must ask for expansion", eventQuery.contains("<c:expand"))
+        // Server-side expansion is not asked for at all: sabre 500s on it for
+        // any collection with a malformed calendar-timezone, and other servers
+        // ignore it silently. ICalMapper expands instead.
+        assertFalse("expansion is the client's job now", eventQuery.contains("expand"))
         assertTrue(eventQuery.contains("""start="20260901T000000Z""""))
         assertTrue(eventQuery.contains("""end="20261001T000000Z""""))
     }
@@ -185,7 +188,10 @@ class CalDavFetcherTest {
     }
 
     @Test
-    fun `a server that ignores expand is reported rather than under-rendering`() = runBlocking {
+    fun `a repeating master is expanded by the client across the window`() = runBlocking {
+        // The server returns the master with its RRULE intact -- which is now
+        // the only shape the app ever asks for. Before client-side expansion
+        // this rendered a weekday series as a single event.
         val unexpanded = """<?xml version="1.0"?>
             <multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
               <response><href>/cal/series.ics</href><propstat><prop>
@@ -205,93 +211,28 @@ END:VCALENDAR
         serveAll(events = multiStatus(unexpanded))
         val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
-        assertTrue(
-            "a surviving RRULE means the whole series is showing as one event",
-            result.expandUnsupported,
+        assertTrue("the series must expand to one occurrence per weekday", result.events.size > 15)
+        assertEquals("one series, so one uid", 1, result.events.mapNotNull { it.uid }.distinct().size)
+        assertEquals(
+            "and one occurrence per day",
+            result.events.size,
+            result.events.mapNotNull { it.start?.toLocalDate() }.distinct().size,
         )
-        assertEquals(1, result.events.size)
     }
 
     @Test
-    fun `a server that rejects expand still returns its events`() = runBlocking {
-        // Falling back to an unexpanded query keeps recurring events showing
-        // only on their first date -- reported via expandUnsupported -- rather
-        // than showing no events at all.
-        var firstEventQuery = true
-        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
-            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
-                val body = request.body.readUtf8()
-                return when {
-                    body.contains("VTODO") -> multiStatus(CalDavFixtures.Todos)
-                    body.contains("VJOURNAL") -> multiStatus(CalDavFixtures.Journals)
-                    body.contains("expand") && firstEventQuery -> {
-                        firstEventQuery = false
-                        MockResponse().setResponseCode(400)
-                    }
-                    else -> multiStatus(CalDavFixtures.Events)
-                }
-            }
-        }
-
-        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
-
-        assertTrue("the fallback must recover the events", result.events.isNotEmpty())
-        assertTrue("and must report that recurrence is not expanded", result.expandUnsupported)
-        assertFalse("the fallback succeeded, so this is not a failure", result.hadComponentFailures)
-    }
-
-    @Test
-    fun `a recurring task is reported as expanded even though events are not`() = runBlocking {
-        // This server ignores expand for VTODO, so 'Water the plants' arrives
-        // with its RRULE intact. That must not be mistaken for a server that
-        // cannot expand events.
+    fun `a sabre server is never given the query that crashes it`() = runBlocking {
+        // The Baikal regression: sabre parses the collection's
+        // calendar-timezone property while expanding, and a calendar holding a
+        // bare TZID there instead of a whole VCALENDAR makes the expanded query
+        // 500. Every request is now checked to make sure that query is gone.
         serveAll()
         val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
 
-        assertTrue(result.tasks.any { it.title == "Water the plants" })
-        assertFalse(
-            "the expand check is about events; an unexpanded task must not trip it",
-            result.expandUnsupported,
-        )
-    }
-
-    @Test
-    fun `a sabre server that crashes on expand still returns its events`() = runBlocking {
-        // The Baikal regression, in the server's own words. sabre parses the
-        // collection's calendar-timezone property while expanding; a calendar
-        // holding a bare TZID there instead of a whole VCALENDAR makes the
-        // expanded query 500, which used to take every event with it and leave
-        // a calendar showing only its tasks.
-        val sabreError = MockResponse().setResponseCode(500).setBody(
-            """<?xml version="1.0" encoding="utf-8"?>
-<d:error xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns">
-  <s:sabredav-version>4.7.0</s:sabredav-version>
-  <s:exception>Sabre\VObject\ParseException</s:exception>
-  <s:message>This parser only supports VCARD and VCALENDAR files</s:message>
-</d:error>""",
-        )
-        var firstEventQuery = true
-        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
-            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
-                val body = request.body.readUtf8()
-                return when {
-                    body.contains("VTODO") -> multiStatus(CalDavFixtures.Todos)
-                    body.contains("VJOURNAL") -> multiStatus(CalDavFixtures.Journals)
-                    body.contains("expand") && firstEventQuery -> {
-                        firstEventQuery = false
-                        sabreError
-                    }
-                    else -> multiStatus(CalDavFixtures.Events)
-                }
-            }
-        }
-
-        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
-
-        assertTrue("the events must survive the server's crash", result.events.isNotEmpty())
+        assertTrue(seenBodies.isNotEmpty())
+        seenBodies.forEach { assertFalse("no request may ask for expansion: $it", it.contains("expand")) }
         assertTrue(result.events.any { it.title == "Day off" })
         assertTrue(result.tasks.isNotEmpty())
-        assertTrue("and the loss of expansion must be reported", result.expandUnsupported)
     }
 
     @Test

@@ -41,9 +41,10 @@ What is **not** built, and must not be added without a separate review:
   screen. Do not quietly turn those into `PUT`/`DELETE`.
 - `sync-collection` / sync-token incremental sync, the offline change queue,
   ETag `If-Match` conflict handling.
-- Client-side RRULE expansion. Recurrence is expanded by the server via
-  `<c:expand>`, and a server that ignores it is reported rather than rendered
-  wrong.
+
+Recurrence **is** expanded, on the client, in `ICalMapper`. The event query no
+longer sends `<c:expand>` at all -- see the CalDAV section of `HANDOFF.md` for
+the rules that expansion depends on.
 
 Credentials: the password lives only in the sheet's draft state and in
 `KeystoreCredentialStore`, encrypted under an Android Keystore key.

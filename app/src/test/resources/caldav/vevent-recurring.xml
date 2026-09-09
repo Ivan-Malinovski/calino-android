@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!--
+  Captured verbatim from the maintainer's Baikal server. Two things about this
+  response are load-bearing and neither is hypothetical:
+
+    * the series is FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR with no UNTIL and no
+      COUNT, so it is infinite and only the fetch window bounds it;
+    * eight of its fourteen EXDATEs are stamped T000000Z against a T060000Z
+      DTSTART. A strict RFC 5545 reading cancels none of those eight, and the
+      days the owner cancelled reappear as work days.
+-->
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/dav.php/calendars/test-user/mail_events/work.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"work-1"</d:getetag>
+        <cal:calendar-data>BEGIN:VCALENDAR&#13;
+VERSION:2.0&#13;
+PRODID:-//Calino//EN&#13;
+CALSCALE:GREGORIAN&#13;
+BEGIN:VEVENT&#13;
+UID:6604cc2d-9b91-429f-8342-97ea5c45d18a&#13;
+DTSTAMP:20260831T071919Z&#13;
+SEQUENCE:7&#13;
+DTSTART:20260518T060000Z&#13;
+DTEND:20260518T140000Z&#13;
+SUMMARY:Work&#13;
+TRANSP:TRANSPARENT&#13;
+CREATED:20260827T124948Z&#13;
+LAST-MODIFIED:20260831T071919Z&#13;
+CATEGORIES:Work&#13;
+RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR&#13;
+EXDATE:20260525T000000Z&#13;
+EXDATE:20260605T000000Z&#13;
+EXDATE:20260720T060000Z&#13;
+EXDATE:20260721T060000Z&#13;
+EXDATE:20260727T060000Z&#13;
+EXDATE:20260728T060000Z&#13;
+EXDATE:20260904T060000Z&#13;
+END:VEVENT&#13;
+END:VCALENDAR&#13;
+</cal:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

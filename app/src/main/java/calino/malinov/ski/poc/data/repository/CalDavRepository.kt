@@ -131,10 +131,6 @@ class CalDavRepository(
                     tasks += result.tasks
                     journals += result.journals
                     result.failures.forEach { warnings += "$name -- ${it.describe()}" }
-                    if (result.expandUnsupported) {
-                        warnings += "$name -- the server did not expand repeating events, " +
-                            "so a repeating event shows only on its first date."
-                    }
                 }
                 .onFailure { error ->
                     lastError = error
@@ -251,8 +247,9 @@ class CalDavRepository(
         /**
          * Months either side of today to request.
          *
-         * Bounded because server-side expansion materialises every occurrence:
-         * an unbounded window over a daily series is unbounded rows.
+         * Bounded because expansion materialises every occurrence, and a rule
+         * like `FREQ=DAILY` with no UNTIL is infinite. The window is what
+         * bounds it -- see `ICalMapper.parse`.
          */
         const val DefaultWindowMonths = 6L
     }

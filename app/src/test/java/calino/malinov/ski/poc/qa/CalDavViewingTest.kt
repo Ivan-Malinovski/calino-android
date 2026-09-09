@@ -161,7 +161,6 @@ class CalDavViewingTest {
                 all.events + parsed.events,
                 all.tasks + parsed.tasks,
                 all.journals + parsed.journals,
-                all.sawUnexpandedRecurrence || parsed.sawUnexpandedRecurrence,
             )
         }
         return all

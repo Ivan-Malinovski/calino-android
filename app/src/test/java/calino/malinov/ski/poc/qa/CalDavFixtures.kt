@@ -20,6 +20,9 @@ object CalDavFixtures {
     val Todos: String get() = read("vtodo-expanded.xml")
     val Journals: String get() = read("vjournal.xml")
 
+    /** An unexpanded, infinite weekday series with mis-stamped EXDATEs. */
+    val Recurring: String get() = read("vevent-recurring.xml")
+
     /** The collection the fixture corpus lives in. */
     const val CalendarUrl = "https://caldav.example.test/test-user/bed21d90-1639-2490-b6f5-721e0517aee6/"
 }
