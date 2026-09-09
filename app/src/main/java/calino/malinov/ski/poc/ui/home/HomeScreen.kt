@@ -77,6 +77,7 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.pointer.pointerInput
@@ -2031,9 +2032,16 @@ private fun StaticMonthGrid(
         val eventMarkerGapPx = with(density) { 3.dp.toPx() }
         val eventAreaHeightPx = with(density) { 7.dp.toPx() }
         val chipHeightPx = with(density) { 20.dp.toPx() }
+        val chipGapPx = with(density) { 2.dp.toPx() }
         val chipHorizontalPaddingPx = with(density) { 2.dp.toPx() }
-        val chipTextStartPx = with(density) { 8.dp.toPx() }
-        val chipTextEndPx = with(density) { 3.dp.toPx() }
+        // No colour rail any more, so the title starts at the card's own
+        // inset. It is symmetric with the trailing inset so a truncated title
+        // does not read as pushed against the border.
+        val chipTextStartPx = with(density) { 6.dp.toPx() }
+        val chipTextEndPx = with(density) { 6.dp.toPx() }
+        val chipCornerPx = with(density) { 8.dp.toPx() }
+        val chipBorderPx = with(density) { 1.dp.toPx() }
+        val overflowHeightPx = with(density) { 14.dp.toPx() }
         val dateLayouts = remember(month, density) {
             List(rows * 7) { index ->
                 textMeasurer.measure(
@@ -2081,9 +2089,22 @@ private fun StaticMonthGrid(
             }
         }
         val overflowStyle = remember { ComposeTextStyle(fontSize = 10.sp) }
-        val overflowLayouts = remember(month, events, density) {
-            cellEvents.map { dayEvents ->
-                val overflow = (dayEvents.size - 2).coerceAtLeast(0)
+        // How many cards a fully expanded cell can actually hold. A day only
+        // rolls up into "+n" once the stack would run past the bottom of its
+        // row -- a fixed two-card limit was hiding events under a "+1" with
+        // half the cell still empty.
+        val chipPitchPx = chipHeightPx + chipGapPx
+        val chipAreaHeightPx = (
+            detailedRowHeightPx - dateTopPaddingPx - detailedDateSizePx - dateGapPx -
+                with(density) { 2.dp.toPx() }
+            ).coerceAtLeast(0f)
+        val chipCapacity = monthCellChipCapacity(chipAreaHeightPx, chipHeightPx, chipGapPx)
+        val shownCounts = remember(month, events, chipCapacity) {
+            cellEvents.map { dayEvents -> monthCellShownCount(dayEvents.size, chipCapacity) }
+        }
+        val overflowLayouts = remember(month, events, chipCapacity, density) {
+            cellEvents.mapIndexed { index, dayEvents ->
+                val overflow = dayEvents.size - shownCounts[index]
                 if (overflow > 0) {
                     textMeasurer.measure("+$overflow", overflowStyle)
                 } else {
@@ -2377,6 +2398,7 @@ private fun StaticMonthGrid(
                     )
 
                     val dayEvents = cellEvents[index]
+                    val shownCount = shownCounts[index]
                     val eventAreaTop = dateTop + dateSizePx + dateGapPx
                     val rawWidths = compactMarkerWidths[index]
                     val totalGap = eventMarkerGapPx * (rawWidths.size - 1).coerceAtLeast(0)
@@ -2388,38 +2410,55 @@ private fun StaticMonthGrid(
                         1f
                     }
                     var markerLeft = cellLeft + (cellWidthPx - rawTotal * markerScale) / 2f
-                    rawWidths.forEachIndexed { eventIndex, _ ->
+                    // The collapsed grid only ever carries four markers, so a
+                    // card past the fourth has nothing to grow out of: it
+                    // simply fades in where it belongs.
+                    repeat(max(rawWidths.size, shownCount)) { eventIndex ->
                         val event = dayEvents[eventIndex]
-                        val markerWidth = rawWidths[eventIndex] * markerScale
+                        val hasMarker = eventIndex < rawWidths.size
+                        val markerWidth = if (hasMarker) rawWidths[eventIndex] * markerScale else 0f
                         val markerHeight = with(density) { if (event.allDay) 3.dp.toPx() else 5.dp.toPx() }
                         val markerTop = eventAreaTop + (eventAreaHeightPx - markerHeight) / 2f
-                        if (eventIndex < 2) {
+                        if (eventIndex < shownCount) {
+                            val morph = if (hasMarker) detailProgress else 1f
+                            val chipFade = if (hasMarker) 1f else detailProgress
                             val chipWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f).coerceAtLeast(1f)
-                            val chipTop = eventAreaTop + chipHeightPx * eventIndex
-                            val x = markerLeft +
-                                (cellLeft + chipHorizontalPaddingPx - markerLeft) * detailProgress
-                            val y = markerTop + (chipTop - markerTop) * detailProgress
-                            val width = markerWidth + (chipWidth - markerWidth) * detailProgress
-                            val height = markerHeight + (chipHeightPx - markerHeight) * detailProgress
+                            val chipLeft = cellLeft + chipHorizontalPaddingPx
+                            val chipTop = eventAreaTop + chipPitchPx * eventIndex
+                            val fromX = if (hasMarker) markerLeft else chipLeft
+                            val fromY = if (hasMarker) markerTop else chipTop
+                            val fromWidth = if (hasMarker) markerWidth else chipWidth
+                            val fromHeight = if (hasMarker) markerHeight else chipHeightPx
+                            val x = fromX + (chipLeft - fromX) * morph
+                            val y = fromY + (chipTop - fromY) * morph
+                            val width = fromWidth + (chipWidth - fromWidth) * morph
+                            val height = fromHeight + (chipHeightPx - fromHeight) * morph
                             val eventColor = Color(event.color)
-                            val chipColor = eventTint(eventColor, if (event.allDay) .18f else .10f)
+                            // The same fill and hairline edge the full-size
+                            // event card wears, so a day's cards and its
+                            // agenda entries read as one family.
+                            val chipColor = eventTint(eventColor, .12f, CalinoColors.Panel)
+                            val corner = CornerRadius(
+                                with(density) { 2.dp.toPx() } + (chipCornerPx - with(density) { 2.dp.toPx() }) * morph,
+                            )
                             drawRoundRect(
-                                color = faded(lerpColor(eventColor, chipColor, detailProgress)),
+                                color = faded(lerpColor(eventColor, chipColor, morph), chipFade),
                                 topLeft = Offset(x, y),
                                 size = Size(width, height),
-                                cornerRadius = CornerRadius(with(density) { 2.dp.toPx() + 4.dp.toPx() * detailProgress }),
+                                cornerRadius = corner,
                             )
-                            if (detailProgress > .01f) {
+                            if (morph > .01f) {
                                 drawRoundRect(
-                                    color = faded(eventColor, detailProgress),
-                                    topLeft = Offset(x, y + 3.dp.toPx()),
+                                    color = faded(eventColor.copy(alpha = .16f), morph * chipFade),
+                                    topLeft = Offset(x + chipBorderPx / 2f, y + chipBorderPx / 2f),
                                     size = Size(
-                                        2.5.dp.toPx(),
-                                        (height - 6.dp.toPx()).coerceAtLeast(1f),
+                                        (width - chipBorderPx).coerceAtLeast(0f),
+                                        (height - chipBorderPx).coerceAtLeast(0f),
                                     ),
-                                    cornerRadius = CornerRadius(1.dp.toPx()),
+                                    cornerRadius = corner,
+                                    style = Stroke(width = chipBorderPx),
                                 )
-                                val textProgress = smoothStep(((detailProgress - .5f) / .5f).coerceIn(0f, 1f))
+                                val textProgress = smoothStep(((morph - .5f) / .5f).coerceIn(0f, 1f))
                                 if (textProgress > .01f) eventLayouts[event.id]?.let { layout ->
                                     drawText(
                                         layout,
@@ -2427,11 +2466,11 @@ private fun StaticMonthGrid(
                                             x + chipTextStartPx,
                                             y + (height - layout.size.height) / 2f,
                                         ),
-                                        color = faded(CalinoColors.Ink, textProgress),
+                                        color = faded(CalinoColors.Ink, textProgress * chipFade),
                                     )
                                 }
                             }
-                        } else {
+                        } else if (hasMarker) {
                             drawRoundRect(
                                 color = faded(Color(event.color), 1f - detailProgress),
                                 topLeft = Offset(markerLeft, markerTop),
@@ -2439,17 +2478,17 @@ private fun StaticMonthGrid(
                                 cornerRadius = CornerRadius(2.dp.toPx()),
                             )
                         }
-                        markerLeft += markerWidth + eventMarkerGapPx
+                        if (hasMarker) markerLeft += markerWidth + eventMarkerGapPx
                     }
-                    val overflow = (dayEvents.size - 2).coerceAtLeast(0)
                     val overflowProgress = smoothStep(((detailProgress - .5f) / .5f).coerceIn(0f, 1f))
-                    if (overflow > 0 && overflowProgress > .01f) {
+                    if (overflowProgress > .01f) {
                         overflowLayouts[index]?.let { layout ->
                             drawText(
                                 layout,
                                 topLeft = Offset(
                                     cellLeft + (cellWidthPx - layout.size.width) / 2f,
-                                    eventAreaTop + 2 * chipHeightPx,
+                                    eventAreaTop + chipPitchPx * shownCount +
+                                        (overflowHeightPx - layout.size.height) / 2f,
                                 ),
                                 color = faded(CalinoColors.Ink3, overflowProgress),
                             )
@@ -2746,6 +2785,26 @@ private fun CompactMonthRow(
         }
     }
 }
+
+/**
+ * How many event cards fit in one expanded month cell: cards of [chipHeightPx]
+ * stacked [chipGapPx] apart inside [chipAreaHeightPx]. The last card needs no
+ * trailing gap, so the gap is added back before dividing.
+ */
+internal fun monthCellChipCapacity(chipAreaHeightPx: Float, chipHeightPx: Float, chipGapPx: Float): Int {
+    val pitch = chipHeightPx + chipGapPx
+    if (pitch <= 0f) return 0
+    return ((chipAreaHeightPx + chipGapPx) / pitch).toInt().coerceAtLeast(0)
+}
+
+/**
+ * How many of a day's [eventCount] events get their own card. A day rolls up
+ * only once it genuinely overruns its cell, and when it does the last slot
+ * goes to the "+n" line rather than to a card, so the count itself is never
+ * the thing pushed out of view.
+ */
+internal fun monthCellShownCount(eventCount: Int, capacity: Int): Int =
+    if (eventCount <= capacity) eventCount else (capacity - 1).coerceAtLeast(0)
 
 internal fun monthEventIndex(events: List<CalEvent>, month: YearMonth): Map<LocalDate, List<CalEvent>> {
     val first = month.atDay(1)
