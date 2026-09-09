@@ -490,11 +490,14 @@ fun AgendaRow(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(CalinoShapes.Row)
-    val surface = if (variant == AgendaRowVariant.Card) {
+    val isCard = variant == AgendaRowVariant.Card
+    val surface = if (isCard) {
         Modifier
             .clip(shape)
             .background(CalinoColors.Panel, shape)
-            .border(1.dp, CalinoColors.Line2, shape)
+            // The edge carries the event's colour rather than the neutral
+            // hairline, so a card is identifiable before its rail is read.
+            .border(1.dp, color.copy(alpha = .16f), shape)
     } else {
         Modifier
     }
@@ -502,6 +505,7 @@ fun AgendaRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .then(if (isCard) Modifier.heightIn(min = 44.dp) else Modifier)
             .then(surface)
             .then(pressModifier)
             .semantics(mergeDescendants = true) {
@@ -512,27 +516,25 @@ fun AgendaRow(
                     trailingDescription?.let { append(", ").append(it) }
                 }
             }
-            .padding(vertical = if (variant == AgendaRowVariant.Card) 9.dp else 6.dp),
+            .padding(
+                start = if (isCard) 10.dp else 0.dp,
+                top = if (isCard) 9.dp else 6.dp,
+                bottom = if (isCard) 9.dp else 6.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // The same rail the day surface's event cards carry: a rounded pill
+        // sitting inside the card's own inset, rather than a square-ended tab
+        // pressed flush into the rounded left edge.
         Box(
             Modifier
-                .width(3.dp)
-                .height(36.dp)
-                .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
+                .width(4.dp)
+                .height(30.dp)
+                .clip(RoundedCornerShape(3.dp))
                 .background(color),
         )
-        Spacer(Modifier.width(11.dp))
-        Text(
-            time ?: "ALL-DAY",
-            modifier = Modifier.width(46.dp),
-            color = CalinoColors.Ink2,
-            fontFamily = Mono,
-            fontSize = 10.5.sp,
-            lineHeight = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-        )
+        Spacer(Modifier.width(10.dp))
+        AgendaRowTime(time)
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
                 title,
@@ -558,6 +560,64 @@ fun AgendaRow(
             Spacer(Modifier.width(4.dp))
         }
     }
+}
+
+/**
+ * The agenda gutter's clock face. The numerals and the meridiem are measured
+ * as two slots rather than one string: the numerals right-align so every
+ * colon in the list falls in the same column, and AM/PM sits in a fixed slot
+ * after them at a smaller size and lighter ink, so it labels the time without
+ * competing with it.
+ *
+ * The single fixed-width string this replaces was 46dp wide against a
+ * monospace face that needs ~50dp for "12:30 PM", so any two-digit hour on a
+ * 12-hour clock was silently clipped down to its numerals.
+ */
+@Composable
+private fun AgendaRowTime(time: String?) {
+    val (numerals, meridiem) = remember(time) { splitMeridiem(time ?: AllDayLabel) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            numerals,
+            modifier = Modifier.width(AgendaTimeNumeralWidth),
+            color = CalinoColors.Ink2,
+            fontFamily = Mono,
+            fontSize = 10.5.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+        )
+        Text(
+            meridiem.orEmpty(),
+            modifier = Modifier.width(AgendaTimeMeridiemWidth).padding(start = 3.dp),
+            color = CalinoColors.Ink3,
+            fontFamily = Mono,
+            fontSize = 8.5.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+private const val AllDayLabel = "ALL-DAY"
+private val AgendaTimeNumeralWidth = 34.dp
+private val AgendaTimeMeridiemWidth = 17.dp
+
+/**
+ * Splits a formatted clock face into its numerals and its trailing meridiem.
+ * A 24-hour face, or the all-day label, has no meridiem and keeps the whole
+ * string in the numeral slot.
+ */
+internal fun splitMeridiem(time: String): Pair<String, String?> {
+    val cut = time.lastIndexOf(' ')
+    if (cut <= 0) return time to null
+    val tail = time.substring(cut + 1)
+    val isMeridiem = tail.length == 2 &&
+        (tail[0] == 'A' || tail[0] == 'a' || tail[0] == 'P' || tail[0] == 'p') &&
+        (tail[1] == 'M' || tail[1] == 'm')
+    return if (isMeridiem) time.substring(0, cut) to tail else time to null
 }
 
 @Composable
@@ -605,9 +665,14 @@ fun AgendaTaskRow(
             } else {
                 Modifier
             }
+            // Wide for the thumb, but no taller than the rail: a square 44dp
+            // touch target was the tallest thing in the row and pushed every
+            // task card a third taller than the event cards beside it. The
+            // whole card is tappable anyway, so the checkbox only needs to be
+            // comfortably hittable, not the row's height driver.
             Box(
                 Modifier
-                    .size(44.dp)
+                    .size(width = 44.dp, height = 30.dp)
                     .then(checkboxPressModifier)
                     .semantics {
                         contentDescription = "${task.title}, checkbox"

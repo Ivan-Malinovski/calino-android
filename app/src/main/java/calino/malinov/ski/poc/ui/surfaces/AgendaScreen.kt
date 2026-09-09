@@ -271,7 +271,12 @@ internal fun AgendaDayBlock(
                 tasks.forEach { task ->
                     AgendaTaskRow(
                         task = task,
-                        time = task.due?.let { timeFormat.format(it.atStartOfDay()) },
+                        // Only a task that carries a real due *time* gets a
+                        // clock face. Formatting the due date's midnight gave
+                        // every task an identical "12:00 AM" that said nothing
+                        // -- and, until the gutter was widened, was clipped to
+                        // a plausible-looking "12:00".
+                        time = task.dueTime?.let { timeFormat.format(it) },
                         onClick = onTaskClick?.let { click -> { click(task) } },
                         onCheckedChange = { done -> onTaskDone(task, done) },
                     )
