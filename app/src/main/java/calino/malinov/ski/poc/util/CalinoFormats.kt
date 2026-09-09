@@ -5,17 +5,67 @@ import calino.malinov.ski.poc.data.model.placementDate
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
 private val DateFormat = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
-private val TimeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
+private val HourFormat = DateTimeFormatter.ofPattern("h a", Locale.US)
 private val RecurrenceEndFormat = DateTimeFormatter.ofPattern("d MMM", Locale.US)
 private val RecurrenceUntilDateTimeFormat = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss", Locale.US)
 
+/**
+ * The two clocks Calino can be set to. Every time a clock face is written the
+ * text comes from here, so one preference switches the whole app rather than
+ * each surface carrying its own `h:mm a` pattern.
+ */
+enum class CalinoTimeFormat(val label: String, pattern: String) {
+    TwelveHour("12h", "h:mm a"),
+    TwentyFourHour("24h", "HH:mm"),
+    ;
+
+    private val formatter: DateTimeFormatter = DateTimeFormatter.ofPattern(pattern, Locale.US)
+
+    fun format(time: LocalTime): String = formatter.format(time)
+    fun format(time: LocalDateTime): String = formatter.format(time)
+
+    /**
+     * The gutter label for a whole hour. The day rail's hour column is narrow,
+     * so the 12-hour clock drops the ":00" rather than being clipped.
+     */
+    fun formatHour(hour: Int): String = when (this) {
+        TwelveHour -> HourFormat.format(LocalTime.of(hour % 24, 0))
+        TwentyFourHour -> format(LocalTime.of(hour % 24, 0))
+    }
+
+    companion object {
+        val Default = TwelveHour
+
+        fun fromName(name: String?): CalinoTimeFormat =
+            entries.firstOrNull { it.name == name } ?: Default
+    }
+}
+
 fun formatCalinoDate(date: LocalDate): String = date.format(DateFormat)
-fun formatCalinoTime(time: LocalDateTime): String = time.format(TimeFormat)
+
+fun formatCalinoTime(
+    time: LocalDateTime,
+    format: CalinoTimeFormat = CalinoTimeFormat.Default,
+): String = format.format(time)
+
+/**
+ * Reads a duration as hours *and* minutes. It used to be printed as a raw
+ * minute count, so a 90-minute meeting read "90 min" and an all-afternoon
+ * event read "240 min", which nobody parses at a glance.
+ */
+fun formatCalinoDuration(minutes: Int): String = when {
+    minutes <= 0 -> "0 min"
+    minutes % 60 == 0 -> "${minutes / 60} h"
+    minutes < 60 -> "$minutes min"
+    else -> "${minutes / 60} h ${minutes % 60} min"
+}
+
 fun formatEventDate(event: CalEvent): String? = event.start?.let { formatCalinoDate(it.toLocalDate()) }
 
 /**

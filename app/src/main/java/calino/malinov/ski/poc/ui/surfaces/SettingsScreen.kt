@@ -87,7 +87,9 @@ import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
+import calino.malinov.ski.poc.util.CalinoTimeFormat
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** The mobile settings sections mirror the eight-section web handoff. */
@@ -172,7 +174,7 @@ fun SettingsSurface(
                 modifier = Modifier.padding(top = 3.dp),
             )
             Text(
-                "UI preview · controls change the preview only; sync, import, and preference persistence are not connected yet.",
+                "UI preview · Time format is live and persists; the other controls change the preview only.",
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink3,
                 modifier = Modifier.padding(top = 5.dp),
@@ -326,7 +328,16 @@ private fun GeneralSettings() = SettingsPage("General") {
         SettingRow("Timezone", "Used for event times and reminders") { SettingValue("Copenhagen") }
         SettingRow("Date format", "How dates are written across Calino") { SettingValue("18 May 2026") }
         SettingRow("Time format", "Choose the clock that feels natural", controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
-            SettingSegmented("Time format", listOf("12h", "24h"), selected = 1)
+            // Unlike its neighbours this one is wired through: it drives every
+            // clock face in the app, not just its own segmented control.
+            val preferences = LocalCalinoPreferences.current
+            CompactSegmentedControl(
+                options = CalinoTimeFormat.entries.map { it.label },
+                selectedIndex = preferences.timeFormat.ordinal,
+                onSelected = { preferences.setTimeFormat(CalinoTimeFormat.entries[it]) },
+                modifier = Modifier.fillMaxWidth(),
+                semanticLabel = "Time format",
+            )
         }
         SettingRow("First day of week", "Used by every calendar grid", controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
             SettingSegmented("First day of week", listOf("Monday", "Sunday"), selected = 0)

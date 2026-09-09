@@ -95,6 +95,7 @@ import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import java.time.LocalDate
 import java.time.YearMonth
+import calino.malinov.ski.poc.state.LocalTimeFormat
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -104,7 +105,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private val Mono = androidx.compose.ui.text.font.FontFamily.Monospace
-private val TimeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 private val ShortDateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
 fun eventColor(value: Long): Color = Color(value)
@@ -381,6 +381,7 @@ private fun EventChipContent(
 
 @Composable
 fun EventChip(event: CalEvent, modifier: Modifier = Modifier, variant: EventChipVariant = EventChipVariant.Rail, onClick: (() -> Unit)? = null) {
+    val timeFormat = LocalTimeFormat
     EventChipContent(
         title = event.title,
         color = eventColor(event.color),
@@ -392,7 +393,7 @@ fun EventChip(event: CalEvent, modifier: Modifier = Modifier, variant: EventChip
         accessibilityDescription = buildString {
             append(event.title)
             append(", ")
-            append(event.start?.format(TimeFormat) ?: "all-day")
+            append(event.start?.let { timeFormat.format(it) } ?: "all-day")
             event.location?.let { append(", ").append(it) }
             append(", ").append(event.calendarId)
         },
@@ -560,16 +561,18 @@ fun AgendaRow(
 }
 
 @Composable
-fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRowVariant = AgendaRowVariant.Card, onClick: (() -> Unit)? = null) =
+fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRowVariant = AgendaRowVariant.Card, onClick: (() -> Unit)? = null) {
+    val timeFormat = LocalTimeFormat
     AgendaRow(
         title = event.title,
         color = eventColor(event.color),
-        time = event.start?.format(TimeFormat),
+        time = event.start?.let { timeFormat.format(it) },
         subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
         modifier = modifier,
         variant = variant,
         onClick = onClick,
     )
+}
 
 /**
  * The agenda-list shape of a due task: the same rail/time/card geometry as an

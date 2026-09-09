@@ -75,13 +75,14 @@ import calino.malinov.ski.poc.util.formatRecurrenceRule
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.util.formatCalinoDuration
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlinx.coroutines.delay
 
 private val EditorDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
-private val EditorTimeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 /** Matches the shared detail card's own removal timing. */
 private const val EditorExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
 private val TravelTimeChoices = listOf<Int?>(null, 5, 15, 30, 60)
@@ -366,7 +367,7 @@ private fun ParsedChips(
             )
             if (draft.kind == PocQuickAddKind.Event) {
                 CalinoChip(
-                    text = draft.startTime?.format(EditorTimeFormat) ?: "Add time",
+                    text = draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
                     selected = draft.isParsed(EditorField.Time, baseDate),
                     description = "Change time",
                     onClick = pickTime,
@@ -413,7 +414,7 @@ private fun WhenSection(
             )
             EditorValueField(
                 label = if (isEvent) "Start time" else "Due time",
-                value = if (draft.allDay) "All day" else draft.startTime?.format(EditorTimeFormat) ?: "Add",
+                value = if (draft.allDay) "All day" else draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add",
                 onClick = pickStartTime,
                 enabled = !draft.allDay,
                 modifier = Modifier.weight(1f),
@@ -430,7 +431,7 @@ private fun WhenSection(
                 )
                 EditorValueField(
                     label = "End time",
-                    value = if (draft.allDay) "All day" else draft.endTime?.format(EditorTimeFormat) ?: "—",
+                    value = if (draft.allDay) "All day" else draft.endTime?.let { LocalTimeFormat.format(it) } ?: "—",
                     onClick = pickEndTime,
                     enabled = !draft.allDay && draft.startTime != null,
                     modifier = Modifier.weight(1f),
@@ -738,12 +739,7 @@ private fun LocalDate.shortEditorLabel(baseDate: LocalDate): String = when (this
     else -> format(EditorDateFormat)
 }
 
-internal fun formatEditorDuration(minutes: Int): String = when {
-    minutes <= 0 -> "0 min"
-    minutes % 60 == 0 -> "${minutes / 60} h"
-    minutes < 60 -> "$minutes min"
-    else -> "${minutes / 60} h ${minutes % 60} min"
-}
+internal fun formatEditorDuration(minutes: Int): String = formatCalinoDuration(minutes)
 
 private fun formatReminder(minutes: Int): String = when {
     minutes == 0 -> "At time"

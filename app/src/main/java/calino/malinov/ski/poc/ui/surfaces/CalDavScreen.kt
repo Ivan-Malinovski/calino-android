@@ -59,6 +59,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalDavCalendar
 import calino.malinov.ski.poc.data.model.CalDavForm
@@ -226,12 +228,14 @@ private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
             } else {
                 // Saying only "reading" over a full calendar reads as though
                 // what is on screen might be wrong. It is the last good read.
-                val stamp = remember(cachedAt) { formatSyncTime(cachedAt) }
+                val timeFormat = LocalTimeFormat
+                val stamp = remember(cachedAt, timeFormat) { formatSyncTime(cachedAt, timeFormat) }
                 "Refreshing\u2026" to "Showing what was read $stamp while the server is read again."
             }
         }
         is SyncState.Ready -> {
-            val stamp = remember(state.fetchedAt) { formatSyncTime(state.fetchedAt) }
+            val timeFormat = LocalTimeFormat
+            val stamp = remember(state.fetchedAt, timeFormat) { formatSyncTime(state.fetchedAt, timeFormat) }
             if (state.partial) {
                 // Name what is missing. "Some of this could not be read" left
                 // the user to guess which part of their calendar was absent.
@@ -293,10 +297,10 @@ private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
     }
 }
 
-private fun formatSyncTime(instant: java.time.Instant): String =
-    java.time.format.DateTimeFormatter.ofPattern("HH:mm")
-        .withZone(java.time.ZoneId.systemDefault())
-        .format(instant)
+private fun formatSyncTime(instant: java.time.Instant, timeFormat: CalinoTimeFormat): String =
+    timeFormat.format(
+        java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault()),
+    )
 
 @Composable
 private fun EmptyAccountsCard() = EditorSection("No accounts yet") {

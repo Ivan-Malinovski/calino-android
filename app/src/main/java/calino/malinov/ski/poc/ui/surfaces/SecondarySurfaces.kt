@@ -118,6 +118,9 @@ import calino.malinov.ski.poc.data.parser.parseQuickAdd
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
+import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.util.CalinoTimeFormat
+import calino.malinov.ski.poc.util.formatCalinoDuration
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
@@ -172,7 +175,6 @@ private const val CompletionUndoWindowMillis = 5_000L
  */
 private val May18 = FixtureNow.today
 private val dateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
-private val timeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 
 private fun eventColor(event: CalEvent) = Color(event.color)
 private fun taskColor(task: CalTask) = Color(task.color)
@@ -204,11 +206,12 @@ private fun IconButtonGlyph(glyph: String, description: String, onClick: () -> U
 @Composable
 private fun AgendaCard(event: CalEvent, onClick: () -> Unit = {}) {
     val color = eventColor(event)
+    val timeFormat = LocalTimeFormat
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(11.dp), colors = CardDefaults.cardColors(CalinoColors.Panel), border = androidx.compose.foundation.BorderStroke(1.dp, CalinoColors.Ink.copy(alpha = .07f))) {
         Row(Modifier.padding(vertical = 10.dp, horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(3.dp).height(40.dp).clip(RoundedCornerShape(3.dp)).background(color)); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(event.start?.format(timeFormat) ?: "ALL-DAY", style = CalinoTypography.labelSmall, color = CalinoColors.Ink2)
+                Text(event.start?.let { timeFormat.format(it) } ?: "ALL-DAY", style = CalinoTypography.labelSmall, color = CalinoColors.Ink2)
                 Text(event.title, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium), maxLines = 1)
                 event.location?.let { Text(it, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }
             }
@@ -564,7 +567,7 @@ private fun EventDetailContent(
             label(event.calendarId, Modifier.padding(top = 12.dp))
             Text(event.title, style = CalinoTypography.headlineLarge, modifier = Modifier.padding(top = 6.dp))
             Text(
-                eventHeaderText(event, occurrenceDate),
+                eventHeaderText(event, occurrenceDate, LocalTimeFormat),
                 style = CalinoTypography.bodyLarge,
                 color = CalinoColors.Ink2,
                 modifier = Modifier.padding(top = 8.dp),
@@ -580,7 +583,7 @@ private fun EventDetailContent(
                     Text(recurrenceSummary(event), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 5.dp))
                     nextOccurrences(event, occurrenceDate ?: LocalCalinoNow.current.today).forEach { occurrence ->
                         Text(
-                            occurrence.format(dateFormat) + " · " + occurrence.format(timeFormat),
+                            occurrence.format(dateFormat) + " · " + LocalTimeFormat.format(occurrence),
                             style = CalinoTypography.bodyLarge,
                             modifier = Modifier.padding(top = 10.dp),
                         )
@@ -771,18 +774,12 @@ fun TaskDetailSurface(
     }
 }
 
-private fun formatDuration(minutes: Int): String = when {
-    minutes % 60 == 0 -> "${minutes / 60} h"
-    minutes > 60 -> "${minutes / 60} h ${minutes % 60} min"
-    else -> "$minutes min"
-}
-
 /**
  * Recurring events keep their series start as the stable event identity, but
  * the detail surface is opened for a concrete occurrence. Show that tapped
  * date while retaining the series time and duration.
  */
-private fun eventHeaderText(event: CalEvent, occurrenceDate: LocalDate?): String {
+private fun eventHeaderText(event: CalEvent, occurrenceDate: LocalDate?, timeFormat: CalinoTimeFormat): String {
     val date = occurrenceDate ?: event.start?.toLocalDate() ?: event.date
     if (event.allDay || event.start == null) {
         return date?.format(dateFormat)?.let { "$it · All day" } ?: "All day"
@@ -792,8 +789,8 @@ private fun eventHeaderText(event: CalEvent, occurrenceDate: LocalDate?): String
     return buildString {
         append(displayedDate)
         append(" · ")
-        append(event.start.format(timeFormat))
-        event.durationMinutes?.let { minutes -> append(" · "); append(formatDuration(minutes)) }
+        append(timeFormat.format(event.start))
+        event.durationMinutes?.let { minutes -> append(" · "); append(formatCalinoDuration(minutes)) }
     }
 }
 

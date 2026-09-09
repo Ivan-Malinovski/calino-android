@@ -103,6 +103,9 @@ import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTheme
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
+import calino.malinov.ski.poc.state.SharedPreferencesPreferenceStore
+import calino.malinov.ski.poc.state.rememberCalinoPreferences
 import calino.malinov.ski.poc.state.rememberCalinoNow
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.state.SplitPaneWidthDp
@@ -230,6 +233,9 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     val accountStore = CalDavAccountStore(SharedPreferencesAccountPersistence(application))
 
+    /** Display preferences (clock, and whatever joins it), persisted. */
+    val preferenceStore = SharedPreferencesPreferenceStore(application)
+
     /** Real discovery. This is the seam `FixtureCalDavClient` used to fill. */
     val calDavClient: CalDavClient = CalDavDiscovery(sharedHttp)
 
@@ -301,7 +307,11 @@ fun CalinoApp() {
         // The clock runs for real once an account is connected; with only the
         // fixture data it stays frozen so the sample stays deterministic.
         val now by rememberCalinoNow(live = pocViewModel.hasAccounts)
-        CompositionLocalProvider(LocalCalinoNow provides now) {
+        val preferences = rememberCalinoPreferences(pocViewModel.preferenceStore)
+        CompositionLocalProvider(
+            LocalCalinoNow provides now,
+            LocalCalinoPreferences provides preferences,
+        ) {
             CalinoAppContent(pocViewModel)
         }
     }

@@ -30,6 +30,18 @@ object CalinoColors {
     val Amber = Color(0xFFBF944E)
     val Plum = Color(0xFF8A6AA8)
     val Teal = Color(0xFF4A9B96)
+
+    /**
+     * Washes that give the month grid a readable structure. Every cell used to
+     * be the same paper, so a Saturday, a Wednesday and a day belonging to the
+     * next month were indistinguishable until you read the number. These are
+     * warm greys drawn from [Ink], deliberately faint: they should register as
+     * rhythm rather than as boxes, and they are painted as bands that abut
+     * rather than overlap: stacking two of them on one cell compounds into a
+     * patch far darker than either was meant to be.
+     */
+    val WeekendWash = Ink.copy(alpha = .045f)
+    val OutsideMonthWash = Ink.copy(alpha = .022f)
 }
 
 object CalinoSpacing {

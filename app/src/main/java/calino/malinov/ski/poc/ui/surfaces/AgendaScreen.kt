@@ -56,6 +56,7 @@ import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.calinoPressable
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
+import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.ui.home.MonthPagerPageCount
 import calino.malinov.ski.poc.ui.home.monthEventIndex
 import calino.malinov.ski.poc.ui.home.monthForPage
@@ -69,7 +70,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private val AgendaDayFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
-private val AgendaTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.US)
 
 /**
  * The month-paged agenda: one page per month, every day of that month listed
@@ -239,6 +239,7 @@ internal fun AgendaDayBlock(
     onTaskDone: (CalTask, Boolean) -> Unit,
     onAdd: () -> Unit,
 ) {
+    val timeFormat = LocalTimeFormat
     val dayEvents = remember(events) {
         events.sortedWith(
             compareBy<CalEvent> { !it.allDay }.thenBy { it.start?.toLocalTime() }.thenBy { it.id },
@@ -258,12 +259,10 @@ internal fun AgendaDayBlock(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 dayEvents.forEach { event ->
-                    // 24h keeps the times inside the mono column, the
-                    // same clock the day rail uses.
                     AgendaRow(
                         title = event.title,
                         color = eventColor(event.color),
-                        time = if (event.allDay) null else event.start?.format(AgendaTimeFormatter),
+                        time = if (event.allDay) null else event.start?.let { timeFormat.format(it) },
                         subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
                         variant = AgendaRowVariant.Card,
                         onClick = onEventClick?.let { click -> { click(day, event) } },
@@ -272,7 +271,7 @@ internal fun AgendaDayBlock(
                 tasks.forEach { task ->
                     AgendaTaskRow(
                         task = task,
-                        time = task.due?.let { AgendaTimeFormatter.format(it.atStartOfDay()) },
+                        time = task.due?.let { timeFormat.format(it.atStartOfDay()) },
                         onClick = onTaskClick?.let { click -> { click(task) } },
                         onCheckedChange = { done -> onTaskDone(task, done) },
                     )

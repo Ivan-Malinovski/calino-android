@@ -72,7 +72,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp as lerpColor
@@ -110,8 +113,14 @@ import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
+import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.util.CalinoTimeFormat
+import calino.malinov.ski.poc.util.DayRailSlot
+import calino.malinov.ski.poc.util.formatCalinoDuration
+import calino.malinov.ski.poc.util.layoutDayRail
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
@@ -175,7 +184,6 @@ private const val DaySurfaceBlendStart = .38f
 private const val DaySurfaceBlendEnd = .62f
 private val WeekdayLetters = listOf("M", "T", "W", "T", "F", "S", "S")
 private val FullDateFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)
-private val TimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 private val ShortDateFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
 private val AgendaDateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
 
@@ -2163,6 +2171,99 @@ private fun StaticMonthGrid(
                         )
                     }
                 }
+                // The month's structural wash, under everything else. It is
+                // painted as whole regions rather than per cell: square cell
+                // corners read as a spreadsheet against the rounded blocks the
+                // rest of the calendar is built from, and a band drawn whole
+                // also keeps the weekend columns continuous instead of
+                // breaking into a row of beads.
+                //
+                // The regions abut rather than overlap -- two translucent
+                // washes stacked on one cell compound into a patch far darker
+                // than either, which drew the eye to the corner of the grid
+                // that deserves the least of it. So a corner is rounded only
+                // where the region meets paper; where a borrowed run runs into
+                // the weekend band the touching corners stay square on both
+                // sides, and the two read as one continuous shape rather than
+                // as two pills with a pinch between them.
+                //
+                // The whole thing retreats as the grid collapses into the week
+                // strip, which has its own selected-day pill to carry.
+                if (compactProgress < .999f) {
+                    val washAlpha = 1f - compactProgress
+                    val washRadius = with(density) { CalinoShapes.DayBlock.toPx() }
+                    val gridTop = rowTopFor(0)
+                    val gridBottom = rowTopFor(rows - 1) + rowHeightFor(rows - 1)
+                    val weekendLeft = horizontalPaddingPx + cellWidthPx * 5f
+                    fun drawWash(rect: Rect, color: Color, roundRight: Boolean) {
+                        val right = if (roundRight) washRadius else 0f
+                        drawPath(
+                            Path().apply {
+                                addRoundRect(
+                                    RoundRect(
+                                        rect,
+                                        topLeft = CornerRadius(washRadius),
+                                        topRight = CornerRadius(right),
+                                        bottomRight = CornerRadius(right),
+                                        bottomLeft = CornerRadius(washRadius),
+                                    ),
+                                )
+                            },
+                            color = color,
+                        )
+                    }
+
+                    // Each borrowed run is a single row: the leading one
+                    // always sits in the first row and the trailing one in the
+                    // last. Both stop at the weekend band's left edge.
+                    val leading = inMonthFlags.indexOfFirst { it }.coerceAtLeast(0)
+                    val trailing = inMonthFlags.indexOfLast { it } + 1
+                    val trailingColumn = trailing % 7
+                    val trailingRow = trailing / 7
+                    val hasTrailing = trailing in 1 until rows * 7 && trailingColumn < 5
+                    val leadingMeetsBand = leading >= 5
+
+                    // Saturday and Sunday, as one band down the whole grid.
+                    // Its left corners open up only where no run arrives.
+                    drawPath(
+                        Path().apply {
+                            addRoundRect(
+                                RoundRect(
+                                    Rect(weekendLeft, gridTop, weekendLeft + cellWidthPx * 2f, gridBottom),
+                                    topLeft = CornerRadius(if (leadingMeetsBand) 0f else washRadius),
+                                    topRight = CornerRadius(washRadius),
+                                    bottomRight = CornerRadius(washRadius),
+                                    bottomLeft = CornerRadius(if (hasTrailing) 0f else washRadius),
+                                ),
+                            )
+                        },
+                        color = faded(CalinoColors.WeekendWash, washAlpha),
+                    )
+                    if (leading > 0) {
+                        drawWash(
+                            Rect(
+                                horizontalPaddingPx,
+                                gridTop,
+                                horizontalPaddingPx + cellWidthPx * min(leading, 5).toFloat(),
+                                gridTop + rowHeightFor(0),
+                            ),
+                            faded(CalinoColors.OutsideMonthWash, washAlpha),
+                            roundRight = !leadingMeetsBand,
+                        )
+                    }
+                    if (hasTrailing) {
+                        drawWash(
+                            Rect(
+                                horizontalPaddingPx + cellWidthPx * trailingColumn,
+                                rowTopFor(trailingRow),
+                                weekendLeft,
+                                rowTopFor(trailingRow) + rowHeightFor(trailingRow),
+                            ),
+                            faded(CalinoColors.OutsideMonthWash, washAlpha),
+                            roundRight = false,
+                        )
+                    }
+                }
                 if (zoom < 1f && compactProgress > .001f) {
                     val pillHeight = min(
                         with(density) { CompactWeekMetrics.PillHeight.toPx() },
@@ -2974,22 +3075,23 @@ private fun lerpInt(start: Int, stop: Int, fraction: Float): Int =
 private fun eventsFor(events: List<CalEvent>, date: LocalDate): List<CalEvent> =
     events.filter { it.occursOn(date) }
 
-private fun eventDescription(event: CalEvent): String = buildString {
+private fun eventDescription(event: CalEvent, timeFormat: CalinoTimeFormat): String = buildString {
     append(event.title)
-    event.start?.let { append(", ").append(it.format(TimeFormatter)) }
+    event.start?.let { append(", ").append(timeFormat.format(it)) }
     event.location?.let { append(", ").append(it) }
 }
 
 @Composable
 private fun EventChip(event: CalEvent, minHeight: Dp = 34.dp, onClick: (() -> Unit)? = null, agendaStyle: Boolean = false) {
+    val timeFormat = LocalTimeFormat
     val metadata = buildString {
         if (event.allDay) {
             append("All day")
         } else {
-            event.start?.let { append(it.format(TimeFormatter)) }
+            event.start?.let { append(timeFormat.format(it)) }
             event.durationMinutes?.let { duration ->
                 if (isNotEmpty()) append(" · ")
-                append(duration).append(" min")
+                append(formatCalinoDuration(duration))
             }
         }
         event.location?.let { location ->
@@ -3001,7 +3103,7 @@ private fun EventChip(event: CalEvent, minHeight: Dp = 34.dp, onClick: (() -> Un
     Row(
         Modifier.fillMaxWidth().heightIn(min = maxOf(44.dp, minHeight)).clip(shape)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-            .semantics(mergeDescendants = true) { contentDescription = eventDescription(event) }
+            .semantics(mergeDescendants = true) { contentDescription = eventDescription(event, timeFormat) }
             .background(eventTint(Color(event.color), if (agendaStyle) .12f else .10f, CalinoColors.Panel))
             .border(1.dp, Color(event.color).copy(alpha = if (agendaStyle) .16f else .12f), shape)
             .padding(horizontal = if (agendaStyle) 10.dp else 4.dp, vertical = if (agendaStyle) 7.dp else 4.dp),
@@ -3292,6 +3394,8 @@ private fun DayRailPage(
 
 @Composable
 private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> Unit)?) {
+    val timeFormat = LocalTimeFormat
+    val slots = remember(dayEvents) { layoutDayRail(dayEvents) }
     Box(Modifier.fillMaxWidth().height(1488.dp)) {
         Canvas(Modifier.fillMaxSize()) {
             repeat(24) { hour ->
@@ -3301,27 +3405,38 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
         }
         (0..23).forEach { hour ->
             Text(
-                String.format(Locale.US, "%02d:00", hour),
+                timeFormat.formatHour(hour),
                 Modifier.offset(x = 8.dp, y = (hour * 62 - 7).dp),
                 fontSize = 10.sp,
                 color = CalinoColors.Ink3,
             )
         }
-        dayEvents.filterNot { it.allDay }.forEach { event ->
-            event.start?.let { start ->
-                val top = ((start.hour + start.minute / 60f) * 62).dp
-                val height = maxOf(44, ((event.durationMinutes ?: 60) / 60f * 62 - 6).toInt()).dp
+        // Overlapping events share the rail's width instead of being stacked
+        // on top of each other, where the later one hid the earlier one.
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val railStart = 52.dp
+            val railWidth = (maxWidth - railStart - 20.dp).coerceAtLeast(0.dp)
+            val laneGap = 3.dp
+            slots.forEach { slot ->
+                val event = slot.event
+                val laneWidth = ((railWidth - laneGap * (slot.columns - 1)) / slot.columns)
+                    .coerceAtLeast(0.dp)
+                val top = (slot.startMinute / 60f * 62).dp
+                val height = ((slot.endMinute - slot.startMinute) / 60f * 62 - 4)
+                    .coerceAtLeast(24f).dp
+                // Only a block with room for a second line gets one; a
+                // half-width 30-minute event would otherwise clip its title.
+                val showMetadata = height >= 42.dp && laneWidth >= 110.dp
                 Box(
-                    Modifier.offset(y = top)
-                        .fillMaxWidth()
-                        .padding(start = 52.dp, end = 20.dp)
+                    Modifier.offset(x = railStart + (laneWidth + laneGap) * slot.column, y = top)
+                        .width(laneWidth)
                         .height(height)
                         .clip(RoundedCornerShape(11.dp))
                         .then(if (onEvent != null) Modifier.clickable { onEvent(event) } else Modifier)
-                        .semantics(mergeDescendants = true) { contentDescription = eventDescription(event) }
+                        .semantics(mergeDescendants = true) { contentDescription = eventDescription(event, timeFormat) }
                         .background(eventTint(Color(event.color), .13f, CalinoColors.Panel))
                         .border(1.dp, Color(event.color).copy(alpha = .16f), RoundedCornerShape(11.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
                 ) {
                     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) {
                         Box(
@@ -3330,7 +3445,7 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(Color(event.color)),
                         )
-                        Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Column(Modifier.padding(start = 8.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(
                                 event.title,
                                 fontSize = 13.5.sp,
@@ -3340,12 +3455,14 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                                 overflow = TextOverflow.Ellipsis,
                                 color = CalinoColors.Ink,
                             )
-                            val metadata = buildString {
-                                append(start.format(TimeFormatter))
-                                event.durationMinutes?.let { append(" · ").append(it).append(" min") }
-                                event.location?.let { append(" · ").append(it) }
+                            if (showMetadata) {
+                                val metadata = buildString {
+                                    append(timeFormat.format(event.start!!))
+                                    event.durationMinutes?.let { append(" · ").append(formatCalinoDuration(it)) }
+                                    event.location?.let { append(" · ").append(it) }
+                                }
+                                Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = CalinoColors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = CalinoColors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -3360,7 +3477,7 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                 Modifier.fillMaxWidth()
                     .offset(y = (now.hourOfDay * 62).dp)
                     .height(8.dp)
-                    .semantics { contentDescription = "Current time, ${now.time.format(TimeFormatter)}" },
+                    .semantics { contentDescription = "Current time, ${timeFormat.format(now.time)}" },
             ) {
                 drawLine(CalinoColors.Rose, androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
                 drawCircle(CalinoColors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()))
