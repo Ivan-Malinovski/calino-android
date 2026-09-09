@@ -4,12 +4,16 @@ import calino.malinov.ski.poc.data.caldav.CalDavFetcher
 import calino.malinov.ski.poc.data.caldav.DavCredentials
 import calino.malinov.ski.poc.data.caldav.DavHttp
 import calino.malinov.ski.poc.data.caldav.DiscoveredCalendar
+import calino.malinov.ski.poc.data.caldav.CachedCalendar
+import calino.malinov.ski.poc.data.caldav.CalendarCache
+import calino.malinov.ski.poc.data.caldav.CalendarResource
 import calino.malinov.ski.poc.data.caldav.ICalMapper
 import calino.malinov.ski.poc.data.model.NewTask
 import calino.malinov.ski.poc.data.repository.CalDavRepository
 import calino.malinov.ski.poc.data.repository.CalDavSource
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.SyncState
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
@@ -52,11 +56,26 @@ class CalDavRepositoryTest {
         server.shutdown()
     }
 
-    private fun repository() = CalDavRepository(
-        fetcher = CalDavFetcher(DavHttp(), ICalMapper(ZoneId.of("Europe/Copenhagen"))),
+    private fun repository(cache: CalendarCache = CalendarCache.None) = CalDavRepository(
+        fetcher = CalDavFetcher(DavHttp()),
         scope = scope,
+        cache = cache,
+        mapper = ICalMapper(ZoneId.of("Europe/Copenhagen")),
         today = { LocalDate.of(2026, 9, 8) },
     )
+
+    /** A cache held in memory, so the repository's use of it is observable. */
+    private class FakeCache : CalendarCache {
+        val entries = mutableMapOf<String, CachedCalendar>()
+        var evictions = 0
+
+        override fun load(calendarUrl: String): CachedCalendar? = entries[calendarUrl]
+        override fun save(entry: CachedCalendar) { entries[entry.calendarUrl] = entry }
+        override fun evictExcept(calendarUrls: Set<String>) {
+            evictions++
+            entries.keys.retainAll(calendarUrls)
+        }
+    }
 
     /** Blocks until the repository stops loading, or fails the test. */
     private fun CalDavRepository.awaitSync(): SyncState {
@@ -147,7 +166,7 @@ class CalDavRepositoryTest {
 
         assertTrue(
             "a loading state must be published before the answer arrives",
-            states.contains(SyncState.Loading),
+            states.any { it is SyncState.Loading },
         )
         assertTrue("expected a ready state, got $settled", settled is SyncState.Ready)
         assertFalse((settled as SyncState.Ready).partial)
@@ -310,6 +329,134 @@ END:VCALENDAR
         )
     }
 
+    // --- the cache ------------------------------------------------------------
+
+    @Test
+    fun `a successful fetch is cached as the server's own text`() = runBlocking {
+        val cache = FakeCache()
+        val repository = repository(cache)
+        enqueueAll()
+        repository.setSources(listOf(source()))
+        repository.awaitSync()
+
+        val entry = cache.entries[calendar().url]
+        assertTrue("the fetch must be cached", entry != null)
+        // Raw iCalendar, not mapped occurrences: that is what lets it be
+        // re-expanded for a different window later.
+        assertTrue(entry!!.resources.isNotEmpty())
+        assertTrue(entry.resources.all { it.ics.contains("BEGIN:VCALENDAR") })
+        assertEquals(LocalDate.of(2026, 3, 1), entry.windowStart)
+        assertEquals(LocalDate.of(2027, 3, 1), entry.windowEnd)
+    }
+
+    @Test
+    fun `a cached calendar renders before the server answers`() = runBlocking {
+        val cache = FakeCache()
+        cache.entries[calendar().url] = CachedCalendar(
+            calendarUrl = calendar().url,
+            fetchedAt = Instant.parse("2026-09-07T09:00:00Z"),
+            windowStart = LocalDate.of(2026, 3, 1),
+            windowEnd = LocalDate.of(2027, 3, 1),
+            resources = listOf(CalendarResource("/cal/cached.ics", "e", CachedIcs)),
+        )
+        // Nothing is served: the server never answers, so anything on screen
+        // came off the cache.
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
+                MockResponse().setResponseCode(500)
+        }
+
+        val repository = repository(cache)
+        repository.setSources(listOf(source()))
+        val deadline = System.currentTimeMillis() + 10_000
+        while (repository.snapshot().events.isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+        }
+
+        assertTrue(
+            "the cached copy must render without waiting on the server",
+            repository.snapshot().events.any { it.title == "Cached lunch" },
+        )
+    }
+
+    @Test
+    fun `a cached copy survives a launch with no network`() = runBlocking {
+        val cache = FakeCache()
+        val repository = repository(cache)
+        enqueueAll()
+        repository.setSources(listOf(source()))
+        repository.awaitSync()
+        val loaded = repository.snapshot().events.size
+
+        // A fresh repository over the same cache, with every request failing:
+        // the offline cold start.
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
+                MockResponse().setResponseCode(503)
+        }
+        val relaunched = repository(cache)
+        relaunched.setSources(listOf(source()))
+        val sync = relaunched.awaitSync()
+
+        assertTrue("expected a failure, got $sync", sync is SyncState.Failed)
+        assertTrue("the cache must have filled the calendar", (sync as SyncState.Failed).hadPreviousData)
+        assertEquals(loaded, relaunched.snapshot().events.size)
+    }
+
+    @Test
+    fun `a refresh over a full calendar says what is on screen`() = runBlocking {
+        // Otherwise a manual refresh reads as "reading calendars", which over a
+        // calendar that is already full implies it might be empty until the
+        // server answers.
+        val repository = repository(FakeCache())
+        enqueueAll()
+        repository.setSources(listOf(source()))
+        repository.awaitSync()
+
+        val states = mutableListOf<SyncState>()
+        repository.observe { states += it.sync }
+        repository.refresh()
+        repository.awaitSync()
+
+        val loading = states.filterIsInstance<SyncState.Loading>()
+        assertTrue("expected a loading state", loading.isNotEmpty())
+        assertTrue(
+            "a refresh over existing data must report when that data was read",
+            loading.all { it.cachedAt != null },
+        )
+    }
+
+    @Test
+    fun `an unchanged source set does not refetch`() = runBlocking {
+        // A cold start calls setSources twice: once from the persisted account
+        // list, once when rediscovery confirms it. The second must not discard
+        // the loaded cache or fetch again.
+        val repository = repository(FakeCache())
+        enqueueAll()
+        repository.setSources(listOf(source()))
+        repository.awaitSync()
+        val requests = server.requestCount
+
+        repository.setSources(listOf(source()))
+        Thread.sleep(200)
+
+        assertEquals("the same collections must not be refetched", requests, server.requestCount)
+        assertTrue(repository.snapshot().sync is SyncState.Ready)
+    }
+
+    @Test
+    fun `dropping a calendar evicts its cache`() = runBlocking {
+        val cache = FakeCache()
+        val repository = repository(cache)
+        enqueueAll()
+        repository.setSources(listOf(source()))
+        repository.awaitSync()
+        assertTrue(cache.entries.isNotEmpty())
+
+        repository.setSources(emptyList())
+        assertTrue("a removed calendar must not leave its data on disk", cache.entries.isEmpty())
+    }
+
     @Test
     fun `one unreachable calendar does not blank the others`() = runBlocking {
         val repository = repository()
@@ -331,5 +478,18 @@ END:VCALENDAR
         val sync = repository.snapshot().sync
         assertTrue(sync is SyncState.Ready)
         assertTrue("a partial answer must say so", (sync as SyncState.Ready).partial)
+    }
+
+    private companion object {
+        val CachedIcs = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:cached-lunch
+DTSTART:20260908T110000Z
+DTEND:20260908T120000Z
+SUMMARY:Cached lunch
+END:VEVENT
+END:VCALENDAR
+"""
     }
 }

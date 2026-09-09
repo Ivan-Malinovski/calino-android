@@ -26,7 +26,12 @@ data class CalinoCalendar(val id: String, val name: String, val color: Long)
  */
 sealed interface SyncState {
     data object Idle : SyncState
-    data object Loading : SyncState
+    /**
+     * A read is in flight. [cachedAt] is when the copy currently on screen was
+     * read from the server, or null when there is nothing to show yet -- the
+     * difference between "refreshing" and "blank until this returns".
+     */
+    data class Loading(val cachedAt: java.time.Instant? = null) : SyncState
     /**
      * [warnings] name what could not be read, in words a person can act on.
      * A read that is short of the whole calendar must say which part is

@@ -1,8 +1,5 @@
 package calino.malinov.ski.poc.data.caldav
 
-import calino.malinov.ski.poc.data.model.CalEvent
-import calino.malinov.ski.poc.data.model.CalTask
-import calino.malinov.ski.poc.data.model.JournalEntry
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -12,11 +9,19 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
 import org.w3c.dom.Element
 
+/**
+ * One calendar resource exactly as the server sent it.
+ *
+ * The raw iCalendar text is the currency the fetch deals in, not the mapped
+ * models. Expansion depends on the window it is asked for, so occurrences are
+ * derived at use time by `ICalMapper` -- which is also what lets a cached copy
+ * be re-expanded for a different window later.
+ */
+data class CalendarResource(val href: String, val etag: String?, val ics: String)
+
 /** What one fetch produced, plus how complete it is. */
 data class FetchResult(
-    val events: List<CalEvent> = emptyList(),
-    val tasks: List<CalTask> = emptyList(),
-    val journals: List<JournalEntry> = emptyList(),
+    val resources: List<CalendarResource> = emptyList(),
     /**
      * Component queries that failed while another succeeded. A partial result
      * must never be treated as authoritative -- it is a view, not a statement
@@ -24,7 +29,7 @@ data class FetchResult(
      */
     val failures: List<ComponentFailure> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = events.isEmpty() && tasks.isEmpty() && journals.isEmpty()
+    val isEmpty: Boolean get() = resources.isEmpty()
     val hadComponentFailures: Boolean get() = failures.isNotEmpty()
 }
 
@@ -42,10 +47,7 @@ data class ComponentFailure(val component: String, val error: CalDavException) {
 }
 
 /** Reads events, tasks and journal entries out of calendar collections. */
-class CalDavFetcher(
-    private val http: DavHttp = DavHttp(),
-    private val mapper: ICalMapper = ICalMapper(),
-) {
+class CalDavFetcher(private val http: DavHttp = DavHttp()) {
 
     suspend fun fetch(
         calendar: DiscoveredCalendar,
@@ -85,12 +87,10 @@ class CalDavFetcher(
             return@supervisorScope FetchResult()
         }
 
-        FetchResult(
-            events = succeeded.flatMap { it.events },
-            tasks = succeeded.flatMap { it.tasks },
-            journals = succeeded.flatMap { it.journals },
-            failures = failures,
-        )
+        // Deduplicated by href: a resource holding more than one component type
+        // comes back from more than one query, and mapping the same text twice
+        // would place its records twice.
+        FetchResult(resources = succeeded.flatten().distinctBy { it.href }, failures = failures)
     }
 
     /**
@@ -109,7 +109,7 @@ class CalDavFetcher(
         credentials: DavCredentials,
         windowStart: LocalDate,
         windowEnd: LocalDate,
-    ): FetchResult {
+    ): List<CalendarResource> {
         val start = windowStart.atStartOfDay().toInstant(ZoneOffset.UTC).format()
         val end = windowEnd.atStartOfDay().toInstant(ZoneOffset.UTC).format()
         // The time-range filter selects resources whose series overlaps the
@@ -123,22 +123,24 @@ class CalDavFetcher(
     </c:comp-filter>
   </c:filter>
 </c:calendar-query>"""
-        return report(calendar, credentials, body, windowStart, windowEnd)
+        return report(calendar, credentials, body)
     }
 
     /**
-     * Tasks, unbounded and unexpanded.
+     * Tasks, unbounded.
      *
      * No time-range filter: a VTODO may carry no DTSTART or DUE at all, and a
-     * time-ranged query drops exactly those. Not expanded either: the task
-     * model has no recurrence field to hold expanded instances, so a recurring
-     * task shows once at its due date.
+     * time-ranged query drops exactly those.
      */
-    private suspend fun fetchTasks(calendar: DiscoveredCalendar, credentials: DavCredentials): FetchResult =
-        report(calendar, credentials, componentQuery(Vtodo))
+    private suspend fun fetchTasks(
+        calendar: DiscoveredCalendar,
+        credentials: DavCredentials,
+    ): List<CalendarResource> = report(calendar, credentials, componentQuery(Vtodo))
 
-    private suspend fun fetchJournals(calendar: DiscoveredCalendar, credentials: DavCredentials): FetchResult =
-        report(calendar, credentials, componentQuery(Vjournal))
+    private suspend fun fetchJournals(
+        calendar: DiscoveredCalendar,
+        credentials: DavCredentials,
+    ): List<CalendarResource> = report(calendar, credentials, componentQuery(Vjournal))
 
     private fun componentQuery(component: String) = """<?xml version="1.0" encoding="UTF-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -152,9 +154,7 @@ class CalDavFetcher(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
         body: String,
-        windowStart: LocalDate = LocalDate.MIN,
-        windowEnd: LocalDate = LocalDate.MAX,
-    ): FetchResult {
+    ): List<CalendarResource> {
         val response = http.request(
             method = "REPORT",
             url = calendar.url,
@@ -165,39 +165,21 @@ class CalDavFetcher(
         if (!response.isMultiStatus) throw calDavErrorForStatus(response.status, calendar.url)
         val root = DavXml.parse(response.body)
             ?: throw CalDavException(CalDavErrorCode.NotCalDav, "The server's reply could not be read.")
-        return parseMultiStatus(root, calendar, windowStart, windowEnd)
+        return parseResources(root, calendar)
     }
 
-    private fun parseMultiStatus(
-        root: Element,
-        calendar: DiscoveredCalendar,
-        windowStart: LocalDate,
-        windowEnd: LocalDate,
-    ): FetchResult {
-        val events = mutableListOf<CalEvent>()
-        val tasks = mutableListOf<CalTask>()
-        val journals = mutableListOf<JournalEntry>()
-
-        DavXml.elements(root, DavNs.Dav, "response").forEach { entry ->
+    /** Pulls the href, ETag and calendar text out of a multistatus reply. */
+    private fun parseResources(root: Element, calendar: DiscoveredCalendar): List<CalendarResource> =
+        DavXml.elements(root, DavNs.Dav, "response").mapNotNull { entry ->
             val href = DavXml.text(entry, DavNs.Dav, "href")?.let { resolveHref(calendar.url, it) }
-                ?: return@forEach
-            val data = DavXml.text(entry, DavNs.CalDav, "calendar-data") ?: return@forEach
-            val etag = DavXml.text(entry, DavNs.Dav, "getetag")?.trim('"')
-            val parsed = mapper.parse(
-                icalText = data,
-                calendarId = calendar.url,
-                color = calendar.color,
+                ?: return@mapNotNull null
+            val data = DavXml.text(entry, DavNs.CalDav, "calendar-data") ?: return@mapNotNull null
+            CalendarResource(
                 href = href,
-                etag = etag,
-                windowStart = windowStart,
-                windowEnd = windowEnd,
+                etag = DavXml.text(entry, DavNs.Dav, "getetag")?.trim('"'),
+                ics = data,
             )
-            events += parsed.events
-            tasks += parsed.tasks
-            journals += parsed.journals
         }
-        return FetchResult(events, tasks, journals)
-    }
 
     private companion object {
         const val Vevent = "VEVENT"

@@ -37,6 +37,46 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
     )
 
     /**
+     * Maps a whole collection's worth of resources.
+     *
+     * Fetching and mapping are separate on purpose: [resources] are the
+     * server's own text, so the same list can be mapped again later against a
+     * different window -- which is what a cached copy does after the window
+     * has moved with the calendar date.
+     *
+     * A resource that will not parse is skipped rather than failing the
+     * collection; one malformed record must not empty a calendar.
+     */
+    fun mapAll(
+        resources: List<CalendarResource>,
+        calendarId: String,
+        color: Long,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): Parsed {
+        val events = mutableListOf<CalEvent>()
+        val tasks = mutableListOf<CalTask>()
+        val journals = mutableListOf<JournalEntry>()
+        resources.forEach { resource ->
+            val parsed = runCatching {
+                parse(
+                    icalText = resource.ics,
+                    calendarId = calendarId,
+                    color = color,
+                    href = resource.href,
+                    etag = resource.etag,
+                    windowStart = windowStart,
+                    windowEnd = windowEnd,
+                )
+            }.getOrNull() ?: return@forEach
+            events += parsed.events
+            tasks += parsed.tasks
+            journals += parsed.journals
+        }
+        return Parsed(events, tasks, journals)
+    }
+
+    /**
      * @param windowStart first day the caller wants occurrences for.
      * @param windowEnd last day, inclusive.
      *

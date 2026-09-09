@@ -1,8 +1,12 @@
 package calino.malinov.ski.poc.data.repository
 
+import calino.malinov.ski.poc.data.caldav.CachedCalendar
 import calino.malinov.ski.poc.data.caldav.CalDavFetcher
+import calino.malinov.ski.poc.data.caldav.CalendarCache
+import calino.malinov.ski.poc.data.caldav.CalendarResource
 import calino.malinov.ski.poc.data.caldav.DavCredentials
 import calino.malinov.ski.poc.data.caldav.DiscoveredCalendar
+import calino.malinov.ski.poc.data.caldav.ICalMapper
 import calino.malinov.ski.poc.data.caldav.calDavErrorForThrowable
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
@@ -36,10 +40,19 @@ data class CalDavSource(
  * refetch discards the overlay. That keeps the editor and task completion
  * working without pretending an edit synced -- the accounts surface says as
  * much in plain words.
+ *
+ * Reads are cached. Each successful fetch writes the server's own resource
+ * text to [cache], and a launch maps that back before any request is made, so
+ * a connected calendar renders immediately and stays readable with no network.
+ * Only the read side is cached: [overlay] still lives and dies with the
+ * process, because an edit that cannot sync must not look durable.
  */
 class CalDavRepository(
     private val fetcher: CalDavFetcher,
     private val scope: CoroutineScope,
+    /** Last successful read per calendar, so a cold start is not a blank one. */
+    private val cache: CalendarCache = CalendarCache.None,
+    private val mapper: ICalMapper = ICalMapper(),
     private val today: () -> LocalDate = { LocalDate.now() },
     private val windowMonths: Long = DefaultWindowMonths,
     /** Injected so tests can drive the fetch on their own scheduler. */
@@ -56,6 +69,24 @@ class CalDavRepository(
 
     private var sources: List<CalDavSource> = emptyList()
     private var syncState: SyncState = SyncState.Idle
+
+    /**
+     * Bumped by every [setSources] and [refresh].
+     *
+     * A cache load and a network fetch race by construction, and the cache is
+     * the older answer. This is what stops a slow disk read from overwriting a
+     * fetch that already landed.
+     */
+    private var generation = 0L
+
+    /**
+     * When what is currently on screen was read from the server.
+     *
+     * Null until something has been read. It is what a `Loading` state reports,
+     * so a refresh over a full calendar says it is refreshing a known copy
+     * rather than implying the calendar is empty until it returns.
+     */
+    private var lastReadAt: Instant? = null
     private var current: CalinoSnapshot = compose()
 
     override fun snapshot(): CalinoSnapshot = current
@@ -73,43 +104,112 @@ class CalDavRepository(
         return Closeable { listeners.remove(listener) }
     }
 
-    /** Points the repository at a new set of collections and refetches. */
+    /**
+     * Points the repository at a new set of collections.
+     *
+     * An unchanged set is a no-op. This is called twice on a cold start --
+     * once from the persisted account list, once when rediscovery confirms it
+     * -- and the second call must not discard the loaded cache or refetch for
+     * nothing.
+     */
     fun setSources(sources: List<CalDavSource>) {
+        if (sources.map { it.calendar.url } == this.sources.map { it.calendar.url }) {
+            this.sources = sources
+            return
+        }
         this.sources = sources
         if (sources.isEmpty()) {
+            generation++
             fetched = FetchedData()
+            lastReadAt = null
             syncState = SyncState.Idle
+            cache.evictExcept(emptySet())
             publish()
         } else {
-            refresh()
+            cache.evictExcept(sources.map { it.calendar.url }.toSet())
+            reload(useCache = true)
         }
     }
 
-    fun refresh() {
+    /** Refetches without going back to the cache; the data on screen stays put. */
+    fun refresh() = reload(useCache = false)
+
+    private fun reload(useCache: Boolean) {
         if (sources.isEmpty()) return
-        syncState = SyncState.Loading
+        val token = ++generation
+        val start = today().withDayOfMonth(1).minusMonths(windowMonths)
+        val end = today().withDayOfMonth(1).plusMonths(windowMonths)
+        syncState = SyncState.Loading(cachedAt = lastReadAt.takeUnless { fetched.isEmpty() })
         publish()
         scope.launch {
-            val start = today().withDayOfMonth(1).minusMonths(windowMonths)
-            val end = today().withDayOfMonth(1).plusMonths(windowMonths)
+            if (useCache) {
+                val cached = withContext(ioDispatcher) { loadCache(start, end) }
+                // Only if nothing newer has arrived, and only if the cache
+                // actually held something -- publishing an empty cache would
+                // blank a calendar that a concurrent refresh is filling.
+                if (token == generation && cached != null && !cached.data.isEmpty()) {
+                    fetched = cached.data
+                    lastReadAt = cached.fetchedAt
+                    syncState = SyncState.Loading(cachedAt = cached.fetchedAt)
+                    publish()
+                }
+            }
             runCatching { loadAll(start, end) }
                 .onSuccess { loaded ->
+                    if (token != generation) return@onSuccess
                     fetched = loaded.data
+                    lastReadAt = Instant.now()
                     // A refetch is the server's answer, so local-only edits
                     // made against the previous answer no longer apply.
                     overlay.clear()
-                    syncState = SyncState.Ready(Instant.now(), warnings = loaded.warnings)
+                    syncState = SyncState.Ready(lastReadAt!!, warnings = loaded.warnings)
                     publish()
                 }
                 .onFailure { error ->
+                    if (token != generation) return@onFailure
                     val message = calDavErrorForThrowable(error, sources.firstOrNull()?.calendar?.url.orEmpty()).message
-                    // Keep whatever is already on screen. Blanking the calendar
-                    // because a refresh failed is worse than showing stale data
-                    // alongside a clear error.
+                    // Keep whatever is already on screen -- which, after a
+                    // cache load, is the last good read rather than nothing.
+                    // Blanking the calendar because a refresh failed is worse
+                    // than showing stale data alongside a clear error.
                     syncState = SyncState.Failed(message, hadPreviousData = !fetched.isEmpty())
                     publish()
                 }
         }
+    }
+
+    private data class CacheLoad(val data: FetchedData, val fetchedAt: Instant)
+
+    /**
+     * Maps every cached calendar against the window computed from *today*, not
+     * the window the resources were fetched under. That is the point of caching
+     * the server's text rather than mapped occurrences: a series re-expands
+     * into the current window on its own.
+     */
+    private fun loadCache(start: LocalDate, end: LocalDate): CacheLoad? {
+        val events = mutableListOf<CalEvent>()
+        val tasks = mutableListOf<CalTask>()
+        val journals = mutableListOf<JournalEntry>()
+        var oldest: Instant? = null
+
+        sources.forEach { source ->
+            val entry = cache.load(source.calendar.url) ?: return@forEach
+            val parsed = mapper.mapAll(
+                resources = entry.resources,
+                calendarId = source.calendar.url,
+                color = source.calendar.color,
+                windowStart = start,
+                windowEnd = end,
+            )
+            events += parsed.events
+            tasks += parsed.tasks
+            journals += parsed.journals
+            oldest = oldest?.let { minOf(it, entry.fetchedAt) } ?: entry.fetchedAt
+        }
+
+        // The oldest read is the honest one to report: saying "read a minute
+        // ago" when one collection's copy is a week old would overstate it.
+        return oldest?.let { CacheLoad(FetchedData(events, tasks, journals), it) }
     }
 
     private data class Loaded(val data: FetchedData, val warnings: List<String>)
@@ -127,10 +227,21 @@ class CalDavRepository(
             runCatching { fetcher.fetch(source.calendar, source.credentials, start, end) }
                 .onSuccess { result ->
                     anySucceeded = true
-                    events += result.events
-                    tasks += result.tasks
-                    journals += result.journals
+                    val parsed = mapper.mapAll(
+                        resources = result.resources,
+                        calendarId = source.calendar.url,
+                        color = source.calendar.color,
+                        windowStart = start,
+                        windowEnd = end,
+                    )
+                    events += parsed.events
+                    tasks += parsed.tasks
+                    journals += parsed.journals
                     result.failures.forEach { warnings += "$name -- ${it.describe()}" }
+                    // A partial read is still worth keeping: it is what the
+                    // next launch would otherwise have to wait for. The
+                    // warnings ride along in the sync state either way.
+                    saveCache(source, result.resources, start, end)
                 }
                 .onFailure { error ->
                     lastError = error
@@ -141,6 +252,23 @@ class CalDavRepository(
         // One unreachable calendar should not blank the others.
         if (!anySucceeded) throw (lastError ?: IllegalStateException("No calendars could be read."))
         Loaded(FetchedData(events, tasks, journals), warnings)
+    }
+
+    private fun saveCache(
+        source: CalDavSource,
+        resources: List<CalendarResource>,
+        start: LocalDate,
+        end: LocalDate,
+    ) {
+        cache.save(
+            CachedCalendar(
+                calendarUrl = source.calendar.url,
+                fetchedAt = Instant.now(),
+                windowStart = start,
+                windowEnd = end,
+                resources = resources,
+            ),
+        )
     }
 
     // --- writes: local overlay only -------------------------------------------

@@ -6,6 +6,7 @@ import calino.malinov.ski.poc.data.caldav.CalDavFetcher
 import calino.malinov.ski.poc.data.caldav.DavCredentials
 import calino.malinov.ski.poc.data.caldav.DavHttp
 import calino.malinov.ski.poc.data.caldav.DiscoveredCalendar
+import calino.malinov.ski.poc.data.caldav.FetchResult
 import calino.malinov.ski.poc.data.caldav.ICalMapper
 import java.time.LocalDate
 import java.time.ZoneId
@@ -30,7 +31,21 @@ class CalDavFetcherTest {
     @Before fun setUp() { server = MockWebServer().also { it.start() } }
     @After fun tearDown() { server.shutdown() }
 
-    private fun fetcher() = CalDavFetcher(DavHttp(), ICalMapper(ZoneId.of("Europe/Copenhagen")))
+    private fun fetcher() = CalDavFetcher(DavHttp())
+
+    /**
+     * The fetch returns the server's own resource text now; mapping is a
+     * separate step the repository owns. These tests still assert on records,
+     * so they run the same mapping the repository would.
+     */
+    private fun FetchResult.mapped(): ICalMapper.Parsed =
+        ICalMapper(ZoneId.of("Europe/Copenhagen")).mapAll(
+            resources = resources,
+            calendarId = calendar().url,
+            color = 0xFF11A602,
+            windowStart = windowStart,
+            windowEnd = windowEnd,
+        )
 
     private fun calendar(components: Set<String> = setOf("VEVENT", "VTODO", "VJOURNAL")) =
         DiscoveredCalendar(
@@ -83,23 +98,24 @@ class CalDavFetcherTest {
     fun `a full fetch returns events tasks and journals`() = runBlocking {
         enqueueAll()
         val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+        val mapped = result.mapped()
 
-        assertTrue("expected events", result.events.isNotEmpty())
-        assertTrue("expected tasks", result.tasks.isNotEmpty())
-        assertTrue("expected journal entries", result.journals.isNotEmpty())
+        assertTrue("expected events", mapped.events.isNotEmpty())
+        assertTrue("expected tasks", mapped.tasks.isNotEmpty())
+        assertTrue("expected journal entries", mapped.journals.isNotEmpty())
         assertFalse(result.hadComponentFailures)
-        assertTrue(result.events.any { it.title == "Day off" })
-        assertTrue(result.tasks.any { it.title == "Renew passport" })
-        assertTrue(result.journals.any { it.title == "Notes: recurrence rework" })
+        assertTrue(mapped.events.any { it.title == "Day off" })
+        assertTrue(mapped.tasks.any { it.title == "Renew passport" })
+        assertTrue(mapped.journals.any { it.title == "Notes: recurrence rework" })
     }
 
     @Test
     fun `fetched records carry the calendar's id and colour`() = runBlocking {
         enqueueAll()
-        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+        val mapped = fetcher().fetch(calendar(), credentials, windowStart, windowEnd).mapped()
         val calendarUrl = calendar().url
-        assertTrue(result.events.all { it.calendarId == calendarUrl })
-        assertTrue(result.events.all { it.color == 0xFF11A602 })
+        assertTrue(mapped.events.all { it.calendarId == calendarUrl })
+        assertTrue(mapped.events.all { it.color == 0xFF11A602 })
     }
 
     @Test
@@ -110,14 +126,14 @@ class CalDavFetcherTest {
         // property hid the whole calendar and, since nothing had failed,
         // reported the empty result as complete.
         enqueueAll()
-        val result = fetcher().fetch(
+        val mapped = fetcher().fetch(
             calendar(components = setOf("VTODO")),
             credentials, windowStart, windowEnd,
-        )
+        ).mapped()
 
         assertEquals("all three components must be requested", 3, server.requestCount)
-        assertTrue("events must be read from a VTODO-only calendar", result.events.isNotEmpty())
-        assertTrue(result.tasks.isNotEmpty())
+        assertTrue("events must be read from a VTODO-only calendar", mapped.events.isNotEmpty())
+        assertTrue(mapped.tasks.isNotEmpty())
     }
 
     @Test
@@ -164,10 +180,11 @@ class CalDavFetcherTest {
         serveAll(todos = MockResponse().setResponseCode(500))
 
         val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+        val mapped = result.mapped()
 
-        assertTrue("events must survive a task-query failure", result.events.isNotEmpty())
-        assertTrue(result.journals.isNotEmpty())
-        assertTrue(result.tasks.isEmpty())
+        assertTrue("events must survive a task-query failure", mapped.events.isNotEmpty())
+        assertTrue(mapped.journals.isNotEmpty())
+        assertTrue(mapped.tasks.isEmpty())
         assertTrue("a partial result must say so", result.hadComponentFailures)
         // And it must say *what* is missing, not merely that something is.
         val described = result.failures.joinToString { it.describe() }
@@ -209,14 +226,14 @@ END:VCALENDAR
               </prop><status>HTTP/1.1 200 OK</status></propstat></response>
             </multistatus>"""
         serveAll(events = multiStatus(unexpanded))
-        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+        val events = fetcher().fetch(calendar(), credentials, windowStart, windowEnd).mapped().events
 
-        assertTrue("the series must expand to one occurrence per weekday", result.events.size > 15)
-        assertEquals("one series, so one uid", 1, result.events.mapNotNull { it.uid }.distinct().size)
+        assertTrue("the series must expand to one occurrence per weekday", events.size > 15)
+        assertEquals("one series, so one uid", 1, events.mapNotNull { it.uid }.distinct().size)
         assertEquals(
             "and one occurrence per day",
-            result.events.size,
-            result.events.mapNotNull { it.start?.toLocalDate() }.distinct().size,
+            events.size,
+            events.mapNotNull { it.start?.toLocalDate() }.distinct().size,
         )
     }
 
@@ -227,12 +244,12 @@ END:VCALENDAR
         // bare TZID there instead of a whole VCALENDAR makes the expanded query
         // 500. Every request is now checked to make sure that query is gone.
         serveAll()
-        val result = fetcher().fetch(calendar(), credentials, windowStart, windowEnd)
+        val mapped = fetcher().fetch(calendar(), credentials, windowStart, windowEnd).mapped()
 
         assertTrue(seenBodies.isNotEmpty())
         seenBodies.forEach { assertFalse("no request may ask for expansion: $it", it.contains("expand")) }
-        assertTrue(result.events.any { it.title == "Day off" })
-        assertTrue(result.tasks.isNotEmpty())
+        assertTrue(mapped.events.any { it.title == "Day off" })
+        assertTrue(mapped.tasks.isNotEmpty())
     }
 
     @Test

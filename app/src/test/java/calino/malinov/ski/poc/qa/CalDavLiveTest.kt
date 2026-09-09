@@ -2,7 +2,14 @@ package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.data.caldav.CalDavDiscovery
 import calino.malinov.ski.poc.data.caldav.CalDavFetcher
+import calino.malinov.ski.poc.data.caldav.CachedCalendar
 import calino.malinov.ski.poc.data.caldav.DavCredentials
+import calino.malinov.ski.poc.data.caldav.DiscoveredCalendar
+import calino.malinov.ski.poc.data.caldav.FetchResult
+import calino.malinov.ski.poc.data.caldav.FileCalendarCache
+import calino.malinov.ski.poc.data.caldav.ICalMapper
+import java.nio.file.Files
+import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -40,6 +47,14 @@ class CalDavLiveTest {
 
     private fun credentials() = DavCredentials(user!!, pass!!)
 
+    private val mapper = ICalMapper()
+
+    private fun FetchResult.mapped(
+        calendar: DiscoveredCalendar,
+        start: LocalDate,
+        end: LocalDate,
+    ): ICalMapper.Parsed = mapper.mapAll(resources, calendar.url, calendar.color, start, end)
+
     @Test
     fun `discovery finds calendars and excludes address books`() = runBlocking {
         val account = CalDavDiscovery().discoverAccount(url!!, credentials())
@@ -67,9 +82,12 @@ class CalDavLiveTest {
         // Deliberately per-kind. Asserting only "something came back" passes
         // when every event is missing but a single task arrives -- which is
         // exactly the shape a broken event query produces.
-        val events = results.flatMap { it.events }
-        val tasks = results.flatMap { it.tasks }
-        val journals = results.flatMap { it.journals }
+        val mapped = account.calendars.zip(results) { calendar, result ->
+            result.mapped(calendar, today.minusMonths(6), today.plusMonths(6))
+        }
+        val events = mapped.flatMap { it.events }
+        val tasks = mapped.flatMap { it.tasks }
+        val journals = mapped.flatMap { it.journals }
         println(
             "LIVE: ${account.calendars.size} calendars, " +
                 "${events.size} events, ${tasks.size} tasks, ${journals.size} journals, " +
@@ -106,10 +124,41 @@ class CalDavLiveTest {
         }
         println("LIVE: ${repeating.size} repeating series, largest ${repeating.maxOf { it.size }} occurrences")
 
-        results.flatMap { it.events }.forEach { event ->
+        events.forEach { event ->
             assertTrue("every event needs a title", event.title.isNotBlank())
             assertTrue("every fetched event needs a UID", event.uid != null)
         }
+    }
+
+    @Test
+    fun `a cached copy maps back to the same records`() = runBlocking {
+        // The point of caching the server's own text rather than mapped
+        // occurrences: what comes back off disk must be indistinguishable from
+        // what came off the wire, for the same window.
+        val account = CalDavDiscovery().discoverAccount(url!!, credentials())
+        val today = LocalDate.now()
+        val start = today.minusMonths(6)
+        val end = today.plusMonths(6)
+        val cache = FileCalendarCache(Files.createTempDirectory("calino-cache").toFile())
+
+        val fromServer = account.calendars.flatMap { calendar ->
+            val result = CalDavFetcher().fetch(calendar, credentials(), start, end)
+            cache.save(
+                CachedCalendar(calendar.url, Instant.now(), start, end, result.resources),
+            )
+            result.mapped(calendar, start, end).events
+        }
+
+        val fromDisk = account.calendars.flatMap { calendar ->
+            val entry = cache.load(calendar.url)
+            assertTrue("nothing was cached for ${calendar.displayName}", entry != null)
+            mapper.mapAll(entry!!.resources, calendar.url, calendar.color, start, end).events
+        }
+
+        println("LIVE: ${fromServer.size} events from the server, ${fromDisk.size} from the cache")
+        assertTrue("the cache read nothing back", fromDisk.isNotEmpty())
+        assertEquals(fromServer.map { it.id }.sorted(), fromDisk.map { it.id }.sorted())
+        assertEquals(fromServer.sortedBy { it.id }, fromDisk.sortedBy { it.id })
     }
 
     @Test

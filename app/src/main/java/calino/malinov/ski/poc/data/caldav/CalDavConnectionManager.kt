@@ -50,12 +50,30 @@ class CalDavConnectionManager(
     /**
      * Restores every persisted account after a cold start.
      *
-     * Discovery runs again rather than trusting the stored collection list, so
-     * a calendar renamed, recoloured, or deleted on the server is picked up.
+     * The stored collection list seeds the sources *first*, synchronously, so
+     * the repository can render its cache without waiting on a network round
+     * trip. Discovery then runs anyway, because the stored list is the last
+     * thing seen rather than the truth: a calendar renamed, recoloured, or
+     * deleted on the server is picked up when it returns.
      */
     fun restore() {
         val accounts = accountStore.accounts()
         if (accounts.isEmpty()) return
+        accounts.forEach { account ->
+            discovered[account.id] = account.calendars.map { calendar ->
+                DiscoveredCalendar(
+                    url = calendar.id,
+                    displayName = calendar.name,
+                    color = calendar.color,
+                    readOnly = calendar.readOnly,
+                    // Unknown until discovery answers, and unused: the fetcher
+                    // queries every component regardless of what a collection
+                    // advertises. See CalDavFetcher.fetch.
+                    components = emptySet(),
+                )
+            }
+        }
+        applySources()
         scope.launch { accounts.forEach { rediscover(it) } }
     }
 

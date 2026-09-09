@@ -55,6 +55,7 @@ import calino.malinov.ski.poc.data.caldav.KeystoreCredentialStore
 import calino.malinov.ski.poc.data.caldav.SharedPreferencesAccountPersistence
 import calino.malinov.ski.poc.data.model.CalDavCalendar
 import calino.malinov.ski.poc.data.model.CalDavForm
+import calino.malinov.ski.poc.data.caldav.FileCalendarCache
 import calino.malinov.ski.poc.data.repository.CalDavRepository
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -124,6 +125,7 @@ import calino.malinov.ski.poc.ui.surfaces.toParserKind
 import calino.malinov.ski.poc.ui.surfaces.JournalSurface
 import calino.malinov.ski.poc.ui.surfaces.SettingsSurface
 import calino.malinov.ski.poc.ui.surfaces.Tasks
+import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -234,6 +236,7 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     private val calDavRepository = CalDavRepository(
         fetcher = CalDavFetcher(sharedHttp),
         scope = viewModelScope,
+        cache = FileCalendarCache(File(application.filesDir, "caldav-cache")),
     )
 
     private val connections = CalDavConnectionManager(

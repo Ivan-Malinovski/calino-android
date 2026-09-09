@@ -219,7 +219,17 @@ fun CalendarAccountsSurface(
 private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
     val (label, detail) = when (state) {
         SyncState.Idle -> "Not connected" to "No calendars are being read yet."
-        SyncState.Loading -> "Reading calendars\u2026" to "Fetching events, tasks and journal entries."
+        is SyncState.Loading -> {
+            val cachedAt = state.cachedAt
+            if (cachedAt == null) {
+                "Reading calendars\u2026" to "Fetching events, tasks and journal entries."
+            } else {
+                // Saying only "reading" over a full calendar reads as though
+                // what is on screen might be wrong. It is the last good read.
+                val stamp = remember(cachedAt) { formatSyncTime(cachedAt) }
+                "Refreshing\u2026" to "Showing what was read $stamp while the server is read again."
+            }
+        }
         is SyncState.Ready -> {
             val stamp = remember(state.fetchedAt) { formatSyncTime(state.fetchedAt) }
             if (state.partial) {

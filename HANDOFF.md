@@ -88,6 +88,36 @@ cancelled, boundary, and reverse gestures. Use the zoom handle semantics
 validation requires an explicit request and must not be inferred from emulator
 results.
 
+### Offline read cache — 2026-09-09
+
+A connected calendar now renders from disk on launch and stays readable with no
+network. Nothing calendar-related survived a restart before: only the account
+list and the encrypted password reached disk, so every cold start showed an
+empty calendar until discovery plus three REPORTs per collection came back, and
+offline it never filled in at all.
+
+Fetching and mapping were split to make it possible. `CalDavFetcher` now
+returns the server's raw `CalendarResource(href, etag, ics)` and does no
+mapping; `ICalMapper.mapAll` maps a collection for a given window; the
+repository owns both. `FileCalendarCache` stores the resource text per calendar
+as gzipped JSON, and the repository loads and maps it before making any
+request, then refetches behind it. Caching text rather than mapped occurrences
+is the point: a series re-expands into whatever window is current, so the cache
+does not go stale as the calendar date moves.
+
+`SyncState.Loading` gained `cachedAt`, so a refresh over a full calendar says
+what is on screen rather than implying it might be empty.
+`CalDavConnectionManager.restore` now seeds sources from the persisted calendar
+list before discovery, so the cache is not gated behind a network round trip.
+`LocalOverlay` deliberately still does not persist.
+
+Verified: 175 unit tests; the live read-only test against the maintainer's
+Baikal server round-trips all 350 events through the cache byte-identically; on
+the emulator a cold start with WiFi and mobile data off renders the full
+calendar in about two seconds, the Calendars screen says the refresh failed and
+it is showing the last data read, and removing the account leaves
+`files/caldav-cache/` empty. 24 KB on disk for three collections.
+
 ### Client-side recurrence and a real clock — 2026-09-09
 
 Two user-reported defects, both fixed and both verified on the emulator against
@@ -724,9 +754,11 @@ to be complete:
    handling, and no offline queue. Local edits go to `LocalOverlay` and are
    discarded on refetch; the accounts surface states this on screen. There is
    still no CardDAV or webcal.
-2. Persistence is limited to CalDAV accounts and their credentials. Settings,
-   event changes, task changes, and journal changes are still not durable, and
-   the fixture repository remains process-local.
+2. Persistence covers CalDAV accounts, their credentials, and a read cache of
+   fetched calendar data. Settings, event changes, task changes, and journal
+   changes are still not durable, and the fixture repository remains
+   process-local. `LocalOverlay` deliberately does not persist: an edit that
+   cannot sync must not look durable.
 3. Many settings use local state inside section composables. Switching away and
    back can restore the hard-coded preview default. Decide whether the eventual
    state belongs in a settings state holder or repository before wiring real
@@ -884,8 +916,9 @@ written back to the server.**
 | `DavCredentials.kt` | Basic auth, UTF-8 per RFC 7617. `toString()` masks the password. |
 | `DavXml.kt` | DOM parsing for multistatus, namespace-aware **with a local-name fallback**. |
 | `CalDavDiscovery.kt` | Well-known probe, principal, calendar-home, collection listing. Implements the existing `CalDavClient` seam. |
-| `CalDavFetcher.kt` | The three component queries, expansion, and partial-result handling. |
-| `ICalMapper.kt` | biweekly → `CalEvent` / `CalTask` / `JournalEntry`. |
+| `CalDavFetcher.kt` | The three component queries and partial-result handling. Returns the server's raw `CalendarResource`s; it does not map. |
+| `ICalMapper.kt` | biweekly → `CalEvent` / `CalTask` / `JournalEntry`, plus recurrence expansion. `mapAll` maps a whole collection for a given window. |
+| `CalendarCache.kt` | The on-disk read cache: `FileCalendarCache` (one gzipped JSON file per calendar) and `CalendarCacheJson`. |
 | `CalDavErrors.kt` | `CalDavErrorCode` and the status/throwable classifiers. |
 | `CredentialStore.kt` | `KeystoreCredentialStore` (AES-GCM under an Android Keystore key) and an in-memory one for tests. |
 | `CalDavAccountJson.kt` | Account-list persistence in private `SharedPreferences`. |
@@ -929,6 +962,57 @@ Each of these was paid for once; do not undo them casually.
   flips a timed task to all-day.
 - **A leading BOM is stripped before parsing**, or the parse silently yields
   zero components.
+
+### The read cache
+
+A connected calendar renders from disk on launch and stays readable with no
+network. Before this, `CalDavRepository.fetched` was a plain in-memory field:
+every cold start showed an empty calendar for two network round trips
+(discovery, then three REPORTs per collection), and offline it never filled in
+at all.
+
+`FileCalendarCache` keeps one gzipped JSON file per calendar under
+`filesDir/caldav-cache/`, named by the SHA-256 of the calendar URL. The
+maintainer's three collections -- 350 events, 38 tasks, 3 journals -- come to
+24 KB on disk.
+
+Load-bearing rules:
+
+- **What is cached is the server's own iCalendar text, not mapped
+  occurrences.** Expansion is a function of the fetch window, so cached
+  occurrences would be frozen to the window they were fetched under. Caching
+  the resources and re-running `ICalMapper.mapAll` against a window computed
+  from *today* means a series re-expands into the current window on its own.
+  It is also far smaller: one master rather than 198 occurrences.
+- **The event query is time-ranged, so cached coverage is not unbounded.** A
+  recurring series re-expands anywhere, but a one-off event outside the cached
+  window was never fetched and cannot appear until a refresh succeeds.
+- **Fetching and mapping are separate.** `CalDavFetcher` returns
+  `CalendarResource(href, etag, ics)` and does no mapping; the repository maps.
+  That split is what makes the cache possible at all.
+- **A generation counter orders the cache load against the fetch.** They race
+  by construction and the cache is the older answer; the counter is what stops
+  a slow disk read from overwriting a fetch that already landed.
+- **`setSources` is a no-op for an unchanged source set.** A cold start calls
+  it twice -- once from the persisted account list, once when rediscovery
+  confirms it -- and the second call must not discard the cache or refetch.
+- **`CalDavConnectionManager.restore` seeds sources from the persisted calendar
+  list before discovery runs**, so the cache is not gated behind a network
+  round trip. The provisional `DiscoveredCalendar` carries `components =
+  emptySet()`, which is safe only because the fetcher queries all three
+  components regardless.
+- **An unreadable cache yields nothing and the calendar refetches.** Corrupt,
+  truncated, and wrong-version files all decode to null. This runs on the
+  launch path; throwing here would be a crash on startup.
+- **Writes go to a `.tmp` and are renamed**, so a kill mid-write leaves the
+  previous copy rather than a truncated one.
+- **Only the read side is cached.** `LocalOverlay` still lives and dies with
+  the process. Persisting unsyncable edits would be a half-built offline queue.
+- **Removing an account, or disabling a calendar, evicts its cached content.**
+  Verified on the emulator, not only in a unit test.
+
+Nothing secret is cached: resource text only. The password stays in
+`KeystoreCredentialStore`, the account list in `CalDavAccountJson`.
 
 ### Recurrence
 
@@ -1077,15 +1161,21 @@ Roughly in the order that would deliver the most.
    `PUT`/`DELETE` with `If-Match`, and `CalEvent.etag`/`href` already exist to
    carry it. Gated behind its own review.
 3. **Incremental sync.** Every refresh refetches the whole window.
-   `sync-collection` (RFC 6578) and the stored `ctag` would fix that. Port the
+   `sync-collection` (RFC 6578) and the stored `ctag` would fix that. The cache
+   is the substrate for it: it already stores each resource's `href` and
+   `etag`, which is what a differential update needs. Port the
    web app's rules: any non-2xx invalidates the token, and a tombstone is a
    `<status>` that is a **direct child** of `<response>`.
 4. **A sync indicator on the calendar surfaces.** `snapshot.sync` is only
    rendered under Calendars, so a failed refresh is invisible from the month or
-   agenda view.
+   agenda view. Less acute since the cache landed -- a cold start is no longer
+   a blank calendar -- but a stale copy still looks identical to a fresh one
+   outside the Calendars screen.
 5. **Fetch-window paging.** The window is today ±6 months
    (`CalDavRepository.DefaultWindowMonths`) and does not extend when the user
-   pages beyond it — events simply stop.
+   pages beyond it — events simply stop. Note the cache changes the shape of
+   this: a cached *series* re-expands into whatever window is asked for, so
+   only one-off events outside the fetched range are missing.
 6. **`monthEventIndex` cost.** It is O(events × 42) per month page with three
    months composed at once, and a real expanded calendar is far larger than the
    38 fixtures it was written against. Not yet observed to be slow; measure

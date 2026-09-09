@@ -30,7 +30,8 @@ plan for the next model.
 Read-only, and deliberately so. What exists:
 
 - `data/caldav/` — OkHttp transport, discovery, fetching, iCalendar mapping,
-  error classification, and Keystore-backed credential storage.
+  error classification, Keystore-backed credential storage, and the on-disk
+  read cache (`CalendarCache.kt`).
 - `data/repository/CalDavRepository.kt` — a second `CalinoRepository` fed by
   those collections, selected once an account is connected.
 
@@ -46,8 +47,17 @@ Recurrence **is** expanded, on the client, in `ICalMapper`. The event query no
 longer sends `<c:expand>` at all -- see the CalDAV section of `HANDOFF.md` for
 the rules that expansion depends on.
 
+Fetched data **is** cached to disk, read-only. `CalDavFetcher` returns the
+server's raw resource text and `FileCalendarCache` stores it per calendar, so a
+launch renders before any request is made and the app stays readable offline.
+What is cached is iCalendar text, never mapped occurrences -- that is what lets
+a series re-expand as the window moves. `LocalOverlay` is **not** cached, on
+purpose: an edit that cannot sync must not look durable. See "The read cache"
+in `HANDOFF.md` before changing any of it.
+
 Credentials: the password lives only in the sheet's draft state and in
-`KeystoreCredentialStore`, encrypted under an Android Keystore key.
+`KeystoreCredentialStore`, encrypted under an Android Keystore key. Nothing
+secret reaches the read cache -- it holds resource text only.
 `CalDavAccount` has no password field, and nothing secret is written to the
 account JSON. Never log a password, and never commit real credentials — the
 live test reads them from the environment.
