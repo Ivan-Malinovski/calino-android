@@ -64,6 +64,7 @@ import calino.malinov.ski.poc.data.model.Availability
 import calino.malinov.ski.poc.data.model.EditorDraft
 import calino.malinov.ski.poc.data.model.EditorField
 import calino.malinov.ski.poc.data.model.RecurrenceFreq
+import calino.malinov.ski.poc.data.model.RecurrenceEditScope
 import calino.malinov.ski.poc.data.model.Reminder
 import calino.malinov.ski.poc.data.model.applyInput
 import calino.malinov.ski.poc.data.model.recurrenceDaysOf
@@ -172,7 +173,10 @@ fun EditorSurface(
     }
     val pickUntil = rememberDatePicker({ draft.date.plusMonths(3) }) { picked ->
         val freq = recurrenceFreqOf(draft.recurrence) ?: RecurrenceFreq.Weekly
-        draft = draft.copy(recurrence = recurrenceRule(freq, recurrenceDaysOf(draft.recurrence), picked))
+        draft = draft.copy(
+            recurrence = recurrenceRule(freq, recurrenceDaysOf(draft.recurrence), picked),
+            recurrenceChanged = true,
+        )
     }
 
     BottomDetailCard(
@@ -522,6 +526,9 @@ private fun EventEditorFields(
     EditorReveal(recurrenceOpen) {
         EditorChoiceBlock { RecurrenceEditor(draft, onDraft, pickUntil) }
     }
+    if (draft.isEditing && (draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null)) {
+        RecurrenceScopeSelector(draft, onDraft)
+    }
     EditorDivider()
     DescriptionSection(draft, descriptionOpen, onDescriptionOpen, onDraft)
     EditorDivider()
@@ -851,13 +858,27 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         EditorLabel("Repeat")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            CalinoChip(
+                text = "Never",
+                selected = draft.recurrence == null,
+                description = "Do not repeat",
+                semanticsRole = Role.RadioButton,
+                onClick = { onDraft(draft.copy(recurrence = null, recurrenceChanged = true)) },
+            )
             RecurrenceFreq.entries.forEach { entry ->
                 CalinoChip(
                     text = entry.name,
                     selected = entry == freq,
                     description = "Repeat ${entry.name.lowercase(Locale.US)}",
                     semanticsRole = Role.RadioButton,
-                    onClick = { onDraft(draft.copy(recurrence = recurrenceRule(entry, days, untilOf(draft.recurrence)))) },
+                    onClick = {
+                        onDraft(
+                            draft.copy(
+                                recurrence = recurrenceRule(entry, days, untilOf(draft.recurrence)),
+                                recurrenceChanged = true,
+                            ),
+                        )
+                    },
                 )
             }
         }
@@ -879,6 +900,7 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
                                         next.ifEmpty { setOf(draft.date.dayOfWeek) },
                                         untilOf(draft.recurrence),
                                     ),
+                                    recurrenceChanged = true,
                                 ),
                             )
                         },
@@ -893,6 +915,45 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
             onClick = pickUntil,
         )
         Text(formatRecurrenceRule(draft.recurrence, draft.date), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        EditorLabel("Apply changes to")
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            RecurrenceEditScope.entries.forEach { scope ->
+                val label = when (scope) {
+                    RecurrenceEditScope.This -> "This event"
+                    RecurrenceEditScope.Future -> "This and future"
+                    RecurrenceEditScope.All -> "Entire series"
+                }
+                CalinoChip(
+                    text = label,
+                    selected = draft.recurrenceScope == scope,
+                    description = "Apply recurrence edit to $label",
+                    semanticsRole = Role.RadioButton,
+                    onClick = { onDraft(draft.copy(recurrenceScope = scope)) },
+                )
+            }
+        }
+        Text(
+            when (draft.recurrenceScope) {
+                RecurrenceEditScope.This -> "Only this occurrence changes."
+                RecurrenceEditScope.Future -> "This occurrence and later occurrences change."
+                RecurrenceEditScope.All -> "Every occurrence in the series changes."
+            },
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink3,
+        )
     }
 }
 

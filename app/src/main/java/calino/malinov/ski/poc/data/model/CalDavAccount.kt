@@ -3,10 +3,10 @@ package calino.malinov.ski.poc.data.model
 /**
  * A connected CalDAV account and the collections discovered under it.
  *
- * The prototype never speaks to a real server: an account is created from a
- * simulated discovery and lives only for the process. Nothing here is written
- * to disk, and [CalDavForm.password] is deliberately absent from this type so a
- * stored account can never carry a secret.
+ * Server reads and conditional writes are real; the repository overlay shows
+ * accepted local changes immediately while the durable queue handles retries.
+ * [CalDavForm.password] is deliberately absent from this type so a stored
+ * account can never carry a secret.
  */
 data class CalDavAccount(
     val id: String,
@@ -14,15 +14,23 @@ data class CalDavAccount(
     val serverUrl: String,
     val username: String,
     val calendars: List<CalDavCalendar>,
+    val addressBooks: List<ContactAddressBook> = emptyList(),
 )
 
-/** One collection under an account. [color] matches the fixture calendar palette. */
+/**
+ * One collection under an account. [color] matches the fixture calendar
+ * palette. [ctag] is a change hint; [syncToken] is the RFC 6578 cursor. Both
+ * are nullable because servers may not advertise either property, and a
+ * cursor is only useful after a complete resource snapshot has been read.
+ */
 data class CalDavCalendar(
     val id: String,
     val name: String,
     val color: Long,
     val enabled: Boolean = true,
     val readOnly: Boolean = false,
+    val ctag: String? = null,
+    val syncToken: String? = null,
 )
 
 /**

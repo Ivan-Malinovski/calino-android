@@ -1,6 +1,8 @@
 package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.data.caldav.CachedCalendar
+import calino.malinov.ski.poc.data.caldav.CachedAddressBook
+import calino.malinov.ski.poc.data.caldav.CardResource
 import calino.malinov.ski.poc.data.caldav.CalendarCacheJson
 import calino.malinov.ski.poc.data.caldav.CalendarResource
 import calino.malinov.ski.poc.data.caldav.FileCalendarCache
@@ -34,6 +36,7 @@ class CalendarCacheTest {
     }
 
     private val url = "https://caldav.example.com/dav.php/calendars/test-user/default/"
+    private val addressBookUrl = "https://carddav.example.com/dav.php/addressbooks/test-user/contacts/"
 
     private fun entry(
         calendarUrl: String = url,
@@ -46,6 +49,26 @@ class CalendarCacheTest {
         fetchedAt = Instant.parse("2026-09-09T07:30:00Z"),
         windowStart = LocalDate.of(2026, 3, 1),
         windowEnd = LocalDate.of(2027, 3, 1),
+        resources = resources,
+    )
+
+    private fun addressBookEntry(
+        url: String = addressBookUrl,
+        resources: List<CardResource> = listOf(
+            CardResource(
+                href = "$url/ada.vcf",
+                etag = "card-etag-1",
+                vcf = VCard,
+            ),
+            CardResource(
+                href = "$url/chen.vcf",
+                etag = null,
+                vcf = VCard.replace("Ada Lovelace", "Chen Wei"),
+            ),
+        ),
+    ) = CachedAddressBook(
+        addressBookUrl = url,
+        fetchedAt = Instant.parse("2026-09-09T07:30:00Z"),
         resources = resources,
     )
 
@@ -64,6 +87,17 @@ class CalendarCacheTest {
     }
 
     @Test
+    fun `a saved address book reads back raw vcards unchanged`() {
+        val cache = FileCalendarCache(root)
+        cache.saveAddressBook(addressBookEntry())
+
+        val loaded = cache.loadAddressBook(addressBookUrl)
+        assertEquals(addressBookEntry(), loaded)
+        assertEquals(VCard, loaded!!.resources.first().vcf)
+        assertNull("a missing ETag must stay null", loaded.resources[1].etag)
+    }
+
+    @Test
     fun `a calendar that was never cached loads as nothing`() {
         assertNull(FileCalendarCache(root).load(url))
     }
@@ -76,6 +110,58 @@ class CalendarCacheTest {
 
         assertEquals(1, cache.load(url)!!.resources.size)
         assertEquals(1, root.listFiles()!!.size)
+    }
+
+    @Test
+    fun `a cached resource can be read back by href`() {
+        val cache = FileCalendarCache(root)
+        cache.save(entry())
+
+        assertEquals(
+            entry().resources.first(),
+            cache.loadResource(url, "$url/one.ics"),
+        )
+        assertNull(cache.loadResource(url, "$url/missing.ics"))
+    }
+
+    @Test
+    fun `saving a resource replaces it in place and leaves siblings alone`() {
+        val cache = FileCalendarCache(root)
+        cache.save(entry())
+        val replacement = CalendarResource("$url/one.ics", "etag-new", Ics.replace("lunch", "breakfast"))
+
+        cache.saveResource(url, replacement)
+
+        val resources = cache.load(url)!!.resources
+        assertEquals(2, resources.size)
+        assertEquals(replacement, resources.first { it.href == replacement.href })
+        assertEquals("$url/two.ics", resources.single { it.href.endsWith("two.ics") }.href)
+    }
+
+    @Test
+    fun `deleting a resource removes only that href`() {
+        val cache = FileCalendarCache(root)
+        cache.save(entry())
+
+        cache.deleteResource(url, "$url/one.ics")
+
+        val resources = cache.load(url)!!.resources
+        assertEquals(1, resources.size)
+        assertEquals("$url/two.ics", resources.single().href)
+    }
+
+    @Test
+    fun `saving a resource into an uncached collection does nothing`() {
+        val cache = FileCalendarCache(root)
+        val otherUrl = "https://caldav.example.com/dav.php/calendars/test-user/uncached/"
+
+        cache.saveResource(
+            otherUrl,
+            CalendarResource("$otherUrl/new.ics", "etag", Ics),
+        )
+
+        assertNull(cache.load(otherUrl))
+        assertNull(cache.loadResource(otherUrl, "$otherUrl/new.ics"))
     }
 
     @Test
@@ -144,6 +230,31 @@ class CalendarCacheTest {
         assertEquals(0, root.listFiles()!!.size)
     }
 
+    @Test
+    fun `address book eviction drops disabled books and keeps the rest`() {
+        val cache = FileCalendarCache(root)
+        val other = "https://carddav.example.com/dav.php/addressbooks/test-user/work/"
+        cache.saveAddressBook(addressBookEntry())
+        cache.saveAddressBook(addressBookEntry(url = other))
+
+        cache.evictAddressBooksExcept(setOf(addressBookUrl))
+
+        assertEquals(addressBookUrl, cache.loadAddressBook(addressBookUrl)!!.addressBookUrl)
+        assertNull("a disabled address book's content must leave the disk", cache.loadAddressBook(other))
+    }
+
+    @Test
+    fun `calendar eviction does not remove enabled address book caches`() {
+        val cache = FileCalendarCache(root)
+        cache.save(entry())
+        cache.saveAddressBook(addressBookEntry())
+
+        cache.evictExcept(emptySet())
+
+        assertNull(cache.load(url))
+        assertEquals(addressBookEntry(), cache.loadAddressBook(addressBookUrl))
+    }
+
     // --- damage ---------------------------------------------------------------
 
     @Test
@@ -153,6 +264,15 @@ class CalendarCacheTest {
         root.listFiles()!!.first().writeText("this is not gzipped json")
 
         assertNull(cache.load(url))
+    }
+
+    @Test
+    fun `a corrupt address book file loads as nothing rather than throwing`() {
+        val cache = FileCalendarCache(root)
+        cache.saveAddressBook(addressBookEntry())
+        root.listFiles()!!.single().writeText("this is not gzipped json")
+
+        assertNull(cache.loadAddressBook(addressBookUrl))
     }
 
     @Test
@@ -240,6 +360,14 @@ RRULE:FREQ=DAILY
 SUMMARY:Standup
 END:VEVENT
 END:VCALENDAR
+"""
+
+        val VCard = """BEGIN:VCARD
+VERSION:3.0
+UID:ada
+FN:Ada Lovelace
+EMAIL;TYPE=work:ada@example.com
+END:VCARD
 """
     }
 }

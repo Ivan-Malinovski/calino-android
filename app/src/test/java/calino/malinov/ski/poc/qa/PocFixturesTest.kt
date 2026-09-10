@@ -1,6 +1,7 @@
 package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.data.repository.FixtureRepository
+import calino.malinov.ski.poc.data.repository.WriteResult
 import calino.malinov.ski.poc.data.model.Availability
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.Reminder
@@ -14,6 +15,7 @@ import calino.malinov.ski.poc.util.formatRecurrenceSummary
 import calino.malinov.ski.poc.util.nextOccurrences
 import java.time.LocalDate
 import java.time.LocalDateTime
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -23,7 +25,7 @@ class PocFixturesTest {
     private val fixtureDate = LocalDate.of(2026, 5, 18)
 
     @Test
-    fun repository_carriesTheEditorsNewFields() {
+    fun repository_carriesTheEditorsNewFields() = runBlocking {
         val repository = FixtureRepository()
 
         val event = repository.addEvent(
@@ -38,7 +40,7 @@ class PocFixturesTest {
                 travelTimeMinutes = 30,
                 relatedTo = listOf("task-inbox"),
             ),
-        )
+        ).applied()
         assertEquals(Availability.Free, event.availability)
         assertEquals(listOf("Work"), event.categories)
         assertEquals(listOf(Reminder(15)), event.reminders)
@@ -53,12 +55,12 @@ class PocFixturesTest {
                 notes = "Attach the tickets",
                 reminder = Reminder(60),
             ),
-        )
+        ).applied()
         assertEquals(LocalTime.of(17, 0), task.dueTime)
         assertEquals("Attach the tickets", task.notes)
         assertEquals(Reminder(60), task.reminder)
 
-        val reopened = repository.updateTask(task.id, NewTask(title = "Send itinerary", due = fixtureDate), done = true)
+        val reopened = repository.updateTask(task.id, NewTask(title = "Send itinerary", due = fixtureDate), done = true).applied()
         assertTrue(reopened.done)
         assertNull(reopened.dueTime)
     }
@@ -69,6 +71,16 @@ class PocFixturesTest {
 
         assertEquals(listOf("personal", "work", "travel"), snapshot.calendars.map { it.id })
         assertTrue(snapshot.categories.containsAll(listOf("Work", "Personal", "Travel")))
+    }
+
+    @Test
+    fun snapshot_exposesTheContactFixtureContract() {
+        val snapshot = FixtureRepository().snapshot()
+
+        assertEquals(listOf("fixture-contacts"), snapshot.addressBooks.map { it.id })
+        assertTrue(snapshot.contacts.any { it.id == "contact-ada" && it.birthday == LocalDate.of(1988, 5, 24) })
+        assertTrue(snapshot.contacts.any { it.isGroup && it.memberUids.isNotEmpty() })
+        assertTrue(snapshot.contacts.any { it.displayName.isBlank() && it.photo == null })
     }
 
     @Test
@@ -117,59 +129,59 @@ class PocFixturesTest {
     }
 
     @Test
-    fun localMutations_areObservable_andUndoable() {
+    fun localMutations_areObservable_andUndoable() = runBlocking {
         val repository = FixtureRepository()
         val revisions = mutableListOf<Long>()
         val subscription = repository.observe { revisions += it.revision }
 
-        val event = repository.addEvent(NewEvent("Coffee", fixtureDate, LocalTime.of(15, 0)))
-        val task = repository.addTask(NewTask("Pack charger", fixtureDate))
-        val journal = repository.addJournal(NewJournal(fixtureDate, "After work", "A useful note."))
-        val completed = repository.setTaskDone(task.id, true)
+        val event = repository.addEvent(NewEvent("Coffee", fixtureDate, LocalTime.of(15, 0))).applied()
+        val task = repository.addTask(NewTask("Pack charger", fixtureDate)).applied()
+        val journal = repository.addJournal(NewJournal(fixtureDate, "After work", "A useful note.")).applied()
+        val completed = repository.setTaskDone(task.id, true).applied()
 
         assertTrue(repository.events().contains(event))
         assertTrue(repository.journals().contains(journal))
         assertTrue(repository.tasks().first { it.id == task.id }.done)
-        val updatedJournal = repository.updateJournal(journal.id, NewJournal(fixtureDate.plusDays(1), "After work", "A revised note."))
+        val updatedJournal = repository.updateJournal(journal.id, NewJournal(fixtureDate.plusDays(1), "After work", "A revised note.")).applied()
         assertEquals(fixtureDate.plusDays(1), updatedJournal.date)
         assertEquals("A revised note.", repository.journals().first { it.id == journal.id }.body)
-        repository.deleteJournal(journal.id)
+        repository.deleteJournal(journal.id).applied()
         assertTrue(repository.journals().none { it.id == journal.id })
-        assertTrue(repository.undo(completed))
+        repository.undo(completed).applied()
         assertTrue(!repository.tasks().first { it.id == task.id }.done)
         assertTrue(revisions.size >= 7)
         subscription.close()
     }
 
     @Test
-    fun twoTaskCompletions_canBothBeUndoneWithoutClobberingEachOther() {
+    fun twoTaskCompletions_canBothBeUndoneWithoutClobberingEachOther() = runBlocking {
         val repository = FixtureRepository()
-        val first = repository.setTaskDone("task-inbox", true)
-        val second = repository.setTaskDone("task-overdue", true)
+        val first = repository.setTaskDone("task-inbox", true).applied()
+        val second = repository.setTaskDone("task-overdue", true).applied()
 
         assertTrue(repository.tasks().first { it.id == "task-inbox" }.done)
         assertTrue(repository.tasks().first { it.id == "task-overdue" }.done)
-        assertTrue(repository.undo(second))
-        assertTrue(repository.undo(first))
+        repository.undo(second).applied()
+        repository.undo(first).applied()
         assertTrue(!repository.tasks().first { it.id == "task-inbox" }.done)
         assertTrue(!repository.tasks().first { it.id == "task-overdue" }.done)
     }
 
     @Test
-    fun reschedule_isReversible_andDoesNotClobberLaterEdits() {
+    fun reschedule_isReversible_andDoesNotClobberLaterEdits() = runBlocking {
         val repository = FixtureRepository()
-        val change = repository.rescheduleTask("task-inbox", fixtureDate.plusDays(2))
+        val change = repository.rescheduleTask("task-inbox", fixtureDate.plusDays(2)).applied()
 
         assertEquals(fixtureDate.plusDays(2), repository.tasks().first { it.id == "task-inbox" }.due)
-        assertTrue(repository.undo(change))
+        repository.undo(change).applied()
         assertEquals(fixtureDate, repository.tasks().first { it.id == "task-inbox" }.due)
-        val stale = repository.rescheduleTask("task-inbox", fixtureDate.plusDays(3))
-        repository.rescheduleTask("task-inbox", fixtureDate.plusDays(4))
-        assertTrue(!repository.undo(stale))
+        val stale = repository.rescheduleTask("task-inbox", fixtureDate.plusDays(3)).applied()
+        repository.rescheduleTask("task-inbox", fixtureDate.plusDays(4)).applied()
+        assertTrue(repository.undo(stale) is WriteResult.Rejected)
     }
 
     @Test
-    fun updateEvent_replacesExistingRecordWithoutChangingItsId() {
+    fun updateEvent_replacesExistingRecordWithoutChangingItsId() = runBlocking {
         val repository = FixtureRepository()
         val original = repository.events().first { it.id == "evt-lunch" }
 
@@ -184,7 +196,7 @@ class PocFixturesTest {
                 location = "Café Lumen",
                 calendarId = original.calendarId,
             ),
-        )
+        ).applied()
 
         assertEquals(original.id, updated.id)
         assertEquals(1, repository.events().count { it.id == original.id })
@@ -192,7 +204,7 @@ class PocFixturesTest {
     }
 
     @Test
-    fun updateTask_replacesEditableFields_withoutChangingItsId() {
+    fun updateTask_replacesEditableFields_withoutChangingItsId() = runBlocking {
         val repository = FixtureRepository()
         val original = repository.tasks().first { it.id == "task-inbox" }
 
@@ -205,7 +217,7 @@ class PocFixturesTest {
                 category = "Personal",
             ),
             done = true,
-        )
+        ).applied()
 
         assertEquals(original.id, updated.id)
         assertEquals("Review the revised calendar notes", updated.title)
@@ -277,3 +289,7 @@ class PocFixturesTest {
         assertTrue(nextOccurrences(event, fixtureDate, limit = 0).isEmpty())
     }
 }
+
+private fun <T> WriteResult<T>.applied(): T =
+    (this as? WriteResult.Applied<T>)?.record
+        ?: error("Expected an applied fixture write, got $this")

@@ -57,6 +57,8 @@ import androidx.lifecycle.viewModelScope
 import calino.malinov.ski.poc.data.caldav.CalDavConnectionManager
 import calino.malinov.ski.poc.data.caldav.CalDavDiscovery
 import calino.malinov.ski.poc.data.caldav.CalDavFetcher
+import calino.malinov.ski.poc.data.caldav.CalDavWriter
+import calino.malinov.ski.poc.data.caldav.CardDavWriter
 import calino.malinov.ski.poc.data.caldav.CredentialStore
 import calino.malinov.ski.poc.data.caldav.DavHttp
 import calino.malinov.ski.poc.data.caldav.KeystoreCredentialStore
@@ -100,6 +102,11 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.model.JournalEntry
+import calino.malinov.ski.poc.data.model.Contact
+import calino.malinov.ski.poc.data.model.NewContact
+import calino.malinov.ski.poc.data.model.toNewContact
+import calino.malinov.ski.poc.data.model.derivedDisplayName
+import calino.malinov.ski.poc.data.model.contactReminderEvent
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.NewJournal
 import calino.malinov.ski.poc.data.model.NewTask
@@ -117,6 +124,9 @@ import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.data.repository.UndoableChange
+import calino.malinov.ski.poc.data.repository.WriteResult
+import calino.malinov.ski.poc.data.repository.PendingChange
+import calino.malinov.ski.poc.data.model.RecurrenceEditScope
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
@@ -149,6 +159,8 @@ import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.poc.state.rememberCalinoPreferences
 import calino.malinov.ski.poc.state.rememberCalinoNow
+import calino.malinov.ski.poc.state.FeatureAvailability
+import calino.malinov.ski.poc.state.featureAvailabilityAfter
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.state.SplitPaneWidthDp
 import calino.malinov.ski.poc.state.PocReturnTarget
@@ -169,6 +181,7 @@ import calino.malinov.ski.poc.ui.surfaces.QuickAddSheet
 import calino.malinov.ski.poc.ui.surfaces.QuickAddSheetState
 import calino.malinov.ski.poc.ui.surfaces.toParserKind
 import calino.malinov.ski.poc.ui.surfaces.JournalSurface
+import calino.malinov.ski.poc.ui.surfaces.ContactsSurface
 import calino.malinov.ski.poc.ui.surfaces.SettingsSurface
 import calino.malinov.ski.poc.ui.surfaces.CalinoSearchSheet
 import calino.malinov.ski.poc.ui.surfaces.Tasks
@@ -180,7 +193,9 @@ import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private val DateLabel = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
@@ -208,6 +223,7 @@ private val RouteSaver = Saver<PockRoute, String>(
             "task-detail" -> PockRoute.TaskDetail
             "tasks" -> PockRoute.Tasks
             "journal" -> PockRoute.Journal
+            "contacts" -> PockRoute.Contacts
             "settings" -> PockRoute.Settings
             "accounts" -> PockRoute.Accounts
             "quick-add" -> PockRoute.QuickAdd
@@ -234,6 +250,7 @@ private fun PockRoute.saveableKey(): String = when (this) {
     PockRoute.TaskDetail -> "task-detail"
     PockRoute.Tasks -> "tasks"
     PockRoute.Journal -> "journal"
+    PockRoute.Contacts -> "contacts"
     PockRoute.Settings -> "settings"
     PockRoute.Accounts -> "accounts"
     PockRoute.QuickAdd -> "quick-add"
@@ -245,16 +262,17 @@ private fun PockRoute.rootOrder(): Int = when (this) {
     PockRoute.Agenda -> 1
     PockRoute.Tasks -> 2
     PockRoute.Journal -> 3
-    PockRoute.Settings -> 4
-    PockRoute.Accounts -> 5
+    PockRoute.Contacts -> 4
+    PockRoute.Settings -> 5
+    PockRoute.Accounts -> 6
     // Detail and notification previews are pushed destinations. Keeping them
     // after the root destinations makes opening them enter from the right and
     // returning from them reverse the same motion, instead of treating them
     // as another instance of the calendar route.
-    PockRoute.Detail -> 6
-    PockRoute.TaskDetail -> 6
-    PockRoute.Notifications -> 6
-    PockRoute.QuickAdd -> 6
+    PockRoute.Detail -> 7
+    PockRoute.TaskDetail -> 7
+    PockRoute.Notifications -> 7
+    PockRoute.QuickAdd -> 7
 }
 
 class MainActivity : ComponentActivity() {
@@ -315,10 +333,18 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     /** Real discovery. This is the seam `FixtureCalDavClient` used to fill. */
     val calDavClient: CalDavClient = CalDavDiscovery(sharedHttp)
 
+    private val calendarCache = FileCalendarCache(File(application.filesDir, "caldav-cache"))
+    private val pendingChangeStore = calino.malinov.ski.poc.data.repository.FilePendingChangeStore(
+        File(application.filesDir, "caldav-write-queue.json"),
+    )
+
     private val calDavRepository = CalDavRepository(
         fetcher = CalDavFetcher(sharedHttp),
         scope = viewModelScope,
-        cache = FileCalendarCache(File(application.filesDir, "caldav-cache")),
+        cache = calendarCache,
+        writer = CalDavWriter(sharedHttp, calendarCache),
+        cardWriter = CardDavWriter(sharedHttp, calendarCache),
+        pendingStore = pendingChangeStore,
     )
 
     private val connections = CalDavConnectionManager(
@@ -342,6 +368,12 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         // password again; the credential store still holds it.
         connections.restore()
         updateActiveRepository()
+        viewModelScope.launch {
+            while (isActive) {
+                calDavRepository.drainPendingWrites()
+                delay(60_000)
+            }
+        }
     }
 
     fun onAccountConnected(form: CalDavForm, calendars: List<CalDavCalendar>) {
@@ -355,6 +387,11 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         connections.onCalendarsToggled()
     }
 
+    fun onAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
+        accountStore.setAddressBookEnabled(accountId, addressBookId, enabled)
+        connections.onCalendarsToggled()
+    }
+
     fun onAccountRemoved(accountId: String) {
         accountStore.removeAccount(accountId)
         connections.onAccountRemoved(accountId)
@@ -362,6 +399,14 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun refresh() = calDavRepository.refresh()
+
+    fun drainPendingWrites() = calDavRepository.drainPendingWrites()
+
+    fun pendingChanges(): List<PendingChange> = calDavRepository.pendingChanges()
+
+    fun retryPendingChange(id: String): Boolean = calDavRepository.retryPendingChange(id)
+
+    fun discardPendingChange(id: String): Boolean = calDavRepository.discardPendingChange(id)
 
     fun setEventWindowMonths(months: Long) = calDavRepository.setWindowMonths(months)
 
@@ -518,12 +563,16 @@ private fun SystemBarAppearance(light: Boolean) {
 @Composable
 private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val now = LocalCalinoNow.current
+    val preferences = LocalCalinoPreferences.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val repository = pocViewModel.activeRepository
     val accountStore = pocViewModel.accountStore
     val snapshot = rememberRepositorySnapshot(repository)
+    val pendingChanges = remember(snapshot.revision) { pocViewModel.pendingChanges() }
     val calDavAccounts = rememberCalDavAccounts(accountStore)
     val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
+    var selectedContactId by rememberSaveable { mutableStateOf<String?>(null) }
     // The fixture data lives around May 2026, so that is where the sample
     // app opens. Real calendars are anchored on the actual date instead --
     // landing a connected account on the fixture month shows an empty
@@ -536,6 +585,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     LaunchedEffect(pocViewModel.hasAccounts) {
         if (pocViewModel.hasAccounts && selectedDate == FixtureNow.today) {
             selectedDate = LocalDate.now()
+        }
+    }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            // Every foreground is an explicit retry opportunity in addition
+            // to the account-connect and periodic ViewModel triggers.
+            pocViewModel.drainPendingWrites()
+            kotlinx.coroutines.awaitCancellation()
         }
     }
     var showDayModal by rememberSaveable { mutableStateOf(false) }
@@ -574,9 +631,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // anchored when the pane opens or closes.
     var splitMonthLayoutVisible by remember { mutableStateOf(false) }
     var journalEntryRequest by rememberSaveable { mutableIntStateOf(0) }
+    var contactRequest by rememberSaveable { mutableIntStateOf(0) }
     var pendingUndo by remember { mutableStateOf<UndoableChange?>(null) }
     var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
     var undoNonce by remember { mutableIntStateOf(0) }
+    var writeError by remember { mutableStateOf<String?>(null) }
+    val writeScope = androidx.compose.runtime.rememberCoroutineScope()
     val activity = LocalActivity.current as? MainActivity ?: return
     val aiSettingsStore = remember { AiVisionSettingsStore(activity) }
     val aiClient = remember { AiVisionClient() }
@@ -654,12 +714,34 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         pickedImage = null
     }
 
+    LaunchedEffect(snapshot.revision) {
+        val detected = featureAvailabilityAfter(
+            snapshot,
+            FeatureAvailability(preferences.journalEnabled, preferences.contactsEnabled),
+        )
+        if (detected.journalEnabled != preferences.journalEnabled) preferences.setJournalEnabled(detected.journalEnabled)
+        if (detected.contactsEnabled != preferences.contactsEnabled) preferences.setContactsEnabled(detected.contactsEnabled)
+    }
+    LaunchedEffect(preferences.journalEnabled, preferences.contactsEnabled) {
+        if (route == PockRoute.Journal && !preferences.journalEnabled) route = PockRoute.Day
+        if (route == PockRoute.Contacts && !preferences.contactsEnabled) route = PockRoute.Day
+    }
+
+    // RouteSaver can restore a destination before the preference effect above
+    // gets its first frame. Do not compose a surface that is currently hidden.
+    val visibleRoute = when {
+        route == PockRoute.Journal && !preferences.journalEnabled -> PockRoute.Day
+        route == PockRoute.Contacts && !preferences.contactsEnabled -> PockRoute.Day
+        else -> route
+    }
+
     LaunchedEffect(pendingUndo) {
         pendingUndo?.let { displayedUndo = it }
     }
 
     val selectedEvent = snapshot.events.firstOrNull { it.id == selectedEventId }
     val selectedTask = snapshot.tasks.firstOrNull { it.id == selectedTaskId }
+    val selectedContact = snapshot.contacts.firstOrNull { it.id == selectedContactId }
     val calendarDayModalVisible = showDayModal && (
         route == PockRoute.Day ||
             (route == PockRoute.QuickAdd && quickAddOrigin == PocReturnTarget.DayModal)
@@ -731,6 +813,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 route = PockRoute.Journal
                 showDayModal = false
             }
+            PocReturnTarget.Contacts -> {
+                route = PockRoute.Contacts
+                showDayModal = false
+            }
             PocReturnTarget.Settings -> {
                 route = PockRoute.Settings
                 showDayModal = false
@@ -768,6 +854,23 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun showUndo(change: UndoableChange) {
         pendingUndo = change
         undoNonce += 1
+    }
+
+    fun <T> launchWrite(operation: suspend () -> WriteResult<T>, onApplied: (T) -> Unit = {}) {
+        writeError = null
+        writeScope.launch {
+            try {
+                when (val result = operation()) {
+                    is WriteResult.Applied -> onApplied(result.record)
+                    is WriteResult.Queued -> onApplied(result.record)
+                    is WriteResult.Rejected -> writeError = result.reason
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                writeError = error.message ?: "That change could not be saved."
+            }
+        }
     }
 
     BackHandler(enabled = sidebarVisible || (route != PockRoute.Detail && route != PockRoute.TaskDetail &&
@@ -810,17 +913,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             .padding(WindowInsets.safeDrawing.asPaddingValues()),
     ) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        val rootRoute = when (route) {
+        val rootRoute = when (visibleRoute) {
             PockRoute.Day -> PockRoute.Day
             PockRoute.Agenda -> PockRoute.Agenda
             PockRoute.Tasks -> PockRoute.Tasks
             PockRoute.Journal -> PockRoute.Journal
+            PockRoute.Contacts -> PockRoute.Contacts
             PockRoute.Settings -> PockRoute.Settings
             PockRoute.Accounts -> PockRoute.Accounts
             PockRoute.Detail -> when (detailOrigin) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
                 PocReturnTarget.Tasks -> PockRoute.Tasks
                 PocReturnTarget.Journal -> PockRoute.Journal
+                PocReturnTarget.Contacts -> PockRoute.Contacts
                 PocReturnTarget.Search -> searchOriginRoute
                 else -> PockRoute.Day
             }
@@ -834,6 +939,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
                 PocReturnTarget.Tasks -> PockRoute.Tasks
                 PocReturnTarget.Journal -> PockRoute.Journal
+                PocReturnTarget.Contacts -> PockRoute.Contacts
                 PocReturnTarget.Settings -> PockRoute.Settings
                 PocReturnTarget.Detail -> PockRoute.Day
                 PocReturnTarget.Search -> searchOriginRoute
@@ -883,10 +989,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             route = PockRoute.Detail
                         },
                         onTaskDone = { task, done ->
-                            showUndo(repository.setTaskDone(task.id, done))
+                            launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
                         },
                         onTaskRescheduleTo = { task, date ->
-                            showUndo(repository.rescheduleTask(task.id, date))
+                            launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
                         },
                         onTaskClick = { task ->
                             selectedTaskId = task.id
@@ -916,7 +1022,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             taskDetailOrigin = PocReturnTarget.Agenda
                             route = PockRoute.TaskDetail
                         },
-                        onTaskDone = { task, done -> showUndo(repository.setTaskDone(task.id, done)) },
+                        onTaskDone = { task, done ->
+                            launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
+                        },
                         onAddOn = { date ->
                             selectedDate = date
                             openQuickAdd(QuickAddKind.Event, PocReturnTarget.Agenda)
@@ -924,27 +1032,33 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     )
                     PockRoute.Tasks -> Tasks(
                         tasks = snapshot.tasks,
-                        onComplete = { task -> repository.setTaskDone(task.id, true) },
-                        onReschedule = { task -> showUndo(repository.rescheduleTask(task.id, fallbackRescheduleDate(task.due, selectedDate, now.today))) },
-                        onRescheduleTo = { task, date -> showUndo(repository.rescheduleTask(task.id, date)) },
+                        onComplete = { task -> launchWrite({ repository.setTaskDone(task.id, true) }) },
+                        onReschedule = { task ->
+                            launchWrite({ repository.rescheduleTask(task.id, fallbackRescheduleDate(task.due, selectedDate, now.today)) }) {
+                                showUndo(it)
+                            }
+                        },
+                        onRescheduleTo = { task, date ->
+                            launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
+                        },
                         onTaskClick = { task ->
                             selectedTaskId = task.id
                             taskDetailOrigin = PocReturnTarget.Tasks
                             route = PockRoute.TaskDetail
                         },
-                        onUndoComplete = { task -> repository.setTaskDone(task.id, false) },
+                        onUndoComplete = { task -> launchWrite({ repository.setTaskDone(task.id, false) }) },
                         onOpenMenu = { sidebarVisible = true },
                     )
                     PockRoute.Journal -> JournalSurface(
                         entries = snapshot.journals,
                         newEntryDate = selectedDate,
                         onCreate = { entry ->
-                            repository.addJournal(NewJournal(entry.date, entry.title, entry.body))
+                            launchWrite(operation = { repository.addJournal(NewJournal(entry.date, entry.title, entry.body)) })
                         },
                         onUpdate = { entry ->
-                            repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body))
+                            launchWrite(operation = { repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body)) })
                         },
-                        onDelete = { entry -> repository.deleteJournal(entry.id) },
+                        onDelete = { entry -> launchWrite(operation = { repository.deleteJournal(entry.id) }) },
                         onEditingChanged = { editing ->
                             journalEditorVisible = editing
                             if (!editing && journalSearchReturn && journalOpenEntryId == null) {
@@ -957,6 +1071,40 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onOpenEntryConsumed = { journalOpenEntryId = null },
                         onOpenMenu = { sidebarVisible = true },
                         startEntryRequest = journalEntryRequest,
+                    )
+                    PockRoute.Contacts -> ContactsSurface(
+                        contacts = snapshot.contacts,
+                        addressBooks = snapshot.addressBooks,
+                        events = snapshot.events,
+                        selectedContactId = selectedContactId,
+                        onSelectedContactChanged = { selectedContactId = it },
+                        onCreate = { input ->
+                            launchWrite(operation = { repository.addContact(input) }) {
+                                selectedContactId = it.id
+                            }
+                        },
+                        onUpdate = { contact ->
+                            launchWrite(operation = { repository.updateContact(contact.id, contact.toNewContact()) }) {
+                                selectedContactId = it.id
+                            }
+                        },
+                        onDelete = { contact ->
+                            launchWrite(operation = { repository.deleteContact(contact.id) }) {
+                                if (selectedContactId == contact.id) selectedContactId = null
+                            }
+                        },
+                        onAddBirthday = { contact, date, anniversary ->
+                            repository.addLocalEvent(
+                                contactReminderEvent(
+                                    contact = contact,
+                                    date = date,
+                                    calendarId = snapshot.calendars.firstOrNull()?.id ?: "personal",
+                                    anniversary = anniversary,
+                                ),
+                            )
+                        },
+                        onOpenMenu = { sidebarVisible = true },
+                        startEntryRequest = contactRequest,
                     )
                     PockRoute.Settings -> SettingsSurface(
                         onOpenNotifications = {
@@ -980,9 +1128,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onCalendarEnabled = { accountId, calendarId, enabled ->
                             pocViewModel.onCalendarEnabled(accountId, calendarId, enabled)
                         },
+                        onAddressBookEnabled = { accountId, addressBookId, enabled ->
+                            pocViewModel.onAddressBookEnabled(accountId, addressBookId, enabled)
+                        },
                         onRemoveAccount = { pocViewModel.onAccountRemoved(it) },
                         syncState = snapshot.sync,
                         onRefresh = { pocViewModel.refresh() },
+                        pendingChanges = pendingChanges,
+                        onRetryPendingChange = { pocViewModel.retryPendingChange(it) },
+                        onDiscardPendingChange = { pocViewModel.discardPendingChange(it) },
                         modifier = Modifier.fillMaxSize(),
                         onOpenMenu = { sidebarVisible = true },
                         startAdding = accountsAutoAdd,
@@ -1015,6 +1169,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     },
                     onEventSelected = { selectedEventId = it.id },
                     onEditEvent = { openEditor(it, PocReturnTarget.Detail) },
+                    onDeleteEvent = { target, scope ->
+                        // Leave the detail route as soon as its exit animation
+                        // completes; the write itself may be queued and must
+                        // not cause the detail surface to remount underneath.
+                        selectedEventId = null
+                        selectedEventOccurrenceDay = null
+                        restoreDetailOrigin()
+                        launchWrite({ repository.deleteEvent(target.id, scope) })
+                    },
                     occurrenceDate = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay),
                     onBack = {
                         selectedEventId = null
@@ -1038,9 +1201,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         restoreTaskDetailOrigin()
                     },
                     onSave = { input, done ->
-                        repository.updateTask(task.id, input, done)
-                        selectedTaskId = null
-                        restoreTaskDetailOrigin()
+                        launchWrite({ repository.updateTask(task.id, input, done) }) {
+                            selectedTaskId = null
+                            restoreTaskDetailOrigin()
+                        }
                     },
                 )
             }
@@ -1108,20 +1272,21 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     // The editor owns every field now, so the host only
                     // decides between creating and updating a record.
                     onSave = { draft ->
-                        saveEditorDraft(repository, draft)
-                        if (draft.kind == PocQuickAddKind.Journal) {
-                            journalReviewVisible = false
-                            quickAddOrigin = PocReturnTarget.Journal
-                        }
-                        selectedDate = draft.date
-                        if (aiQueue.isNotEmpty()) {
-                            val next = aiQueue.first()
-                            aiQueue = aiQueue.drop(1)
-                            aiDraft = aiDraftFor(next, selectedDate)
-                            quickAddKind = if (next.kind == "task") QuickAddKind.Task else QuickAddKind.Event
-                        } else {
-                            aiDraft = null
-                            dismissQuickAdd()
+                        launchWrite({ saveEditorDraft(repository, draft) }) {
+                            if (draft.kind == PocQuickAddKind.Journal) {
+                                journalReviewVisible = false
+                                quickAddOrigin = PocReturnTarget.Journal
+                            }
+                            selectedDate = draft.date
+                            if (aiQueue.isNotEmpty()) {
+                                val next = aiQueue.first()
+                                aiQueue = aiQueue.drop(1)
+                                aiDraft = aiDraftFor(next, selectedDate)
+                                quickAddKind = if (next.kind == "task") QuickAddKind.Task else QuickAddKind.Event
+                            } else {
+                                aiDraft = null
+                                dismissQuickAdd()
+                            }
                         }
                     },
                 )
@@ -1140,12 +1305,39 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     change = change,
                     nonce = undoNonce,
                     onUndo = {
-                        repository.undo(change)
-                        pendingUndo = null
+                        launchWrite({ repository.undo(change) }) { pendingUndo = null }
                     },
                     onExpired = { if (pendingUndo == change) pendingUndo = null },
                     modifier = Modifier,
                 )
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = writeError != null,
+            enter = slideInVertically(tween(200), initialOffsetY = { it / 2 }) + fadeIn(tween(170)),
+            exit = slideOutVertically(tween(170), targetOffsetY = { it / 2 }) + fadeOut(tween(130)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .padding(bottom = CalinoSpacing.PillClearance + 62.dp),
+        ) {
+            writeError?.let { message ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(.92f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = CalinoColors.Ink,
+                    contentColor = CalinoColors.OnInk,
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(message, Modifier.weight(1f), fontSize = 13.sp)
+                        TextButton(onClick = { writeError = null }) {
+                            Text("Dismiss", color = CalinoColors.AccentSoft)
+                        }
+                    }
+                }
             }
         }
 
@@ -1156,6 +1348,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Agenda -> route == PockRoute.Agenda
             PockRoute.Tasks -> route == PockRoute.Tasks
             PockRoute.Journal -> route == PockRoute.Journal && !journalEditorVisible
+            PockRoute.Contacts -> route == PockRoute.Contacts
             else -> false
         }
         androidx.compose.animation.AnimatedVisibility(
@@ -1175,7 +1368,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             )
             // The pill also carries the three main views: a horizontal
             // drag steps through them in the same order the sidebar lists.
-            val pillRoutes = listOf(PockRoute.Day, PockRoute.Agenda, PockRoute.Tasks, PockRoute.Journal)
+            val pillRoutes = listOfNotNull(
+                PockRoute.Day,
+                PockRoute.Agenda,
+                PockRoute.Tasks,
+                PockRoute.Journal.takeIf { preferences.journalEnabled },
+                PockRoute.Contacts.takeIf { preferences.contactsEnabled },
+            )
             val pillIndex = pillRoutes.indexOf(rootRoute)
             Box(
                 if (pillLaneWidth > 0.dp) Modifier.width(pillLaneWidth) else Modifier.fillMaxWidth(),
@@ -1199,12 +1398,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 label = when (rootRoute) {
                     PockRoute.Tasks -> "New task"
                     PockRoute.Journal -> "New entry"
+                    PockRoute.Contacts -> "New contact"
                     else -> "Add on ${selectedDate.format(DateLabel)}"
                 },
                 onClick = {
                     when (rootRoute) {
                         PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)
                         PockRoute.Journal -> journalEntryRequest += 1
+                        PockRoute.Contacts -> contactRequest += 1
                         else -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true)
                     }
                 },
@@ -1259,6 +1460,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         journalOpenEntryId = result.journal.id
                         journalSearchReturn = true
                         route = PockRoute.Journal
+                    }
+                    is CalinoSearchResult.Contact -> {
+                        selectedContactId = result.contact.id
+                        route = PockRoute.Contacts
                     }
                 }
             },
@@ -1398,9 +1603,9 @@ private fun JournalReviewDialog(journals: List<JournalEntry>, onDismiss: () -> U
 }
 
 /** Routes a finished draft to the add or update call for its kind. */
-private fun saveEditorDraft(repository: CalinoRepository, draft: EditorDraft) {
+private suspend fun saveEditorDraft(repository: CalinoRepository, draft: EditorDraft): WriteResult<*> {
     val id = draft.editingId
-    when (draft.kind) {
+    return when (draft.kind) {
         PocQuickAddKind.Event ->
             if (id == null) repository.addEvent(draft.toNewEvent())
             else repository.updateEvent(id, draft.toNewEvent())

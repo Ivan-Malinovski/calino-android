@@ -21,6 +21,7 @@ data class DiscoveredCalendar(
     val readOnly: Boolean,
     val components: Set<String>,
     val ctag: String? = null,
+    val syncToken: String? = null,
 )
 
 /** Everything a fetch needs after a successful connect. */
@@ -172,7 +173,12 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
             color = normalizeColor(DavXml.text(entry, DavNs.Apple, "calendar-color")),
             readOnly = isReadOnly(entry),
             components = components,
-            ctag = DavXml.text(entry, DavNs.CalendarServer, "getctag"),
+            ctag = DavXml.text(entry, DavNs.CalendarServer, "getctag")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() },
+            syncToken = DavXml.text(entry, DavNs.Dav, "sync-token")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() },
         )
     }
 
@@ -281,6 +287,8 @@ internal fun DiscoveredCalendar.toCalDavCalendar(): CalDavCalendar = CalDavCalen
     name = displayName,
     color = color,
     readOnly = readOnly,
+    ctag = ctag,
+    syncToken = syncToken,
 )
 
 /**

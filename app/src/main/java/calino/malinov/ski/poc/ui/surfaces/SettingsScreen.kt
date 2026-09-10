@@ -386,6 +386,7 @@ private fun SettingsSectionContent(
         SettingsSection.Notifications -> NotificationSettings(onOpenNotifications)
         SettingsSection.Sync -> SyncSettings(calDavAccounts, onOpenAccounts)
         SettingsSection.Data -> DataSettings()
+        SettingsSection.AiVision -> AiVisionSettingsPage()
     }
 }
 
@@ -407,6 +408,7 @@ private fun SettingsPage(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun GeneralSettings() = SettingsPage("General") {
+    val preferences = LocalCalinoPreferences.current
     SettingsGroup("Regional defaults") {
         PlannedRow("Timezone", "Used for event times and reminders", value = "Copenhagen")
         PlannedRow("Date format", "How dates are written across Calino", value = "18 May 2026")
@@ -423,6 +425,20 @@ private fun GeneralSettings() = SettingsPage("General") {
             )
         }
         PlannedRow("Language", "The interface language", value = "English")
+    }
+    SettingsGroup("Surfaces") {
+        SettingToggleRow(
+            "Journal",
+            "Show dated notes in the main navigation",
+            preferences.journalEnabled,
+            preferences.setJournalEnabled,
+        )
+        SettingToggleRow(
+            "Contacts",
+            "Show your neighbor directory in the main navigation",
+            preferences.contactsEnabled,
+            preferences.setContactsEnabled,
+        )
     }
 }
 

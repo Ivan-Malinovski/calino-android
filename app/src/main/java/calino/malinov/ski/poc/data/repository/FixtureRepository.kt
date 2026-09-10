@@ -4,10 +4,18 @@ import androidx.compose.runtime.mutableStateOf
 import calino.malinov.ski.poc.data.model.Attendee
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.data.model.Contact
+import calino.malinov.ski.poc.data.model.ContactAddressBook
+import calino.malinov.ski.poc.data.model.ContactEmail
+import calino.malinov.ski.poc.data.model.ContactPhone
+import calino.malinov.ski.poc.data.model.ContactPhoneType
+import calino.malinov.ski.poc.data.model.ContactType
+import calino.malinov.ski.poc.data.model.NewContact
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.NewJournal
 import calino.malinov.ski.poc.data.model.NewTask
+import calino.malinov.ski.poc.data.model.RecurrenceEditScope
 import java.io.Closeable
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -15,7 +23,28 @@ import java.time.LocalTime
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** A writable calendar the editor can file a record under. */
-data class CalinoCalendar(val id: String, val name: String, val color: Long)
+data class CalinoCalendar(
+    val id: String,
+    val name: String,
+    val color: Long,
+    /**
+     * True when the server grants no write privilege on the collection, or when
+     * it is a subscription. Surfaced so the editor can decline before a PUT is
+     * attempted rather than after it is refused. Fixtures are always writable.
+     */
+    val readOnly: Boolean = false,
+    /**
+     * The component kinds the collection accepts, upper-case (`VEVENT`,
+     * `VTODO`, `VJOURNAL`). Empty means the server did not say, which RFC 4791
+     * defines as "all of them". Writing a VTODO into a VEVENT-only collection is
+     * a 403 on some servers and silent data loss on others.
+     */
+    val components: Set<String> = emptySet(),
+)
+
+/** Whether this collection will accept a component of [component]. */
+fun CalinoCalendar.accepts(component: String): Boolean =
+    components.isEmpty() || component.uppercase() in components
 
 /**
  * How current the snapshot is.
@@ -50,10 +79,21 @@ data class CalinoSnapshot(
     val events: List<CalEvent>,
     val tasks: List<CalTask>,
     val journals: List<JournalEntry>,
+    val contacts: List<Contact> = emptyList(),
+    val addressBooks: List<ContactAddressBook> = emptyList(),
     val revision: Long = 0,
     val calendars: List<CalinoCalendar> = FixtureCalendars,
     val categories: List<String> = FixtureCategories,
     val sync: SyncState = SyncState.Idle,
+    /** Per-record state for writes that are waiting for, or failed against, DAV. */
+    val writeStatus: Map<String, RecordWriteStatus> = emptyMap(),
+)
+
+enum class RecordWriteState { Pending, Failed }
+
+data class RecordWriteStatus(
+    val state: RecordWriteState,
+    val reason: String? = null,
 )
 
 /** The fixture calendar set. Settings and the editor read the same list. */
@@ -70,17 +110,32 @@ interface CalinoRepository {
     fun events(): List<CalEvent> = snapshot().events
     fun tasks(): List<CalTask> = snapshot().tasks
     fun journals(): List<JournalEntry> = snapshot().journals
+    fun contacts(): List<Contact> = snapshot().contacts
     fun observe(listener: (CalinoSnapshot) -> Unit): Closeable
-    fun addEvent(input: NewEvent): CalEvent
-    fun updateEvent(id: String, input: NewEvent): CalEvent
-    fun addTask(input: NewTask): CalTask
-    fun updateTask(id: String, input: NewTask, done: Boolean): CalTask
-    fun addJournal(input: NewJournal): JournalEntry
-    fun updateJournal(id: String, input: NewJournal): JournalEntry
-    fun deleteJournal(id: String)
-    fun setTaskDone(id: String, done: Boolean): UndoableChange
-    fun rescheduleTask(id: String, due: LocalDate?): UndoableChange
-    fun undo(change: UndoableChange): Boolean
+    suspend fun addEvent(input: NewEvent): WriteResult<CalEvent>
+    suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent>
+    suspend fun deleteEvent(id: String, scope: RecurrenceEditScope = RecurrenceEditScope.All): WriteResult<Unit>
+    suspend fun addTask(input: NewTask): WriteResult<CalTask>
+    suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask>
+    suspend fun deleteTask(id: String): WriteResult<Unit>
+    suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry>
+    suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry>
+    suspend fun deleteJournal(id: String): WriteResult<Unit>
+    suspend fun addContact(input: NewContact): WriteResult<Contact>
+    suspend fun updateContact(id: String, input: NewContact): WriteResult<Contact>
+    suspend fun deleteContact(id: String): WriteResult<Unit>
+    /** Contact-derived reminder events intentionally remain local-only in v1. */
+    fun addLocalEvent(input: NewEvent): CalEvent
+    suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange>
+    suspend fun rescheduleTask(id: String, due: LocalDate?): WriteResult<UndoableChange>
+    suspend fun undo(change: UndoableChange): WriteResult<Unit>
+}
+
+/** Outcome of a repository mutation; the live DAV repository may return [Queued]. */
+sealed interface WriteResult<out T> {
+    data class Applied<T>(val record: T) : WriteResult<T>
+    data class Queued<T>(val record: T) : WriteResult<T>
+    data class Rejected(val reason: String) : WriteResult<Nothing>
 }
 
 enum class ChangeKind { Task }
@@ -110,12 +165,15 @@ class FixtureRepository : CalinoRepository {
             events = fixtureEvents(),
             tasks = fixtureTasks(),
             journals = fixtureJournals(),
+            contacts = fixtureContacts(),
+            addressBooks = FixtureAddressBooks,
         ),
     )
     private val listeners = CopyOnWriteArrayList<(CalinoSnapshot) -> Unit>()
     private var nextEventId = 1
     private var nextTaskId = 1
     private var nextJournalId = 1
+    private var nextContactId = 1
 
     override fun snapshot(): CalinoSnapshot = state.value
 
@@ -125,19 +183,25 @@ class FixtureRepository : CalinoRepository {
         return Closeable { listeners.remove(listener) }
     }
 
-    override fun addEvent(input: NewEvent): CalEvent {
+    override suspend fun addEvent(input: NewEvent): WriteResult<CalEvent> {
         val event = eventFromInput("local-event-${nextEventId++}", input)
         update { it.copy(events = it.events + event) }
-        return event
+        return WriteResult.Applied(event)
     }
 
-    override fun updateEvent(id: String, input: NewEvent): CalEvent {
+    override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
         snapshot().events.firstOrNull { it.id == id } ?: error("Unknown fixture event: $id")
         val event = eventFromInput(id, input)
         update { current ->
             current.copy(events = current.events.map { if (it.id == id) event else it })
         }
-        return event
+        return WriteResult.Applied(event)
+    }
+
+    override suspend fun deleteEvent(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
+        if (snapshot().events.none { it.id == id }) return WriteResult.Applied(Unit)
+        update { current -> current.copy(events = current.events.filterNot { it.id == id }) }
+        return WriteResult.Applied(Unit)
     }
 
     private fun eventFromInput(id: String, input: NewEvent): CalEvent = CalEvent(
@@ -158,19 +222,26 @@ class FixtureRepository : CalinoRepository {
             reminders = input.reminders,
             travelTimeMinutes = input.travelTimeMinutes,
             relatedTo = input.relatedTo,
+            url = input.url,
         )
 
-    override fun addTask(input: NewTask): CalTask {
+    override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
         val task = taskFromInput("local-task-${nextTaskId++}", input, done = false)
         update { it.copy(tasks = it.tasks + task) }
-        return task
+        return WriteResult.Applied(task)
     }
 
-    override fun updateTask(id: String, input: NewTask, done: Boolean): CalTask {
+    override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> {
         task(id)
         val updated = taskFromInput(id, input, done)
         replaceTask(updated)
-        return updated
+        return WriteResult.Applied(updated)
+    }
+
+    override suspend fun deleteTask(id: String): WriteResult<Unit> {
+        if (snapshot().tasks.none { it.id == id }) return WriteResult.Applied(Unit)
+        update { current -> current.copy(tasks = current.tasks.filterNot { it.id == id }) }
+        return WriteResult.Applied(Unit)
     }
 
     private fun taskFromInput(id: String, input: NewTask, done: Boolean): CalTask = CalTask(
@@ -185,7 +256,7 @@ class FixtureRepository : CalinoRepository {
         reminder = input.reminder,
     )
 
-    override fun addJournal(input: NewJournal): JournalEntry {
+    override suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry> {
         val journal = JournalEntry(
             id = "local-journal-${nextJournalId++}",
             date = input.date,
@@ -193,22 +264,73 @@ class FixtureRepository : CalinoRepository {
             body = input.body,
         )
         update { it.copy(journals = it.journals + journal) }
-        return journal
+        return WriteResult.Applied(journal)
     }
 
-    override fun updateJournal(id: String, input: NewJournal): JournalEntry {
+    override suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry> {
         snapshot().journals.firstOrNull { it.id == id } ?: error("Unknown fixture journal: $id")
         val journal = JournalEntry(id = id, date = input.date, title = input.title, body = input.body)
         update { current -> current.copy(journals = current.journals.map { if (it.id == id) journal else it }) }
-        return journal
+        return WriteResult.Applied(journal)
     }
 
-    override fun deleteJournal(id: String) {
-        snapshot().journals.firstOrNull { it.id == id } ?: return
+    override suspend fun deleteJournal(id: String): WriteResult<Unit> {
+        if (snapshot().journals.none { it.id == id }) return WriteResult.Applied(Unit)
         update { current -> current.copy(journals = current.journals.filterNot { it.id == id }) }
+        return WriteResult.Applied(Unit)
     }
 
-    override fun setTaskDone(id: String, done: Boolean): UndoableChange {
+    override suspend fun addContact(input: NewContact): WriteResult<Contact> {
+        val contact = contactFrom("local-contact-${nextContactId++}", input)
+        update { it.copy(contacts = it.contacts + contact) }
+        return WriteResult.Applied(contact)
+    }
+
+    override suspend fun updateContact(id: String, input: NewContact): WriteResult<Contact> {
+        val current = snapshot().contacts.firstOrNull { it.id == id } ?: error("Unknown contact: $id")
+        val contact = contactFrom(id, input).copy(uid = current.uid, href = current.href, etag = current.etag)
+        update { state -> state.copy(contacts = state.contacts.map { if (it.id == id) contact else it }) }
+        return WriteResult.Applied(contact)
+    }
+
+    override suspend fun deleteContact(id: String): WriteResult<Unit> {
+        if (snapshot().contacts.none { it.id == id }) return WriteResult.Applied(Unit)
+        val markers = setOf("calino:contact:$id", "calino:contact:$id:anniversary")
+        update { state ->
+            state.copy(
+                contacts = state.contacts.filterNot { it.id == id },
+                events = state.events.filterNot { it.url in markers },
+            )
+        }
+        return WriteResult.Applied(Unit)
+    }
+
+    override fun addLocalEvent(input: NewEvent): CalEvent {
+        val event = eventFromInput("local-event-${nextEventId++}", input)
+        update { it.copy(events = it.events + event) }
+        return event
+    }
+
+    private fun contactFrom(id: String, input: NewContact): Contact = Contact(
+        id = id,
+        addressBookId = input.addressBookId,
+        displayName = input.displayName.trim(),
+        givenName = input.givenName.trim(),
+        familyName = input.familyName.trim(),
+        organization = input.organization.trim(),
+        department = input.department.trim(),
+        title = input.title.trim(),
+        nickname = input.nickname.trim(),
+        emails = input.emails,
+        phones = input.phones,
+        urls = input.urls,
+        birthday = input.birthday,
+        anniversary = input.anniversary,
+        note = input.note.trim(),
+        categories = input.categories,
+    )
+
+    override suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange> {
         val current = task(id)
         val changed = current.copy(done = done)
         val change = UndoableChange(
@@ -219,10 +341,10 @@ class FixtureRepository : CalinoRepository {
             after = ChangeValue.Task(changed),
         )
         replaceTask(changed)
-        return change
+        return WriteResult.Applied(change)
     }
 
-    override fun rescheduleTask(id: String, due: LocalDate?): UndoableChange {
+    override suspend fun rescheduleTask(id: String, due: LocalDate?): WriteResult<UndoableChange> {
         val current = task(id)
         val changed = current.copy(due = due)
         val destination = due?.toString() ?: "no date"
@@ -234,17 +356,20 @@ class FixtureRepository : CalinoRepository {
             after = ChangeValue.Task(changed),
         )
         replaceTask(changed)
-        return change
+        return WriteResult.Applied(change)
     }
 
-    override fun undo(change: UndoableChange): Boolean {
-        if (change.kind != ChangeKind.Task) return false
-        val current = snapshot().tasks.firstOrNull { it.id == change.id } ?: return false
-        val expected = (change.after as? ChangeValue.Task)?.value ?: return false
-        if (current != expected) return false
-        val before = (change.before as? ChangeValue.Task)?.value ?: return false
+    override suspend fun undo(change: UndoableChange): WriteResult<Unit> {
+        if (change.kind != ChangeKind.Task) return WriteResult.Rejected("That change cannot be undone.")
+        val current = snapshot().tasks.firstOrNull { it.id == change.id }
+            ?: return WriteResult.Rejected("That task is no longer available.")
+        val expected = (change.after as? ChangeValue.Task)?.value
+            ?: return WriteResult.Rejected("That change cannot be undone.")
+        if (current != expected) return WriteResult.Rejected("That task changed, so the change was not undone.")
+        val before = (change.before as? ChangeValue.Task)?.value
+            ?: return WriteResult.Rejected("That change cannot be undone.")
         replaceTask(before)
-        return true
+        return WriteResult.Applied(Unit)
     }
 
     private fun task(id: String): CalTask = snapshot().tasks.firstOrNull { it.id == id }
@@ -267,6 +392,16 @@ private const val Blue = 0xFF5B7FB5
 private const val Green = 0xFF5D9A78
 private const val Amber = 0xFFBF944E
 private const val Plum = 0xFF8A6AA8
+
+val FixtureAddressBooks: List<ContactAddressBook> = listOf(
+    ContactAddressBook(
+        id = "fixture-contacts",
+        accountId = "fixture",
+        url = "fixture://contacts",
+        name = "Neighbors",
+        description = "A few people nearby",
+    ),
+)
 
 private fun timed(
     id: String,
@@ -389,3 +524,51 @@ private fun fixtureJournals(): List<JournalEntry> {
         entry("journal-may-30", LocalDate.of(2026, 5, 30), "Q1 Retrospective", "Keep the small rituals; remove the needless handoffs."),
     )
 }
+
+private fun fixtureContacts(): List<Contact> = listOf(
+    Contact(
+        id = "contact-ada",
+        uid = "contact-ada",
+        addressBookId = "fixture-contacts",
+        displayName = "Ada Lovelace",
+        givenName = "Ada",
+        familyName = "Lovelace",
+        organization = "Analytical Neighbors",
+        emails = listOf(ContactEmail("ada@example.com", ContactType.Work, isPrimary = true)),
+        phones = listOf(ContactPhone("+45 20 26 18 15", ContactPhoneType.Cell, isPrimary = true)),
+        birthday = LocalDate.of(1988, 5, 24),
+        categories = listOf("Design", "Neighbors"),
+        note = "Brings excellent cake to the courtyard table.",
+    ),
+    Contact(
+        id = "contact-chen",
+        uid = "contact-chen",
+        addressBookId = "fixture-contacts",
+        displayName = "Chen Wei",
+        givenName = "Chen",
+        familyName = "Wei",
+        organization = "North Block Co-op",
+        emails = listOf(ContactEmail("chen@example.com", ContactType.Home, isPrimary = true)),
+        phones = listOf(ContactPhone("+45 31 44 08 77", ContactPhoneType.Home)),
+        categories = listOf("Neighbors"),
+    ),
+    Contact(
+        id = "contact-rooftop",
+        uid = "contact-rooftop",
+        addressBookId = "fixture-contacts",
+        displayName = "# Rooftop group",
+        isGroup = true,
+        memberUids = listOf("contact-ada", "contact-chen"),
+        categories = listOf("Neighbors"),
+    ),
+    Contact(
+        id = "contact-no-photo",
+        uid = "contact-no-photo",
+        addressBookId = "fixture-contacts",
+        givenName = "Mira",
+        familyName = "Sol",
+        displayName = "",
+        organization = "Garden House",
+        emails = listOf(ContactEmail("mira@example.com", ContactType.Other, isPrimary = true)),
+    ),
+)

@@ -6,6 +6,7 @@ import java.time.DayOfWeek
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -46,6 +47,15 @@ data class EditorDraft(
      * later keystroke in the natural-language line cannot undo a deliberate edit.
      */
     val touched: Set<EditorField> = emptySet(),
+    /** CalDAV identity retained while editing an expanded occurrence. */
+    val uid: String? = null,
+    val href: String? = null,
+    val etag: String? = null,
+    val recurrenceId: Instant? = null,
+    val recurrenceDate: LocalDate? = null,
+    val sequence: Int? = null,
+    val recurrenceChanged: Boolean = false,
+    val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,
 ) {
     val isEditing: Boolean get() = editingId != null
 
@@ -88,6 +98,14 @@ data class EditorDraft(
         reminders = reminders,
         travelTimeMinutes = travelTimeMinutes,
         relatedTo = relatedTo,
+        uid = uid,
+        href = href,
+        etag = etag,
+        recurrenceId = recurrenceId,
+        recurrenceDate = recurrenceDate,
+        sequence = sequence,
+        recurrenceChanged = recurrenceChanged,
+        recurrenceScope = recurrenceScope,
     )
 
     fun toNewTask(): NewTask = NewTask(
@@ -144,6 +162,7 @@ fun EditorDraft.applyInput(
         },
         location = if (EditorField.Location in touched) location else parsed.location ?: location,
         recurrence = parsed.recurrence ?: recurrence,
+        recurrenceChanged = recurrenceChanged || parsed.recurrence != null,
         body = if (kind == PocQuickAddKind.Journal) body else input.trim(),
     )
 }
@@ -206,6 +225,21 @@ fun editorDraftFor(event: CalEvent): EditorDraft {
         body = event.title,
         // Everything came from a saved record, so nothing here is the parser's to overwrite.
         touched = EditorField.entries.toSet(),
+        uid = event.uid,
+        href = event.href,
+        etag = event.etag,
+        recurrenceId = event.recurrenceId,
+        recurrenceDate = event.recurrenceDate,
+        sequence = event.sequence,
+        recurrenceChanged = false,
+        // An expanded occurrence is a concrete detached target. Editing it
+        // should affect that occurrence unless the person explicitly chooses
+        // a wider scope; a series master still defaults to the whole series.
+        recurrenceScope = if (event.recurrenceId != null || event.recurrenceDate != null) {
+            RecurrenceEditScope.This
+        } else {
+            RecurrenceEditScope.All
+        },
     )
 }
 
@@ -222,6 +256,9 @@ fun editorDraftFor(task: CalTask, fallbackDate: LocalDate): EditorDraft = Editor
     color = task.color,
     body = task.title,
     touched = EditorField.entries.toSet(),
+    uid = task.uid,
+    href = task.href,
+    etag = task.etag,
 )
 
 fun editorDraftFor(entry: JournalEntry): EditorDraft = EditorDraft(
@@ -232,6 +269,9 @@ fun editorDraftFor(entry: JournalEntry): EditorDraft = EditorDraft(
     date = entry.date,
     body = entry.body,
     touched = EditorField.entries.toSet(),
+    uid = entry.uid,
+    href = entry.href,
+    etag = entry.etag,
 )
 
 private val UntilFormat = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'", Locale.US)

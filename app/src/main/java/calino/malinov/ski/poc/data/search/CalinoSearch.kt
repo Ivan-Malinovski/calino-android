@@ -4,6 +4,8 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.model.JournalEntry
+import calino.malinov.ski.poc.data.model.Contact
+import calino.malinov.ski.poc.state.searchContacts
 import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.parser.ParsedQuickAdd
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
@@ -19,6 +21,7 @@ sealed interface CalinoSearchResult {
     data class Event(val event: CalEvent, val calendarName: String? = null) : CalinoSearchResult { override val stableId = "event:${event.id}" }
     data class Task(val task: CalTask) : CalinoSearchResult { override val stableId = "task:${task.id}" }
     data class Journal(val journal: JournalEntry) : CalinoSearchResult { override val stableId = "journal:${journal.id}" }
+    data class Contact(val contact: calino.malinov.ski.poc.data.model.Contact) : CalinoSearchResult { override val stableId = "contact:${contact.id}" }
 }
 
 data class CalinoSearchGroups(
@@ -26,12 +29,19 @@ data class CalinoSearchGroups(
     val events: List<CalinoSearchResult.Event> = emptyList(),
     val tasks: List<CalinoSearchResult.Task> = emptyList(),
     val journals: List<CalinoSearchResult.Journal> = emptyList(),
+    val contacts: List<CalinoSearchResult.Contact> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = actions.isEmpty() && events.isEmpty() && tasks.isEmpty() && journals.isEmpty()
+    val isEmpty: Boolean get() = actions.isEmpty() && events.isEmpty() && tasks.isEmpty() && journals.isEmpty() && contacts.isEmpty()
 }
 
 /** Fast, allocation-conscious local search over the repository snapshot. */
-fun searchCalino(snapshot: CalinoSnapshot, query: String, baseDate: LocalDate, limitPerGroup: Int = 8): CalinoSearchGroups {
+fun searchCalino(
+    snapshot: CalinoSnapshot,
+    query: String,
+    baseDate: LocalDate,
+    limitPerGroup: Int = 8,
+    contactsEnabled: Boolean = true,
+): CalinoSearchGroups {
     val normalized = query.trim().replace(Regex("\\s+"), " ")
     if (normalized.isEmpty()) return CalinoSearchGroups()
     val needle = normalized.lowercase(Locale.US)
@@ -65,7 +75,15 @@ fun searchCalino(snapshot: CalinoSnapshot, query: String, baseDate: LocalDate, l
         .sortedWith(compareBy<JournalEntry> { relevance(it.title, needle) }.thenByDescending { it.date })
         .take(limitPerGroup).map { CalinoSearchResult.Journal(it) }.toList()
 
-    return CalinoSearchGroups(actions, matchingEvents, matchingTasks, matchingJournals)
+    val matchingContacts = if (contactsEnabled) {
+        searchContacts(snapshot.contacts, normalized)
+            .take(limitPerGroup)
+            .map { CalinoSearchResult.Contact(it) }
+    } else {
+        emptyList()
+    }
+
+    return CalinoSearchGroups(actions, matchingEvents, matchingTasks, matchingJournals, matchingContacts)
 }
 
 private fun relevance(title: String, needle: String): Int {

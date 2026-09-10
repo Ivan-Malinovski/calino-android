@@ -90,7 +90,7 @@ private val JournalMonthFormat = DateTimeFormatter.ofPattern("MMMM yyyy", Locale
 private enum class JournalMode { All, Month }
 private enum class JournalEditorMode { Write, Read }
 
-/** A calm, local journal surface. The entries are fixture-backed until sync is added. */
+/** A calm journal surface; fixture entries are local, DAV entries sync through the repository. */
 @Composable
 fun JournalSurface(
     entries: List<JournalEntry>,

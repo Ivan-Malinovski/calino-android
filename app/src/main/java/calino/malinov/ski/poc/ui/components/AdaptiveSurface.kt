@@ -216,9 +216,11 @@ fun SwipeEndDismiss(
     dismissDistance: Dp = 980.dp,
     resetKey: Any? = null,
     canStartDismiss: (Offset) -> Boolean = { true },
+    allowDownwardDismiss: Boolean = false,
     content: @Composable (Modifier) -> Unit,
 ) {
     var dragDistance by remember { mutableFloatStateOf(0f) }
+    var dragDownDistance by remember { mutableFloatStateOf(0f) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentCanStartDismiss by rememberUpdatedState(canStartDismiss)
     var dismissing by remember { mutableStateOf(false) }
@@ -231,15 +233,25 @@ fun SwipeEndDismiss(
     val dismissDistancePx = with(density) { dismissDistance.toPx() }
     val axisThresholdPx = with(density) { 8.dp.toPx() }
 
-    fun animateOffsetTo(target: Float, onFinished: (() -> Unit)? = null) {
+    fun animateOffsetTo(
+        targetX: Float,
+        targetY: Float,
+        onFinished: (() -> Unit)? = null,
+    ) {
         animationJob?.cancel()
+        val startX = dragDistance
+        val startY = dragDownDistance
         animationJob = scope.launch {
             animate(
-                initialValue = dragDistance,
-                targetValue = target,
+                initialValue = 0f,
+                targetValue = 1f,
                 animationSpec = spring(dampingRatio = .86f, stiffness = 420f),
-            ) { value, _ -> dragDistance = value }
-            dragDistance = target
+            ) { value, _ ->
+                dragDistance = startX + (targetX - startX) * value
+                dragDownDistance = startY + (targetY - startY) * value
+            }
+            dragDistance = targetX
+            dragDownDistance = targetY
             animationJob = null
             onFinished?.invoke()
         }
@@ -247,8 +259,8 @@ fun SwipeEndDismiss(
 
     LaunchedEffect(visible, resetKey) {
         if (visible) {
-            if (dragDistance > .5f) {
-                animateOffsetTo(0f) { dismissing = false }
+            if (dragDistance > .5f || dragDownDistance > .5f) {
+                animateOffsetTo(0f, 0f) { dismissing = false }
             } else {
                 dismissing = false
             }
@@ -257,8 +269,8 @@ fun SwipeEndDismiss(
         }
     }
 
-    val progress = (dragDistance / dismissDistancePx).coerceIn(0f, 1f)
-    val gestureModifier = Modifier.pointerInput(visible, dismissing, layoutDirection) {
+    val progress = (maxOf(dragDistance, dragDownDistance) / dismissDistancePx).coerceIn(0f, 1f)
+    val gestureModifier = Modifier.pointerInput(visible, dismissing, layoutDirection, allowDownwardDismiss) {
         if (visible && !dismissing) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -267,10 +279,13 @@ fun SwipeEndDismiss(
                 var totalX = 0f
                 var totalY = 0f
                 var horizontal = false
+                var vertical = false
                 var axisDecided = false
                 var completed = false
                 val allowedAtDown = currentCanStartDismiss(down.position)
+                val downwardAllowedAtDown = allowDownwardDismiss
                 val startDistance = dragDistance
+                val startDownDistance = dragDownDistance
                 animationJob?.cancel()
 
                 while (true) {
@@ -287,20 +302,30 @@ fun SwipeEndDismiss(
                     totalY += amount.y
                     if (!axisDecided && (abs(totalX) > axisThresholdPx || abs(totalY) > axisThresholdPx)) {
                         horizontal = abs(totalX) > abs(totalY)
+                        vertical = !horizontal
                         axisDecided = true
                     }
                     val outwardTravel = totalX * outwardSign
                     if (axisDecided && horizontal && allowedAtDown && outwardTravel > 0f) {
                         change.consume()
                         dragDistance = (startDistance + outwardTravel).coerceAtMost(dismissDistancePx)
+                        dragDownDistance = 0f
+                    } else if (axisDecided && vertical && downwardAllowedAtDown && totalY > 0f) {
+                        change.consume()
+                        dragDistance = 0f
+                        dragDownDistance = (startDownDistance + totalY).coerceAtMost(dismissDistancePx)
                     }
                 }
 
-                if (completed && allowedAtDown && dragDistance >= dismissThresholdPx) {
+                if (completed && (
+                        allowedAtDown && dragDistance >= dismissThresholdPx ||
+                            downwardAllowedAtDown && dragDownDistance >= dismissThresholdPx
+                    )
+                ) {
                     dismissing = true
                     currentOnDismiss()
                 } else {
-                    animateOffsetTo(0f)
+                    animateOffsetTo(0f, 0f)
                 }
             }
         }
@@ -309,7 +334,12 @@ fun SwipeEndDismiss(
     Box(modifier.then(gestureModifier)) {
         content(
             modifier
-                .offset { IntOffset((dragDistance * outwardSign).roundToInt(), 0) }
+                .offset {
+                    IntOffset(
+                        (dragDistance * outwardSign).roundToInt(),
+                        dragDownDistance.roundToInt(),
+                    )
+                }
                 .graphicsLayer {
                     alpha = 1f - progress * .14f
                     scaleX = 1f - progress * .018f

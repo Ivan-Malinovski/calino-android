@@ -34,6 +34,8 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val events: List<CalEvent> = emptyList(),
         val tasks: List<CalTask> = emptyList(),
         val journals: List<JournalEntry> = emptyList(),
+        /** Resource hrefs whose iCalendar text could not be parsed. */
+        val failedResourceHrefs: List<String> = emptyList(),
     )
 
     /**
@@ -44,8 +46,9 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
      * different window -- which is what a cached copy does after the window
      * has moved with the calendar date.
      *
-     * A resource that will not parse is skipped rather than failing the
-     * collection; one malformed record must not empty a calendar.
+     * A resource that will not parse is reported in [Parsed.failedResourceHrefs]
+     * and skipped rather than failing the collection; one malformed record must
+     * not empty a calendar.
      */
     fun mapAll(
         resources: List<CalendarResource>,
@@ -57,7 +60,17 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val events = mutableListOf<CalEvent>()
         val tasks = mutableListOf<CalTask>()
         val journals = mutableListOf<JournalEntry>()
+        val failures = mutableListOf<String>()
         resources.forEach { resource ->
+            // [parse] intentionally returns an empty Parsed for unreadable
+            // text so one bad resource cannot crash a collection. At the
+            // collection boundary, however, that empty result is not enough:
+            // incremental sync must not advance past a resource that was
+            // never safely interpreted.
+            if (parseCalendars(resource.ics) == null) {
+                failures += resource.href
+                return@forEach
+            }
             val parsed = runCatching {
                 parse(
                     icalText = resource.ics,
@@ -68,12 +81,20 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                     windowStart = windowStart,
                     windowEnd = windowEnd,
                 )
-            }.getOrNull() ?: return@forEach
+            }.getOrElse {
+                // A resource that parsed as XML/iCalendar but could not be
+                // mapped (for example a broken RRULE or invalid date value)
+                // is still an unsafe replacement for the cached resource.
+                // Report it to the collection owner so it can retain the last
+                // good bytes and withhold the cursor.
+                failures += resource.href
+                return@forEach
+            }
             events += parsed.events
             tasks += parsed.tasks
             journals += parsed.journals
         }
-        return Parsed(events, tasks, journals)
+        return Parsed(events, tasks, journals, failures)
     }
 
     /**
@@ -99,14 +120,12 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val journals = mutableListOf<JournalEntry>()
 
         calendars.forEach { calendar ->
-            events += runCatching {
-                mapEvents(calendar, calendarId, color, href, etag, windowStart, windowEnd)
-            }.getOrDefault(emptyList())
+            events += mapEvents(calendar, calendarId, color, href, etag, windowStart, windowEnd)
             calendar.todos.forEach { vtodo ->
-                runCatching { mapTask(vtodo, color, href) }.getOrNull()?.let(tasks::add)
+                mapTask(vtodo, color, href, etag)?.let(tasks::add)
             }
             calendar.journals.forEach { vjournal ->
-                runCatching { mapJournal(vjournal, href) }.getOrNull()?.let(journals::add)
+                mapJournal(vjournal, href, etag)?.let(journals::add)
             }
         }
         return Parsed(events, tasks, journals)
@@ -162,24 +181,20 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 // cancelling it are different acts, and the move is the later
                 // statement of intent.
                 overrides.forEach { override ->
-                    runCatching { mapEvent(override, calendarId, color, href, etag) }
-                        .getOrNull()
+                    mapEvent(override, calendarId, color, href, etag)
                         ?.takeIf { it.withinWindow(windowStart, windowEnd) }
                         ?.let(out::add)
                 }
 
                 if (master == null) return@forEach
                 if (master.recurrenceRule == null && master.recurrenceDates.isEmpty()) {
-                    runCatching { mapEvent(master, calendarId, color, href, etag) }
-                        .getOrNull()?.let(out::add)
+                    mapEvent(master, calendarId, color, href, etag)?.let(out::add)
                     return@forEach
                 }
-                out += runCatching {
-                    expandSeries(
-                        calendar, master, overrides, calendarId, color, href, etag,
-                        windowStart, windowEnd,
-                    )
-                }.getOrDefault(emptyList())
+                out += expandSeries(
+                    calendar, master, overrides, calendarId, color, href, etag,
+                    windowStart, windowEnd,
+                )
             }
         return out
     }
@@ -278,9 +293,14 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             // event keeps its length by carrying the same span forward.
             val day = instant.atZone(iterationZone).toLocalDate()
             val span = date?.let { start -> endDate?.let { java.time.temporal.ChronoUnit.DAYS.between(start, it) } }
-            copy(id = id, date = day, endDate = span?.let { day.plusDays(it) })
+            copy(
+                id = id,
+                date = day,
+                endDate = span?.let { day.plusDays(it) },
+                recurrenceDate = recurrenceDate ?: day,
+            )
         } else {
-            copy(id = id, start = toLocalDateTime(instant))
+            copy(id = id, start = toLocalDateTime(instant), recurrenceId = recurrenceId ?: instant)
         }
     }
 
@@ -317,6 +337,10 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         // reschedule.
         val recurrenceInstant = vevent.recurrenceId?.value?.toInstant()
         val id = if (recurrenceInstant != null) occurrenceId(uid, recurrenceInstant) else uid
+        val recurrenceDate = vevent.recurrenceId?.value
+            ?.takeIf { !it.hasTime() }
+            ?.rawComponents
+            ?.let { runCatching { LocalDate.of(it.year, it.month, it.date) }.getOrNull() }
 
         val summary = vevent.summary?.value?.trim().orEmpty().ifEmpty { "(no title)" }
 
@@ -345,6 +369,9 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 uid = uid,
                 href = href,
                 etag = etag,
+                recurrenceId = recurrenceInstant,
+                recurrenceDate = recurrenceDate,
+                sequence = vevent.sequence?.value,
             )
         } else {
             val startLocal = toLocalDateTime(start.value.toInstant())
@@ -375,6 +402,9 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 uid = uid,
                 href = href,
                 etag = etag,
+                recurrenceId = recurrenceInstant,
+                recurrenceDate = recurrenceDate,
+                sequence = vevent.sequence?.value,
             )
         }
     }
@@ -404,7 +434,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
     // --- VTODO ----------------------------------------------------------------
 
-    private fun mapTask(vtodo: VTodo, color: Long, href: String): CalTask? {
+    private fun mapTask(vtodo: VTodo, color: Long, href: String, etag: String?): CalTask? {
         val uid = vtodo.uid?.value ?: return null
         val summary = vtodo.summary?.value?.trim().orEmpty().ifEmpty { "(no title)" }
 
@@ -444,12 +474,13 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             notes = vtodo.description?.value?.trim()?.takeIf(String::isNotEmpty),
             uid = uid,
             href = href,
+            etag = etag,
         )
     }
 
     // --- VJOURNAL -------------------------------------------------------------
 
-    private fun mapJournal(vjournal: VJournal, href: String): JournalEntry? {
+    private fun mapJournal(vjournal: VJournal, href: String, etag: String?): JournalEntry? {
         val uid = vjournal.uid?.value ?: return null
         // A journal entry is a dated note: DTSTART is read as a date even when
         // the server sends a date-time.
@@ -467,6 +498,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 .joinToString("\n\n"),
             uid = uid,
             href = href,
+            etag = etag,
         )
     }
 

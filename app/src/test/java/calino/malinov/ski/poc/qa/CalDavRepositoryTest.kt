@@ -8,11 +8,13 @@ import calino.malinov.ski.poc.data.caldav.CachedCalendar
 import calino.malinov.ski.poc.data.caldav.CalendarCache
 import calino.malinov.ski.poc.data.caldav.CalendarResource
 import calino.malinov.ski.poc.data.caldav.ICalMapper
+import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.NewTask
 import calino.malinov.ski.poc.data.repository.CalDavRepository
 import calino.malinov.ski.poc.data.repository.CalDavSource
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.repository.SyncState
+import calino.malinov.ski.poc.data.repository.WriteResult
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -75,6 +77,21 @@ class CalDavRepositoryTest {
             evictions++
             entries.keys.retainAll(calendarUrls)
         }
+
+        override fun loadResource(calendarUrl: String, href: String): CalendarResource? =
+            entries[calendarUrl]?.resources?.firstOrNull { it.href == href }
+
+        override fun saveResource(calendarUrl: String, resource: CalendarResource) {
+            val entry = entries[calendarUrl] ?: return
+            entries[calendarUrl] = entry.copy(
+                resources = entry.resources.filterNot { it.href == resource.href } + resource,
+            )
+        }
+
+        override fun deleteResource(calendarUrl: String, href: String) {
+            val entry = entries[calendarUrl] ?: return
+            entries[calendarUrl] = entry.copy(resources = entry.resources.filterNot { it.href == href })
+        }
     }
 
     /** Blocks until the repository stops loading, or fails the test. */
@@ -115,6 +132,12 @@ class CalDavRepositoryTest {
     ) {
         server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                if (request.method == "PUT") {
+                    return MockResponse().setResponseCode(201).setHeader("ETag", "\"written\"")
+                }
+                if (request.method == "DELETE") {
+                    return MockResponse().setResponseCode(204)
+                }
                 val body = request.body.readUtf8()
                 return when {
                     body.contains("VTODO") -> todos
@@ -275,56 +298,79 @@ END:VCALENDAR
     // --- the local overlay ----------------------------------------------------
 
     @Test
-    fun `a local edit shows immediately and reaches no server`() = runBlocking {
+    fun `a direct write shows immediately and reaches the server`() = runBlocking {
         val repository = repository()
         enqueueAll()
         repository.setSources(listOf(source()))
         repository.awaitSync()
         val requestsBefore = server.requestCount
 
-        val task = repository.addTask(
+        val task = (repository.addTask(
             NewTask(title = "Local only", color = 0L, due = LocalDate.of(2026, 9, 8)),
-        )
+        ) as WriteResult.Applied).record
 
         assertTrue(repository.snapshot().tasks.any { it.id == task.id })
-        assertEquals("a local edit must not be written to the server", requestsBefore, server.requestCount)
+        assertTrue("a direct write must reach the server", server.requestCount > requestsBefore)
+    }
+
+    @Test
+    fun `a new event with the legacy default calendar uses the first connected calendar`() = runBlocking {
+        val repository = repository()
+        enqueueAll()
+        val connected = calendar()
+        repository.setSources(listOf(source(connected)))
+        repository.awaitSync()
+
+        val result = repository.addEvent(
+            NewEvent(
+                title = "Default destination",
+                date = LocalDate.of(2026, 9, 8),
+                startTime = java.time.LocalTime.of(10, 0),
+                durationMinutes = 30,
+            ),
+        )
+
+        assertTrue("expected a real write, got $result", result is WriteResult.Applied)
+        assertEquals(connected.url, (result as WriteResult.Applied).record.calendarId)
     }
 
     @Test
     fun `completing a fetched task is undoable`() = runBlocking {
-        val repository = repository()
+        val repository = repository(FakeCache())
         enqueueAll()
-        repository.setSources(listOf(source()))
+        repository.setSources(listOf(source(calendar("/test-user/bed21d90-1639-2490-b6f5-721e0517aee6/"))))
         repository.awaitSync()
 
         val passport = repository.snapshot().tasks.first { it.title == "Renew passport" }
         assertFalse(passport.done)
 
-        val change = repository.setTaskDone(passport.id, true)
+        val changeResult = repository.setTaskDone(passport.id, true)
+        assertTrue("write result: $changeResult", changeResult is WriteResult.Applied)
+        val change = (changeResult as WriteResult.Applied).record
         assertTrue(repository.snapshot().tasks.first { it.id == passport.id }.done)
 
-        assertTrue(repository.undo(change))
+        assertTrue(repository.undo(change) is WriteResult.Applied)
         assertFalse(repository.snapshot().tasks.first { it.id == passport.id }.done)
     }
 
     @Test
-    fun `a refetch discards local edits made against the previous answer`() = runBlocking {
+    fun `a successful write survives a refetch until the server confirms it`() = runBlocking {
         val repository = repository()
         enqueueAll()
         repository.setSources(listOf(source()))
         repository.awaitSync()
 
-        val local = repository.addTask(
+        val local = (repository.addTask(
             NewTask(title = "Scratch", color = 0L, due = LocalDate.of(2026, 9, 8)),
-        )
+        ) as WriteResult.Applied).record
         assertTrue(repository.snapshot().tasks.any { it.id == local.id })
 
         enqueueAll()
         repository.refresh()
         repository.awaitSync()
 
-        assertFalse(
-            "the server's answer supersedes edits made against the previous one",
+        assertTrue(
+            "a successful write must not be dropped by a concurrent/stale refetch",
             repository.snapshot().tasks.any { it.id == local.id },
         )
     }

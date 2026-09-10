@@ -3,6 +3,7 @@ package calino.malinov.ski.poc.data.caldav
 import android.content.Context
 import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalDavCalendar
+import calino.malinov.ski.poc.data.model.ContactAddressBook
 import calino.malinov.ski.poc.data.repository.CalDavAccountPersistence
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,7 +27,24 @@ object CalDavAccountJson {
                         .put("name", calendar.name)
                         .put("color", calendar.color)
                         .put("enabled", calendar.enabled)
-                        .put("readOnly", calendar.readOnly),
+                        .put("readOnly", calendar.readOnly)
+                        .put("ctag", calendar.ctag ?: JSONObject.NULL)
+                        .put("syncToken", calendar.syncToken ?: JSONObject.NULL),
+                )
+            }
+            val addressBooks = JSONArray()
+            account.addressBooks.forEach { book ->
+                addressBooks.put(
+                    JSONObject()
+                        .put("id", book.id)
+                        .put("accountId", book.accountId)
+                        .put("url", book.url)
+                        .put("name", book.name)
+                        .put("description", book.description ?: JSONObject.NULL)
+                        .put("ctag", book.ctag ?: JSONObject.NULL)
+                        .put("syncToken", book.syncToken ?: JSONObject.NULL)
+                        .put("enabled", book.enabled)
+                        .put("readOnly", book.readOnly),
                 )
             }
             array.put(
@@ -35,7 +53,8 @@ object CalDavAccountJson {
                     .put("displayName", account.displayName)
                     .put("serverUrl", account.serverUrl)
                     .put("username", account.username)
-                    .put("calendars", calendars),
+                    .put("calendars", calendars)
+                    .put("addressBooks", addressBooks),
             )
         }
         return array.toString()
@@ -66,6 +85,26 @@ object CalDavAccountJson {
                     color = calendar.optLong("color", DefaultCalendarColor),
                     enabled = calendar.optBoolean("enabled", true),
                     readOnly = calendar.optBoolean("readOnly", false),
+                    ctag = calendar.optString("ctag").takeUnless { it.isBlank() || it == "null" },
+                    syncToken = calendar.optString("syncToken")
+                        .takeUnless { it.isBlank() || it == "null" },
+                )
+            }
+        }
+        val booksJson = json.optJSONArray("addressBooks") ?: JSONArray()
+        val addressBooks = (0 until booksJson.length()).mapNotNull { index ->
+            booksJson.optJSONObject(index)?.let { book ->
+                val bookId = book.optString("id").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                ContactAddressBook(
+                    id = bookId,
+                    accountId = book.optString("accountId", id),
+                    url = book.optString("url", bookId),
+                    name = book.optString("name", bookId),
+                    description = book.optString("description").takeIf { it.isNotEmpty() },
+                    ctag = book.optString("ctag").takeIf { it.isNotEmpty() },
+                    syncToken = book.optString("syncToken").takeIf { it.isNotEmpty() },
+                    enabled = book.optBoolean("enabled", true),
+                    readOnly = book.optBoolean("readOnly", false),
                 )
             }
         }
@@ -75,6 +114,7 @@ object CalDavAccountJson {
             serverUrl = json.optString("serverUrl"),
             username = json.optString("username"),
             calendars = calendars,
+            addressBooks = addressBooks,
         )
     }
 }

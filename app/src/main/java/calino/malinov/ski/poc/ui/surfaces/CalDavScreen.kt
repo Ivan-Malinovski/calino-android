@@ -65,6 +65,9 @@ import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalDavCalendar
 import calino.malinov.ski.poc.data.model.CalDavForm
 import calino.malinov.ski.poc.data.repository.CalDavClient
+import calino.malinov.ski.poc.data.repository.PendingChange
+import calino.malinov.ski.poc.data.repository.PendingChangeState
+import calino.malinov.ski.poc.data.repository.PendingChangeType
 import calino.malinov.ski.poc.data.repository.SyncState
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
@@ -91,11 +94,10 @@ import kotlinx.coroutines.delay
 private const val SheetExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
 
 /**
- * The connected-calendars surface: the accounts already added, the collections
- * under each, and the entry point into the add flow.
- *
- * The prototype never contacts a server. [client] is the seam a real CalDAV
- * implementation would fill; today it is a fixture that simulates discovery.
+ * The connected-account surface: the accounts already added, their calendar
+ * and address-book collections, and the entry point into the add flow. Reads
+ * and writes use real CalDAV/CardDAV; unavailable writes remain in a durable
+ * queue until they can be replayed.
  */
 @Composable
 fun CalendarAccountsSurface(
@@ -103,6 +105,7 @@ fun CalendarAccountsSurface(
     client: CalDavClient,
     onAddAccount: (CalDavForm, List<CalDavCalendar>) -> Unit,
     onCalendarEnabled: (accountId: String, calendarId: String, enabled: Boolean) -> Unit,
+    onAddressBookEnabled: (accountId: String, addressBookId: String, enabled: Boolean) -> Unit = { _, _, _ -> },
     onRemoveAccount: (accountId: String) -> Unit,
     modifier: Modifier = Modifier,
     onOpenMenu: (() -> Unit)? = null,
@@ -112,6 +115,9 @@ fun CalendarAccountsSurface(
     onFocusAccountConsumed: () -> Unit = {},
     syncState: SyncState = SyncState.Idle,
     onRefresh: () -> Unit = {},
+    pendingChanges: List<PendingChange> = emptyList(),
+    onRetryPendingChange: (String) -> Unit = {},
+    onDiscardPendingChange: (String) -> Unit = {},
 ) {
     // Whether the sheet is open survives rotation; the credentials inside it
     // deliberately do not.
@@ -148,7 +154,7 @@ fun CalendarAccountsSurface(
                     modifier = Modifier.padding(top = 3.dp),
                 )
                 Text(
-                    "Reading only · Calino shows what the server holds. Nothing is written back yet.",
+                    "CalDAV and CardDAV are connected for reading and writing. Offline changes stay queued until they sync.",
                     style = CalinoTypography.bodySmall,
                     color = CalinoColors.Ink3,
                     modifier = Modifier.padding(top = 5.dp),
@@ -168,6 +174,15 @@ fun CalendarAccountsSurface(
             ) {
                 if (accounts.isNotEmpty()) {
                     item { SyncStatusCard(syncState, onRefresh) }
+                    if (pendingChanges.isNotEmpty()) {
+                        item {
+                            PendingWritesCard(
+                                changes = pendingChanges,
+                                onRetry = onRetryPendingChange,
+                                onDiscard = onDiscardPendingChange,
+                            )
+                        }
+                    }
                 }
                 if (accounts.isEmpty()) {
                     item { EmptyAccountsCard() }
@@ -177,6 +192,9 @@ fun CalendarAccountsSurface(
                             account = account,
                             onCalendarEnabled = { calendarId, enabled ->
                                 onCalendarEnabled(account.id, calendarId, enabled)
+                            },
+                            onAddressBookEnabled = { addressBookId, enabled ->
+                                onAddressBookEnabled(account.id, addressBookId, enabled)
                             },
                             onRemove = { onRemoveAccount(account.id) },
                         )
@@ -285,16 +303,85 @@ private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
                 color = CalinoColors.Ink3,
                 modifier = Modifier.padding(top = 2.dp),
             )
-            // The write path is not built yet, and pretending otherwise would
-            // lose a user's edit silently.
             Text(
-                "Changes you make here stay on this device until sync is added.",
+                "Edits sync directly when online. Offline changes stay in Pending writes until they are sent.",
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink3,
                 modifier = Modifier.padding(top = 6.dp),
             )
         }
     }
+}
+
+/** Durable writes that are waiting, retrying, or need a user's decision. */
+@Composable
+private fun PendingWritesCard(
+    changes: List<PendingChange>,
+    onRetry: (String) -> Unit,
+    onDiscard: (String) -> Unit,
+) = EditorSection("Pending writes") {
+    val deadLetters = changes.count { it.state == PendingChangeState.DEAD_LETTER }
+    Text(
+        if (deadLetters == 0) {
+            "${changes.size} change${if (changes.size == 1) "" else "s"} waiting to sync."
+        } else {
+            "$deadLetters change${if (deadLetters == 1) "" else "s"} need attention."
+        },
+        style = CalinoTypography.bodySmall,
+        color = if (deadLetters == 0) CalinoColors.Ink3 else CalinoColors.Rose,
+    )
+    changes.forEachIndexed { index, change ->
+        if (index > 0) HorizontalDivider(color = CalinoColors.Line)
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(pendingChangeLabel(change), style = CalinoTypography.bodyMedium)
+                    Text(
+                        pendingChangeStatus(change),
+                        style = CalinoTypography.bodySmall,
+                        color = if (change.state == PendingChangeState.DEAD_LETTER) CalinoColors.Rose else CalinoColors.Ink3,
+                    )
+                }
+                if (change.state == PendingChangeState.DEAD_LETTER) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        TextButton(
+                            onClick = { onRetry(change.id) },
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) { Text("Retry", color = CalinoColors.Accent) }
+                        TextButton(
+                            onClick = { onDiscard(change.id) },
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) { Text("Discard", color = CalinoColors.Rose) }
+                    }
+                }
+            }
+            change.lastFailure?.let { failure ->
+                Text(
+                    failure.message,
+                    style = CalinoTypography.bodySmall,
+                    color = CalinoColors.Ink2,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun pendingChangeLabel(change: PendingChange): String {
+    val action = when (change.type) {
+        PendingChangeType.CREATE -> "Create"
+        PendingChangeType.UPDATE -> "Update"
+        PendingChangeType.DELETE -> "Delete"
+        PendingChangeType.MOVE -> "Move"
+        PendingChangeType.DELETE_HREF -> "Finish move"
+    }
+    return "$action ${change.component}"
+}
+
+private fun pendingChangeStatus(change: PendingChange): String = when (change.state) {
+    PendingChangeState.PENDING -> "Queued"
+    PendingChangeState.RETRY -> "Will retry automatically"
+    PendingChangeState.DEAD_LETTER -> "Needs attention"
 }
 
 private fun formatSyncTime(instant: java.time.Instant, timeFormat: CalinoTimeFormat): String =
@@ -316,6 +403,7 @@ private fun EmptyAccountsCard() = EditorSection("No accounts yet") {
 private fun AccountCard(
     account: CalDavAccount,
     onCalendarEnabled: (calendarId: String, enabled: Boolean) -> Unit,
+    onAddressBookEnabled: (addressBookId: String, enabled: Boolean) -> Unit,
     onRemove: () -> Unit,
 ) = EditorSection(null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -345,6 +433,22 @@ private fun AccountCard(
                     checked = calendar.enabled,
                     onCheckedChange = { onCalendarEnabled(calendar.id, it) },
                 )
+            }
+        }
+    }
+    if (account.addressBooks.isNotEmpty()) {
+        HorizontalDivider(color = CalinoColors.Line)
+        EditorLabel("Address books")
+        account.addressBooks.forEach { addressBook ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(CalinoIcons.Users, contentDescription = null, tint = CalinoColors.Accent, modifier = Modifier.size(18.dp))
+                Box(Modifier.weight(1f).padding(start = 10.dp)) {
+                    CalinoToggleRow(
+                        label = if (addressBook.readOnly) "${addressBook.name} · read only" else addressBook.name,
+                        checked = addressBook.enabled,
+                        onCheckedChange = { onAddressBookEnabled(addressBook.id, it) },
+                    )
+                }
             }
         }
     }

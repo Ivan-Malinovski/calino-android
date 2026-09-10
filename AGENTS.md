@@ -2,14 +2,13 @@
 
 This repository contains the standalone native Android application formerly
 developed as Calino’s native UI POC. It is a Kotlin + Jetpack Compose app. It
-does not use the parent Calino repository, WebView, Capacitor, CardDAV, or
-webcal.
+does not use the parent Calino repository, WebView, Capacitor, or webcal.
 
-It **does** now speak real CalDAV, read-only: a connected account's events,
-tasks, and journal entries are fetched over HTTPS and replace the fixture data
-in every calendar surface. That was previously prohibited here and was opened by
-explicit user request. Nothing is written back to the server; see “CalDAV
-scope” below.
+It **does** now speak real CalDAV and CardDAV: a connected account's events,
+tasks, journal entries, and address-book contacts are fetched over HTTPS and
+replace the fixture data in every relevant surface. Writes use conditional
+CalDAV/CardDAV requests, recurrence-safe patching, a durable offline queue,
+and incremental sync; see the CalDAV and CardDAV sections below.
 
 Read [`HANDOFF.md`](HANDOFF.md) before making substantial changes. It contains
 the current feature inventory, known gaps, architecture notes, and the review
@@ -17,39 +16,64 @@ plan for the next model.
 
 ## Scope
 
-- The product is a UI and interaction prototype that now reads real calendar
-  data. With no account connected it still serves the fixture repository, so the
-  sample surfaces remain reachable.
+- The product is a UI and interaction prototype that now reads and writes real
+  calendar data. With no account connected it still serves the fixture
+  repository, so the sample surfaces remain reachable.
 - Keep the frozen May 2026 fixture contract unless the task explicitly changes
   it. `FixtureRepository` is unchanged and is still the no-account default.
-- Do not add other remote functionality (CardDAV, webcal, telemetry, or any
-  other host) beyond the CalDAV read path described below.
+- Do not add other remote functionality (webcal, telemetry, or any other host)
+  beyond the CalDAV and CardDAV read/write paths described below.
 
 ## CalDAV scope
 
-Read-only, and deliberately so. What exists:
+Read/write, with an explicit offline and conflict policy. What exists:
 
 - `data/caldav/` — OkHttp transport, discovery, fetching, iCalendar mapping,
-  error classification, Keystore-backed credential storage, and the on-disk
-  read cache (`CalendarCache.kt`).
+  conditional writers, recurrence patching, RFC 6578 incremental sync, error
+  classification, Keystore-backed credential storage, and the on-disk raw
+  resource cache (`CalendarCache.kt`).
 - `data/repository/CalDavRepository.kt` — a second `CalinoRepository` fed by
-  those collections, selected once an account is connected.
+  those collections, selected once an account is connected. It applies
+  optimistic edits, replays the durable queue, and reconciles server deltas.
+- `data/repository/WriteQueue.kt` — atomic JSON persistence for CREATE, UPDATE,
+  DELETE, MOVE, and source-cleanup operations, with bounded retries and
+  dead-letter recovery from the Accounts surface.
 
-What is **not** built, and must not be added without a separate review:
+Write rules that are intentionally fixed:
 
-- Writing to the server. The app's write methods apply to an in-memory overlay
-  (`LocalOverlay`) that a refetch discards, and the accounts surface says so on
-  screen. Do not quietly turn those into `PUT`/`DELETE`.
-- `sync-collection` / sync-token incremental sync, the offline change queue,
-  ETag `If-Match` conflict handling.
+- Existing resources are patched from the raw cache and sent with their ETag;
+  a stale ETag is refreshed and the modeled local fields are rebased onto the
+  current server resource while foreign properties are preserved. Do not add
+  timestamp-based conflict guesses: the conflict helper compares iCalendar
+  `SEQUENCE` and the documented policy is local-wins after a safe rebase.
+- Queued UPDATE entries retain the original raw server representation as
+  `baseData`; replay uses it for a three-way rebase after a 412. Legacy UPDATE
+  entries without that base are rejected safely instead of overwriting a newer
+  server resource. Queued CREATE edits coalesce into their existing FIFO slot.
+- A queued CREATE that receives a 412 is verified with a GET before it becomes
+  a dead letter: an exact payload match acknowledges a lost response, a missing
+  resource retries the create, and a different payload is reported as a real
+  collision. The same rule applies to CardDAV contacts.
+- A cross-calendar move writes the destination first, then conditionally
+  removes the source. A failed source cleanup remains a distinct queued
+  `DELETE_HREF` item; never delete the source merely because a destination
+  write failed.
+- Queued moves retain the source raw payload. Source cleanup and destination
+  recovery entries are inserted before dependent later writes, and cleanup
+  stays conditional on the source ETag (or is left for explicit recovery when
+  that proof is unavailable).
+- `LocalOverlay` is optimistic process state, not a second durable cache. The
+  queue is durable; an edit that cannot sync is removed if its dead letter is
+  discarded.
 
 Recurrence **is** expanded, on the client, in `ICalMapper`. The event query no
 longer sends `<c:expand>` at all -- see the CalDAV section of `HANDOFF.md` for
 the rules that expansion depends on.
 
-Fetched data **is** cached to disk, read-only. `CalDavFetcher` returns the
-server's raw resource text and `FileCalendarCache` stores it per calendar, so a
-launch renders before any request is made and the app stays readable offline.
+Fetched data **is** cached to disk, read-only as cache content. `CalDavFetcher`
+returns the server's raw resource text and `FileCalendarCache` stores it per
+calendar, so a launch renders before any request is made and the app stays
+readable offline.
 What is cached is iCalendar text, never mapped occurrences -- that is what lets
 a series re-expand as the window moves. `LocalOverlay` is **not** cached, on
 purpose: an edit that cannot sync must not look durable. See "The read cache"
@@ -65,6 +89,33 @@ live test reads them from the environment.
   `<sibling-native-poc>` copy while working here.
 - Do not commit credentials, local environment files, keystores, generated
   build output, `.gradle/`, `.kotlin/`, or `local.properties`.
+
+## CardDAV scope
+
+Read/write, with the same durable queue and cache rules. What exists:
+
+- `data/caldav/CardDavDiscovery.kt` — independent address-book-home-set
+  discovery and depth-1 address-book collection listing.
+- `data/caldav/CardDavFetcher.kt` and `VCardMapper.kt` — addressbook-query
+  reads of raw vCards and ez-vcard mapping into the contact model.
+- `CardDavWriter.kt` and `VCardWriter.kt` — conditional vCard create/update/
+  delete with raw-property preservation where the model does not edit a field.
+- Address-book raw-vCard cache entries under the same private `filesDir` cache
+  used by calendars. Credentials remain in the Keystore; vCard cache content
+  contains no password or other credential material.
+- `data/repository/CalDavRepository.kt` — CardDAV sources are merged into the
+  same `CalinoSnapshot`, contact writes use the server writer, and failed
+  writes use the same durable queue.
+- Malformed or multi-vCard resources are treated as partial/non-authoritative
+  reads rather than silently replacing a valid cached address book. Cache file
+  mutations are synchronized so a refresh cannot race a write or eviction.
+
+What is not built, and must not be added without a separate review:
+
+- No vCard import/export, duplicate merging, contact picker, or group-membership
+  editing in v1.
+- Contact-derived birthday/anniversary reminder events remain local app
+  conveniences; they are not silently written as VEVENTs to the server.
 
 ## Project facts
 
@@ -210,9 +261,9 @@ After implementing a meaningful UI change:
 7. Report changed files, checks, emulator/phone validation, and any remaining
    uncertainty.
 
-Do not silently expand scope into sync, server writes, or production release
-work. Read-only CalDAV plus the account list and its encrypted credentials is
-the agreed extent.
+Do not silently expand scope into webcal, telemetry, other hosts, or production
+release work. CalDAV/CardDAV writes, queueing, incremental sync, and the account
+list with encrypted credentials are the agreed extent.
 
 ## Git and handoff rules
 

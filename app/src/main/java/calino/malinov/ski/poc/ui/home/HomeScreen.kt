@@ -70,6 +70,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -136,6 +137,8 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
+import calino.malinov.ski.poc.qa.shouldExpandFromDayRail
+import calino.malinov.ski.poc.qa.timelineScaleAfterPinch
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
 import calino.malinov.ski.poc.state.FixtureNow
@@ -198,6 +201,9 @@ import kotlinx.coroutines.launch
 private val PagerEpoch = LocalDate.of(2026, 5, 18)
 private const val DaytimeScrollHour = 9
 private const val ZoomStepDp = 280f
+private const val TimelineBaseHourHeightDp = 62f
+private const val TimelineMinScale = .65f
+private const val TimelineMaxScale = 1.8f
 
 /**
  * Smallest relative width change that counts as a fold rather than as insets
@@ -359,7 +365,44 @@ fun HomeScreen(
     val preferences = LocalCalinoPreferences.current
     val weekStart = preferences.weekStart
     val showWeekNumber = preferences.showWeekNumbers
-    val railScroll = rememberScrollState(initial = with(density) { (DaytimeScrollHour * 62).dp.roundToPx() })
+    val railScroll = rememberScrollState(
+        initial = with(density) {
+            (DaytimeScrollHour * TimelineBaseHourHeightDp).dp.roundToPx()
+        },
+    )
+    // The timeline density is independent from the calendar's month/detail
+    // zoom. It survives day changes so a user can choose a comfortable hour
+    // scale once and keep it while paging through days.
+    val timelineScale = rememberSaveable { mutableFloatStateOf(1f) }
+    var timelineScrollTarget by remember { mutableStateOf<Int?>(null) }
+    // A scale change can increase the content's max scroll after this frame.
+    // Apply the anchor after remeasurement so a pinch near the bottom does not
+    // get clamped against the old, shorter rail.
+    LaunchedEffect(timelineScale.floatValue, timelineScrollTarget) {
+        val target = timelineScrollTarget ?: return@LaunchedEffect
+        withFrameNanos { }
+        railScroll.scrollTo(target.coerceIn(0, railScroll.maxValue))
+        if (timelineScrollTarget == target) timelineScrollTarget = null
+    }
+
+    fun requestTimelineScale(scaleFactor: Float, anchorY: Float, laneHeight: Dp) {
+        val previousScale = timelineScale.floatValue
+        val nextScale = timelineScaleAfterPinch(
+            scale = previousScale,
+            pinchFactor = scaleFactor,
+            minScale = TimelineMinScale,
+            maxScale = TimelineMaxScale,
+        )
+        if (abs(nextScale - previousScale) < .0001f) return
+        val laneHeightPx = with(density) { laneHeight.toPx() }
+        // Keep the hour under the pinch centroid fixed. The lane/header is
+        // unscaled; only the hour rail below it changes density.
+        val railCoordinate = (railScroll.value + anchorY - laneHeightPx).coerceAtLeast(0f)
+        timelineScale.floatValue = nextScale
+        timelineScrollTarget = (
+            laneHeightPx + railCoordinate * (nextScale / previousScale) - anchorY
+            ).roundToInt().coerceAtLeast(0)
+    }
     // A week page is an offset from an epoch week, and that offset does not
     // survive a change of week start: for a Sunday it shifts by one, for every
     // other day it does not. A pager left on the old index reads back a date a
@@ -1062,6 +1105,14 @@ fun HomeScreen(
             val calendarZoomGesture = Modifier.pointerInput(handleHeight) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    // The rail is laid out underneath the compact strip and
+                    // starts below the calendar plus the optional handle. A
+                    // down in that lower region belongs to the rail unless a
+                    // downward pull has reached its top boundary.
+                    val daySurfaceStartPx = with(density) {
+                        (calendarHeight.value + handleHeight).toPx()
+                    }
+                    val startedOnDaySurface = down.position.y >= daySurfaceStartPx
                     var travel = Offset.Zero
                     var owned = false
                     var anchorLevel = 0
@@ -1069,6 +1120,10 @@ fun HomeScreen(
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        // A second pointer belongs to the timeline pinch
+                        // recognizer below. Do not let the one-finger calendar
+                        // zoom claim the stream before the pinch can start.
+                        if (!owned && event.changes.count { it.pressed } > 1) break
                         if (!change.pressed) {
                             if (owned) {
                                 val velocity = velocityTracker.calculateVelocity()
@@ -1095,6 +1150,21 @@ fun HomeScreen(
                             if (abs(travel.y) > viewConfiguration.touchSlop * .5f &&
                                 abs(travel.y) > abs(travel.x)
                             ) {
+                                // At the compact/week endpoint the time rail
+                                // must own its vertical stream. The one
+                                // intentional exception is a downward pull at
+                                // the rail's top, which expands the calendar.
+                                // Decide this once, at axis lock, so a child
+                                // scroll cannot be stolen halfway through.
+                                if (startedOnDaySurface &&
+                                    zoomState.value < DaySurfaceBlendStart &&
+                                    !shouldExpandFromDayRail(
+                                        dragDeltaY = travel.y,
+                                        railScrollValue = railScroll.value,
+                                    )
+                                ) {
+                                    break
+                                }
                                 owned = true
                                 cancelMotion()
                                 anchorLevel = zoomState.floatValue.roundToInt().coerceIn(0, 2)
@@ -1303,9 +1373,11 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         interactionEnabled = interactionEnabled,
                         zoomState = currentZoom,
+                        timelineScale = timelineScale.floatValue,
                         laneOverlap = laneOverlap,
                         dayRailOwnsInput = dayRailOwnsInput,
                         agendaOwnsInput = agendaOwnsInputNow,
+                        onTimelinePinch = ::requestTimelineScale,
                         onEvent = onEventClick,
                         onTaskDone = onTaskDone,
                         onTaskRescheduleTo = onTaskRescheduleTo,
@@ -3639,9 +3711,11 @@ private fun DayPagerSurface(
     modifier: Modifier,
     interactionEnabled: Boolean,
     zoomState: androidx.compose.runtime.State<Float>,
+    timelineScale: Float,
     laneOverlap: Dp,
     dayRailOwnsInput: Boolean,
     agendaOwnsInput: Boolean,
+    onTimelinePinch: (scaleFactor: Float, anchorY: Float, laneHeight: Dp) -> Unit,
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: (CalTask, Boolean) -> Unit,
     onTaskRescheduleTo: (CalTask, LocalDate?) -> Unit,
@@ -3678,6 +3752,8 @@ private fun DayPagerSurface(
                     scrollState = scrollState,
                     dayTasks = dayTasks,
                     laneOverlap = laneOverlap,
+                    timelineScale = timelineScale,
+                    onTimelinePinch = onTimelinePinch,
                     laneBlend = { (1f - zoomState.value / MonthEndpointBlendEnd).coerceIn(0f, 1f) },
                     active = dayRailOwnsInput,
                     scrollEnabled = dayRailOwnsInput,
@@ -3842,13 +3918,19 @@ private fun DayRailPage(
     active: Boolean,
     scrollEnabled: Boolean,
     laneOverlap: Dp,
+    timelineScale: Float,
+    onTimelinePinch: (scaleFactor: Float, anchorY: Float, laneHeight: Dp) -> Unit,
     laneBlend: () -> Float,
     onEvent: ((CalEvent) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
     onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onTaskClick: ((CalTask) -> Unit)?,
 ) {
-    val interactionModifier = if (active) Modifier else Modifier.clearAndSetSemantics { }
+    val interactionModifier = if (active) {
+        Modifier.semantics { contentDescription = "Timeline, pinch to resize" }
+    } else {
+        Modifier.clearAndSetSemantics { }
+    }
     val density = LocalDensity.current
     // The all-day strip still never scrolls, but it is now an overlay rather
     // than a row above the rail: the rail has to start at the very top of the
@@ -3858,10 +3940,49 @@ private fun DayRailPage(
     var measuredHeader by remember { mutableStateOf(0.dp) }
     // A day with nothing above the hours gives the space straight back.
     val headerHeight = if (hasHeader) measuredHeader else 0.dp
+    val laneHeight = laneOverlap + headerHeight
     val railLayer = rememberGraphicsLayer()
+    val currentOnTimelinePinch = rememberUpdatedState(onTimelinePinch)
+    val timelinePinchGesture = if (scrollEnabled) {
+        Modifier.pointerInput(scrollEnabled) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var pinching = false
+                var previousSpan = 0f
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val pressed = event.changes.filter { it.pressed }
+                    if (pressed.isEmpty()) break
+                    if (pressed.size < 2) continue
 
-    Box(interactionModifier.fillMaxSize()) {
-        val laneHeight = laneOverlap + headerHeight
+                    val first = pressed[0].position
+                    val second = pressed[1].position
+                    val span = (first - second).getDistance()
+                    val anchorY = (first.y + second.y) / 2f
+                    if (!pinching) {
+                        pinching = true
+                        previousSpan = span
+                        continue
+                    }
+                    if (span > 0f && previousSpan > 0f) {
+                        val factor = (span / previousSpan).coerceIn(.85f, 1.18f)
+                        if (abs(factor - 1f) > .001f) {
+                            // Once two fingers are changing the scale, keep
+                            // the vertical rail from interpreting the same
+                            // stream as a one-finger scroll.
+                            pressed.forEach { it.consume() }
+                            currentOnTimelinePinch.value(factor, anchorY, laneHeight)
+                        }
+                        previousSpan = span
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
+    Box(interactionModifier.fillMaxSize().then(timelinePinchGesture)) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -3893,7 +4014,7 @@ private fun DayRailPage(
             // At rest the hours sit where they always did; this is the space
             // the lane and the all-day strip occupy above them.
             Spacer(Modifier.height(laneOverlap + headerHeight))
-            HourRailContent(day, dayEvents, onEvent)
+            HourRailContent(day, dayEvents, onEvent, timelineScale)
             // The add pill floats over this rail; keep the last hours
             // scrollable clear of it.
             Spacer(Modifier.height(CalinoSpacing.PillClearance))
@@ -3932,7 +4053,11 @@ private fun DayRailPage(
                         )
                     }
                 }
-                allDayEvents.take(2).forEach { event ->
+                // Keep local birthday/anniversary reminders visible alongside
+                // the two common fixture all-day records. This is still a
+                // bounded strip, but adding a reminder must not make it look
+                // as though the event landed on the wrong day.
+                allDayEvents.take(3).forEach { event ->
                     EventChip(event, minHeight = 40.dp, onClick = onEvent?.let { callback -> { callback(event) } }, agendaStyle = true)
                 }
             }
@@ -3995,22 +4120,28 @@ private fun CompactLaneScrim(
 }
 
 @Composable
-private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> Unit)?) {
+private fun HourRailContent(
+    day: LocalDate,
+    dayEvents: List<CalEvent>,
+    onEvent: ((CalEvent) -> Unit)?,
+    timelineScale: Float,
+) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
     val timeFormat = LocalTimeFormat
     val slots = remember(dayEvents) { layoutDayRail(dayEvents) }
-    Box(Modifier.fillMaxWidth().height(1488.dp)) {
+    val hourHeight = (TimelineBaseHourHeightDp * timelineScale).dp
+    Box(Modifier.fillMaxWidth().height((hourHeight.value * 24f).dp)) {
         Canvas(Modifier.fillMaxSize()) {
             repeat(24) { hour ->
-                val y = hour * 62.dp.toPx()
+                val y = hour * hourHeight.toPx()
                 drawLine(colors.Ink.copy(.08f), androidx.compose.ui.geometry.Offset(52.dp.toPx(), y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
             }
         }
         (0..23).forEach { hour ->
             Text(
                 timeFormat.formatHour(hour),
-                Modifier.offset(x = 8.dp, y = (hour * 62 - 7).dp),
+                Modifier.offset(x = 8.dp, y = (hour * hourHeight.value - 7f).dp),
                 fontSize = 10.sp,
                 color = colors.Ink3,
             )
@@ -4026,8 +4157,8 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                 val event = slot.event
                 val laneWidth = ((railWidth - laneGap * (slot.columns - 1)) / slot.columns)
                     .coerceAtLeast(0.dp)
-                val top = (slot.startMinute / 60f * 62).dp
-                val height = ((slot.endMinute - slot.startMinute) / 60f * 62 - 4)
+                val top = (hourHeight.value * (slot.startMinute / 60f)).dp
+                val height = (hourHeight.value * ((slot.endMinute - slot.startMinute) / 60f) - 4f)
                     .coerceAtLeast(24f).dp
                 // Only a block with room for a second line gets one; a
                 // half-width 30-minute event would otherwise clip its title.
@@ -4082,9 +4213,9 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
         // 11:20 and the line never moved. LocalCalinoNow re-reads on the minute.
         val now = LocalCalinoNow.current
         if (day == now.today) {
-            Canvas(
-                Modifier.fillMaxWidth()
-                    .offset(y = (now.hourOfDay * 62).dp)
+                Canvas(
+                    Modifier.fillMaxWidth()
+                    .offset(y = (now.hourOfDay * hourHeight.value).dp)
                     .height(8.dp)
                     .semantics { contentDescription = "Current time, ${timeFormat.format(now.time)}" },
             ) {

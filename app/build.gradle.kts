@@ -46,6 +46,13 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("net.sf.biweekly:biweekly:0.6.8")
+    implementation("com.googlecode.ez-vcard:ez-vcard:0.12.1") {
+        exclude(group = "org.freemarker", module = "freemarker")
+        exclude(group = "org.jsoup", module = "jsoup")
+        exclude(group = "com.fasterxml.jackson.core", module = "jackson-core")
+        exclude(group = "com.fasterxml.jackson.core", module = "jackson-databind")
+        exclude(group = "com.fasterxml.jackson.core", module = "jackson-annotations")
+    }
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

@@ -2,12 +2,16 @@ package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.data.caldav.CalDavDiscovery
 import calino.malinov.ski.poc.data.caldav.CalDavFetcher
+import calino.malinov.ski.poc.data.caldav.CachedAddressBook
 import calino.malinov.ski.poc.data.caldav.CachedCalendar
+import calino.malinov.ski.poc.data.caldav.CardDavDiscovery
+import calino.malinov.ski.poc.data.caldav.CardDavFetcher
 import calino.malinov.ski.poc.data.caldav.DavCredentials
 import calino.malinov.ski.poc.data.caldav.DiscoveredCalendar
 import calino.malinov.ski.poc.data.caldav.FetchResult
 import calino.malinov.ski.poc.data.caldav.FileCalendarCache
 import calino.malinov.ski.poc.data.caldav.ICalMapper
+import calino.malinov.ski.poc.data.caldav.VCardMapper
 import java.nio.file.Files
 import java.time.Instant
 import java.time.LocalDate
@@ -17,7 +21,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestName
 
 /**
  * End-to-end against a real CalDAV server.
@@ -33,12 +39,22 @@ import org.junit.Test
  */
 class CalDavLiveTest {
 
+    @get:Rule
+    val testName = TestName()
+
     private val url: String? = System.getenv("CALINO_CALDAV_URL")
     private val user: String? = System.getenv("CALINO_CALDAV_USER")
     private val pass: String? = System.getenv("CALINO_CALDAV_PASS")
+    private val cardDavUrl: String? =
+        System.getenv("CALINO_CARDDAV_URL") ?: url
+    private val cardDavUser: String? =
+        System.getenv("CALINO_CARDDAV_USER") ?: user
+    private val cardDavPass: String? =
+        System.getenv("CALINO_CARDDAV_PASS") ?: pass
 
     @Before
     fun requireCredentials() {
+        if (testName.methodName.contains("CardDAV")) return
         assumeTrue(
             "Set CALINO_CALDAV_URL / _USER / _PASS to run the live CalDAV test.",
             !url.isNullOrBlank() && !user.isNullOrBlank() && !pass.isNullOrBlank(),
@@ -46,6 +62,8 @@ class CalDavLiveTest {
     }
 
     private fun credentials() = DavCredentials(user!!, pass!!)
+
+    private fun cardDavCredentials() = DavCredentials(cardDavUser!!, cardDavPass!!)
 
     private val mapper = ICalMapper()
 
@@ -159,6 +177,60 @@ class CalDavLiveTest {
         assertTrue("the cache read nothing back", fromDisk.isNotEmpty())
         assertEquals(fromServer.map { it.id }.sorted(), fromDisk.map { it.id }.sorted())
         assertEquals(fromServer.sortedBy { it.id }, fromDisk.sortedBy { it.id })
+    }
+
+    @Test
+    fun `CardDAV discovers books maps contacts and caches raw vcards`() = runBlocking {
+        assumeTrue(
+            "Set CALINO_CARDDAV_URL / _USER / _PASS, or the CALINO_CALDAV_* equivalents, " +
+                "to run the live CardDAV test.",
+            !cardDavUrl.isNullOrBlank() && !cardDavUser.isNullOrBlank() && !cardDavPass.isNullOrBlank(),
+        )
+
+        val account = CardDavDiscovery().discoverAccount(cardDavUrl!!, cardDavCredentials())
+        assertTrue("expected at least one CardDAV address book", account.addressBooks.isNotEmpty())
+
+        val cache = FileCalendarCache(Files.createTempDirectory("calino-card-cache").toFile())
+        val mapper = VCardMapper()
+        val fetched = account.addressBooks.map { book ->
+            val result = CardDavFetcher().fetch(book, cardDavCredentials())
+            assertFalse(
+                "partial CardDAV response for ${book.displayName}: ${result.failures}",
+                result.partialFailure,
+            )
+            cache.saveAddressBook(
+                CachedAddressBook(
+                    addressBookUrl = book.url,
+                    fetchedAt = Instant.now(),
+                    resources = result.resources,
+                ),
+            )
+            val contacts = result.resources.mapNotNull { resource ->
+                mapper.map(
+                    vcf = resource.vcf,
+                    addressBookId = book.url,
+                    accountId = "live-carddav",
+                    href = resource.href,
+                    etag = resource.etag,
+                )
+            }
+            println(
+                "LIVE CardDAV: ${book.displayName}, " +
+                    "${result.resources.size} resources, ${contacts.size} mapped contacts",
+            )
+            Triple(book, result, contacts)
+        }
+
+        val mappedContacts = fetched.flatMap { it.third }
+        assertTrue("no CardDAV contacts were mapped", mappedContacts.isNotEmpty())
+        assertTrue("a mapped CardDAV contact needs a display name", mappedContacts.all { it.displayName.isNotBlank() })
+
+        fetched.forEach { (book, result, _) ->
+            val cached = cache.loadAddressBook(book.url)
+            assertTrue("nothing was cached for ${book.displayName}", cached != null)
+            assertEquals("cached resource text must remain raw vCard text", result.resources, cached!!.resources)
+            assertTrue("cached address book contains no raw vCards", cached.resources.all { it.vcf.isNotBlank() })
+        }
     }
 
     @Test

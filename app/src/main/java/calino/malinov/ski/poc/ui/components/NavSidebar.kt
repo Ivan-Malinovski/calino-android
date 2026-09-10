@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -79,6 +80,7 @@ fun NavSidebar(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val preferences = LocalCalinoPreferences.current
     // The calendar views come first as a group; the rule separates them from
     // the other surfaces.
     val calendarItems = listOf(
@@ -86,9 +88,12 @@ fun NavSidebar(
         NavItem(pockRouteLabel(PockRoute.Agenda), PockRoute.Agenda, CalinoIcons.AgendaList),
         NavItem(pockRouteLabel(PockRoute.Accounts), PockRoute.Accounts, CalinoIcons.Repeat),
     )
-    val items = listOf(
+    val items = listOfNotNull(
         NavItem(pockRouteLabel(PockRoute.Tasks), PockRoute.Tasks, CalinoIcons.ListChecks),
-        NavItem(pockRouteLabel(PockRoute.Journal), PockRoute.Journal, CalinoIcons.BookOpen),
+        NavItem(pockRouteLabel(PockRoute.Journal), PockRoute.Journal, CalinoIcons.BookOpen)
+            .takeIf { preferences.journalEnabled },
+        NavItem(pockRouteLabel(PockRoute.Contacts), PockRoute.Contacts, CalinoIcons.Users)
+            .takeIf { preferences.contactsEnabled },
         NavItem(pockRouteLabel(PockRoute.Settings), PockRoute.Settings, CalinoIcons.Settings),
     )
 
@@ -213,6 +218,7 @@ fun pockRouteLabel(route: PockRoute): String = when (route) {
     PockRoute.Accounts -> "Calendars"
     PockRoute.Tasks -> "Tasks"
     PockRoute.Journal -> "Journal"
+    PockRoute.Contacts -> "Contacts"
     PockRoute.Settings -> "Settings"
     PockRoute.Detail -> "Event"
     PockRoute.TaskDetail -> "Task"

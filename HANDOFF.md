@@ -6,15 +6,84 @@ continue the UI work.
 
 ## Current state
 
-This is a Kotlin + Jetpack Compose Android application. It is a standalone
-repository and does not load the Calino web app, WebView, Capacitor, CardDAV, or
-webcal.
+### Native AI photo import — 2026-09-10
 
-It now carries a **real, read-only CalDAV integration**: an OkHttp transport,
-well-known/principal/calendar-home discovery, `calendar-query` REPORTs,
-iCalendar mapping via biweekly, and Keystore-encrypted credential storage. The
-app declares `INTERNET`. With no account connected it still serves the frozen
-May 2026 fixture data, so the sample surfaces stay reachable.
+- Android now has the sister app's opt-in BYOK image-to-event flow. Settings →
+  AI Photo Import configures Anthropic, OpenAI, or a custom compatible API root,
+  including model listing, a real image-capability probe, and a Keystore-encrypted
+  API key. Custom URLs containing an `/anthropic` path segment use Anthropic's
+  request shape; other custom URLs use OpenAI's chat-completions shape.
+- A configured account adds a Photo action beside the calendar Add pill and a
+  dynamic launcher shortcut. The flow accepts a camera image, a picked image,
+  Android `SEND`/`SEND_MULTIPLE` image shares, and the shortcut entry point.
+  Inputs are sampled and resized to a maximum 1600px dimension, encoded as
+  JPEG, and sent directly to the configured provider. Calino runs no proxy.
+- Extraction shows staged sending/reading/slow progress, then an animated review
+  surface. It supports up to five distinct candidates, selection of any subset,
+  per-candidate Event/Task correction, low/medium-confidence labels, and
+  sequential review in the existing full editor. Failed and empty extraction
+  offer the existing manual editor; authentication failures link back to AI
+  settings.
+- The review is a responsive bottom sheet on compact phones (a centered window
+  on larger displays) with a close affordance, readable formatted dates, and
+  the same candidate helper copy and selection labels as the sister app. While
+  the photo is being sent, the calendar remains visible through a light blur
+  and the progress message sits in a small surface instead of a flat full-screen
+  color block.
+- The response parser accepts the requested JSON array, fenced JSON, surrounding
+  prose, and a bare object. Unit coverage lives in `AiVisionClientTest`.
+
+This is a Kotlin + Jetpack Compose Android application. It is a standalone
+repository and does not load the Calino web app, WebView, Capacitor, or webcal.
+
+It now carries **real CalDAV and CardDAV integrations**: OkHttp transport,
+independent principal/calendar-home and address-book-home discovery, calendar
+and addressbook REPORTs, iCalendar mapping via biweekly, vCard mapping via
+ez-vcard, conditional server writes, RFC 6578 incremental sync, a durable
+offline write queue, and Keystore-encrypted credential storage. The app
+declares `INTERNET`. With no account connected it still serves the frozen May
+2026 fixture data, so the sample surfaces stay reachable.
+
+### CalDAV/CardDAV writing and sync — 2026-09-10
+
+- Event, task, journal, and contact create/update/delete operations now reach
+  the connected server. Existing resources are patched from their cached raw
+  iCalendar/vCard text and sent with conditional ETags; unrelated server
+  properties survive a write.
+- Recurring event edits and deletes support THIS, FUTURE, and ALL scopes. A
+  selected expanded occurrence defaults to THIS in the editor and delete
+  confirmation. Standalone detached resources safely allow THIS only.
+- A cross-calendar move writes the destination before deleting the source.
+  Failed source cleanup is retained as a separate `DELETE_HREF` queue item;
+  a failed destination never removes the source.
+- Retryable or offline writes are persisted atomically in
+  `filesDir/caldav-write-queue.json`, replayed FIFO with bounded backoff, and
+  restored into the optimistic overlay after a process restart. Dead letters
+  are visible under Calendars with Retry and Discard actions.
+- Refresh uses RFC 6578 `sync-collection` when a complete cached snapshot and
+  committed token are available. Changed resources are fetched concurrently
+  with a four-request bound; 404/410 responses are tombstones. Invalid or
+  partial reports fall back to a full read without advancing the old token.
+- A stale ETag is refreshed and the local modeled fields are rebased onto the
+  current server resource. Conflict comparison is based on iCalendar
+  `SEQUENCE`, never timestamps; the current product policy is local-wins after
+  a safe rebase. The optimistic overlay is not itself cached.
+- Queued UPDATE entries retain the original raw server representation as
+  `baseData`, enabling the same three-way rebase during replay after a 412;
+  legacy entries without a base are dead-lettered safely. Editing a queued
+  CREATE replaces its payload in place, preserving FIFO order.
+- A queued CREATE that gets a 412 verifies the resource before dead-lettering:
+  an exact raw-payload match acknowledges a server write whose response was
+  lost, a missing resource retries the original create, and a different
+  payload becomes an explicit collision. Calendar and contact creates follow
+  the same rule.
+- Queued moves retain the source raw payload. If source cleanup or destination
+  recovery must be deferred, the new queue item is inserted before dependent
+  later writes; source deletion remains conditional and is never inferred from
+  destination failure alone.
+- Live opt-in tests create a throwaway Radicale collection/address-book,
+  round-trip writes, and clean up their resources. They read credentials only
+  from `CALINO_CALDAV_*` environment variables.
 
 ### Launcher icon — 2026-09-10
 
@@ -37,10 +106,8 @@ May 2026 fixture data, so the sample surfaces stay reachable.
 Recurrence is expanded **on the client**, so a repeating event lands on every
 occurrence in the fetch window regardless of what the server will do.
 
-One limit worth knowing before touching it: **nothing is written back to the
-server.** Local edits apply to an in-memory overlay that a refetch discards.
-
-See "CalDAV (real, read-only)" and "CalDAV — what still needs doing".
+See "CalDAV (read/write)" and "Contacts (read/write)" for the detailed
+contracts and remaining exclusions.
 
 The current build identity is intentionally still provisional:
 
@@ -60,12 +127,34 @@ when no account is connected; a connected account opens the calendar on today.
 
 The initial standalone repository snapshot is commit `32c0664`.
 
-## NEXT TASK — see "CalDAV — what still needs doing"
+## NEXT TASK — post-write product review
 
-Read-only CalDAV landed after the section below was written, and client-side
-recurrence expansion after that. The remaining work is in **"CalDAV — what
-still needs doing"** near the end of this file. The fixture-backed
-test-coverage work described immediately below remains valid and unfinished.
+The CalDAV/CardDAV write implementation is complete. The next pass is product
+review of the adaptive directory/detail/editor motion, queue messaging, and
+live account path, followed by the intentionally deferred contact features
+listed in "Contacts (read/write)". Older read-only notes below are historical
+context and must not be treated as current scope.
+
+### Day-rail ownership and timeline density — 2026-09-10
+
+- The compact week-strip surface now leaves one-finger vertical drags on the
+  time rail alone. A downward pull from that lower surface expands the
+  calendar only when the rail is already at scroll offset zero; upward pulls
+  and downward pulls from any later hour stay with the rail. The parent also
+  yields as soon as a second pointer appears, so it cannot steal a timeline
+  pinch.
+- The timeline supports a two-finger pinch from 0.65x through 1.8x of the
+  normal 62dp/hour spacing. Grid lines, labels, event positions/heights, and
+  the current-time marker use the same scale. The scroll offset is adjusted
+  after remeasurement to keep the hour under the pinch centroid stable.
+- Expanded event detail cards retain the outward side-panel swipe and also
+  accept a downward dismissal, matching the phone card gesture. Other end
+  panels keep their header-only outward dismissal contract.
+- Pure coverage for the rail boundary and pinch bounds is in
+  `HomeGestureRulesTest`. The API 36 emulator checked compact rail scrolling,
+  top-boundary calendar expansion, and expanded event-card dismissal. Pinch
+  input was not exercised through a two-pointer device harness; no
+  physical-phone check was requested.
 
 ### Adaptive large-screen surfaces — 2026-09-10
 
@@ -222,7 +311,7 @@ test-coverage work described immediately below remains valid and unfinished.
   existing owners. API 36 emulator checks covered lower-surface expand and
   collapse, editor scroll-back, and top-of-list dismissal.
 
-## Earlier task list — fixture-backed calendar functionality after the interaction polish pass
+## Historical task list — fixture-backed calendar functionality after the interaction polish pass
 
 The zoom performance pass, swipable week strip, swipable Settings categories,
 and task detail/editor flow are complete. Preserve the frozen May 2026 fixture contract and the three
@@ -240,14 +329,14 @@ pager share compact-week metrics and one selector position. Keep committed
 date/route state separate from pager preview state, keep boundary previews
 mounted, and keep one pointer owner per gesture.
 
-Next scoped work should be task/calendar/settings behavior coverage: add
+The historical next pass was task/calendar/settings behavior coverage: add
 Compose/device tests for week paging, compact hit-target gating, task
 completion/undo/detail editing, calendar rescheduling, Settings category
 paging, and boundary cancellation, then continue with other fixture-backed
 Calino surface gaps. Event/task
 drag-and-drop remains deferred until those state and gesture contracts are
-reviewed. Do not add server writes or sync; read-only CalDAV plus the account
-list and its encrypted credentials is the agreed extent.
+reviewed. That advice predates the completed CalDAV/CardDAV write and sync
+implementation; current boundaries are in the write section near the top.
 
 For each meaningful UI change, use the required full check:
 
@@ -968,8 +1057,9 @@ The host currently owns:
 
 `FixtureRepository` implements the small `CalinoRepository` interface and
 stores a `CalinoSnapshot` in Compose state. It publishes local snapshots to
-listeners and supports add/update/delete for the POC’s event, task, and journal
-flows. It has no disk persistence and no remote layer.
+listeners and supports add/update/delete for the POC’s event, task, journal,
+and contact flows. It has no disk persistence and is the no-account path; the
+connected path is `CalDavRepository` with CalDAV/CardDAV read caches.
 
 The main package layout is:
 
@@ -1020,16 +1110,15 @@ finger, and the host should own the final dismissal/removal transition.
 These are known and should be treated as review targets, not silently assumed
 to be complete:
 
-1. CalDAV is **read-only**. See "CalDAV — what still needs doing" for the
-   full list; there is no write path, no incremental sync, no ETag conflict
-   handling, and no offline queue. Local edits go to `LocalOverlay` and are
-   discarded on refetch; the accounts surface states this on screen. There is
-   still no CardDAV or webcal.
-2. Persistence covers CalDAV accounts, their credentials, and a read cache of
-   fetched calendar data. Settings, event changes, task changes, and journal
-   changes are still not durable, and the fixture repository remains
-   process-local. `LocalOverlay` deliberately does not persist: an edit that
-   cannot sync must not look durable.
+1. CalDAV and CardDAV writes, ETag-aware rebasing, RFC 6578 incremental sync,
+   and the durable offline queue are implemented. Webcal, telemetry, and other
+   remote hosts remain out of scope. `LocalOverlay` is intentionally process
+   local; only the pending operation is durable, so a discarded write cannot
+   masquerade as server data.
+2. The queue is durable, but successful event/task/journal/contact records are
+   not independently persisted outside the server/cache. The fixture
+   repository remains process-local, and a server-confirmed change is expected
+   to be recovered by the next read/cache cycle.
 3. Many settings use local state inside section composables. Switching away and
    back can restore the hard-coded preview default. Decide whether the eventual
    state belongs in a settings state holder or repository before wiring real
@@ -1053,11 +1142,10 @@ to be complete:
     narrow widths have not been comprehensively validated.
 12. A recurring VTODO still shows once at its due date; `CalTask` has no
     recurrence field. Events are expanded, tasks are not.
-13. Loading, error, and partial-read states exist for CalDAV
-    (`CalinoSnapshot.sync`, shown by the accounts surface's status card), but
-    conflict and offline-queue states do not, because there is no write path.
-    The calendar surfaces themselves show no sync banner yet -- a failed
-    refresh keeps the last data on screen and is only reported under Calendars.
+13. Loading, error, partial-read, write-status, and offline-queue states exist
+    in the snapshot/accounts surface. The calendar surfaces themselves still
+    do not show a global sync banner; a failed refresh is reported under
+    Calendars while the last data remains visible.
 
 ## What the next model should review first
 
@@ -1170,12 +1258,12 @@ Tests should assert user-visible state and committed dates, not private pixel
 coordinates or animation implementation details. Keep a small set of emulator
 screenshot checkpoints for visual regressions.
 
-## CalDAV (real, read-only)
+## CalDAV (read/write)
 
 The app reads a connected account's events, tasks, and journal entries over
 HTTPS. With no account connected `FixtureRepository` still serves the frozen
-May 2026 sample data, so the sample surfaces stay reachable. **Nothing is
-written back to the server.**
+May 2026 sample data, so the sample surfaces stay reachable. CalDAV writes are
+conditional and recurrence-aware; unavailable writes are queued durably.
 
 ### Layers
 
@@ -1190,10 +1278,15 @@ written back to the server.**
 | `CalDavFetcher.kt` | The three component queries and partial-result handling. Returns the server's raw `CalendarResource`s; it does not map. |
 | `ICalMapper.kt` | biweekly → `CalEvent` / `CalTask` / `JournalEntry`, plus recurrence expansion. `mapAll` maps a whole collection for a given window. |
 | `CalendarCache.kt` | The on-disk read cache: `FileCalendarCache` (one gzipped JSON file per calendar) and `CalendarCacheJson`. |
+| `CalDavWriter.kt` | Conditional create/update/delete, raw-resource refresh, safe href resolution, and ETag handling. |
+| `ICalWriter.kt` / `ICalPatcher.kt` | Model-to-iCalendar creation and minimal patches that preserve foreign properties. |
+| `RecurrenceEdit.kt` | Pure THIS/FUTURE/ALL transforms for masters and detached occurrences. |
+| `IncrementalSync.kt` | RFC 6578 report parsing, cursor validation, tombstones, and token invalidation. |
 | `CalDavErrors.kt` | `CalDavErrorCode` and the status/throwable classifiers. |
 | `CredentialStore.kt` | `KeystoreCredentialStore` (AES-GCM under an Android Keystore key) and an in-memory one for tests. |
 | `CalDavAccountJson.kt` | Account-list persistence in private `SharedPreferences`. |
 | `CalDavConnectionManager.kt` | Turns the account list into the repository's sources. |
+| `WriteQueue.kt` | Atomic durable FIFO queue, retry/backoff policy, dead letters, and replay metadata. |
 
 `data/repository/CalDavRepository.kt` implements `CalinoRepository`, so
 `rememberRepositorySnapshot` consumes it unchanged. `PocRepositoryViewModel`
@@ -1346,10 +1439,34 @@ occurrences over the ±6-month window, where it previously produced one.
 ### Write posture
 
 `CalinoRepository` carries the app's write methods and live UI paths call them,
-so they apply to `data/repository/LocalOverlay.kt`, an in-memory layer over the
-fetched data that a refetch discards. Making them throw was rejected: the
-editor and task list would crash rather than degrade. The accounts surface
-states the limitation on screen.
+so direct operations call `CalDavWriter`/`CardDavWriter` and apply their result
+to `data/repository/LocalOverlay.kt` immediately. Retryable failures enqueue a
+complete replay payload in `WriteQueue`; permanent failures remain visible as
+record status and/or a dead letter. The queue is FIFO and bounded, and its
+Accounts surface exposes Retry and Discard for dead letters.
+
+Existing resources are patched from the raw cached server text. The writer
+checks the cached ETag, refreshes on a 412, and retries a model-preserving patch
+against the current text. This is local-wins for fields Calino edits and
+foreign-property-preserving for fields it does not know. `SEQUENCE` is the
+conflict signal; timestamps are never used to decide a winner.
+
+Moves are two-resource operations: destination PUT first, conditional source
+DELETE second. If the source DELETE fails after destination success, a
+`DELETE_HREF` item is queued. A destination error never deletes the source.
+
+Replay keeps the original raw server snapshot on UPDATE and MOVE entries. A
+stale replay ETag therefore uses the same three-way, model-preserving patch as
+an immediate edit; an old queue format without that snapshot is rejected
+instead of guessed around. CREATE replay handles a lost successful response by
+checking an exact resource match after a 412, while a different resource at
+the same URL is surfaced as a collision. MOVE cleanup/recovery entries are
+ordered ahead of later dependent queue entries, and a source cleanup retains
+its original conditional ETag and raw payload for recovery.
+
+The overlay is intentionally not cached. A queue entry survives a process
+restart and restores its optimistic record, but Discard removes that optimistic
+record when no later queue item still protects it.
 
 ### Sync state
 
@@ -1408,6 +1525,12 @@ Radicale server, so parsing tests run against what a server actually sends.
 | `CalDavFetcherTest` | Query shapes, partial failures, the VTODO-only regression, the sabre-500 fallback |
 | `CalDavRepositoryTest` | `observe` contract, sync transitions, source filtering, overlay posture |
 | `CalDavViewingTest` | Month-grid placement, ordering, account JSON round trip, credential hygiene |
+| `CalDavWriterTest` / `CardDavWriterTest` | Conditional resource writes, ETags, raw-property preservation, vCard writes |
+| `ICalPatcherTest` / `VCardMapperTest` | Three-way patching, recurrence-safe resource edits, malformed-resource handling |
+| `WriteQueueTest` | Atomic persistence, FIFO ordering, retry/dead-letter policy, replay metadata |
+| `CalDavMoveRepositoryTest` | Destination-first moves, conditional source cleanup, ordered recovery |
+| `CalDavQueuedRebaseTest` / `CardDavQueuedRebaseTest` | Stale queued updates and lost-response CREATE recovery |
+| `CalDavRepositoryIncrementalTest` | RFC 6578 deltas, tombstones, token invalidation and fallback |
 | `CalDavLiveTest` | Opt-in, against a real server |
 
 MockWebServer routes by **query body, not queue order** — the three component
@@ -1422,21 +1545,19 @@ CALINO_CALDAV_USER=you CALINO_CALDAV_PASS=... \
   distrobox enter android-sdk -- bash -lc './gradlew test --tests "*CalDavLiveTest*"'
 ```
 
-## CalDAV — what still needs doing
+## Historical CalDAV deferred work
 
-Roughly in the order that would deliver the most.
+These were the pre-write handoff items. They are retained as history; the
+implemented counterparts are documented in the current write section above.
 
 1. **Recurring tasks.** `CalTask` has no recurrence field, so a repeating
    VTODO still shows once at its due date. Events are handled; tasks are not.
-2. **The write path.** `LocalOverlay` edits never reach the server. Needs
-   `PUT`/`DELETE` with `If-Match`, and `CalEvent.etag`/`href` already exist to
-   carry it. Gated behind its own review.
-3. **Incremental sync.** Every refresh refetches the whole window.
-   `sync-collection` (RFC 6578) and the stored `ctag` would fix that. The cache
-   is the substrate for it: it already stores each resource's `href` and
-   `etag`, which is what a differential update needs. Port the
-   web app's rules: any non-2xx invalidates the token, and a tombstone is a
-   `<status>` that is a **direct child** of `<response>`.
+2. **The write path.** Complete in `CalDavWriter`, `ICalPatcher`,
+   `CardDavWriter`, `WriteQueue`, and `CalDavRepository`; see the current
+   section above.
+3. **Incremental sync.** Complete in `IncrementalSync`, `CalDavFetcher`, and
+   `CardDavFetcher`; changed resources are bounded-concurrent GETs and invalid
+   reports fall back safely.
 4. **A sync indicator on the calendar surfaces.** `snapshot.sync` is only
    rendered under Calendars, so a failed refresh is invisible from the month or
    agenda view. Less acute since the cache landed -- a cold start is no longer
@@ -1460,10 +1581,10 @@ Roughly in the order that would deliver the most.
 
 ## Safe continuation rules
 
-- CalDAV is read-only and must stay that way until the write path is reviewed
-  separately. Do not turn `LocalOverlay` edits into server writes, and do not
-  add sync tokens, conflict resolution, or an offline queue as a side effect of
-  other work.
+- Keep the implemented CalDAV/CardDAV write contract intact: conditional
+  ETags, raw-resource patching, recurrence scopes, FIFO queue replay, and
+  destination-first moves. Do not add timestamp conflict heuristics or make
+  the optimistic overlay durable.
 - Never commit credentials. `CalDavLiveTest` reads them from
   `CALINO_CALDAV_URL` / `_USER` / `_PASS` and skips when they are unset.
 - Do not edit the original `<sibling-native-poc>` copy when
@@ -1588,3 +1709,47 @@ entries.
 - The accent-color picker is still PLANNED. `Accent` is a palette field, so
   wiring it is small, but each of the five accents needs a soft/contrast pair
   per mode.
+
+## Contacts (read/write)
+
+Contacts are now a first-class root destination after Journal. The fixture
+repository includes a small frozen address book with alphabetic and `#`
+sections, a group, a photo-less contact, and a May 2026 birthday. The
+directory, detail card, and editor are implemented in
+`ui/surfaces/ContactsScreen.kt`; create/edit/delete operations call CardDAV when
+an address book is connected and use `LocalOverlay` for immediate display.
+Unavailable operations use the durable queue.
+
+CardDAV discovery is independent from CalDAV discovery: it probes the
+address-book well-known endpoint, resolves the principal's
+`addressbook-home-set`, and filters a depth-1 listing to address-book
+collections. `CardDavFetcher` returns raw vCard resources; `VCardMapper` uses
+ez-vcard and keeps date-only BDAY/ANNIVERSARY values as `LocalDate`. Quoted
+ETags are normalized before storage, BOMs are stripped, namespace lookups have
+the local-name fallback, and missing privilege metadata remains writable.
+Address-book sources and their enabled flags are persisted with accounts.
+
+Raw vCards are cached as gzipped one-file-per-address-book payloads under the
+private CalDAV cache directory. The cache stores server text rather than mapped
+contacts, so photos and date expansion are handled only after loading. Removing
+an account or disabling a book evicts its cached content. CardDAV uses the same
+RFC 6578 delta, queue, ETag, and partial-read safeguards as calendars.
+
+Journal and Contacts default to disabled preferences and are auto-enabled when
+the active snapshot contains journal entries or contacts. Settings → General
+has real toggles; the fixture snapshot turns both on at first composition so
+the sample surfaces remain reachable. Navigation, the add-pill route order, and
+global search all filter through those flags. A saved disabled root falls back
+to Month.
+
+The directory is adaptive through the existing `calinoLayoutSpec`: compact
+windows use the full-width list with detail/editor bottom sheets, medium uses a
+floating detail window, expanded portrait uses an end panel, and wide
+landscape/folded layouts split the list rail and detail pane. The hinge keep-out
+band is respected. Birthday and anniversary actions create yearly all-day
+events tagged `calino:contact:<id>` (or `:anniversary`) through the same local
+overlay; deleting a contact withdraws those local marker events.
+
+Deferred follow-up: duplicate merging, `.vcf` import/export, a contact picker,
+and group-membership editing. Birthday/anniversary reminder events remain
+local app conveniences and are not sent to CardDAV as VEVENTs.

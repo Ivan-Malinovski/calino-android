@@ -115,6 +115,7 @@ import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewTask
 import calino.malinov.ski.poc.data.model.EditorDraft
 import calino.malinov.ski.poc.data.model.blankEditorDraft
+import calino.malinov.ski.poc.data.model.RecurrenceEditScope
 import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
@@ -136,6 +137,7 @@ import calino.malinov.ski.poc.ui.components.AdaptiveSurfaceHost
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.poc.ui.components.CalinoIcon
+import calino.malinov.ski.poc.ui.components.CalinoChip
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
@@ -160,6 +162,7 @@ sealed interface PockRoute {
     data object TaskDetail : PockRoute
     data object Tasks : PockRoute
     data object Journal : PockRoute
+    data object Contacts : PockRoute
     data object Settings : PockRoute
     data object Accounts : PockRoute
     data object QuickAdd : PockRoute
@@ -498,6 +501,7 @@ fun EventDetailSurface(
     events: List<CalEvent> = listOf(event),
     onEventSelected: (CalEvent) -> Unit = {},
     onEditEvent: (CalEvent) -> Unit = { onPrimary() },
+    onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
 ) {
     var shown by remember { mutableStateOf(true) }
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -544,10 +548,15 @@ fun EventDetailSurface(
                     modifier = Modifier.fillMaxSize(),
                     dismissDistance = 980.dp,
                     handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
+                    allowDownwardDismissInEndPanel = true,
                 ) { cardModifier ->
                     EventDetailContent(pageEvent, occurrenceDate,
                         onBack = { closeAfterAnimation(onBack) },
-                        onPrimary = { if (!pager.isScrollInProgress) onEditEvent(pageEvent) })
+                        onPrimary = { if (!pager.isScrollInProgress) onEditEvent(pageEvent) },
+                        onDeleteEvent = { target, scope ->
+                            closeAfterAnimation { onDeleteEvent(target, scope) }
+                        },
+                    )
                 }
             }
         }
@@ -555,14 +564,27 @@ fun EventDetailSurface(
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun EventDetailContent(
     event: CalEvent,
     occurrenceDate: LocalDate?,
     onBack: () -> Unit,
     onPrimary: () -> Unit,
+    onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
 ) {
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
     var moreOpen by remember(event.id) { mutableStateOf(false) }
+    var confirmDelete by remember(event.id) { mutableStateOf(false) }
+    var deleteScope by remember(event.id, event.recurrenceId, event.recurrenceDate) {
+        mutableStateOf(
+            if (event.recurrenceId != null || event.recurrenceDate != null) {
+                RecurrenceEditScope.This
+            } else {
+                RecurrenceEditScope.All
+            },
+        )
+    }
+    val recurring = event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null
     Column(Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -607,6 +629,13 @@ private fun EventDetailContent(
                             text = { Text(if (event.location?.startsWith("http") == true) "Edit event" else "Edit") },
                             onClick = { moreOpen = false; onPrimary() },
                         )
+                        DropdownMenuItem(
+                            text = { Text(if (recurring) "Delete occurrence" else "Delete event") },
+                            onClick = {
+                                moreOpen = false
+                                confirmDelete = true
+                            },
+                        )
                     }
                 }
             }
@@ -626,6 +655,57 @@ private fun EventDetailContent(
                             modifier = Modifier.padding(top = 10.dp),
                         )
                     }
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = confirmDelete,
+            enter = expandVertically(tween(180)) + fadeIn(tween(150)),
+            exit = shrinkVertically(tween(150)) + fadeOut(tween(110)),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    if (recurring) "Remove this recurring event?" else "Remove this event?",
+                    style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                )
+                if (recurring) {
+                    Text("Choose which part of the series to remove.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        RecurrenceEditScope.entries.forEach { scope ->
+                            val label = when (scope) {
+                                RecurrenceEditScope.This -> "This event"
+                                RecurrenceEditScope.Future -> "This and future"
+                                RecurrenceEditScope.All -> "Entire series"
+                            }
+                            CalinoChip(
+                                text = label,
+                                selected = deleteScope == scope,
+                                description = "Delete scope $label",
+                                semanticsRole = Role.RadioButton,
+                                onClick = { deleteScope = scope },
+                            )
+                        }
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+                    Button(
+                        onClick = { onDeleteEvent(event, deleteScope) },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(CalinoColors.Rose),
+                    ) { Text("Delete") }
                 }
             }
         }
@@ -1427,7 +1507,17 @@ fun EventDetail(
     events: List<CalEvent> = listOf(event),
     onEventSelected: (CalEvent) -> Unit = {},
     onEditEvent: (CalEvent) -> Unit = { onPrimaryAction() },
-) = EventDetailSurface(event, onBack, onPrimaryAction, occurrenceDate, events, onEventSelected, onEditEvent)
+    onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
+) = EventDetailSurface(
+    event,
+    onBack,
+    onPrimaryAction,
+    occurrenceDate,
+    events,
+    onEventSelected,
+    onEditEvent,
+    onDeleteEvent,
+)
 
 @Composable
 fun TaskDetail(

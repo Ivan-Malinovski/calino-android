@@ -36,6 +36,22 @@ fun zoomAfterVerticalDrag(zoom: Float, dragDeltaDp: Float, stepDp: Float = 280f)
     (zoom + dragDeltaDp / stepDp.coerceAtLeast(1f)).coerceIn(0f, 2f)
 
 /**
+ * A downward pull from the day rail expands the calendar only at the rail's
+ * top boundary. Every other vertical pull belongs to the rail's scroll
+ * container, so a time-line drag cannot accidentally move the calendar.
+ */
+fun shouldExpandFromDayRail(dragDeltaY: Float, railScrollValue: Int): Boolean =
+    dragDeltaY > 0f && railScrollValue <= 0
+
+/** Apply a pinch multiplier to the timeline's bounded vertical scale. */
+fun timelineScaleAfterPinch(
+    scale: Float,
+    pinchFactor: Float,
+    minScale: Float = .65f,
+    maxScale: Float = 1.8f,
+): Float = (scale * pinchFactor).coerceIn(minScale, maxScale)
+
+/**
  * Settle relative to the level where the drag began. A level changes after
  * 60% of a step, or after an intentional fling in that direction. Positive
  * velocity means a downward pull toward the more detailed level.

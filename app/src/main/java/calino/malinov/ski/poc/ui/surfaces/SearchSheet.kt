@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import calino.malinov.ski.poc.data.model.placementDate
+import calino.malinov.ski.poc.data.model.derivedDisplayName
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.search.*
 import calino.malinov.ski.poc.design.*
@@ -47,6 +48,7 @@ import calino.malinov.ski.poc.state.foldSplitProgress
 import calino.malinov.ski.poc.state.CalinoSurfaceMode
 import calino.malinov.ski.poc.state.calinoSurfaceModeFor
 import calino.malinov.ski.poc.state.calinoWindowClassFor
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
@@ -68,7 +70,10 @@ fun CalinoSearchSheet(
     var closeRequest by remember { mutableIntStateOf(0) }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val results = remember(query, snapshot.revision, baseDate) { searchCalino(snapshot, query, baseDate) }
+    val contactsEnabled = LocalCalinoPreferences.current.contactsEnabled
+    val results = remember(query, snapshot.revision, baseDate, contactsEnabled) {
+        searchCalino(snapshot, query, baseDate, contactsEnabled = contactsEnabled)
+    }
     val duration = CalinoMotion.SurfaceFadeMillis
     fun requestClose() { closeRequest += 1 }
 
@@ -190,7 +195,7 @@ fun CalinoSearchSheet(
 }
 
 private fun groupsCount(groups: CalinoSearchGroups): Int =
-    groups.actions.size + groups.events.size + groups.tasks.size + groups.journals.size
+    groups.actions.size + groups.events.size + groups.tasks.size + groups.journals.size + groups.contacts.size
 
 @Composable
 private fun SearchResults(groups: CalinoSearchGroups, query: String, onSelect: (CalinoSearchResult) -> Unit) {
@@ -202,6 +207,7 @@ private fun SearchResults(groups: CalinoSearchGroups, query: String, onSelect: (
             resultGroup("EVENTS", groups.events, onSelect)
             resultGroup("TASKS", groups.tasks, onSelect)
             resultGroup("JOURNAL", groups.journals, onSelect)
+            resultGroup("CONTACTS", groups.contacts, onSelect)
         }
         item { Spacer(Modifier.height(20.dp)) }
     }
@@ -229,6 +235,8 @@ private fun SearchResultRow(result: CalinoSearchResult, onSelect: (CalinoSearchR
             result.task.category?.let { append(" · $it") }
         }
         is CalinoSearchResult.Journal -> result.journal.title.ifBlank { "Untitled note" } to result.journal.date.format(SearchDateFormat)
+        is CalinoSearchResult.Contact -> result.contact.derivedDisplayName() to
+            (result.contact.organization.ifBlank { result.contact.emails.firstOrNull()?.value ?: "Contact" })
     }
     Row(
         Modifier.fillMaxWidth().clickable { onSelect(result) }.semantics { contentDescription = "$title, $detail" }

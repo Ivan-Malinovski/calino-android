@@ -19,6 +19,21 @@ class HomeGestureRulesTest {
     }
 
     @Test
+    fun dayRailExpansionOnlyStartsOnDownwardPullAtTop() {
+        assertEquals(true, shouldExpandFromDayRail(dragDeltaY = 24f, railScrollValue = 0))
+        assertEquals(false, shouldExpandFromDayRail(dragDeltaY = 24f, railScrollValue = 1))
+        assertEquals(false, shouldExpandFromDayRail(dragDeltaY = -24f, railScrollValue = 0))
+        assertEquals(false, shouldExpandFromDayRail(dragDeltaY = 0f, railScrollValue = 0))
+    }
+
+    @Test
+    fun timelinePinchScale_isBounded() {
+        assertEquals(.65f, timelineScaleAfterPinch(1f, .2f), 0.001f)
+        assertEquals(1.5f, timelineScaleAfterPinch(1f, 1.5f), 0.001f)
+        assertEquals(1.8f, timelineScaleAfterPinch(1.5f, 2f), 0.001f)
+    }
+
+    @Test
     fun pagerTarget_invertsLogicalPageDirectionForScreenTravel() {
         assertEquals(-1f, pagerTargetOffset(pageDirection = 1), 0.001f)
         assertEquals(1f, pagerTargetOffset(pageDirection = -1), 0.001f)

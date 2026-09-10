@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableStateOf
 import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalDavCalendar
 import calino.malinov.ski.poc.data.model.CalDavForm
+import calino.malinov.ski.poc.data.model.ContactAddressBook
 import calino.malinov.ski.poc.state.accountId
 import calino.malinov.ski.poc.state.defaultDisplayName
 import calino.malinov.ski.poc.state.normalizeServerUrl
@@ -57,13 +58,18 @@ class CalDavAccountStore(
      * Adds the account, or replaces one already connected to the same server and
      * username, so reconnecting corrects a selection rather than duplicating it.
      */
-    fun addAccount(form: CalDavForm, calendars: List<CalDavCalendar>): CalDavAccount {
+    fun addAccount(
+        form: CalDavForm,
+        calendars: List<CalDavCalendar>,
+        addressBooks: List<ContactAddressBook> = emptyList(),
+    ): CalDavAccount {
         val account = CalDavAccount(
             id = accountId(form),
             displayName = defaultDisplayName(form),
             serverUrl = normalizeServerUrl(form.serverUrl) ?: form.serverUrl.trim(),
             username = form.username.trim(),
             calendars = calendars,
+            addressBooks = addressBooks,
         )
         update { existing ->
             val without = existing.filterNot { it.id == account.id }
@@ -94,6 +100,24 @@ class CalDavAccountStore(
             accounts.map { account ->
                 if (account.id == accountId) account.copy(calendars = calendars) else account
             }
+        }
+    }
+
+    fun setAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
+        update { accounts ->
+            accounts.map { account ->
+                if (account.id != accountId) account else account.copy(
+                    addressBooks = account.addressBooks.map { book ->
+                        if (book.id == addressBookId) book.copy(enabled = enabled) else book
+                    },
+                )
+            }
+        }
+    }
+
+    fun replaceAddressBooks(accountId: String, addressBooks: List<ContactAddressBook>) {
+        update { accounts ->
+            accounts.map { account -> if (account.id == accountId) account.copy(addressBooks = addressBooks) else account }
         }
     }
 

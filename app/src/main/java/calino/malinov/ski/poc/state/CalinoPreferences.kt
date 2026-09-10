@@ -65,6 +65,10 @@ data class CalinoPreferences(
     val setShowLocations: (Boolean) -> Unit = {},
     val eventSyncRange: CalinoEventSyncRange = CalinoEventSyncRange.Default,
     val setEventSyncRange: (CalinoEventSyncRange) -> Unit = {},
+    val journalEnabled: Boolean = false,
+    val setJournalEnabled: (Boolean) -> Unit = {},
+    val contactsEnabled: Boolean = false,
+    val setContactsEnabled: (Boolean) -> Unit = {},
 )
 
 val LocalCalinoPreferences = staticCompositionLocalOf { CalinoPreferences() }
@@ -104,6 +108,10 @@ interface CalinoPreferenceStore {
     fun saveShowLocations(show: Boolean)
     fun loadEventSyncRange(): CalinoEventSyncRange
     fun saveEventSyncRange(range: CalinoEventSyncRange)
+    fun loadJournalEnabled(): Boolean
+    fun saveJournalEnabled(enabled: Boolean)
+    fun loadContactsEnabled(): Boolean
+    fun saveContactsEnabled(enabled: Boolean)
 
     object InMemory : CalinoPreferenceStore {
         private var themeChoice = CalinoThemeChoice.Default
@@ -119,6 +127,8 @@ interface CalinoPreferenceStore {
         private var endTimes = true
         private var locations = true
         private var syncRange = CalinoEventSyncRange.Default
+        private var journal = false
+        private var contacts = false
 
         override fun loadThemeChoice() = themeChoice
         override fun saveThemeChoice(choice: CalinoThemeChoice) { themeChoice = choice }
@@ -146,6 +156,10 @@ interface CalinoPreferenceStore {
         override fun saveShowLocations(show: Boolean) { locations = show }
         override fun loadEventSyncRange() = syncRange
         override fun saveEventSyncRange(range: CalinoEventSyncRange) { syncRange = range }
+        override fun loadJournalEnabled() = journal
+        override fun saveJournalEnabled(enabled: Boolean) { journal = enabled }
+        override fun loadContactsEnabled() = contacts
+        override fun saveContactsEnabled(enabled: Boolean) { contacts = enabled }
     }
 }
 
@@ -203,6 +217,10 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun loadEventSyncRange(): CalinoEventSyncRange =
         CalinoEventSyncRange.fromName(name(EventSyncRangeKey))
     override fun saveEventSyncRange(range: CalinoEventSyncRange) = putString(EventSyncRangeKey, range.name)
+    override fun loadJournalEnabled(): Boolean = prefs.getBoolean(JournalEnabledKey, false)
+    override fun saveJournalEnabled(enabled: Boolean) = putBoolean(JournalEnabledKey, enabled)
+    override fun loadContactsEnabled(): Boolean = prefs.getBoolean(ContactsEnabledKey, false)
+    override fun saveContactsEnabled(enabled: Boolean) = putBoolean(ContactsEnabledKey, enabled)
 
     private companion object {
         const val ThemeChoiceKey = "theme_choice"
@@ -218,6 +236,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ShowEndTimesKey = "show_end_times"
         const val ShowLocationsKey = "show_locations"
         const val EventSyncRangeKey = "event_sync_range"
+        const val JournalEnabledKey = "journal_enabled"
+        const val ContactsEnabledKey = "contacts_enabled"
     }
 }
 
@@ -240,6 +260,8 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
     var showEndTimes by remember(store) { mutableStateOf(store.loadShowEndTimes()) }
     var showLocations by remember(store) { mutableStateOf(store.loadShowLocations()) }
     var eventSyncRange by remember(store) { mutableStateOf(store.loadEventSyncRange()) }
+    var journalEnabled by remember(store) { mutableStateOf(store.loadJournalEnabled()) }
+    var contactsEnabled by remember(store) { mutableStateOf(store.loadContactsEnabled()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
         setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
@@ -267,5 +289,9 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
         setShowLocations = { value -> showLocations = value; store.saveShowLocations(value) },
         eventSyncRange = eventSyncRange,
         setEventSyncRange = { value -> eventSyncRange = value; store.saveEventSyncRange(value) },
+        journalEnabled = journalEnabled,
+        setJournalEnabled = { value -> journalEnabled = value; store.saveJournalEnabled(value) },
+        contactsEnabled = contactsEnabled,
+        setContactsEnabled = { value -> contactsEnabled = value; store.saveContactsEnabled(value) },
     )
 }

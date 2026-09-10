@@ -74,6 +74,7 @@ fun AdaptiveDetailCard(
     dismissDistance: androidx.compose.ui.unit.Dp = 980.dp,
     resetKey: Any? = null,
     canStartDismiss: () -> Boolean = { true },
+    allowDownwardDismissInEndPanel: Boolean = false,
     handleColor: Color = CalinoColors.Canvas,
     content: @Composable (Modifier) -> Unit,
 ) {
@@ -109,6 +110,7 @@ fun AdaptiveDetailCard(
                 dismissDistance = dismissDistance,
                 resetKey = resetKey,
                 canStartDismiss = { position -> position.y <= headerLanePx },
+                allowDownwardDismiss = allowDownwardDismissInEndPanel,
             ) { dragModifier ->
                 DetailCardSurface(dragModifier, handleColor = handleColor, content = content)
             }
