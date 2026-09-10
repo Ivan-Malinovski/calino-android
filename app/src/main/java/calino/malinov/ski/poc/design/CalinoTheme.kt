@@ -74,6 +74,18 @@ data class CalinoPalette(
     val FloatFill: Color,
     val OnFloat: Color,
     val FloatBorder: Color,
+    /**
+     * The selected day in the week strip, and its compact pill.
+     *
+     * The same problem as [FloatFill], and the same answer. Light paints a
+     * solid [Ink] block, which is quiet on paper because paper is bright. The
+     * literal inversion is a cream slab sitting in a dark week, louder than
+     * the day it is marking. Dark takes a surface step and an edge instead,
+     * and keeps its numerals in [Ink] rather than flipping them.
+     */
+    val SelectionFill: Color,
+    val OnSelection: Color,
+    val SelectionBorder: Color,
     val Rose: Color,
     val Blue: Color,
     val Green: Color,
@@ -198,6 +210,9 @@ object CalinoThemes {
         FloatFill = Color(0xFF2C2823),
         OnFloat = Color(0xFFFAF8F3),
         FloatBorder = Color.Transparent,
+        SelectionFill = Color(0xFF2C2823),
+        OnSelection = Color.White,
+        SelectionBorder = Color.Transparent,
         Rose = Color(0xFFC2697F),
         Blue = Color(0xFF5B7FB5),
         Green = Color(0xFF5D9A78),
@@ -232,6 +247,9 @@ object CalinoThemes {
         FloatFill = Color(0xFF242220),
         OnFloat = Color(0xFFF0ECE6),
         FloatBorder = Color(0xFFF0ECE6).copy(alpha = .22f),
+        SelectionFill = Color(0xFF2F2C29),
+        OnSelection = Color(0xFFF0ECE6),
+        SelectionBorder = Color(0xFFF0ECE6).copy(alpha = .26f),
         Rose = Color(0xFFD4877F),
         Blue = Color(0xFF7D9FD1),
         Green = Color(0xFF6AAA85),

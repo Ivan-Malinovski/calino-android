@@ -1518,12 +1518,26 @@ private fun WeekDay(
 ) {
     val selectedWeight = max(currentSelectionWeight, targetSelectionWeight).coerceIn(0f, 1f)
     val background by animateColorAsState(
-        if (drawSelectionBackground) CalinoColors.Ink.copy(alpha = selectedWeight) else Color.Transparent,
+        if (drawSelectionBackground) {
+            CalinoColors.SelectionFill.copy(alpha = CalinoColors.SelectionFill.alpha * selectedWeight)
+        } else {
+            Color.Transparent
+        },
         label = "week selection",
     )
+    // Fades in with the fill rather than being switched on, so the edge and
+    // the block it outlines arrive together instead of the border snapping.
+    val selectionBorder by animateColorAsState(
+        if (drawSelectionBackground) {
+            CalinoColors.SelectionBorder.copy(alpha = CalinoColors.SelectionBorder.alpha * selectedWeight)
+        } else {
+            Color.Transparent
+        },
+        label = "week selection edge",
+    )
     val eventDensity = LocalCalinoPreferences.current.eventDensity
-    val weekdayColor = lerpColor(CalinoColors.Ink3, CalinoColors.OnInk.copy(.65f), selectedWeight)
-    val dateColor = lerpColor(CalinoColors.Ink2, CalinoColors.OnInk, selectedWeight)
+    val weekdayColor = lerpColor(CalinoColors.Ink3, CalinoColors.OnSelection.copy(.65f), selectedWeight)
+    val dateColor = lerpColor(CalinoColors.Ink2, CalinoColors.OnSelection, selectedWeight)
     val interactionModifier = if (interactionEnabled) {
         Modifier.clickable(onClick = onClick)
     } else {
@@ -1546,6 +1560,7 @@ private fun WeekDay(
             .padding(horizontal = 2.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(background)
+            .border(1.dp, selectionBorder, RoundedCornerShape(14.dp))
             .then(interactionModifier)
             .then(semanticsModifier)
             .padding(vertical = 4.dp),
@@ -2382,7 +2397,7 @@ private fun StaticMonthGrid(
                                     (compactStartHeightPx - compactWeekContentHeightPx) / 2f * compactProgress,
                             ),
                             color = faded(
-                                lerpColor(colors.Ink3, colors.OnInk,
+                                lerpColor(colors.Ink3, colors.OnSelection,
                                     (1f - abs(compactSelectorIndex - column)).coerceIn(0f, 1f) * compactProgress),
                             ),
                         )
@@ -2458,15 +2473,31 @@ private fun StaticMonthGrid(
                         with(density) { CompactWeekMetrics.PillHeight.toPx() },
                         naturalWeekHeight.coerceAtLeast(1f),
                     )
-                    drawRoundRect(
-                        color = faded(colors.Ink.copy(alpha = .95f), compactProgress),
-                        topLeft = Offset(
-                            compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(0f, 6f),
-                            compactWeekCenter - pillHeight / 2f,
-                        ),
-                        size = Size(compactWeekCellWidthPx, pillHeight),
-                        cornerRadius = CornerRadius(with(density) { CompactWeekMetrics.PillRadius.toPx() }),
+                    val pillTopLeft = Offset(
+                        compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(0f, 6f),
+                        compactWeekCenter - pillHeight / 2f,
                     )
+                    val pillSize = Size(compactWeekCellWidthPx, pillHeight)
+                    val pillCorner = CornerRadius(with(density) { CompactWeekMetrics.PillRadius.toPx() })
+                    drawRoundRect(
+                        color = faded(colors.SelectionFill.copy(alpha = colors.SelectionFill.alpha * .95f), compactProgress),
+                        topLeft = pillTopLeft,
+                        size = pillSize,
+                        cornerRadius = pillCorner,
+                    )
+                    if (colors.SelectionBorder.alpha > 0f) {
+                        // Inset by half the stroke so the edge lands inside the
+                        // pill rather than straddling its bounds and reading a
+                        // pixel wider than the fill.
+                        val strokePx = with(density) { 1.dp.toPx() }
+                        drawRoundRect(
+                            color = faded(colors.SelectionBorder, compactProgress),
+                            topLeft = pillTopLeft + Offset(strokePx / 2f, strokePx / 2f),
+                            size = Size(pillSize.width - strokePx, pillSize.height - strokePx),
+                            cornerRadius = pillCorner,
+                            style = Stroke(width = strokePx),
+                        )
+                    }
                 }
                 repeat(rows * 7) { index ->
                     val row = index / 7
@@ -2553,7 +2584,7 @@ private fun StaticMonthGrid(
                         color = faded(if (compactWeekStyle && compactWeekSelectionWeight > .001f) {
                             lerpColor(
                                 if (inMonthFlags[index]) colors.Ink2 else colors.Ink3.copy(.5f),
-                                colors.OnInk,
+                                colors.OnSelection,
                                 compactWeekSelectionWeight,
                             )
                         } else if (isSelected) {
@@ -3134,7 +3165,7 @@ private fun DayCell(
             Text(
                 date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
                 fontSize = 10.sp,
-                color = lerpColor(CalinoColors.Ink3, CalinoColors.OnInk, compactSelectedWeight),
+                color = lerpColor(CalinoColors.Ink3, CalinoColors.OnSelection, compactSelectedWeight),
             )
         }
         val dateSize = lerpDp(lerpDp(22.dp, 25.dp, detailProgress), 18.dp, compactProgress)
@@ -3142,7 +3173,7 @@ private fun DayCell(
             inMonth -> CalinoColors.Ink2
             else -> CalinoColors.Ink3.copy(.5f)
         }
-        val compactDateColor = if (compactSelectedWeight > .5f) CalinoColors.OnInk else CalinoColors.Ink2
+        val compactDateColor = if (compactSelectedWeight > .5f) CalinoColors.OnSelection else CalinoColors.Ink2
         Row(
             Modifier.fillMaxWidth().height(dateSize),
             verticalAlignment = Alignment.CenterVertically,

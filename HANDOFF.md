@@ -1374,8 +1374,10 @@ here. Three of its rules are implemented here:
   defines itself with no edge. Flipping that to cream at night made it the
   loudest thing on screen. `FloatFill`/`OnFloat`/`FloatBorder` let dark keep the
   pill dark and give it a brighter hairline instead; light's border is
-  `Transparent`, exactly as it always drew. The same question is still open for
-  the selected-day chip in the week strip, which is still a solid `Ink` block.
+  `Transparent`, exactly as it always drew. `SelectionFill`/`OnSelection`/
+  `SelectionBorder` do the same for the selected day in the week strip and its
+  compact pill. Both fills are animated, so the border animates with them --
+  an edge that switches on while its block fades in reads as a snap.
 - **Event colors are data, not tokens.** `Event.color` is a raw ARGB `Long`
   from the fixtures and from whatever a CalDAV server chose. `eventColor(Long)`
   is the single seam: it runs `CalinoPalette.forEvent`, which maps the six

@@ -73,6 +73,7 @@ class CalinoPaletteTest {
             assertContrast(palette, "OnAccent on Accent", palette.OnAccent, palette.Accent)
             assertContrast(palette, "OnInk on Ink", palette.OnInk, palette.Ink)
             assertContrast(palette, "OnFloat on FloatFill", palette.OnFloat, palette.FloatFill)
+            assertContrast(palette, "OnSelection on SelectionFill", palette.OnSelection, palette.SelectionFill)
         }
     }
 
@@ -107,15 +108,37 @@ class CalinoPaletteTest {
     }
 
     @Test
-    fun `a floating control that cannot rely on its fill gets an edge`() {
-        // Light fills the add pill with ink on paper, which defines itself.
-        // Dark keeps it dark, so something has to carry the shape.
+    fun `a raised surface that cannot rely on its fill gets an edge`() {
+        // Light fills the add pill and the selected day with ink on paper,
+        // which defines itself. A theme that keeps them close to its own
+        // canvas has to carry the shape some other way.
         CalinoThemes.all.forEach { palette ->
-            val standsOutOnItsOwn = contrastRatio(palette.FloatFill, palette.Canvas) >= 3f
-            assertTrue(
-                "${palette.id}: the floating fill neither contrasts with the canvas nor has a border",
-                standsOutOnItsOwn || palette.FloatBorder.alpha > 0f,
-            )
+            listOf(
+                Triple("floating", palette.FloatFill, palette.FloatBorder),
+                Triple("selection", palette.SelectionFill, palette.SelectionBorder),
+            ).forEach { (what, fill, border) ->
+                val standsOutOnItsOwn = contrastRatio(fill, palette.Canvas) >= 3f
+                assertTrue(
+                    "${palette.id}: the $what fill neither contrasts with the canvas nor has a border",
+                    standsOutOnItsOwn || border.alpha > 0f,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `dark does not answer a loud fill with a louder one`() {
+        // The bug this replaced: inverting Ink literally made the selected day
+        // and the add pill the brightest things on a dark screen. Whatever a
+        // dark theme paints them, it must not out-shout its own body text.
+        CalinoThemes.all.filter { it.isDark }.forEach { palette ->
+            listOf("floating" to palette.FloatFill, "selection" to palette.SelectionFill)
+                .forEach { (what, fill) ->
+                    assertTrue(
+                        "${palette.id}: the $what fill is brighter than the ink it sits among",
+                        luminance(fill) < luminance(palette.Ink),
+                    )
+                }
         }
     }
 
