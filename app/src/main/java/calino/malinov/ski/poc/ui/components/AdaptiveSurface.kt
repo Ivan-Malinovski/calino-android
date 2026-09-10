@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -150,7 +151,7 @@ fun AdaptiveSurfaceHost(
             CalinoSurfaceMode.EndPanel ->
                 Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(vertical = 12.dp, horizontal = 12.dp)
+                    .padding(vertical = 12.dp, horizontal = 16.dp)
                     .width(sideWidth)
                     .height(sideHeight)
         }
@@ -305,14 +306,19 @@ fun DetailCardSurface(
 ) {
     val mode = LocalCalinoSurfaceMode.current
     val shape = if (mode == CalinoSurfaceMode.EndPanel) {
-        RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp, topEnd = 0.dp, bottomEnd = 0.dp)
+        RoundedCornerShape(28.dp)
     } else {
         RoundedCornerShape(28.dp)
     }
-    Column(modifier.clip(shape).background(CalinoColors.Canvas)) {
+    Column(
+        modifier
+            .shadow(18.dp * if (mode == CalinoSurfaceMode.EndPanel) CalinoColors.elevationAlpha else 0f, shape, clip = false)
+            .clip(shape)
+            .background(CalinoColors.Canvas),
+    ) {
         if (mode == CalinoSurfaceMode.EndPanel) {
             Box(
-                Modifier.fillMaxWidth().height(24.dp).background(handleColor),
+                Modifier.fillMaxWidth().height(16.dp).background(handleColor),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Box(

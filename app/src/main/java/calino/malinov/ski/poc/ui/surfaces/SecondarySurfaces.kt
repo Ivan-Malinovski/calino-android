@@ -561,10 +561,21 @@ private fun EventDetailContent(
     onBack: () -> Unit,
     onPrimary: () -> Unit,
 ) {
+    val compactHeader = LocalCalinoSurfaceMode.current == CalinoSurfaceMode.EndPanel
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
     var moreOpen by remember(event.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().background(tint).padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 24.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(tint)
+                .padding(
+                    start = 22.dp,
+                    end = 22.dp,
+                    top = if (compactHeader) 8.dp else 20.dp,
+                    bottom = if (compactHeader) 16.dp else 24.dp,
+                ),
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 IconButtonGlyph("‹", "Back", { onBack() })
                 Box {
@@ -577,8 +588,8 @@ private fun EventDetailContent(
                     }
                 }
             }
-            label(event.calendarId, Modifier.padding(top = 12.dp))
-            Text(event.title, style = CalinoTypography.headlineLarge, modifier = Modifier.padding(top = 6.dp))
+            label(event.calendarId, Modifier.padding(top = if (compactHeader) 4.dp else 12.dp))
+            Text(event.title, style = CalinoTypography.headlineLarge, modifier = Modifier.padding(top = if (compactHeader) 2.dp else 6.dp))
             Text(
                 eventHeaderText(
                     event = event,
