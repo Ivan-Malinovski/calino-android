@@ -49,6 +49,27 @@ recurrence expansion after that. The remaining work is in **"CalDAV — what
 still needs doing"** near the end of this file. The fixture-backed
 test-coverage work described immediately below remains valid and unfinished.
 
+### Adaptive large-screen surfaces — 2026-09-10
+
+- Shared `AdaptiveSurfaceHost` presentation rules now classify the available
+  width as compact (under 600dp), medium (600–839dp), or expanded (840dp and
+  above). Compact surfaces remain bottom sheets; medium surfaces become
+  centered floating cards; expanded detail/editor/day surfaces become logical-
+  end panels while search remains a bounded centered window.
+- Day details, event/task details, the event and journal editors, Quick Add
+  editor entry points, search, and the CalDAV account sheet use the adaptive
+  presenter. The underlying calendar remains mounted and receives a scrim, so
+  the large-screen context is preserved rather than replaced.
+- Dismissal follows the presentation edge: downward swipe for compact sheets,
+  outward horizontal swipe from the panel header for expanded panels, and
+  Back/close/scrim for centered floating windows. The rules are width-based;
+  they do not yet inspect fold hinges or posture, so a spanning foldable is
+  treated as one available window.
+- Pure boundary/mode coverage lives in `AdaptiveWindowRulesTest`. API 36
+  emulator checks covered the compact baseline, centered medium cards,
+  expanded day/detail/editor panels, bounded search, short landscape, and
+  side-panel dismissal. No physical-phone validation.
+
 ### Pill-morph search and configurable event window — 2026-09-10
 
 - Swiping upward on the floating Add pill now reveals a Search destination and

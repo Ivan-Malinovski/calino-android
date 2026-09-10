@@ -94,6 +94,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
@@ -103,6 +104,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.Attendee
@@ -129,14 +131,17 @@ import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.qa.TaskBucket
 import calino.malinov.ski.poc.qa.taskBucket
 import calino.malinov.ski.poc.ui.components.BottomDetailOverlay
-import calino.malinov.ski.poc.ui.components.DetailCardSurface
+import calino.malinov.ski.poc.ui.components.AdaptiveDetailCard
+import calino.malinov.ski.poc.ui.components.AdaptiveSurfaceHost
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
-import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
+import calino.malinov.ski.poc.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
 import calino.malinov.ski.poc.util.nextOccurrences
+import calino.malinov.ski.poc.state.CalinoSurfaceKind
+import calino.malinov.ski.poc.state.CalinoSurfaceMode
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -274,7 +279,6 @@ fun DayModalSurface(
     val dismissDistancePx = with(density) { 720.dp.toPx() }
     val axisThresholdPx = with(density) { 8.dp.toPx() }
     val horizontalDragLimitPx = with(density) { 180.dp.toPx() }
-    val scrim by animateFloatAsState(if (shown) .62f else 0f, animationSpec = tween(200), label = "calendar scrim")
 
     fun animateDragTo(targetX: Float, targetY: Float, onFinished: (() -> Unit)? = null) {
         dragAnimationJob?.cancel()
@@ -317,157 +321,162 @@ fun DayModalSurface(
     }
     val dismiss: () -> Unit = { closeAfterAnimation(onDismiss) }
 
-    BackHandler(enabled = shown, onBack = dismiss)
-    Box(Modifier.fillMaxSize()) {
-        // This is deliberately only a scrim. HomeScreen remains the real,
-        // visible backdrop instead of being replaced by a second fake calendar.
+    AdaptiveSurfaceHost(
+        kind = CalinoSurfaceKind.Day,
+        visible = shown,
+        onDismiss = dismiss,
+        scrimAlpha = .62f,
+        contentDescription = "Dismiss day details",
+    ) { panelModifier ->
+        val mode = LocalCalinoSurfaceMode.current
+        val layoutDirection = LocalLayoutDirection.current
+        val outwardSign = if (layoutDirection == LayoutDirection.Ltr) 1f else -1f
+        val sideDismissLanePx = with(density) { 72.dp.toPx() }
         Box(
-            Modifier.fillMaxSize()
-                .background(CalinoColors.scrim(scrim * (1f - (dragY / dismissDistancePx).coerceIn(0f, .72f))))
-                .clickable(onClick = dismiss)
-                .semantics { contentDescription = "Dismiss day details" },
-        )
-        AnimatedVisibility(
-            shown,
-            enter = slideInVertically(animationSpec = tween(240), initialOffsetY = { it }) + fadeIn(animationSpec = tween(180)),
-            exit = slideOutVertically(animationSpec = tween(240), targetOffsetY = { it }) + fadeOut(animationSpec = tween(180)),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(.92f)
-                    .pointerInput(Unit) {
-                        // Initial-pass observation lets a downward dismissal
-                        // start over any list row, while upward list scrolling
-                        // remains available until a downward axis is claimed.
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                                val pointerId = down.id
-                                var lastPosition = down.position
-                                var totalX = 0f
-                                var totalY = 0f
-                                var horizontal = false
-                                var axisDecided = false
-                                var completed = false
-                                val startDragX = dragX
-                                val startDragY = dragY
-                                dragAnimationJob?.cancel()
+            panelModifier.pointerInput(mode, layoutDirection) {
+                // The bottom sheet keeps its existing two-axis contract. A
+                // floating window only pages horizontally. An end panel
+                // reserves its header lane for outward dismissal so body
+                // swipes can still page the selected day.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val pointerId = down.id
+                    var lastPosition = down.position
+                    var totalX = 0f
+                    var totalY = 0f
+                    var horizontal = false
+                    var axisDecided = false
+                    var completed = false
+                    var sideDismissStarted = false
+                    val startDragX = dragX
+                    val startDragY = dragY
+                    val sideDismissAllowed = mode == CalinoSurfaceMode.EndPanel && down.position.y <= sideDismissLanePx
+                    dragAnimationJob?.cancel()
 
-                                while (true) {
-                                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                                    if (!change.pressed) {
-                                        completed = true
-                                        break
-                                    }
-
-                                    val amount = change.position - lastPosition
-                                    lastPosition = change.position
-                                    totalX += amount.x
-                                    totalY += amount.y
-                                    if (!axisDecided && (abs(totalX) > axisThresholdPx || abs(totalY) > axisThresholdPx)) {
-                                        horizontal = abs(totalX) > abs(totalY)
-                                        axisDecided = true
-                                    }
-                                    if (axisDecided && horizontal) {
-                                        change.consume()
-                                        dragX = (startDragX + totalX).coerceIn(-horizontalDragLimitPx, horizontalDragLimitPx)
-                                        dragY = startDragY
-                                    } else if (axisDecided && totalY > 0f) {
-                                        // A downward dismissal can begin
-                                        // anywhere on the sheet, including
-                                        // inside the event list.
-                                        change.consume()
-                                        dragX = startDragX
-                                        dragY = (startDragY + totalY).coerceAtLeast(0f)
-                                    }
-                                }
-
-                                if (completed) {
-                                    val horizontalPage = abs(dragX) > horizontalThresholdPx && abs(dragX) > dragY
-                                    val swipeDown = dragY > dismissThresholdPx && dragY > abs(dragX)
-                                    when {
-                                        swipeDown -> {
-                                            // Hand the dismissal to the host at the
-                                            // finger's final position. The sheet's
-                                            // exit animation owns the remaining
-                                            // travel; a second spring to a fixed
-                                            // distance makes the handoff visibly
-                                            // lag and compounds the translation.
-                                            dragAnimationJob?.cancel()
-                                            dismiss()
-                                        }
-                                        horizontalPage -> {
-                                            displayedDate = displayedDate.plusDays(if (dragX < 0f) 1 else -1)
-                                            onDateChanged(displayedDate)
-                                            animateDragTo(0f, 0f)
-                                        }
-                                        else -> animateDragTo(0f, 0f)
-                                    }
-                                } else {
-                                    animateDragTo(0f, 0f)
-                                }
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                        if (!change.pressed) {
+                            completed = true
+                            break
                         }
-                    },
+
+                        val amount = change.position - lastPosition
+                        lastPosition = change.position
+                        totalX += amount.x
+                        totalY += amount.y
+                        if (!axisDecided && (abs(totalX) > axisThresholdPx || abs(totalY) > axisThresholdPx)) {
+                            horizontal = abs(totalX) > abs(totalY)
+                            axisDecided = true
+                        }
+                        if (axisDecided && horizontal) {
+                            val outwardTravel = totalX * outwardSign
+                            if (sideDismissAllowed && outwardTravel > 0f) {
+                                sideDismissStarted = true
+                                change.consume()
+                                dragX = (startDragX + outwardTravel * outwardSign)
+                                    .coerceIn(-horizontalDragLimitPx, horizontalDragLimitPx)
+                                dragY = 0f
+                            } else if (!sideDismissStarted) {
+                                change.consume()
+                                dragX = (startDragX + totalX).coerceIn(-horizontalDragLimitPx, horizontalDragLimitPx)
+                                dragY = startDragY
+                            }
+                        } else if (mode == CalinoSurfaceMode.BottomSheet && axisDecided && totalY > 0f) {
+                            // A downward dismissal can begin anywhere on the
+                            // sheet, including inside the event list.
+                            change.consume()
+                            dragX = startDragX
+                            dragY = (startDragY + totalY).coerceAtLeast(0f)
+                        }
+                    }
+
+                    if (completed) {
+                        val outwardDrag = dragX * outwardSign
+                        val sideDismiss = sideDismissStarted && outwardDrag > dismissThresholdPx
+                        val horizontalPage = !sideDismissStarted && abs(dragX) > horizontalThresholdPx && abs(dragX) > dragY
+                        val swipeDown = mode == CalinoSurfaceMode.BottomSheet &&
+                            dragY > dismissThresholdPx && dragY > abs(dragX)
+                        when {
+                            swipeDown || sideDismiss -> {
+                                // The host owns the remaining exit travel;
+                                // do not spring the child to a second fixed
+                                // distance before handing off.
+                                dragAnimationJob?.cancel()
+                                dismiss()
+                            }
+                            horizontalPage -> {
+                                displayedDate = displayedDate.plusDays(if (dragX < 0f) 1 else -1)
+                                onDateChanged(displayedDate)
+                                animateDragTo(0f, 0f)
+                            }
+                            else -> animateDragTo(0f, 0f)
+                        }
+                    } else {
+                        animateDragTo(0f, 0f)
+                    }
+                }
+            },
+        ) {
+            val shape = when (mode) {
+                CalinoSurfaceMode.BottomSheet -> RoundedCornerShape(26.dp, 26.dp, 0.dp, 0.dp)
+                CalinoSurfaceMode.FloatingWindow -> RoundedCornerShape(26.dp)
+                CalinoSurfaceMode.EndPanel -> RoundedCornerShape(topStart = 26.dp, bottomStart = 26.dp, topEnd = 0.dp, bottomEnd = 0.dp)
+            }
+            Surface(
+                shape = shape,
+                color = CalinoColors.Panel,
+                modifier = Modifier.fillMaxSize().offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) },
             ) {
-                Surface(
-                    shape = RoundedCornerShape(26.dp, 26.dp, 0.dp, 0.dp),
-                    color = CalinoColors.Panel,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) },
-                ) {
-                    AnimatedContent(
-                        targetState = displayedDate,
-                        transitionSpec = {
-                            val direction = if (targetState.isAfter(initialState)) 1 else -1
-                            slideInHorizontally(tween(220)) { direction * it } togetherWith
-                                slideOutHorizontally(tween(180)) { -direction * it }
-                        },
-                        label = "day modal pager",
-                    ) { pageDate ->
-                        val dayEvents = dayEventsFor(events, pageDate)
-                        val dayJournals = journals.filter { it.date == pageDate }
-                        Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 12.dp)) {
-                            Box(Modifier.align(Alignment.CenterHorizontally).size(38.dp, 4.dp).clip(CircleShape).background(CalinoColors.Ink.copy(.16f)))
-                            Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.Top) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(pageDate.format(dateFormat), style = CalinoTypography.titleLarge)
-                                    label(if (pageDate == today) "Today · ${dayEvents.size} events" else "${dayEvents.size} events")
-                                }
-                                IconButtonGlyph("×", "Close day", dismiss)
+                AnimatedContent(
+                    targetState = displayedDate,
+                    transitionSpec = {
+                        val direction = if (targetState.isAfter(initialState)) 1 else -1
+                        slideInHorizontally(tween(220)) { direction * it } togetherWith
+                            slideOutHorizontally(tween(180)) { -direction * it }
+                    },
+                    label = "day modal pager",
+                ) { pageDate ->
+                    val dayEvents = dayEventsFor(events, pageDate)
+                    val dayJournals = journals.filter { it.date == pageDate }
+                    Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 12.dp)) {
+                        Box(Modifier.align(Alignment.CenterHorizontally).size(38.dp, 4.dp).clip(CircleShape).background(CalinoColors.Ink.copy(.16f)))
+                        Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.Top) {
+                            Column(Modifier.weight(1f)) {
+                                Text(pageDate.format(dateFormat), style = CalinoTypography.titleLarge)
+                                label(if (pageDate == today) "Today · ${dayEvents.size} events" else "${dayEvents.size} events")
                             }
-                            Spacer(Modifier.height(16.dp))
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.weight(1f)) {
-                                if (dayEvents.isEmpty()) {
-                                    item(key = "empty:$pageDate") {
-                                        AnimatedVisibility(visible = true, enter = fadeIn(tween(160)) + expandVertically(tween(180))) {
-                                            Text("Nothing scheduled", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = Modifier.padding(20.dp))
-                                        }
-                                    }
-                                }
-                                items(dayEvents, key = { it.id }) { event ->
+                            IconButtonGlyph("×", "Close day", dismiss)
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.weight(1f)) {
+                            if (dayEvents.isEmpty()) {
+                                item(key = "empty:$pageDate") {
                                     AnimatedVisibility(visible = true, enter = fadeIn(tween(160)) + expandVertically(tween(180))) {
-                                        AgendaCard(event) { closeAfterAnimation { onEvent(event) } }
-                                    }
-                                }
-                                items(dayJournals, key = { "journal:${it.id}" }) { journal ->
-                                    AnimatedVisibility(visible = true, enter = fadeIn(tween(160)) + expandVertically(tween(180))) {
-                                        JournalAgendaCard(journal) { closeAfterAnimation { onJournal(journal) } }
+                                        Text("Nothing scheduled", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = Modifier.padding(20.dp))
                                     }
                                 }
                             }
-                            HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                            Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Add on ${pageDate.format(DateTimeFormatter.ofPattern("d MMM", Locale.US))}", style = CalinoTypography.bodyLarge, modifier = Modifier.weight(1f))
-                                Button(
-                                    onClick = { closeAfterAnimation(onAdd) },
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                                    modifier = Modifier.size(46.dp).semantics { contentDescription = "Add on ${pageDate.format(dateFormat)}" },
-                                ) { Text("+", fontSize = 24.sp) }
+                            items(dayEvents, key = { it.id }) { event ->
+                                AnimatedVisibility(visible = true, enter = fadeIn(tween(160)) + expandVertically(tween(180))) {
+                                    AgendaCard(event) { closeAfterAnimation { onEvent(event) } }
+                                }
                             }
+                            items(dayJournals, key = { "journal:${it.id}" }) { journal ->
+                                AnimatedVisibility(visible = true, enter = fadeIn(tween(160)) + expandVertically(tween(180))) {
+                                    JournalAgendaCard(journal) { closeAfterAnimation { onJournal(journal) } }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Add on ${pageDate.format(DateTimeFormatter.ofPattern("d MMM", Locale.US))}", style = CalinoTypography.bodyLarge, modifier = Modifier.weight(1f))
+                            Button(
+                                onClick = { closeAfterAnimation(onAdd) },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
+                                modifier = Modifier.size(46.dp).semantics { contentDescription = "Add on ${pageDate.format(dateFormat)}" },
+                            ) { Text("+", fontSize = 24.sp) }
                         }
                     }
                 }
@@ -526,20 +535,16 @@ fun EventDetailSurface(
         ) { page ->
             val pageEvent = events[page]
             Box(Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
-                SwipeDownDismiss(
+                AdaptiveDetailCard(
                     visible = shown,
                     onDismiss = { closeAfterAnimation(onBack) },
                     modifier = Modifier.fillMaxSize(),
                     dismissDistance = 980.dp,
-                ) { dragModifier ->
-                    DetailCardSurface(
-                        modifier = dragModifier,
-                        handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
-                    ) {
-                        EventDetailContent(pageEvent, occurrenceDate,
-                            onBack = { closeAfterAnimation(onBack) },
-                            onPrimary = { if (!pager.isScrollInProgress) onEditEvent(pageEvent) })
-                    }
+                    handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
+                ) { cardModifier ->
+                    EventDetailContent(pageEvent, occurrenceDate,
+                        onBack = { closeAfterAnimation(onBack) },
+                        onPrimary = { if (!pager.isScrollInProgress) onEditEvent(pageEvent) })
                 }
             }
         }

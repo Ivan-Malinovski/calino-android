@@ -78,6 +78,7 @@ import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
+import calino.malinov.ski.poc.state.CalinoSurfaceKind
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -367,6 +368,7 @@ private fun JournalEditor(
         onDismiss = ::dismissEditor,
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 720.dp,
+        surfaceKind = CalinoSurfaceKind.Editor,
         // A dirty-editor dismissal opens the confirmation bar instead of
         // leaving the editor. Changing this key asks the gesture surface to
         // spring back underneath that prompt.

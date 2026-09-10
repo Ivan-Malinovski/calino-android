@@ -7,6 +7,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -35,8 +37,13 @@ import calino.malinov.ski.poc.data.search.*
 import calino.malinov.ski.poc.design.*
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
+import calino.malinov.ski.poc.state.CalinoSurfaceKind
+import calino.malinov.ski.poc.state.CalinoSurfaceMode
+import calino.malinov.ski.poc.state.calinoSurfaceModeFor
+import calino.malinov.ski.poc.state.calinoWindowClassFor
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 private val SearchDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
@@ -80,17 +87,32 @@ fun CalinoSearchSheet(
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
     BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
+        val mode = calinoSurfaceModeFor(
+            calinoWindowClassFor(maxWidth.value.roundToInt()),
+            CalinoSurfaceKind.Search,
+        )
+        val compact = mode == CalinoSurfaceMode.BottomSheet
         val resultCount = groupsCount(results)
         val expandedHeight = if (query.isBlank()) 190.dp else minOf(580.dp, (150 + resultCount * 66).dp)
-        val capsuleWidth by animateDpAsState(if (expanded) maxWidth - 24.dp else 224.dp, tween(duration), label = "search capsule width")
-        val capsuleHeight by animateDpAsState(if (expanded) minOf(maxHeight * .72f, expandedHeight) else 54.dp, tween(duration), label = "search capsule height")
+        val expandedWidth = if (compact) {
+            (maxWidth - 24.dp).coerceAtLeast(1.dp)
+        } else {
+            minOf((maxWidth - 48.dp).coerceAtLeast(1.dp), CalinoSurfaceKind.Search.widthCapDp.dp)
+        }
+        val expandedHeightTarget = if (compact) {
+            minOf(maxHeight * .72f, expandedHeight)
+        } else {
+            minOf((maxHeight - 48.dp).coerceAtLeast(1.dp), expandedHeight, CalinoSurfaceKind.Search.heightCapDp.dp)
+        }
+        val capsuleWidth by animateDpAsState(if (expanded) expandedWidth else 224.dp, tween(duration), label = "search capsule width")
+        val capsuleHeight by animateDpAsState(if (expanded) expandedHeightTarget else 54.dp, tween(duration), label = "search capsule height")
         val capsuleRadius by animateDpAsState(if (expanded) 30.dp else CalinoShapes.Pill, tween(duration), label = "search capsule radius")
         val capsuleFill by animateColorAsState(if (expanded) CalinoColors.Panel else CalinoColors.FloatFill, tween(duration), label = "search capsule fill")
 
         AnimatedVisibility(expanded, enter = fadeIn(tween(duration)), exit = fadeOut(tween(duration))) {
             Box(Modifier.fillMaxSize().background(CalinoColors.scrim(.18f)).clickable(onClick = ::requestClose))
         }
-        SwipeDownDismiss(visible = expanded, onDismiss = ::requestClose, modifier = Modifier.padding(bottom = 20.dp)) { dragModifier ->
+        val searchContent: @Composable (Modifier) -> Unit = { dragModifier ->
             Surface(
                 modifier = dragModifier.width(capsuleWidth).height(capsuleHeight).clickable(onClick = {}),
                 shape = RoundedCornerShape(capsuleRadius),
@@ -125,6 +147,18 @@ fun CalinoSearchSheet(
                         SearchResults(results, query, onSelect)
                     }
                 }
+            }
+        }
+        if (compact) {
+            SwipeDownDismiss(visible = expanded, onDismiss = ::requestClose, modifier = Modifier.padding(bottom = 20.dp), content = searchContent)
+        } else {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = scaleIn(tween(duration), initialScale = .94f) + fadeIn(tween(duration)),
+                exit = scaleOut(tween(duration), targetScale = .94f) + fadeOut(tween(duration)),
+                modifier = Modifier.align(Alignment.Center),
+            ) {
+                searchContent(Modifier)
             }
         }
     }

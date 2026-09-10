@@ -85,6 +85,7 @@ import calino.malinov.ski.poc.ui.components.EditorLabel
 import calino.malinov.ski.poc.ui.components.EditorReveal
 import calino.malinov.ski.poc.ui.components.rememberDatePicker
 import calino.malinov.ski.poc.ui.components.rememberTimePicker
+import calino.malinov.ski.poc.state.CalinoSurfaceKind
 import calino.malinov.ski.poc.util.formatRecurrenceRule
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -179,6 +180,7 @@ fun EditorSurface(
         onDismiss = dismiss,
         modifier = Modifier.fillMaxSize(),
         canStartDismiss = { editorScrollState.value == 0 },
+        surfaceKind = CalinoSurfaceKind.Editor,
     ) { detailModifier ->
         Column(detailModifier.fillMaxSize().background(CalinoColors.Canvas)) {
             EditorHeader(draft, dismiss)

@@ -1,23 +1,16 @@
 package calino.malinov.ski.poc.ui.components
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import calino.malinov.ski.poc.design.CalinoColors
-import calino.malinov.ski.poc.design.CalinoMotion
+import calino.malinov.ski.poc.state.CalinoSurfaceKind
+import calino.malinov.ski.poc.state.CalinoSurfaceMode
 
 /** The child owns finger tracking; this host owns entry and final removal motion. */
 @Composable
@@ -28,66 +21,89 @@ fun BottomDetailCard(
     dismissDistance: androidx.compose.ui.unit.Dp = 980.dp,
     resetKey: Any? = null,
     canStartDismiss: () -> Boolean = { true },
+    surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
     content: @Composable (Modifier) -> Unit,
 ) {
-    BottomDetailOverlay(visible, onDismiss, modifier) { overlayModifier ->
-        Box(overlayModifier.padding(horizontal = 10.dp)) {
-            SwipeDownDismiss(visible, onDismiss, Modifier.fillMaxSize(),
+    AdaptiveSurfaceHost(
+        kind = surfaceKind,
+        visible = visible,
+        onDismiss = onDismiss,
+        modifier = modifier,
+        contentDescription = "Dismiss detail card",
+    ) { overlayModifier ->
+        val mode = LocalCalinoSurfaceMode.current
+        Box(overlayModifier.padding(horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp)) {
+            AdaptiveDetailCard(
+                visible = visible,
+                onDismiss = onDismiss,
+                modifier = Modifier.fillMaxSize(),
                 dismissDistance = dismissDistance,
                 resetKey = resetKey,
                 canStartDismiss = canStartDismiss,
-            ) { dragModifier ->
-                DetailCardSurface(dragModifier, content = content)
-            }
+                content = content,
+            )
         }
     }
 }
 
-/** Shared backdrop and vertical motion; event paging places a complete card on each page. */
+/** Shared backdrop and adaptive motion; event paging places a complete card on each page. */
 @Composable
 fun BottomDetailOverlay(
     visible: Boolean,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
     content: @Composable (Modifier) -> Unit,
 ) {
-    BackHandler { if (visible) onDismiss() }
-    var entered by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { entered = true }
-    val progress by animateFloatAsState(
-        if (entered && visible) 1f else 0f,
-        tween(CalinoMotion.SurfaceFadeMillis), label = "bottom card slide",
+    AdaptiveSurfaceHost(
+        kind = surfaceKind,
+        visible = visible,
+        onDismiss = onDismiss,
+        modifier = modifier,
+        contentDescription = "Dismiss detail card",
+        content = content,
     )
-    // No imePadding here: the route host already pads by safeDrawing, which
-    // includes the IME. Adding it again subtracted the keyboard twice and
-    // crushed the card to its header and action row.
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(CalinoColors.scrim(.28f * progress))
-            .semantics { contentDescription = "Dismiss detail card" }
-            .clickable(onClick = onDismiss))
-        // A short landscape window has no room to spare for the peek of the
-        // surface behind the card, so the card takes almost all of it.
-        val cardHeight = maxHeight * if (maxHeight < 520.dp) .96f else .86f
-        Box(Modifier.align(Alignment.BottomCenter).padding(vertical = 8.dp)
-            .widthIn(max = 660.dp).fillMaxWidth().height(cardHeight)
-            .graphicsLayer { translationY = (1f - progress) * (size.height + 32.dp.toPx()) }) {
-            content(Modifier.fillMaxSize())
-        }
-    }
 }
 
+/** Applies the mode-appropriate dismissal primitive and the shared card shell. */
 @Composable
-fun DetailCardSurface(
+fun AdaptiveDetailCard(
+    visible: Boolean,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    dismissDistance: androidx.compose.ui.unit.Dp = 980.dp,
+    resetKey: Any? = null,
+    canStartDismiss: () -> Boolean = { true },
     handleColor: Color = CalinoColors.Canvas,
     content: @Composable (Modifier) -> Unit,
 ) {
-    Column(modifier.clip(RoundedCornerShape(28.dp)).background(CalinoColors.Canvas)) {
-        Box(Modifier.fillMaxWidth().height(24.dp).background(handleColor),
-            contentAlignment = Alignment.Center) {
-            Box(Modifier.size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp))
-                .background(CalinoColors.Ink.copy(alpha = .18f)))
+    when (LocalCalinoSurfaceMode.current) {
+        CalinoSurfaceMode.BottomSheet -> SwipeDownDismiss(
+            visible = visible,
+            onDismiss = onDismiss,
+            modifier = modifier,
+            dismissDistance = dismissDistance,
+            resetKey = resetKey,
+            canStartDismiss = canStartDismiss,
+        ) { dragModifier ->
+            DetailCardSurface(dragModifier, handleColor = handleColor, content = content)
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) { content(Modifier.fillMaxSize()) }
+
+        CalinoSurfaceMode.FloatingWindow ->
+            DetailCardSurface(modifier, handleColor = handleColor, content = content)
+
+        CalinoSurfaceMode.EndPanel -> {
+            val headerLanePx = with(LocalDensity.current) { 72.dp.toPx() }
+            SwipeEndDismiss(
+                visible = visible,
+                onDismiss = onDismiss,
+                modifier = modifier,
+                dismissDistance = dismissDistance,
+                resetKey = resetKey,
+                canStartDismiss = { position -> position.y <= headerLanePx },
+            ) { dragModifier ->
+                DetailCardSurface(dragModifier, handleColor = handleColor, content = content)
+            }
+        }
     }
 }
