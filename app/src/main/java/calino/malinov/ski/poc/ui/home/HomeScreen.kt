@@ -927,14 +927,13 @@ fun HomeScreen(
              *
              * It watches the initial pointer pass and claims the gesture only
              * once it is decisively vertical, leaving taps and the pagers'
-             * horizontal swipes to the children. A drag that begins below the
-             * calendar band belongs to the day rail and is never claimed.
+             * horizontal swipes to the children. The host container covers the
+             * day surface too, so the calendar can be collapsed or expanded
+             * from the space below the visible month/week surface.
              */
             val calendarZoomGesture = Modifier.pointerInput(handleHeight) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val bandPx = (calendarHeight.value + handleHeight).toPx()
-                    if (down.position.y > bandPx) return@awaitEachGesture
                     var travel = Offset.Zero
                     var owned = false
                     var anchorLevel = 0
@@ -3977,4 +3976,3 @@ private fun ZoomHandle(
         Box(Modifier.width(26.dp).height(3.dp).background(CalinoColors.Ink.copy(.25f)))
     }
 }
-

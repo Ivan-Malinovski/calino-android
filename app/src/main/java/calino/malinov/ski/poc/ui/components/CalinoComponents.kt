@@ -153,10 +153,12 @@ fun SwipeDownDismiss(
     dismissThreshold: androidx.compose.ui.unit.Dp = 112.dp,
     dismissDistance: androidx.compose.ui.unit.Dp = 720.dp,
     resetKey: Any? = null,
+    canStartDismiss: () -> Boolean = { true },
     content: @Composable (Modifier) -> Unit,
 ) {
     var dragY by remember { mutableFloatStateOf(0f) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
+    val currentCanStartDismiss by rememberUpdatedState(canStartDismiss)
     var dismissing by remember { mutableStateOf(false) }
     var animationJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
@@ -206,50 +208,54 @@ fun SwipeDownDismiss(
             // their normal behavior. We only consume after the axis is clear.
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val pointerId = down.id
-                    var lastPosition = down.position
-                    var totalX = 0f
-                    var totalY = 0f
-                    var vertical = false
-                    var axisDecided = false
-                    var completed = false
-                    val startDragY = dragY
-                    animationJob?.cancel()
+                val pointerId = down.id
+                var lastPosition = down.position
+                var totalX = 0f
+                var totalY = 0f
+                var vertical = false
+                var axisDecided = false
+                var completed = false
+                val startDragY = dragY
+                // Once the child has the stream, keep it. This lets a
+                // scrollable editor consume a downward drag that started away
+                // from its top instead of handing it to the sheet later.
+                val dismissAllowedAtDown = currentCanStartDismiss()
+                animationJob?.cancel()
 
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                        if (!change.pressed) {
-                            completed = true
-                            break
-                        }
-
-                        val amount = change.position - lastPosition
-                        lastPosition = change.position
-                        totalX += amount.x
-                        totalY += amount.y
-                        if (!axisDecided && (abs(totalX) > axisThresholdPx || abs(totalY) > axisThresholdPx)) {
-                            vertical = abs(totalY) > abs(totalX)
-                            axisDecided = true
-                        }
-                        if (axisDecided && vertical && totalY > 0f) {
-                            change.consume()
-                            dragY = (startDragY + totalY).coerceAtMost(dismissDistancePx)
-                        }
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                    if (!change.pressed) {
+                        completed = true
+                        break
                     }
 
-                    if (completed && vertical && dragY >= dismissThresholdPx) {
-                        // The parent surfaces already animate their exit after
-                        // onDismiss. Calling it only after a second spring to
-                        // dismissDistance made the gesture feel delayed and
-                        // caused two translations to compound. Keep the
-                        // finger's final position and let that host animation
-                        // own the remaining travel.
-                        dismissing = true
-                        currentOnDismiss()
-                    } else {
-                        animateOffsetTo(0f)
+                    val amount = change.position - lastPosition
+                    lastPosition = change.position
+                    totalX += amount.x
+                    totalY += amount.y
+                    if (!axisDecided && (abs(totalX) > axisThresholdPx || abs(totalY) > axisThresholdPx)) {
+                        vertical = abs(totalY) > abs(totalX)
+                        axisDecided = true
                     }
+                    if (axisDecided && vertical && totalY > 0f && dismissAllowedAtDown) {
+                        change.consume()
+                        dragY = (startDragY + totalY).coerceAtMost(dismissDistancePx)
+                    }
+                }
+
+                if (completed && vertical && dismissAllowedAtDown && dragY >= dismissThresholdPx) {
+                    // The parent surfaces already animate their exit after
+                    // onDismiss. Calling it only after a second spring to
+                    // dismissDistance made the gesture feel delayed and
+                    // caused two translations to compound. Keep the
+                    // finger's final position and let that host animation
+                    // own the remaining travel.
+                    dismissing = true
+                    currentOnDismiss()
+                } else {
+                    animateOffsetTo(0f)
+                }
             }
         }
     }

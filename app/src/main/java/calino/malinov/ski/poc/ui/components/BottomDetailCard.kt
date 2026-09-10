@@ -27,12 +27,16 @@ fun BottomDetailCard(
     modifier: Modifier = Modifier,
     dismissDistance: androidx.compose.ui.unit.Dp = 980.dp,
     resetKey: Any? = null,
+    canStartDismiss: () -> Boolean = { true },
     content: @Composable (Modifier) -> Unit,
 ) {
     BottomDetailOverlay(visible, onDismiss, modifier) { overlayModifier ->
         Box(overlayModifier.padding(horizontal = 10.dp)) {
             SwipeDownDismiss(visible, onDismiss, Modifier.fillMaxSize(),
-                dismissDistance = dismissDistance, resetKey = resetKey) { dragModifier ->
+                dismissDistance = dismissDistance,
+                resetKey = resetKey,
+                canStartDismiss = canStartDismiss,
+            ) { dragModifier ->
                 DetailCardSurface(dragModifier, content = content)
             }
         }

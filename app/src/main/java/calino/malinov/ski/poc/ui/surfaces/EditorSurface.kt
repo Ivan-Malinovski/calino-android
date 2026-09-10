@@ -1,6 +1,14 @@
 package calino.malinov.ski.poc.ui.surfaces
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,12 +24,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -35,13 +45,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.Attendee
@@ -51,7 +66,6 @@ import calino.malinov.ski.poc.data.model.EditorField
 import calino.malinov.ski.poc.data.model.RecurrenceFreq
 import calino.malinov.ski.poc.data.model.Reminder
 import calino.malinov.ski.poc.data.model.applyInput
-import calino.malinov.ski.poc.data.model.isParsed
 import calino.malinov.ski.poc.data.model.recurrenceDaysOf
 import calino.malinov.ski.poc.data.model.recurrenceFreqOf
 import calino.malinov.ski.poc.data.model.recurrenceRule
@@ -59,22 +73,21 @@ import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
+import calino.malinov.ski.poc.design.CalinoSpacing
+import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.CalinoChip
 import calino.malinov.ski.poc.ui.components.CalinoColorSwatchRow
+import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoTextField
-import calino.malinov.ski.poc.ui.components.CalinoToggleRow
 import calino.malinov.ski.poc.ui.components.EditorLabel
 import calino.malinov.ski.poc.ui.components.EditorReveal
-import calino.malinov.ski.poc.ui.components.EditorSection
-import calino.malinov.ski.poc.ui.components.EditorValueField
 import calino.malinov.ski.poc.ui.components.rememberDatePicker
 import calino.malinov.ski.poc.ui.components.rememberTimePicker
 import calino.malinov.ski.poc.util.formatRecurrenceRule
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.LocalTime
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.util.formatCalinoDuration
@@ -108,6 +121,7 @@ fun EditorSurface(
     onDismiss: () -> Unit = {},
     onSave: (EditorDraft) -> Unit = {},
     visible: Boolean = true,
+    morphFromAddPill: Boolean = false,
 ) {
     // The length a line with no stated end falls back to, which the parser
     // re-applies on every keystroke.
@@ -116,9 +130,12 @@ fun EditorSurface(
     var shown by remember { mutableStateOf(true) }
     var closing by remember { mutableStateOf(false) }
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var descriptionOpen by remember(initial.editingId) { mutableStateOf(!initial.description.isNullOrBlank()) }
+    var descriptionOpen by remember(initial.editingId) { mutableStateOf(false) }
     var moreOpen by remember(initial.editingId) { mutableStateOf(false) }
+    var remindersOpen by remember(initial.editingId) { mutableStateOf(false) }
+    var recurrenceOpen by remember(initial.editingId) { mutableStateOf(false) }
     var attendeeInput by remember(initial.editingId) { mutableStateOf("") }
+    val editorScrollState = rememberScrollState()
 
     val closeAfterAnimation: (() -> Unit) -> Unit = { action ->
         if (!closing) {
@@ -139,7 +156,6 @@ fun EditorSurface(
 
     val isEvent = draft.kind == PocQuickAddKind.Event
     val isTask = draft.kind == PocQuickAddKind.Task
-    val isJournal = draft.kind == PocQuickAddKind.Journal
 
     val pickStartDate = rememberDatePicker({ draft.date }) {
         draft = draft.copy(date = it, touched = draft.touched + EditorField.Date)
@@ -162,140 +178,83 @@ fun EditorSurface(
         visible = shown,
         onDismiss = dismiss,
         modifier = Modifier.fillMaxSize(),
+        canStartDismiss = { editorScrollState.value == 0 },
     ) { detailModifier ->
         Column(detailModifier.fillMaxSize().background(CalinoColors.Canvas)) {
             EditorHeader(draft, dismiss)
 
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                if (!draft.isEditing) {
-                    KindSelector(draft.kind) { entry ->
-                        draft = draft.copy(kind = entry).applyInput(draft.rawInput, baseDate, defaultDurationMinutes)
-                    }
-                }
-
-                EditorSection(null) {
-                    CalinoTextField(
-                        value = draft.rawInput,
-                        onValueChange = { draft = draft.applyInput(it, baseDate, defaultDurationMinutes) },
-                        label = when (draft.kind) {
-                            PocQuickAddKind.Event -> "What is happening?"
-                            PocQuickAddKind.Task -> "What needs doing?"
-                            PocQuickAddKind.Journal -> "Give this note a title"
-                        },
-                        description = "Title, ${draft.kind.name.lowercase(Locale.US)}",
-                        singleLine = false,
-                        maxLines = 3,
-                        textStyle = CalinoTypography.titleMedium.copy(fontSize = 26.sp),
-                    )
-
-                    EditorReveal(isJournal) {
-                        CalinoTextField(
-                            value = draft.body,
-                            onValueChange = { draft = draft.copy(body = it) },
-                            label = "Note",
-                            placeholder = "What is on your mind?",
-                            description = "Journal note",
-                            singleLine = false,
-                            minLines = 4,
-                            maxLines = 7,
-                            modifier = Modifier.height(150.dp),
-                        )
-                    }
-                }
-
-                // A saved record was never parsed from a typed line,
-                // so the chip row would be claiming something untrue.
-                if (!isJournal && !draft.isEditing) {
-                    ParsedChips(draft, baseDate, defaultDurationMinutes, pickStartDate, pickStartTime) { minutes ->
-                        draft = draft.copy(
-                            durationMinutes = minutes,
-                            touched = draft.touched + EditorField.Duration,
-                        )
-                    }
-                }
-
-                WhenSection(
-                    draft = draft,
-                    isEvent = isEvent,
-                    onDraft = { draft = it },
-                    pickStartDate = pickStartDate,
-                    pickStartTime = pickStartTime,
-                    pickEndDate = pickEndDate,
-                    pickEndTime = pickEndTime,
-                    pickUntil = pickUntil,
-                )
-
-                if (isEvent) {
-                    PlaceSection(
-                        draft = draft,
-                        calendars = calendars,
-                        onDraft = { draft = it },
-                    )
-                }
-
-                if (!isJournal && categories.isNotEmpty()) {
-                    CategoriesSection(draft, categories, isTask) { draft = it }
-                }
-
-                if (!isJournal) {
-                    DescriptionSection(
-                        draft = draft,
-                        open = descriptionOpen,
-                        onOpen = { descriptionOpen = true },
-                        onDraft = { draft = it },
-                    )
-                }
-
-                if (isTask) {
-                    EditorSection("Reminder") {
-                        ReminderChips(draft.reminders, single = true) { reminders ->
-                            draft = draft.copy(reminders = reminders)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(editorScrollState)
+                        .padding(horizontal = 20.dp),
+                ) {
+                    if (!draft.isEditing) {
+                        KindSelector(draft.kind) { entry ->
+                            draft = draft.copy(kind = entry).applyInput(draft.rawInput, baseDate, defaultDurationMinutes)
                         }
                     }
-                }
 
-                if (isEvent) {
-                    MoreSection(
-                        draft = draft,
-                        open = moreOpen,
-                        onToggle = { moreOpen = !moreOpen },
-                        relatedCandidates = relatedCandidates,
-                        attendeeInput = attendeeInput,
-                        onAttendeeInput = { attendeeInput = it },
-                        onDraft = { draft = it },
-                    )
-                }
-
-                // A journal entry carries no colour of its own.
-                if (!isJournal) {
-                    CalinoColorSwatchRow(Color(draft.color)) { picked ->
-                        draft = draft.copy(color = picked.toArgb().toLong() and 0xffffffffL)
+                    EditorTitleField(draft) { input ->
+                        draft = draft.applyInput(input, baseDate, defaultDurationMinutes)
                     }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
+                    EditorDivider()
 
-            Column(Modifier.fillMaxWidth()) {
-                HorizontalDivider(color = CalinoColors.Line)
-                Button(
-                    enabled = draft.canSave(),
-                    onClick = { val saved = draft; closeAfterAnimation { onSave(saved) } },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                ) {
-                    Text(
-                        if (draft.isEditing) "Save changes"
-                        else "Save ${draft.kind.name.lowercase(Locale.US)}",
-                    )
+                    when {
+                        isEvent -> EventEditorFields(
+                            draft = draft,
+                            calendars = calendars,
+                            categories = categories,
+                            descriptionOpen = descriptionOpen,
+                            remindersOpen = remindersOpen,
+                            recurrenceOpen = recurrenceOpen,
+                            moreOpen = moreOpen,
+                            relatedCandidates = relatedCandidates,
+                            attendeeInput = attendeeInput,
+                            onDescriptionOpen = { descriptionOpen = !descriptionOpen },
+                            onRemindersOpen = { remindersOpen = !remindersOpen },
+                            onRecurrenceOpen = { recurrenceOpen = !recurrenceOpen },
+                            onMoreOpen = { moreOpen = !moreOpen },
+                            onAttendeeInput = { attendeeInput = it },
+                            onDraft = { draft = it },
+                            pickStartDate = pickStartDate,
+                            pickStartTime = pickStartTime,
+                            pickEndDate = pickEndDate,
+                            pickEndTime = pickEndTime,
+                            pickUntil = pickUntil,
+                        )
+                        isTask -> TaskEditorFields(
+                            draft = draft,
+                            categories = categories,
+                            descriptionOpen = descriptionOpen,
+                            remindersOpen = remindersOpen,
+                            onDescriptionOpen = { descriptionOpen = !descriptionOpen },
+                            onRemindersOpen = { remindersOpen = !remindersOpen },
+                            onDraft = { draft = it },
+                            pickStartDate = pickStartDate,
+                            pickStartTime = pickStartTime,
+                        )
+                        else -> JournalEditorFields(draft) { body -> draft = draft.copy(body = body) }
+                    }
+
+                    // The action pill floats above this reserved tail, matching
+                    // the main add pill without hiding the final form row.
+                    Spacer(Modifier.height(CalinoSpacing.PillClearance))
                 }
+
+                EditorActions(
+                    canSave = draft.canSave(),
+                    addLabel = when (draft.kind) {
+                        PocQuickAddKind.Event -> "Add on ${draft.date.format(EditorDateFormat)}"
+                        PocQuickAddKind.Task -> "New task"
+                        PocQuickAddKind.Journal -> "New entry"
+                    },
+                    morphFromAddPill = morphFromAddPill && !draft.isEditing,
+                    onCancel = dismiss,
+                    onSave = { val saved = draft; closeAfterAnimation { onSave(saved) } },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
+                )
             }
         }
     }
@@ -303,104 +262,222 @@ fun EditorSurface(
 
 @Composable
 private fun EditorHeader(draft: EditorDraft, onDismiss: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (draft.isEditing) "Edit ${draft.kind.name.lowercase(Locale.US)}" else "New",
-                modifier = Modifier.weight(1f),
-                style = CalinoTypography.titleLarge,
-            )
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onDismiss)
-                    .semantics { contentDescription = "Close editor" },
-                contentAlignment = Alignment.Center,
-            ) { Text("×", fontSize = 22.sp, color = CalinoColors.Ink2) }
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            EditorLabel("Date")
-            Text(
-                "${draft.date.format(EditorDateFormat)} · ${draft.kind.name}",
-                color = CalinoColors.Ink2,
-                modifier = Modifier.padding(start = 10.dp),
-            )
-        }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, top = 2.dp, end = 20.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (draft.isEditing) "Edit ${draft.kind.name.lowercase(Locale.US)}" else "New ${draft.kind.name.lowercase(Locale.US)}",
+            modifier = Modifier.weight(1f),
+            style = CalinoTypography.titleSmall.copy(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Bold,
+                color = CalinoColors.Accent,
+            ),
+        )
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onDismiss)
+                .semantics { contentDescription = "Close editor" },
+            contentAlignment = Alignment.Center,
+        ) { Text("×", fontSize = 24.sp, color = CalinoColors.Ink2) }
     }
 }
 
 @Composable
-private fun KindSelector(selected: PocQuickAddKind, onSelect: (PocQuickAddKind) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PocQuickAddKind.entries.forEach { entry ->
-            TextButton(
-                onClick = { onSelect(entry) },
-                colors = ButtonDefaults.textButtonColors(
-                    containerColor = if (selected == entry) CalinoColors.Ink else CalinoColors.Ink.copy(.06f),
-                    contentColor = if (selected == entry) CalinoColors.OnInk else CalinoColors.Ink,
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.semantics {
-                    contentDescription = entry.name
-                    stateDescription = if (selected == entry) "Selected" else "Not selected"
-                    role = Role.RadioButton
-                },
-            ) { Text(entry.name) }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ParsedChips(
-    draft: EditorDraft,
-    baseDate: LocalDate,
-    defaultDurationMinutes: Int,
-    pickDate: () -> Unit,
-    pickTime: () -> Unit,
-    onDuration: (Int) -> Unit,
+private fun EditorActions(
+    canSave: Boolean,
+    addLabel: String,
+    morphFromAddPill: Boolean,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        EditorLabel("Parsed from what you typed · tap to change")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            CalinoChip(
-                text = draft.date.shortEditorLabel(baseDate),
-                selected = draft.isParsed(EditorField.Date, baseDate),
-                description = "Change date",
-                onClick = pickDate,
-            )
-            if (draft.kind == PocQuickAddKind.Event) {
-                CalinoChip(
-                    text = draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
-                    selected = draft.isParsed(EditorField.Time, baseDate),
-                    description = "Change time",
-                    onClick = pickTime,
-                )
-                CalinoChip(
-                    text = formatEditorDuration(draft.durationMinutes ?: defaultDurationMinutes),
-                    selected = draft.isParsed(EditorField.Duration, baseDate),
-                    description = "Change duration",
-                    onClick = {
-                        onDuration(
-                            when (draft.durationMinutes) {
-                                null, 30 -> 60
-                                60 -> 90
-                                else -> 30
-                            },
+    var showingAddPill by remember(morphFromAddPill, addLabel) { mutableStateOf(morphFromAddPill) }
+    LaunchedEffect(morphFromAddPill, addLabel) {
+        showingAddPill = morphFromAddPill
+        if (morphFromAddPill) {
+            delay((CalinoMotion.ContentEnterMillis / 3).toLong())
+            showingAddPill = false
+        }
+    }
+    val pillWidth by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (showingAddPill) 218.dp else 242.dp,
+        animationSpec = androidx.compose.animation.core.tween(
+            CalinoMotion.ContentEnterMillis + CalinoMotion.FadeThroughMillis,
+        ),
+        label = "editor action pill width",
+    )
+
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .width(pillWidth)
+                .height(56.dp)
+                .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
+                .clip(RoundedCornerShape(CalinoShapes.Pill))
+                .background(CalinoColors.FloatFill)
+                .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill)),
+            contentAlignment = Alignment.Center,
+        ) {
+            AnimatedContent(
+                targetState = showingAddPill,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    (fadeIn(tween(CalinoMotion.FadeThroughMillis)) + scaleIn(initialScale = .94f)) togetherWith
+                        (fadeOut(tween(CalinoMotion.FadeThroughMillis)) + scaleOut(targetScale = .94f))
+                },
+                label = "add pill to editor actions",
+            ) { addMode ->
+                if (addMode) {
+                    Row(
+                        Modifier.fillMaxSize().padding(start = 16.dp, end = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
+                        Text(
+                            addLabel,
+                            color = CalinoColors.OnFloat,
+                            fontSize = 15.sp,
+                            lineHeight = 20.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
                         )
-                    },
-                )
+                    }
+                } else {
+                    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = onCancel,
+                            modifier = Modifier.weight(1f).semantics { contentDescription = "Cancel editor" },
+                        ) {
+                            Text("Cancel", color = CalinoColors.OnFloat, style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
+                        }
+                        Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .28f)))
+                        TextButton(
+                            enabled = canSave,
+                            onClick = onSave,
+                            modifier = Modifier.weight(1f).semantics { contentDescription = "Save editor" },
+                        ) {
+                            Text(
+                                "Save",
+                                style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = CalinoColors.OnFloat.copy(alpha = if (canSave) 1f else .45f),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun WhenSection(
+private fun EditorTitleField(draft: EditorDraft, onInput: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 70.dp).padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CalinoIcon(draft.kind.editorIcon(), tint = CalinoColors.Accent, modifier = Modifier.size(23.dp), contentDescription = null)
+        Spacer(Modifier.size(14.dp))
+        BasicTextField(
+            value = draft.rawInput,
+            onValueChange = onInput,
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = "Title, ${draft.kind.name.lowercase(Locale.US)}"
+            },
+            textStyle = CalinoTypography.titleMedium.copy(
+                fontFamily = FontFamily.SansSerif,
+                fontSize = 23.sp,
+                lineHeight = 28.sp,
+                color = CalinoColors.Ink,
+            ),
+            cursorBrush = SolidColor(CalinoColors.Accent),
+            singleLine = true,
+            maxLines = 1,
+            decorationBox = { innerTextField ->
+                Box(Modifier.fillMaxWidth()) {
+                    if (draft.rawInput.isBlank()) {
+                        Text(
+                            when (draft.kind) {
+                                PocQuickAddKind.Event -> "Add event title"
+                                PocQuickAddKind.Task -> "Add task title"
+                                PocQuickAddKind.Journal -> "Add note title"
+                            },
+                            style = CalinoTypography.titleMedium.copy(
+                                fontFamily = FontFamily.SansSerif,
+                                fontSize = 23.sp,
+                                lineHeight = 28.sp,
+                                color = CalinoColors.Ink3,
+                            ),
+                        )
+                    }
+                    innerTextField()
+                }
+            },
+        )
+    }
+}
+
+private fun PocQuickAddKind.editorIcon() = when (this) {
+    PocQuickAddKind.Event -> calino.malinov.ski.poc.ui.components.CalinoIcon.Calendar
+    PocQuickAddKind.Task -> calino.malinov.ski.poc.ui.components.CalinoIcon.Check
+    PocQuickAddKind.Journal -> calino.malinov.ski.poc.ui.components.CalinoIcon.Note
+}
+
+@Composable
+private fun KindSelector(selected: PocQuickAddKind, onSelect: (PocQuickAddKind) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 4.dp)
+            .clip(RoundedCornerShape(CalinoShapes.Pill))
+            .background(CalinoColors.Ink.copy(.05f))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        PocQuickAddKind.entries.forEach { entry ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 40.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Pill))
+                    .background(if (selected == entry) CalinoColors.Panel else Color.Transparent)
+                    .clickable(onClick = { onSelect(entry) })
+                    .semantics {
+                        contentDescription = entry.name
+                        stateDescription = if (selected == entry) "Selected" else "Not selected"
+                        role = Role.RadioButton
+                    },
+                contentAlignment = Alignment.Center,
+            ) { Text(entry.name, style = CalinoTypography.labelMedium, color = CalinoColors.Ink) }
+        }
+    }
+}
+
+@Composable
+private fun EditorDivider() {
+    HorizontalDivider(color = CalinoColors.Line)
+}
+
+@Composable
+private fun EventEditorFields(
     draft: EditorDraft,
-    isEvent: Boolean,
+    calendars: List<CalinoCalendar>,
+    categories: List<String>,
+    descriptionOpen: Boolean,
+    remindersOpen: Boolean,
+    recurrenceOpen: Boolean,
+    moreOpen: Boolean,
+    relatedCandidates: List<Pair<String, String>>,
+    attendeeInput: String,
+    onDescriptionOpen: () -> Unit,
+    onRemindersOpen: () -> Unit,
+    onRecurrenceOpen: () -> Unit,
+    onMoreOpen: () -> Unit,
+    onAttendeeInput: (String) -> Unit,
     onDraft: (EditorDraft) -> Unit,
     pickStartDate: () -> Unit,
     pickStartTime: () -> Unit,
@@ -408,55 +485,359 @@ private fun WhenSection(
     pickEndTime: () -> Unit,
     pickUntil: () -> Unit,
 ) {
-    if (draft.kind == PocQuickAddKind.Journal) return
-    EditorSection(if (isEvent) "When" else "Due") {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            EditorValueField(
-                label = if (isEvent) "Start" else "Due date",
-                value = draft.date.format(EditorDateFormat),
-                onClick = pickStartDate,
-                modifier = Modifier.weight(1.4f),
-            )
-            EditorValueField(
-                label = if (isEvent) "Start time" else "Due time",
-                value = if (draft.allDay) "All day" else draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add",
-                onClick = pickStartTime,
-                enabled = !draft.allDay,
-                modifier = Modifier.weight(1f),
-            )
+    EditorSwitchRow(CalinoIcon.Clock, "All day", draft.allDay) { onDraft(draft.copy(allDay = it)) }
+    EditorDivider()
+    EventDateTimeSection(draft, pickStartDate, pickStartTime, pickEndDate, pickEndTime)
+    EditorDivider()
+    EditorTextRow(
+        icon = CalinoIcon.Pin,
+        label = "Location",
+        value = draft.location.orEmpty(),
+        placeholder = "Add location",
+        onValueChange = { onDraft(draft.copy(location = it, touched = draft.touched + EditorField.Location)) },
+    )
+    EditorDivider()
+    if (calendars.isNotEmpty()) {
+        CalendarRow(draft, calendars, onDraft)
+        EditorDivider()
+    }
+    EditorValueRow(
+        icon = CalinoIcon.Bell,
+        label = "Reminder",
+        value = reminderSummary(draft.reminders),
+        onClick = onRemindersOpen,
+    )
+    EditorReveal(remindersOpen) {
+        EditorChoiceBlock { ReminderChips(draft.reminders, single = false) { onDraft(draft.copy(reminders = it)) } }
+    }
+    EditorDivider()
+    EditorValueRow(
+        icon = CalinoIcon.Repeat,
+        label = "Repeat",
+        value = draft.recurrence?.let { formatRecurrenceRule(it, draft.date) } ?: "Don't repeat",
+        onClick = onRecurrenceOpen,
+    )
+    EditorReveal(recurrenceOpen) {
+        EditorChoiceBlock { RecurrenceEditor(draft, onDraft, pickUntil) }
+    }
+    EditorDivider()
+    DescriptionSection(draft, descriptionOpen, onDescriptionOpen, onDraft)
+    EditorDivider()
+    MoreSection(
+        draft = draft,
+        open = moreOpen,
+        categories = categories,
+        onToggle = onMoreOpen,
+        relatedCandidates = relatedCandidates,
+        attendeeInput = attendeeInput,
+        onAttendeeInput = onAttendeeInput,
+        onDraft = onDraft,
+    )
+}
+
+@Composable
+private fun TaskEditorFields(
+    draft: EditorDraft,
+    categories: List<String>,
+    descriptionOpen: Boolean,
+    remindersOpen: Boolean,
+    onDescriptionOpen: () -> Unit,
+    onRemindersOpen: () -> Unit,
+    onDraft: (EditorDraft) -> Unit,
+    pickStartDate: () -> Unit,
+    pickStartTime: () -> Unit,
+) {
+    EditorValueRow(CalinoIcon.Calendar, "Due date", draft.date.format(EditorDateFormat), pickStartDate)
+    EditorDivider()
+    EditorValueRow(
+        icon = CalinoIcon.Clock,
+        label = "Due time",
+        value = draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
+        onClick = pickStartTime,
+    )
+    EditorDivider()
+    if (categories.isNotEmpty()) {
+        CategoriesSection(draft, categories, single = true, onDraft = onDraft)
+        EditorDivider()
+    }
+    EditorValueRow(CalinoIcon.Bell, "Reminder", reminderSummary(draft.reminders), onRemindersOpen)
+    EditorReveal(remindersOpen) {
+        EditorChoiceBlock { ReminderChips(draft.reminders, single = true) { onDraft(draft.copy(reminders = it)) } }
+    }
+    EditorDivider()
+    DescriptionSection(draft, descriptionOpen, onDescriptionOpen, onDraft)
+    EditorDivider()
+    CalinoColorSwatchRow(Color(draft.color)) { picked ->
+        onDraft(draft.copy(color = picked.toArgb().toLong() and 0xffffffffL))
+    }
+}
+
+@Composable
+private fun JournalEditorFields(draft: EditorDraft, onBody: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.Top) {
+        CalinoIcon(CalinoIcon.Note, tint = CalinoColors.Ink3, modifier = Modifier.size(20.dp), contentDescription = null)
+        Spacer(Modifier.size(14.dp))
+        BasicTextField(
+            value = draft.body,
+            onValueChange = onBody,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp).semantics { contentDescription = "Journal note" },
+            textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
+            cursorBrush = SolidColor(CalinoColors.Accent),
+            minLines = 6,
+            maxLines = 12,
+            decorationBox = { innerTextField ->
+                Box(Modifier.fillMaxWidth()) {
+                    if (draft.body.isBlank()) Text("What is on your mind?", color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge)
+                    innerTextField()
+                }
+            },
+        )
+    }
+    EditorDivider()
+}
+
+@Composable
+private fun EventDateTimeSection(
+    draft: EditorDraft,
+    pickStartDate: () -> Unit,
+    pickStartTime: () -> Unit,
+    pickEndDate: () -> Unit,
+    pickEndTime: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DateTimeColumn(
+            label = "Start",
+            date = draft.date,
+            time = if (draft.allDay) "All day" else draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
+            modifier = Modifier.weight(1f),
+            dateEnabled = true,
+            timeEnabled = !draft.allDay,
+            onDate = pickStartDate,
+            onTime = pickStartTime,
+        )
+        Box(Modifier.width(34.dp), contentAlignment = Alignment.Center) {
+            Text("→", color = CalinoColors.Ink3, fontSize = 24.sp, textAlign = TextAlign.Center)
         }
-        if (isEvent) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                EditorValueField(
-                    label = "End",
-                    value = draft.endDate.format(EditorDateFormat),
-                    onClick = pickEndDate,
-                    enabled = !draft.allDay && draft.startTime != null,
-                    modifier = Modifier.weight(1.4f),
-                )
-                EditorValueField(
-                    label = "End time",
-                    value = if (draft.allDay) "All day" else draft.endTime?.let { LocalTimeFormat.format(it) } ?: "—",
-                    onClick = pickEndTime,
-                    enabled = !draft.allDay && draft.startTime != null,
-                    modifier = Modifier.weight(1f),
-                )
+        DateTimeColumn(
+            label = "End",
+            date = draft.endDate,
+            time = if (draft.allDay) "All day" else draft.endTime?.let { LocalTimeFormat.format(it) } ?: "—",
+            modifier = Modifier.weight(1f),
+            dateEnabled = !draft.allDay && draft.startTime != null,
+            timeEnabled = !draft.allDay && draft.startTime != null,
+            onDate = pickEndDate,
+            onTime = pickEndTime,
+        )
+    }
+}
+
+@Composable
+private fun DateTimeColumn(
+    label: String,
+    date: LocalDate,
+    time: String,
+    modifier: Modifier,
+    dateEnabled: Boolean,
+    timeEnabled: Boolean,
+    onDate: () -> Unit,
+    onTime: () -> Unit,
+) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            date.format(EditorDateFormat),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .clickable(enabled = dateEnabled, role = Role.Button, onClick = onDate)
+                .semantics { contentDescription = "$label date, ${date.format(EditorDateFormat)}" },
+            style = CalinoTypography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 22.sp),
+            color = if (dateEnabled) CalinoColors.Ink else CalinoColors.Ink3,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            time,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .clickable(enabled = timeEnabled, role = Role.Button, onClick = onTime)
+                .semantics { contentDescription = "$label time, $time" },
+            style = CalinoTypography.bodyLarge.copy(fontSize = 17.sp, lineHeight = 23.sp),
+            color = if (timeEnabled) CalinoColors.Ink else CalinoColors.Ink3,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun EditorChoiceBlock(content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        content()
+    }
+}
+
+@Composable
+private fun EditorValueRow(
+    icon: calino.malinov.ski.poc.ui.components.CalinoIcon,
+    label: String,
+    value: String,
+    onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    val pressModifier = if (onClick != null) {
+        Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+    } else {
+        Modifier
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 58.dp)
+            .then(pressModifier)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$label: $value"
+                if (!enabled) stateDescription = "Unavailable"
             }
-            CalinoToggleRow("All day", draft.allDay) { onDraft(draft.copy(allDay = it)) }
-            CalinoToggleRow("Available", draft.availability == Availability.Free) { free ->
-                onDraft(draft.copy(availability = if (free) Availability.Free else Availability.Busy))
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.CenterStart) {
+            CalinoIcon(icon, tint = CalinoColors.Ink3, modifier = Modifier.size(19.dp), contentDescription = null)
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            value,
+            Modifier.weight(1f),
+            style = CalinoTypography.bodyLarge.copy(fontSize = 15.5.sp),
+            color = if (enabled) CalinoColors.Ink else CalinoColors.Ink3,
+            maxLines = 2,
+        )
+        trailing()
+    }
+}
+
+@Composable
+private fun EditorSwitchRow(icon: calino.malinov.ski.poc.ui.components.CalinoIcon, label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 58.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = label
+                stateDescription = if (checked) "On" else "Off"
+                role = Role.Switch
             }
-            CalinoToggleRow("Recurring", draft.recurrence != null) { on ->
-                onDraft(
-                    draft.copy(
-                        recurrence = if (on) recurrenceRule(RecurrenceFreq.Weekly, setOf(draft.date.dayOfWeek)) else null,
-                    ),
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.CenterStart) {
+            CalinoIcon(icon, tint = CalinoColors.Ink3, modifier = Modifier.size(19.dp), contentDescription = null)
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(label, Modifier.weight(1f), style = CalinoTypography.bodyLarge.copy(fontSize = 15.5.sp))
+        androidx.compose.material3.Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = androidx.compose.material3.SwitchDefaults.colors(
+                checkedTrackColor = CalinoColors.Accent,
+                checkedThumbColor = CalinoColors.Panel,
+                uncheckedTrackColor = CalinoColors.Ink3.copy(.26f),
+                uncheckedBorderColor = Color.Transparent,
+                uncheckedThumbColor = CalinoColors.Panel,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun EditorTextRow(
+    icon: calino.malinov.ski.poc.ui.components.CalinoIcon,
+    label: String,
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.CenterStart) {
+            CalinoIcon(icon, tint = CalinoColors.Ink3, modifier = Modifier.size(19.dp), contentDescription = null)
+        }
+        Spacer(Modifier.width(12.dp))
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "$label, editable" },
+            textStyle = CalinoTypography.bodyLarge.copy(fontSize = 15.5.sp, color = CalinoColors.Ink),
+            cursorBrush = SolidColor(CalinoColors.Accent),
+            singleLine = true,
+            maxLines = 1,
+            decorationBox = { innerTextField ->
+                Box(Modifier.fillMaxWidth()) {
+                    if (value.isBlank()) Text(placeholder, color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge.copy(fontSize = 15.5.sp))
+                    innerTextField()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onDraft: (EditorDraft) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val current = calendars.firstOrNull { it.id == draft.calendarId } ?: calendars.first()
+    Box(Modifier.fillMaxWidth()) {
+        EditorValueRow(CalinoIcon.Calendar, "Calendar", current.name, onClick = { open = true })
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            calendars.forEach { calendar ->
+                DropdownMenuItem(
+                    text = { Text(calendar.name) },
+                    onClick = {
+                        onDraft(draft.copy(calendarId = calendar.id))
+                        open = false
+                    },
                 )
-            }
-            EditorReveal(draft.recurrence != null) {
-                RecurrenceEditor(draft, onDraft, pickUntil)
             }
         }
+    }
+}
+
+private fun reminderSummary(reminders: List<Reminder>): String = when {
+    reminders.isEmpty() -> "Add reminder"
+    reminders.size == 1 -> formatReminder(reminders.first().minutesBefore)
+    else -> "${reminders.size} reminders"
+}
+
+@Composable
+private fun DescriptionSection(
+    draft: EditorDraft,
+    open: Boolean,
+    onOpen: () -> Unit,
+    onDraft: (EditorDraft) -> Unit,
+) {
+    EditorValueRow(
+        icon = calino.malinov.ski.poc.ui.components.CalinoIcon.Note,
+        label = "Description",
+        value = draft.description?.takeIf { it.isNotBlank() } ?: "Add description",
+        onClick = onOpen,
+    )
+    EditorReveal(open) {
+        BasicTextField(
+            value = draft.description.orEmpty(),
+            onValueChange = { onDraft(draft.copy(description = it)) },
+            modifier = Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 12.dp).heightIn(min = 104.dp).semantics { contentDescription = "Description, editable" },
+            textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
+            cursorBrush = SolidColor(CalinoColors.Accent),
+            minLines = 4,
+            maxLines = 8,
+            decorationBox = { innerTextField ->
+                Box(Modifier.fillMaxWidth()) {
+                    if (draft.description.isNullOrBlank()) Text("Add more detail", color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge)
+                    innerTextField()
+                }
+            },
+        )
     }
 }
 
@@ -465,7 +846,8 @@ private fun WhenSection(
 private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit, pickUntil: () -> Unit) {
     val freq = recurrenceFreqOf(draft.recurrence) ?: RecurrenceFreq.Weekly
     val days = recurrenceDaysOf(draft.recurrence)
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        EditorLabel("Repeat")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             RecurrenceFreq.entries.forEach { entry ->
                 CalinoChip(
@@ -502,52 +884,13 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
                 }
             }
         }
-        EditorValueField(
+        EditorValueRow(
+            icon = calino.malinov.ski.poc.ui.components.CalinoIcon.Calendar,
             label = "Ends",
             value = untilOf(draft.recurrence)?.format(EditorDateFormat) ?: "Never",
             onClick = pickUntil,
-            modifier = Modifier.fillMaxWidth(),
         )
-        Text(
-            formatRecurrenceRule(draft.recurrence, draft.date),
-            style = CalinoTypography.bodySmall,
-            color = CalinoColors.Ink3,
-        )
-    }
-}
-
-@Composable
-private fun PlaceSection(draft: EditorDraft, calendars: List<CalinoCalendar>, onDraft: (EditorDraft) -> Unit) {
-    EditorSection(null) {
-        CalinoTextField(
-            value = draft.location.orEmpty(),
-            onValueChange = { onDraft(draft.copy(location = it, touched = draft.touched + EditorField.Location)) },
-            label = "Location",
-            placeholder = "Add a location",
-        )
-        if (calendars.isNotEmpty()) {
-            var open by remember { mutableStateOf(false) }
-            val current = calendars.firstOrNull { it.id == draft.calendarId } ?: calendars.first()
-            Box(Modifier.fillMaxWidth()) {
-                EditorValueField(
-                    label = "Calendar",
-                    value = current.name,
-                    onClick = { open = true },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                    calendars.forEach { calendar ->
-                        DropdownMenuItem(
-                            text = { Text(calendar.name) },
-                            onClick = {
-                                onDraft(draft.copy(calendarId = calendar.id))
-                                open = false
-                            },
-                        )
-                    }
-                }
-            }
-        }
+        Text(formatRecurrenceRule(draft.recurrence, draft.date), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
     }
 }
 
@@ -559,7 +902,8 @@ private fun CategoriesSection(
     single: Boolean,
     onDraft: (EditorDraft) -> Unit,
 ) {
-    EditorSection("Categories") {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        EditorLabel(if (single) "Category" else "Categories")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             categories.forEach { category ->
                 val on = category in draft.categories
@@ -582,124 +926,94 @@ private fun CategoriesSection(
     }
 }
 
-@Composable
-private fun DescriptionSection(
-    draft: EditorDraft,
-    open: Boolean,
-    onOpen: () -> Unit,
-    onDraft: (EditorDraft) -> Unit,
-) {
-    if (open) {
-        EditorSection("Description") {
-            CalinoTextField(
-                value = draft.description.orEmpty(),
-                onValueChange = { onDraft(draft.copy(description = it)) },
-                label = "Description",
-                placeholder = "Add more detail",
-                singleLine = false,
-                minLines = 3,
-                maxLines = 8,
-            )
-        }
-    } else {
-        TextButton(
-            onClick = onOpen,
-            modifier = Modifier.semantics { contentDescription = "Add description" },
-        ) { Text("+ Add description", color = CalinoColors.Accent) }
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MoreSection(
     draft: EditorDraft,
     open: Boolean,
+    categories: List<String>,
     onToggle: () -> Unit,
     relatedCandidates: List<Pair<String, String>>,
     attendeeInput: String,
     onAttendeeInput: (String) -> Unit,
     onDraft: (EditorDraft) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 44.dp)
-                .clickable(onClick = onToggle)
-                .semantics {
-                    contentDescription = "More options"
-                    stateDescription = if (open) "Expanded" else "Collapsed"
-                },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End,
-        ) {
-            Text(if (open) "Less  ⌃" else "More  ⌄", color = CalinoColors.Accent, fontSize = 13.sp)
-        }
-        EditorReveal(open) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                EditorSection("Travel time") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        TravelTimeChoices.forEach { minutes ->
-                            CalinoChip(
-                                text = minutes?.let(::formatEditorDuration) ?: "None",
-                                selected = draft.travelTimeMinutes == minutes,
-                                description = "Travel time",
-                                semanticsRole = Role.RadioButton,
-                                onClick = { onDraft(draft.copy(travelTimeMinutes = minutes)) },
-                            )
-                        }
-                    }
+    EditorValueRow(
+        icon = calino.malinov.ski.poc.ui.components.CalinoIcon.More,
+        label = "More options",
+        value = if (open) "Fewer options" else "More options",
+        onClick = onToggle,
+    )
+    EditorReveal(open) {
+        Column(Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            EditorSwitchRow(CalinoIcon.Clock, "Available", draft.availability == Availability.Free) { free ->
+                onDraft(draft.copy(availability = if (free) Availability.Free else Availability.Busy))
+            }
+
+            EditorLabel("Travel time")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                TravelTimeChoices.forEach { minutes ->
+                    CalinoChip(
+                        text = minutes?.let(::formatEditorDuration) ?: "None",
+                        selected = draft.travelTimeMinutes == minutes,
+                        description = "Travel time",
+                        semanticsRole = Role.RadioButton,
+                        onClick = { onDraft(draft.copy(travelTimeMinutes = minutes)) },
+                    )
                 }
-                EditorSection("Reminders") {
-                    ReminderChips(draft.reminders, single = false) { onDraft(draft.copy(reminders = it)) }
-                }
-                if (relatedCandidates.isNotEmpty()) {
-                    EditorSection("Related to") {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            relatedCandidates.forEach { (id, label) ->
-                                val on = id in draft.relatedTo
-                                CalinoChip(
-                                    text = label,
-                                    selected = on,
-                                    description = "Attach task",
-                                    semanticsRole = Role.Checkbox,
-                                    onClick = {
-                                        onDraft(draft.copy(relatedTo = if (on) draft.relatedTo - id else draft.relatedTo + id))
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                EditorSection("Attendees") {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CalinoTextField(
-                            value = attendeeInput,
-                            onValueChange = onAttendeeInput,
-                            label = "Attendee email",
-                            placeholder = "Add attendee email…",
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(
-                            enabled = attendeeInput.contains('@'),
+            }
+
+            if (categories.isNotEmpty()) CategoriesSection(draft, categories, single = false, onDraft = onDraft)
+
+            if (relatedCandidates.isNotEmpty()) {
+                EditorLabel("Related to")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    relatedCandidates.forEach { (id, label) ->
+                        val on = id in draft.relatedTo
+                        CalinoChip(
+                            text = label,
+                            selected = on,
+                            description = "Attach task",
+                            semanticsRole = Role.Checkbox,
                             onClick = {
-                                val email = attendeeInput.trim()
-                                onDraft(draft.copy(attendees = draft.attendees + Attendee(email.substringBefore('@'), email)))
-                                onAttendeeInput("")
+                                onDraft(draft.copy(relatedTo = if (on) draft.relatedTo - id else draft.relatedTo + id))
                             },
-                        ) { Text("Add") }
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        draft.attendees.forEach { attendee ->
-                            CalinoChip(
-                                text = attendee.name,
-                                selected = true,
-                                description = "Remove ${attendee.email}",
-                                onClick = { onDraft(draft.copy(attendees = draft.attendees - attendee)) },
-                            )
-                        }
+                        )
                     }
                 }
+            }
+
+            EditorLabel("Attendees")
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CalinoTextField(
+                    value = attendeeInput,
+                    onValueChange = onAttendeeInput,
+                    label = "Attendee email",
+                    placeholder = "Add attendee email…",
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    enabled = attendeeInput.contains('@'),
+                    onClick = {
+                        val email = attendeeInput.trim()
+                        onDraft(draft.copy(attendees = draft.attendees + Attendee(email.substringBefore('@'), email)))
+                        onAttendeeInput("")
+                    },
+                ) { Text("Add") }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                draft.attendees.forEach { attendee ->
+                    CalinoChip(
+                        text = attendee.name,
+                        selected = true,
+                        description = "Remove ${attendee.email}",
+                        onClick = { onDraft(draft.copy(attendees = draft.attendees - attendee)) },
+                    )
+                }
+            }
+
+            CalinoColorSwatchRow(Color(draft.color)) { picked ->
+                onDraft(draft.copy(color = picked.toArgb().toLong() and 0xffffffffL))
             }
         }
     }
@@ -737,12 +1051,6 @@ private fun untilOf(rule: String?): LocalDate? = rule
     ?.firstNotNullOfOrNull { part -> part.removePrefix("UNTIL=").takeIf { it != part } }
     ?.take(8)
     ?.let { runCatching { LocalDate.parse(it, DateTimeFormatter.BASIC_ISO_DATE) }.getOrNull() }
-
-private fun LocalDate.shortEditorLabel(baseDate: LocalDate): String = when (this) {
-    baseDate -> "Today"
-    baseDate.plusDays(1) -> "Tomorrow"
-    else -> format(EditorDateFormat)
-}
 
 internal fun formatEditorDuration(minutes: Int): String = formatCalinoDuration(minutes)
 

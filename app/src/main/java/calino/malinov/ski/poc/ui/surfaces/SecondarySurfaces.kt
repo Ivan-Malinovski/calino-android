@@ -1366,6 +1366,7 @@ data class QuickAddSheetState(
     val kind: QuickAddKind = QuickAddKind.Event,
     val date: LocalDate = May18,
     val draft: EditorDraft = blankEditorDraft(kind.toParserKind(), date),
+    val morphFromAddPill: Boolean = false,
 )
 data class NotificationPreviewData(val title: String, val text: String, val kind: NotificationKind = NotificationKind.Event)
 enum class NotificationKind { Event, Task }
@@ -1443,6 +1444,7 @@ fun QuickAddSheet(
             onDismiss = { mounted = false; onDismiss() },
             onSave = onSave,
             visible = state.visible,
+            morphFromAddPill = state.morphFromAddPill,
         )
     }
 }

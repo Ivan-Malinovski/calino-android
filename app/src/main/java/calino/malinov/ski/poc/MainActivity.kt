@@ -404,6 +404,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var quickAddOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
     var quickAddKind by rememberSaveable(stateSaver = QuickAddKindSaver) { mutableStateOf(QuickAddKind.Event) }
     var quickAddSeed by rememberSaveable { mutableStateOf("") }
+    var quickAddMorphFromAddPill by rememberSaveable { mutableStateOf(false) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchOriginRoute by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
@@ -440,9 +441,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             (route == PockRoute.QuickAdd && quickAddOrigin == PocReturnTarget.DayModal)
         )
 
-    fun openQuickAdd(kind: QuickAddKind, origin: PocReturnTarget) {
+    fun openQuickAdd(kind: QuickAddKind, origin: PocReturnTarget, morphFromAddPill: Boolean = false) {
         editEventId = null
         quickAddSeed = ""
+        quickAddMorphFromAddPill = morphFromAddPill
         quickAddKind = kind
         quickAddOrigin = origin
         route = PockRoute.QuickAdd
@@ -452,6 +454,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun openEditor(event: CalEvent, origin: PocReturnTarget) {
         editEventId = event.id
         quickAddSeed = ""
+        quickAddMorphFromAddPill = false
         quickAddKind = QuickAddKind.Event
         quickAddOrigin = origin
         route = PockRoute.QuickAdd
@@ -488,6 +491,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun dismissQuickAdd() {
         editEventId = null
+        quickAddMorphFromAddPill = false
         when (quickAddOrigin) {
             PocReturnTarget.DayModal -> {
                 route = PockRoute.Day
@@ -844,6 +848,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         visible = true,
                         kind = quickAddKind,
                         date = selectedDate,
+                        morphFromAddPill = quickAddMorphFromAddPill,
                         draft = editing
                             ?.let(::editorDraftFor)
                             ?: run {
@@ -951,9 +956,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 },
                 onClick = {
                     when (rootRoute) {
-                        PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks)
+                        PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)
                         PockRoute.Journal -> journalEntryRequest += 1
-                        else -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar)
+                        else -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true)
                     }
                 },
             )
@@ -987,6 +992,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         selectedDate = result.parsed.date
                         quickAddSeed = result.raw
                         quickAddKind = QuickAddKind.Event
+                        quickAddMorphFromAddPill = false
                         quickAddOrigin = PocReturnTarget.Search
                         editEventId = null
                         route = PockRoute.QuickAdd

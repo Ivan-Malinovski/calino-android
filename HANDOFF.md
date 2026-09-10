@@ -80,6 +80,43 @@ test-coverage work described immediately below remains valid and unfinished.
   emulator checks covered pill opening, keyboard/insets, grouped results,
   editor seeding and Back restoration, plus the Sync setting layout.
 
+### Simplified editor card — 2026-09-10
+
+- The editor remains a rounded bottom card, but its contents now follow a
+  flatter calendar-editor hierarchy: one title row, a two-column start/end
+  time block, and hairline-separated rows for all-day, location, calendar,
+  reminder, repeat, and description.
+- Optional recurrence, reminder choices, availability, travel time, attendees,
+  related tasks, categories, and color controls are still present but stay
+  collapsed or grouped under `More options` until needed. The natural-language
+  parser still seeds the same `EditorDraft`; no repository or CalDAV behavior
+  changed.
+- The full-width save button became a floating `Cancel | Save` pill over the
+  card's scroll layer, matching the Samsung Calendar reference treatment. The
+  scroll content reserves `CalinoSpacing.PillClearance` below its final row, so
+  the pill can overlay the form without making the last controls unreachable.
+- When the main add pill opens a new event or task, the same floating surface
+  briefly carries the add label and morphs into `Cancel | Save`; editors opened
+  from detail cards, search, or other surfaces keep the direct action state.
+- The editor scroll state remains hoisted so the existing guarded
+  downward-dismiss gesture keeps its ownership rules.
+- API 36 emulator checks covered new event, task, existing event, time-picker,
+  reminder expansion, and keyboard-visible states. No physical-phone
+  validation.
+
+### Scroll-aware editor dismissal and full calendar zoom lane — 2026-09-10
+
+- `SwipeDownDismiss` accepts an optional `canStartDismiss` guard. The full
+  editor hoists its `ScrollState` and only gives the sheet the downward gesture
+  when the editor is at offset zero; once a gesture starts in the list, the
+  child keeps the pointer stream, so scrolling back up cannot dismiss the
+  modal.
+- The calendar zoom recognizer remains on the stable host container and now
+  accepts vertical drags from the lower day surface as well as the week/month
+  surface. Axis locking still leaves horizontal pager swipes and taps to their
+  existing owners. API 36 emulator checks covered lower-surface expand and
+  collapse, editor scroll-back, and top-of-list dismissal.
+
 ## Earlier task list — fixture-backed calendar functionality after the interaction polish pass
 
 The zoom performance pass, swipable week strip, swipable Settings categories,
@@ -375,9 +412,10 @@ Today button appears and targets the real date. The full
     fling changed a level. It reads `positionChangeIgnoreConsumed()`.
   It watches the initial pointer pass and claims only once the drag is
   decisively vertical, leaving taps and the pagers' horizontal swipes to the
-  children; a drag starting below the calendar band belongs to the day rail and
-  is never claimed. The strip, the grid and the handle no longer carry gestures
-  of their own. Turning the pull bar off depends on this.
+  children. The host now accepts those vertical drags from the lower day
+  surface too, so the strip, grid, handle, and lower space share one zoom
+  gesture. The strip, the grid, and the handle no longer carry gestures of
+  their own. Turning the pull bar off depends on this.
 - The all-day / due-task strip is now an overlay on that lane rather than a row
   above the rail. It still never scrolls. With neither tasks nor all-day events
   it renders nothing at all -- the old "NO ALL-DAY EVENTS" placeholder is gone,
