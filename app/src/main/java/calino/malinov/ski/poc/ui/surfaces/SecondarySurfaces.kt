@@ -138,6 +138,7 @@ import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoChip
+import calino.malinov.ski.poc.ui.components.ModalActionPill
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
@@ -626,10 +627,6 @@ private fun EventDetailContent(
                     IconButtonGlyph("⋮", "More actions", { moreOpen = true })
                     DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text(if (event.location?.startsWith("http") == true) "Edit event" else "Edit") },
-                            onClick = { moreOpen = false; onPrimary() },
-                        )
-                        DropdownMenuItem(
                             text = { Text(if (recurring) "Delete occurrence" else "Delete event") },
                             onClick = {
                                 moreOpen = false
@@ -709,13 +706,22 @@ private fun EventDetailContent(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(16.dp, 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
-                onClick = onPrimary,
-                modifier = Modifier.weight(1f).height(50.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-            ) { Text(if (event.location?.startsWith("http") == true) "Join call" else "Edit") }
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp, 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ModalActionPill(
+                addLabel = (occurrenceDate ?: event.start?.toLocalDate() ?: event.date)?.let { "Add on ${it.format(dateFormat)}" } ?: "Add event",
+                morphFromAddPill = true,
+                cancelLabel = "Cancel",
+                onCancel = onBack,
+                cancelDescription = "Close event details",
+                primaryLabel = "Edit event",
+                onPrimary = onPrimary,
+                primaryDescription = "Edit event",
+            )
+            Spacer(Modifier.width(10.dp))
             OutlinedButton(
                 onClick = { moreOpen = true },
                 modifier = Modifier.size(50.dp),
@@ -872,22 +878,27 @@ fun TaskDetailSurface(
                         )
                     }
                 }
-                OutlinedButton(
-                    onClick = { done = !done },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, if (done) CalinoColors.Green else CalinoColors.Line),
-                ) {
-                    Text(if (done) "Completed · mark open" else "Open · mark completed", color = if (done) CalinoColors.Green else CalinoColors.Ink2)
-                }
             }
-            Button(
-                enabled = title.trim().isNotEmpty(),
-                onClick = { dismiss(true) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-            ) { Text("Save changes") }
+            val canSave = title.trim().isNotEmpty()
+            ModalActionPill(
+                addLabel = "New task",
+                morphFromAddPill = true,
+                cancelLabel = "Cancel",
+                onCancel = { dismiss(false) },
+                cancelDescription = "Cancel task editing",
+                primaryLabel = "Save",
+                onPrimary = { dismiss(true) },
+                primaryEnabled = canSave,
+                primaryDescription = "Save task",
+                secondaryLabel = if (done) "Mark as open" else "Mark as done",
+                onSecondary = {
+                    done = !done
+                    dismiss(true)
+                },
+                secondaryEnabled = canSave,
+                secondaryDescription = if (done) "Mark task as open" else "Mark task as done",
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
+            )
         }
     }
 }
@@ -1545,6 +1556,7 @@ fun QuickAddSheet(
     calendars: List<CalinoCalendar> = emptyList(),
     categories: List<String> = emptyList(),
     relatedCandidates: List<Pair<String, String>> = emptyList(),
+    onPhoto: (() -> Unit)? = null,
     onDismiss: () -> Unit = {},
     onSave: (EditorDraft) -> Unit = {},
 ) {
@@ -1559,6 +1571,7 @@ fun QuickAddSheet(
             calendars = calendars,
             categories = categories,
             relatedCandidates = relatedCandidates,
+            onPhoto = onPhoto,
             onDismiss = { mounted = false; onDismiss() },
             onSave = onSave,
             visible = state.visible,

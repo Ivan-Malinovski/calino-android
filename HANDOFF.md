@@ -33,6 +33,17 @@ continue the UI work.
 - The response parser accepts the requested JSON array, fenced JSON, surrounding
   prose, and a bare object. Unit coverage lives in `AiVisionClientTest`.
 
+### Modal action pills — 2026-09-10
+
+- Event detail, task detail, journal entry, contact detail, and contact editor
+  all reuse the event editor's source-pill morph: the root add label resolves
+  into a bottom action pill with Cancel plus the surface's actions. Task detail
+  uses Mark as done (or Mark as open) and Save; journal and contact actions
+  retain Delete alongside Save/Edit. The task completion action saves before
+  dismissal.
+- The root Contacts add pill is hidden while a contact detail card is selected,
+  so it cannot overlap the detail card's action pill.
+
 This is a Kotlin + Jetpack Compose Android application. It is a standalone
 repository and does not load the Calino web app, WebView, Capacitor, or webcal.
 

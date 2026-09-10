@@ -8,13 +8,20 @@ import android.graphics.drawable.Icon
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,11 +34,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,16 +56,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +76,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import calino.malinov.ski.poc.MainActivity
 import calino.malinov.ski.poc.data.ai.AiEventCandidate
@@ -70,14 +84,20 @@ import calino.malinov.ski.poc.data.ai.AiProvider
 import calino.malinov.ski.poc.data.ai.AiVisionClient
 import calino.malinov.ski.poc.data.ai.AiVisionSettingsStore
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.components.CalinoIcons
+import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.formatCalinoDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -162,6 +182,7 @@ fun AiProcessingOverlay(visible: Boolean, stage: String) {
     AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
         Box(
             Modifier.fillMaxSize()
+                .background(CalinoColors.scrim(.18f))
                 .semantics { contentDescription = "AI photo import in progress: $stage" },
             contentAlignment = Alignment.Center,
         ) {
@@ -185,6 +206,14 @@ fun AiProcessingOverlay(visible: Boolean, stage: String) {
     }
 }
 
+private data class AiReviewCandidate(
+    val id: Int,
+    val item: AiEventCandidate,
+    val kind: String,
+    val selected: Boolean,
+)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiCandidateReview(
     candidates: List<AiEventCandidate>?,
@@ -206,10 +235,15 @@ fun AiCandidateReview(
         enter = fadeIn() + scaleIn(initialScale = .96f),
         exit = fadeOut() + scaleOut(targetScale = .96f),
     ) {
-        val selected = remember(values) { mutableStateListOf(*values.indices.map { true }.toTypedArray()) }
-        val kinds = remember(values) { mutableStateListOf(*values.map { it.kind }.toTypedArray()) }
+        var reviewCandidates by remember(values) {
+            mutableStateOf(
+                values.mapIndexed { index, item ->
+                    AiReviewCandidate(index, item, item.kind, selected = true)
+                },
+            )
+        }
         val multiple = values.size > 1
-        val selectedCount = selected.count { it }
+        val selectedCount = reviewCandidates.count { it.selected }
         val confirmLabel = when {
             selectedCount == 0 -> "Select items to add"
             selectedCount == values.size && multiple -> "Add all $selectedCount"
@@ -221,6 +255,7 @@ fun AiCandidateReview(
             val isCompact = maxWidth < 600.dp
             Box(
                 Modifier.fillMaxSize()
+                    .background(CalinoColors.scrim(.22f))
                     .clickable(onClick = onCancel),
             )
             val sheetShape = if (isCompact) {
@@ -228,23 +263,30 @@ fun AiCandidateReview(
             } else {
                 RoundedCornerShape(24.dp)
             }
-            Surface(
+            SwipeDownDismiss(
+                visible = candidates != null,
+                onDismiss = onCancel,
                 modifier = if (isCompact) {
-                    Modifier.align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .heightIn(max = maxHeight * .88f)
-                        .clickable(onClick = {})
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 } else {
                     Modifier.align(Alignment.Center)
-                        .widthIn(max = 560.dp)
-                        .fillMaxWidth(.92f)
-                        .heightIn(max = (maxHeight - 32.dp).coerceAtLeast(240.dp))
-                        .clickable(onClick = {})
                 },
-                shape = sheetShape,
-                color = CalinoColors.Panel,
-                shadowElevation = if (CalinoColors.elevationAlpha > 0f) 18.dp else 0.dp,
-            ) {
+            ) { dragModifier ->
+                val surfaceModifier = dragModifier.then(
+                    if (isCompact) {
+                        Modifier.fillMaxWidth().heightIn(max = maxHeight * .88f)
+                    } else {
+                        Modifier.widthIn(max = 560.dp)
+                            .fillMaxWidth(.92f)
+                            .heightIn(max = (maxHeight - 32.dp).coerceAtLeast(240.dp))
+                    },
+                ).clickable(onClick = {})
+                Surface(
+                    modifier = surfaceModifier,
+                    shape = sheetShape,
+                    color = CalinoColors.Panel,
+                    shadowElevation = if (CalinoColors.elevationAlpha > 0f) 18.dp else 0.dp,
+                ) {
                 val candidateListMaxHeight = maxHeight * .48f
                 Column(
                     Modifier.fillMaxWidth()
@@ -280,28 +322,60 @@ fun AiCandidateReview(
                             verticalArrangement = Arrangement.spacedBy(9.dp),
                             contentPadding = PaddingValues(vertical = 2.dp),
                         ) {
-                            itemsIndexed(values) { index, item ->
+                            items(
+                                items = reviewCandidates,
+                                key = { it.id },
+                            ) { candidate ->
                                 AiCandidateCard(
-                                    item = item,
-                                    kind = kinds[index],
-                                    selected = selected[index],
+                                    item = candidate.item,
+                                    kind = candidate.kind,
+                                    selected = candidate.selected,
                                     multiple = true,
                                     timeFormat = timeFormat,
-                                    onToggle = { selected[index] = !selected[index] },
-                                    onKindChange = { kinds[index] = it },
+                                    modifier = Modifier.animateItem(),
+                                    onToggle = {
+                                        reviewCandidates = reviewCandidates.map { current ->
+                                            if (current.id == candidate.id) current.copy(selected = !current.selected) else current
+                                        }
+                                    },
+                                    onKindChange = { kind ->
+                                        reviewCandidates = reviewCandidates.map { current ->
+                                            if (current.id == candidate.id) current.copy(kind = kind) else current
+                                        }
+                                    },
+                                    onDismiss = {
+                                        reviewCandidates = reviewCandidates.filterNot { it.id == candidate.id }
+                                    },
                                 )
                             }
                         }
-                    } else if (values.isNotEmpty()) {
+                    } else if (reviewCandidates.isNotEmpty()) {
+                        val candidate = reviewCandidates.first()
                         AiCandidateCard(
-                            item = values.first(),
-                            kind = kinds.firstOrNull() ?: "event",
-                            selected = true,
+                            item = candidate.item,
+                            kind = candidate.kind,
+                            selected = candidate.selected,
                             multiple = false,
                             timeFormat = timeFormat,
                             onToggle = {},
-                            onKindChange = { if (kinds.isNotEmpty()) kinds[0] = it },
+                            onKindChange = { kind ->
+                                reviewCandidates = reviewCandidates.map { current ->
+                                    if (current.id == candidate.id) current.copy(kind = kind) else current
+                                }
+                            },
+                            onDismiss = {
+                                reviewCandidates = reviewCandidates.filterNot { it.id == candidate.id }
+                            },
                         )
+                    } else {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 30.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text("No results left", style = CalinoTypography.titleSmall, color = CalinoColors.Ink)
+                            Text("The swiped-away items will not be added.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2)
+                        }
                     }
                     Row(
                         Modifier.fillMaxWidth().padding(top = 14.dp),
@@ -313,17 +387,16 @@ fun AiCandidateReview(
                         }
                         Button(
                             onClick = {
-                                onUse(values.mapIndexedNotNull { index, item ->
-                                    if (!multiple || selected[index]) item.copy(kind = kinds[index]) else null
-                                })
+                                onUse(reviewCandidates.filter { it.selected }.map { it.item.copy(kind = it.kind) })
                             },
-                            enabled = !multiple || selectedCount > 0,
+                            enabled = reviewCandidates.isNotEmpty() && (!multiple || selectedCount > 0),
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = CalinoColors.Accent),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                         ) { Text(confirmLabel, style = CalinoTypography.labelLarge) }
                     }
                 }
+            }
             }
         }
     }
@@ -336,66 +409,144 @@ private fun AiCandidateCard(
     selected: Boolean,
     multiple: Boolean,
     timeFormat: CalinoTimeFormat,
+    modifier: Modifier = Modifier,
     onToggle: () -> Unit,
     onKindChange: (String) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(14.dp)
-    val borderColor = if (selected) CalinoColors.Accent else CalinoColors.Line
-    Column(
-        Modifier.fillMaxWidth()
-            .border(1.dp, borderColor, shape)
-            .clip(shape)
-            .clickable(enabled = multiple, onClick = onToggle)
-            .padding(13.dp),
-    ) {
-        Row(verticalAlignment = Alignment.Top) {
+    val density = LocalDensity.current
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    val shape = RoundedCornerShape(11.dp)
+    val accent = if (kind == "task") CalinoColors.Green else CalinoColors.Accent
+    val title = item.title ?: if (kind == "task") "Untitled task" else "Untitled event"
+    var dragX by remember(item, kind) { mutableFloatStateOf(0f) }
+    var isDragging by remember(item, kind) { mutableStateOf(false) }
+    var dismissing by remember(item, kind) { mutableStateOf(false) }
+    var dismissDirection by remember(item, kind) { mutableStateOf(0f) }
+    val dismissThresholdPx = with(density) { 108.dp.toPx() }
+    val maxDragPx = with(density) { 180.dp.toPx() }
+    val dismissDistancePx = with(density) { 520.dp.toPx() }
+    val animatedOffset by animateFloatAsState(
+        targetValue = when {
+            dismissing -> dismissDirection * dismissDistancePx
+            isDragging -> dragX
+            else -> 0f
+        },
+        animationSpec = spring(dampingRatio = .86f, stiffness = 520f),
+        label = "AI candidate swipe",
+    )
+    val offset = if (isDragging) dragX else animatedOffset
+    val actionProgress = (abs(offset) / dismissThresholdPx).coerceIn(0f, 1f)
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) accent.copy(alpha = .38f) else CalinoColors.Ink.copy(alpha = .07f),
+        animationSpec = tween(CalinoMotion.FadeThroughMillis),
+        label = "AI candidate selection border",
+    )
+
+    LaunchedEffect(dismissing) {
+        if (dismissing) {
+            delay(220)
+            currentOnDismiss()
+        }
+    }
+
+    Box(modifier.fillMaxWidth().clip(shape)) {
+        Row(
+            Modifier
+                .matchParentSize()
+                .background(CalinoColors.Rose.copy(alpha = actionProgress * .92f))
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (offset < 0f) Arrangement.End else Arrangement.Start,
+        ) {
+            Icon(CalinoIcons.Trash, contentDescription = null, tint = CalinoColors.OnAccent.copy(alpha = actionProgress.coerceAtLeast(.72f)), modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text("Remove", color = CalinoColors.OnAccent.copy(alpha = actionProgress.coerceAtLeast(.72f)), style = CalinoTypography.bodyMedium)
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offset.roundToInt(), 0) }
+                .clip(shape)
+                .background(CalinoColors.Panel)
+                .border(BorderStroke(1.dp, borderColor), shape)
+                .clickable(enabled = multiple && !dismissing, onClick = onToggle)
+                .pointerInput(item, kind, dismissing) {
+                    if (!dismissing) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { isDragging = true },
+                            onDragEnd = {
+                                if (abs(dragX) > dismissThresholdPx) {
+                                    dismissDirection = if (dragX < 0f) -1f else 1f
+                                    dismissing = true
+                                    isDragging = false
+                                } else {
+                                    isDragging = false
+                                    dragX = 0f
+                                }
+                            },
+                            onDragCancel = {
+                                isDragging = false
+                                dragX = 0f
+                            },
+                            onHorizontalDrag = { change, amount ->
+                                change.consume()
+                                dragX = (dragX + amount).coerceIn(-maxDragPx, maxDragPx)
+                            },
+                        )
+                    }
+                }
+                .semantics {
+                    contentDescription = "$title, ${if (selected) "selected" else "not selected"}. Swipe left or right to remove."
+                }
+                .padding(horizontal = 13.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(accent),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                    color = CalinoColors.Ink,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                aiDateLabel(item, timeFormat, kind)?.let { AiMetaRow(CalinoIcons.Calendar, it) }
+                item.location?.takeIf(String::isNotBlank)?.let { AiMetaRow(CalinoIcons.Pin, it) }
+                item.description?.takeIf(String::isNotBlank)?.let {
+                    Text(it, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
+                }
+                if (item.confidence != null && item.confidence != "high") {
+                    Text("${item.confidence} confidence", style = CalinoTypography.labelSmall, color = CalinoColors.Accent, modifier = Modifier.padding(top = 4.dp))
+                }
+                CompactSegmentedControl(
+                    options = listOf("Event", "Task"),
+                    selectedIndex = if (kind == "task") 1 else 0,
+                    onSelected = { index -> onKindChange(if (index == 1) "task" else "event") },
+                    modifier = Modifier.align(Alignment.End).width(148.dp),
+                    semanticLabel = "Result type",
+                    maxControlWidth = 148.dp,
+                )
+            }
             if (multiple) {
                 Box(
-                    Modifier.padding(end = 10.dp).size(20.dp)
-                        .border(1.5.dp, if (selected) CalinoColors.Accent else CalinoColors.Ink3, RoundedCornerShape(6.dp))
-                        .background(if (selected) CalinoColors.Accent else CalinoColors.Panel, RoundedCornerShape(6.dp)),
+                    Modifier
+                        .padding(start = 8.dp)
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) accent.copy(alpha = .14f) else CalinoColors.Canvas)
+                        .border(1.dp, if (selected) accent else CalinoColors.Line, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (selected) Icon(CalinoIcons.Check, contentDescription = null, tint = CalinoColors.OnAccent, modifier = Modifier.size(14.dp))
+                    if (selected) Icon(CalinoIcons.Check, contentDescription = null, tint = accent, modifier = Modifier.size(16.dp))
                 }
-            }
-            Text(
-                item.title ?: if (kind == "task") "Untitled task" else "Untitled event",
-                style = CalinoTypography.labelLarge,
-                color = CalinoColors.Ink,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        aiDateLabel(item, timeFormat, kind)?.let {
-            AiMetaRow(CalinoIcons.Calendar, it)
-        }
-        item.location?.takeIf(String::isNotBlank)?.let {
-            AiMetaRow(CalinoIcons.Pin, it)
-        }
-        item.description?.takeIf(String::isNotBlank)?.let {
-            Text(it, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink3, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
-        }
-        if (item.confidence != null && item.confidence != "high") {
-            Text("${item.confidence} confidence", style = CalinoTypography.labelSmall, color = CalinoColors.Accent, modifier = Modifier.padding(top = 4.dp))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 9.dp)) {
-            listOf("event", "task").forEach { option ->
-                val active = kind == option
-                Text(
-                    option.replaceFirstChar(Char::uppercase),
-                    style = CalinoTypography.labelMedium,
-                    color = if (active) CalinoColors.Ink else CalinoColors.Ink2,
-                    modifier = Modifier
-                        .background(if (active) CalinoColors.AccentSoft else CalinoColors.Canvas, RoundedCornerShape(20.dp))
-                        .clickable { onKindChange(option) }
-                        .semantics {
-                            role = Role.RadioButton
-                            contentDescription = "${option.replaceFirstChar(Char::uppercase)}"
-                        }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                )
             }
         }
     }

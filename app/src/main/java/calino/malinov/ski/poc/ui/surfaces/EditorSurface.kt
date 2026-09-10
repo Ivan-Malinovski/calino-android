@@ -1,11 +1,5 @@
 package calino.malinov.ski.poc.ui.surfaces
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -81,9 +76,11 @@ import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.CalinoChip
 import calino.malinov.ski.poc.ui.components.CalinoColorSwatchRow
 import calino.malinov.ski.poc.ui.components.CalinoIcon
+import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CalinoTextField
 import calino.malinov.ski.poc.ui.components.EditorLabel
 import calino.malinov.ski.poc.ui.components.EditorReveal
+import calino.malinov.ski.poc.ui.components.ModalActionPill
 import calino.malinov.ski.poc.ui.components.rememberDatePicker
 import calino.malinov.ski.poc.ui.components.rememberTimePicker
 import calino.malinov.ski.poc.state.CalinoSurfaceKind
@@ -120,6 +117,7 @@ fun EditorSurface(
     calendars: List<CalinoCalendar> = emptyList(),
     categories: List<String> = emptyList(),
     relatedCandidates: List<Pair<String, String>> = emptyList(),
+    onPhoto: (() -> Unit)? = null,
     onDismiss: () -> Unit = {},
     onSave: (EditorDraft) -> Unit = {},
     visible: Boolean = true,
@@ -187,7 +185,7 @@ fun EditorSurface(
         surfaceKind = CalinoSurfaceKind.Editor,
     ) { detailModifier ->
         Column(detailModifier.fillMaxSize().background(CalinoColors.Canvas)) {
-            EditorHeader(draft, dismiss)
+            EditorHeader(draft, dismiss, onPhoto)
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 Column(
@@ -249,16 +247,16 @@ fun EditorSurface(
                     Spacer(Modifier.height(CalinoSpacing.PillClearance))
                 }
 
-                EditorActions(
-                    canSave = draft.canSave(),
-                    addLabel = when (draft.kind) {
-                        PocQuickAddKind.Event -> "Add on ${draft.date.format(EditorDateFormat)}"
-                        PocQuickAddKind.Task -> "New task"
-                        PocQuickAddKind.Journal -> "New entry"
-                    },
-                    morphFromAddPill = morphFromAddPill && !draft.isEditing,
+                ModalActionPill(
+                    addLabel = addLabelFor(draft),
+                    morphFromAddPill = morphFromAddPill,
+                    cancelLabel = "Cancel",
                     onCancel = dismiss,
-                    onSave = { val saved = draft; closeAfterAnimation { onSave(saved) } },
+                    primaryLabel = "Save",
+                    onPrimary = { val saved = draft; closeAfterAnimation { onSave(saved) } },
+                    primaryEnabled = draft.canSave(),
+                    primaryDescription = "Save editor",
+                    cancelDescription = "Cancel editor",
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
                 )
             }
@@ -266,8 +264,18 @@ fun EditorSurface(
     }
 }
 
+private fun addLabelFor(draft: EditorDraft): String = when (draft.kind) {
+    PocQuickAddKind.Event -> if (draft.isEditing) {
+        "Edit event"
+    } else {
+        "Add on ${draft.date.format(EditorDateFormat)}"
+    }
+    PocQuickAddKind.Task -> "New task"
+    PocQuickAddKind.Journal -> "New entry"
+}
+
 @Composable
-private fun EditorHeader(draft: EditorDraft, onDismiss: () -> Unit) {
+private fun EditorHeader(draft: EditorDraft, onDismiss: () -> Unit, onPhoto: (() -> Unit)?) {
     Row(
         Modifier.fillMaxWidth().padding(start = 20.dp, top = 2.dp, end = 20.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -281,6 +289,18 @@ private fun EditorHeader(draft: EditorDraft, onDismiss: () -> Unit) {
                 color = CalinoColors.Accent,
             ),
         )
+        if (onPhoto != null && !draft.isEditing && draft.kind == PocQuickAddKind.Event) {
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onPhoto)
+                    .semantics { contentDescription = "Import event from photo" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(CalinoIcons.Camera, contentDescription = null, tint = CalinoColors.Ink2, modifier = Modifier.size(20.dp))
+            }
+        }
         Box(
             Modifier
                 .size(44.dp)
@@ -289,94 +309,6 @@ private fun EditorHeader(draft: EditorDraft, onDismiss: () -> Unit) {
                 .semantics { contentDescription = "Close editor" },
             contentAlignment = Alignment.Center,
         ) { Text("×", fontSize = 24.sp, color = CalinoColors.Ink2) }
-    }
-}
-
-@Composable
-private fun EditorActions(
-    canSave: Boolean,
-    addLabel: String,
-    morphFromAddPill: Boolean,
-    onCancel: () -> Unit,
-    onSave: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var showingAddPill by remember(morphFromAddPill, addLabel) { mutableStateOf(morphFromAddPill) }
-    LaunchedEffect(morphFromAddPill, addLabel) {
-        showingAddPill = morphFromAddPill
-        if (morphFromAddPill) {
-            delay((CalinoMotion.ContentEnterMillis / 3).toLong())
-            showingAddPill = false
-        }
-    }
-    val pillWidth by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (showingAddPill) 218.dp else 242.dp,
-        animationSpec = androidx.compose.animation.core.tween(
-            CalinoMotion.ContentEnterMillis + CalinoMotion.FadeThroughMillis,
-        ),
-        label = "editor action pill width",
-    )
-
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .width(pillWidth)
-                .height(56.dp)
-                .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
-                .clip(RoundedCornerShape(CalinoShapes.Pill))
-                .background(CalinoColors.FloatFill)
-                .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill)),
-            contentAlignment = Alignment.Center,
-        ) {
-            AnimatedContent(
-                targetState = showingAddPill,
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    (fadeIn(tween(CalinoMotion.FadeThroughMillis)) + scaleIn(initialScale = .94f)) togetherWith
-                        (fadeOut(tween(CalinoMotion.FadeThroughMillis)) + scaleOut(targetScale = .94f))
-                },
-                label = "add pill to editor actions",
-            ) { addMode ->
-                if (addMode) {
-                    Row(
-                        Modifier.fillMaxSize().padding(start = 16.dp, end = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
-                        Text(
-                            addLabel,
-                            color = CalinoColors.OnFloat,
-                            fontSize = 15.sp,
-                            lineHeight = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                        )
-                    }
-                } else {
-                    Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(
-                            onClick = onCancel,
-                            modifier = Modifier.weight(1f).semantics { contentDescription = "Cancel editor" },
-                        ) {
-                            Text("Cancel", color = CalinoColors.OnFloat, style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold))
-                        }
-                        Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .28f)))
-                        TextButton(
-                            enabled = canSave,
-                            onClick = onSave,
-                            modifier = Modifier.weight(1f).semantics { contentDescription = "Save editor" },
-                        ) {
-                            Text(
-                                "Save",
-                                style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                color = CalinoColors.OnFloat.copy(alpha = if (canSave) 1f else .45f),
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 

@@ -760,7 +760,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun openEditor(event: CalEvent, origin: PocReturnTarget) {
         editEventId = event.id
         quickAddSeed = ""
-        quickAddMorphFromAddPill = false
+        // The detail card's edit action is the source pill for the editor,
+        // just like the root add pill is when creating a new event.
+        quickAddMorphFromAddPill = true
         quickAddKind = QuickAddKind.Event
         quickAddOrigin = origin
         route = PockRoute.QuickAdd
@@ -1268,6 +1270,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     relatedCandidates = remember(snapshot.tasks) {
                         snapshot.tasks.filterNot { it.done }.map { it.id to it.title }
                     },
+                    onPhoto = if (quickAddKind == QuickAddKind.Event && aiSettingsStore.load().hasApiKey) ::requestPhotoImport else null,
                     onDismiss = ::dismissQuickAdd,
                     // The editor owns every field now, so the host only
                     // decides between creating and updating a record.
@@ -1348,7 +1351,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Agenda -> route == PockRoute.Agenda
             PockRoute.Tasks -> route == PockRoute.Tasks
             PockRoute.Journal -> route == PockRoute.Journal && !journalEditorVisible
-            PockRoute.Contacts -> route == PockRoute.Contacts
+            PockRoute.Contacts -> route == PockRoute.Contacts && selectedContactId == null
             else -> false
         }
         androidx.compose.animation.AnimatedVisibility(
@@ -1394,7 +1397,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     searchOriginRoute = rootRoute
                     searchVisible = true
                 },
-                onPhoto = if (rootRoute == PockRoute.Day && aiSettingsStore.load().hasApiKey) ::requestPhotoImport else null,
                 label = when (rootRoute) {
                     PockRoute.Tasks -> "New task"
                     PockRoute.Journal -> "New entry"
@@ -1419,6 +1421,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             onRoute = { next -> navigateRoot(next) },
             onDismiss = { sidebarVisible = false },
         )
+    }
     }
 
     if (searchVisible) {
@@ -1510,8 +1513,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     }
 
 }
-}
-
 }
 
 @Composable

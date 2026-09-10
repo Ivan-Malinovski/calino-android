@@ -11,6 +11,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -38,6 +40,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -1108,15 +1111,16 @@ fun AddPill(
     destinationLabel: (Int) -> String? = { null },
     onSwipe: (Int) -> Unit = {},
     onSearch: () -> Unit = {},
-    onPhoto: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     var dragX by remember { mutableFloatStateOf(0f) }
     var dragY by remember { mutableFloatStateOf(0f) }
+    var suppressClickAfterDrag by remember { mutableStateOf(false) }
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentCanSwipe by rememberUpdatedState(canSwipe)
     val currentDestinationLabel by rememberUpdatedState(destinationLabel)
     val currentOnSearch by rememberUpdatedState(onSearch)
+    val currentOnClick by rememberUpdatedState(onClick)
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     // Frosted glass over the surface behind it: a blurred patch of the
@@ -1195,7 +1199,30 @@ fun AddPill(
                         drawRect(pillFill)
                     }
                 }
-                .calinoPressable(pressedScale = .97f, onClick = onClick)
+                // A route swipe can recompose the pill before clickable emits
+                // its release. Without this guard the release is interpreted
+                // as a tap on the newly arrived route (for example, opening a
+                // new contact immediately after swiping to Contacts).
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        suppressClickAfterDrag = false
+                        var pressed = true
+                        while (pressed) {
+                            pressed = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
+                        }
+                    }
+                }
+                .calinoPressable(
+                    pressedScale = .97f,
+                    onClick = {
+                        if (suppressClickAfterDrag) {
+                            suppressClickAfterDrag = false
+                        } else {
+                            currentOnClick()
+                        }
+                    },
+                )
                 .pointerInput(Unit) {
                     var horizontal = false
                     var vertical = false
@@ -1216,6 +1243,7 @@ fun AddPill(
                             vertical = !horizontal
                         }
                         change.consume()
+                        suppressClickAfterDrag = true
                         if (horizontal) {
                             val next = dragX + amount.x
                             val direction = if (next < 0f) 1 else -1
@@ -1231,18 +1259,6 @@ fun AddPill(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            onPhoto?.let { photo ->
-                Text(
-                    "Photo",
-                    color = CalinoColors.OnFloat,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(CalinoShapes.Pill))
-                        .clickable(onClick = photo)
-                        .semantics { contentDescription = "Import event or task from photo" }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
             CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
             AnimatedContent(
                 targetState = label,
@@ -1250,6 +1266,139 @@ fun AddPill(
                 label = "add pill label",
             ) { text ->
                 Text(text, color = CalinoColors.OnFloat, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+private data class ModalPillAction(
+    val label: String,
+    val onClick: () -> Unit,
+    val enabled: Boolean,
+    val description: String,
+)
+
+/**
+ * The action pill shared by the root add affordance and every modal card.
+ * When [morphFromAddPill] is set, it begins as the source add pill and then
+ * resolves into the modal actions, exactly like the event editor.
+ *
+ * Actions are ordered Cancel, secondary, primary. This lets each modal keep
+ * its cancellation affordance while retaining a destructive or state-changing
+ * action beside the primary action.
+ */
+@Composable
+fun ModalActionPill(
+    primaryLabel: String,
+    onPrimary: () -> Unit,
+    modifier: Modifier = Modifier,
+    secondaryLabel: String? = null,
+    onSecondary: (() -> Unit)? = null,
+    cancelLabel: String? = null,
+    onCancel: (() -> Unit)? = null,
+    addLabel: String? = null,
+    morphFromAddPill: Boolean = false,
+    primaryEnabled: Boolean = true,
+    secondaryEnabled: Boolean = true,
+    primaryDescription: String = primaryLabel,
+    secondaryDescription: String = secondaryLabel ?: "",
+    cancelDescription: String = cancelLabel ?: "Cancel",
+) {
+    val hasCancel = cancelLabel != null && onCancel != null
+    val hasSecondary = secondaryLabel != null && onSecondary != null
+    val actionCount = (if (hasCancel) 1 else 0) + (if (hasSecondary) 1 else 0) + 1
+    val shouldMorph = morphFromAddPill && !addLabel.isNullOrBlank()
+    var showingAddPill by remember(shouldMorph, addLabel) { mutableStateOf(shouldMorph) }
+    LaunchedEffect(shouldMorph, addLabel) {
+        showingAddPill = shouldMorph
+        if (shouldMorph) {
+            kotlinx.coroutines.delay((CalinoMotion.ContentEnterMillis / 3).toLong())
+            showingAddPill = false
+        }
+    }
+    val pillWidth by animateDpAsState(
+        targetValue = if (showingAddPill) {
+            218.dp
+        } else {
+            when (actionCount) {
+                1 -> 178.dp
+                2 -> 242.dp
+                else -> 320.dp
+            }
+        },
+        animationSpec = tween(CalinoMotion.ContentEnterMillis + CalinoMotion.FadeThroughMillis),
+        label = "modal action pill width",
+    )
+
+    Box(
+        modifier
+            .width(pillWidth)
+            .height(56.dp)
+            .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
+            .clip(RoundedCornerShape(CalinoShapes.Pill))
+            .background(CalinoColors.FloatFill)
+            .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill)),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = showingAddPill,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                (fadeIn(tween(CalinoMotion.FadeThroughMillis)) + scaleIn(initialScale = .94f)) togetherWith
+                    (fadeOut(tween(CalinoMotion.FadeThroughMillis)) + scaleOut(targetScale = .94f))
+            },
+            label = "add pill to modal actions",
+        ) { addMode ->
+            if (addMode) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .semantics { contentDescription = addLabel ?: "Add" }
+                        .padding(start = 16.dp, end = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
+                    Text(
+                        addLabel.orEmpty(),
+                        color = CalinoColors.OnFloat,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else {
+                val actions = buildList {
+                    if (hasCancel) add(ModalPillAction(cancelLabel!!, onCancel!!, true, cancelDescription))
+                    if (hasSecondary) add(ModalPillAction(secondaryLabel!!, onSecondary!!, secondaryEnabled, secondaryDescription))
+                    add(ModalPillAction(primaryLabel, onPrimary, primaryEnabled, primaryDescription))
+                }
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    actions.forEachIndexed { index, action ->
+                        if (index > 0) {
+                            Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .28f)))
+                        }
+                        TextButton(
+                            enabled = action.enabled,
+                            onClick = action.onClick,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .semantics { contentDescription = action.description },
+                            contentPadding = PaddingValues(horizontal = 4.dp),
+                        ) {
+                            Text(
+                                action.label,
+                                color = CalinoColors.OnFloat.copy(alpha = if (action.enabled) 1f else .45f),
+                                style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

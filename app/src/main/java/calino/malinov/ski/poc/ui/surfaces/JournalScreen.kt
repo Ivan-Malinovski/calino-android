@@ -33,8 +33,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -78,6 +76,7 @@ import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
+import calino.malinov.ski.poc.ui.components.ModalActionPill
 import calino.malinov.ski.poc.state.CalinoSurfaceKind
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -395,15 +394,6 @@ private fun JournalEditor(
                     color = CalinoColors.Ink3,
                 )
             }
-            TextButton(
-                enabled = canSave,
-                onClick = {
-                    closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) }
-                },
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Save journal entry" },
-            ) {
-                Text("Save", color = if (canSave) CalinoColors.Accent else CalinoColors.Ink3)
-            }
         }
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
@@ -487,27 +477,21 @@ private fun JournalEditor(
             }
         }
 
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
-            TextButton(
-                onClick = { confirmDelete = !confirmDelete },
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Delete journal entry" },
+        AnimatedVisibility(
+            visible = confirmDelete,
+            enter = fadeIn(tween(150)) + expandVertically(tween(180)),
+            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Row))
+                    .background(CalinoColors.Rose.copy(alpha = .09f))
+                    .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(CalinoIcons.Trash, contentDescription = null, tint = CalinoColors.Rose, modifier = Modifier.size(17.dp))
-                Text("Delete entry", color = CalinoColors.Rose, modifier = Modifier.padding(start = 8.dp))
-            }
-            AnimatedVisibility(
-                visible = confirmDelete,
-                enter = fadeIn(tween(150)) + expandVertically(tween(180)),
-                exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(CalinoShapes.Row)).background(CalinoColors.Rose.copy(alpha = .09f)).padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Remove this note?", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { closeAnimated { onDelete(entry) } }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Confirm delete journal entry" }) {
-                        Text("Delete", color = CalinoColors.Rose)
-                    }
+                Text("Remove this note?", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
+                TextButton(onClick = { closeAnimated { onDelete(entry) } }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Confirm delete journal entry" }) {
+                    Text("Delete", color = CalinoColors.Rose)
                 }
             }
         }
@@ -526,6 +510,22 @@ private fun JournalEditor(
                 TextButton(onClick = { closeAnimated(onDismiss) }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" }) { Text("Discard", color = CalinoColors.AccentSoft) }
             }
         }
+
+        ModalActionPill(
+            addLabel = if (focusTitle) "New entry" else "Edit entry",
+            morphFromAddPill = true,
+            cancelLabel = "Cancel",
+            onCancel = ::dismissEditor,
+            cancelDescription = "Cancel journal editing",
+            primaryLabel = "Save",
+            onPrimary = { closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) } },
+            primaryEnabled = canSave,
+            primaryDescription = "Save journal entry",
+            secondaryLabel = "Delete",
+            onSecondary = { confirmDelete = !confirmDelete },
+            secondaryDescription = "Delete journal entry",
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
+        )
         }
     }
 }

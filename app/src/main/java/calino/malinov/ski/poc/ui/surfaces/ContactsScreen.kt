@@ -100,6 +100,7 @@ import calino.malinov.ski.poc.ui.components.DetailCardSurface
 import calino.malinov.ski.poc.ui.components.DetailRow
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
+import calino.malinov.ski.poc.ui.components.ModalActionPill
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -162,7 +163,6 @@ fun ContactsSurface(
                     onTagFilterChanged = { tagFilter = it },
                     onContact = { onSelectedContactChanged(it.id) },
                     selectedId = selectedContactId,
-                    onNew = ::openNew,
                     onOpenMenu = onOpenMenu,
                     modifier = Modifier.width(listWidth),
                 )
@@ -181,16 +181,19 @@ fun ContactsSurface(
                         label = "contact pane selection",
                     ) { contact ->
                         if (contact == null) ContactPaneEmpty()
-                        else ContactDetailPane(
-                            contact = contact,
-                            events = events,
-                            today = now.today,
-                            onBack = { onSelectedContactChanged(null) },
-                            onEdit = { editingId = contact.id },
-                            onDelete = { onDelete(contact); onSelectedContactChanged(null) },
-                            onTag = { tagFilter = it },
-                            onAddDate = { date, anniversary -> onAddBirthday(contact, date, anniversary) },
-                        )
+                        else DetailCardSurface(Modifier.fillMaxSize()) { contentModifier ->
+                            ContactDetailPane(
+                                contact = contact,
+                                events = events,
+                                today = now.today,
+                                onBack = { onSelectedContactChanged(null) },
+                                onEdit = { editingId = contact.id },
+                                onDelete = { onDelete(contact); onSelectedContactChanged(null) },
+                                onTag = { tagFilter = it },
+                                onAddDate = { date, anniversary -> onAddBirthday(contact, date, anniversary) },
+                                modifier = contentModifier,
+                            )
+                        }
                     }
                 }
             }
@@ -207,7 +210,6 @@ fun ContactsSurface(
                 onTagFilterChanged = { tagFilter = it },
                 onContact = { onSelectedContactChanged(it.id) },
                 selectedId = selectedContactId,
-                onNew = ::openNew,
                 onOpenMenu = onOpenMenu,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -280,7 +282,6 @@ private fun ContactDirectory(
     onTagFilterChanged: (String?) -> Unit,
     onContact: (Contact) -> Unit,
     selectedId: String?,
-    onNew: () -> Unit,
     onOpenMenu: (() -> Unit)?,
     modifier: Modifier,
 ) {
@@ -298,9 +299,6 @@ private fun ContactDirectory(
                     color = CalinoColors.Ink2,
                     modifier = Modifier.padding(top = 3.dp),
                 )
-            }
-            IconButton(onClick = onNew, modifier = Modifier.size(48.dp).semantics { contentDescription = "New contact" }) {
-                Icon(CalinoIcons.Plus, contentDescription = null, tint = CalinoColors.Accent)
             }
         }
         TextField(
@@ -449,10 +447,10 @@ private fun ContactDetailPane(
     fun openContactLink(action: String, value: String) {
         runCatching { context.startActivity(Intent(action, Uri.parse(value))) }
     }
-    DetailCardSurface(modifier) { contentModifier ->
+    Column(modifier.fillMaxSize()) {
         LazyColumn(
-            contentModifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = CalinoSpacing.PillClearance),
+            Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             item(key = "contact-heading") {
@@ -463,7 +461,6 @@ private fun ContactDetailPane(
                         Text(contact.derivedDisplayName(), style = CalinoTypography.headlineMedium)
                         contact.organization.takeIf(String::isNotBlank)?.let { Text(it, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2) }
                     }
-                    IconButton(onClick = onEdit, modifier = Modifier.size(48.dp).semantics { contentDescription = "Edit contact" }) { Icon(CalinoIcons.Edit, null, tint = CalinoColors.Accent) }
                 }
             }
             item(key = "contact-network") {
@@ -509,13 +506,21 @@ private fun ContactDetailPane(
                 }
             }
             if (contact.note.isNotBlank()) item(key = "notes") { DetailRow(CalinoIcon.Note, "Notes", contact.note) }
-            item(key = "delete") {
-                TextButton(onClick = onDelete, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Delete contact" }) {
-                    Icon(CalinoIcons.Trash, null, tint = CalinoColors.Rose, modifier = Modifier.size(17.dp))
-                    Text("Delete contact", color = CalinoColors.Rose, modifier = Modifier.padding(start = 8.dp))
-                }
-            }
         }
+        ModalActionPill(
+            addLabel = "New contact",
+            morphFromAddPill = true,
+            cancelLabel = "Cancel",
+            onCancel = onBack,
+            cancelDescription = "Close contact details",
+            primaryLabel = "Edit",
+            onPrimary = onEdit,
+            primaryDescription = "Edit contact",
+            secondaryLabel = "Delete",
+            onSecondary = onDelete,
+            secondaryDescription = "Delete contact",
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
+        )
     }
 }
 
@@ -577,6 +582,18 @@ private fun ContactEditor(
     }
     LaunchedEffect(shown) { if (!shown) { kotlinx.coroutines.delay(220); closeAction?.invoke() } }
     fun dismiss() { if (dirty) showDiscard = true else closeAnimated(onDismiss) }
+    fun saveContact() {
+        val parsedBirthday = parseContactDate(birthdayText)
+        val parsedAnniversary = parseContactDate(anniversaryText)
+        closeAnimated {
+            onSave(NewContact(
+                displayName = displayName.trim(), givenName = givenName.trim(), familyName = familyName.trim(), organization = organization.trim(),
+                emails = email.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactEmail(it, ContactType.Other, true)) } ?: emptyList(),
+                phones = phone.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactPhone(it, ContactPhoneType.Other, true)) } ?: emptyList(),
+                birthday = parsedBirthday, anniversary = parsedAnniversary, note = note.trim(), addressBookId = contact.addressBookId,
+            ))
+        }
+    }
     BackHandler(onBack = ::dismiss)
 
     BottomDetailCard(
@@ -589,21 +606,9 @@ private fun ContactEditor(
                 Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = ::dismiss, modifier = Modifier.size(48.dp).semantics { contentDescription = "Back to contacts" }) { Icon(CalinoIcons.ChevronLeft, null, tint = CalinoColors.Ink) }
                     Text(if (isNew) "New contact" else "Edit contact", style = CalinoTypography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
-                    TextButton(onClick = {
-                        val parsedBirthday = parseContactDate(birthdayText)
-                        val parsedAnniversary = parseContactDate(anniversaryText)
-                        closeAnimated {
-                            onSave(NewContact(
-                                displayName = displayName.trim(), givenName = givenName.trim(), familyName = familyName.trim(), organization = organization.trim(),
-                                emails = email.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactEmail(it, ContactType.Other, true)) } ?: emptyList(),
-                                phones = phone.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactPhone(it, ContactPhoneType.Other, true)) } ?: emptyList(),
-                                birthday = parsedBirthday, anniversary = parsedAnniversary, note = note.trim(), addressBookId = contact.addressBookId,
-                            ))
-                        }
-                    }, enabled = canSave, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Save contact" }) { Text("Save", color = if (canSave) CalinoColors.Accent else CalinoColors.Ink3) }
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, top = 15.dp, end = 20.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { CalinoTextField(displayName, { displayName = it }, "Display name", placeholder = "Full name") }
                     item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { CalinoTextField(givenName, { givenName = it }, "Given", Modifier.weight(1f)); CalinoTextField(familyName, { familyName = it }, "Family", Modifier.weight(1f)) } }
                     item { CalinoTextField(organization, { organization = it }, "Organization", placeholder = "Where they work") }
@@ -612,13 +617,12 @@ private fun ContactEditor(
                     item { CalinoTextField(birthdayText, { birthdayText = it }, "Birthday", placeholder = "YYYY-MM-DD") }
                     item { CalinoTextField(anniversaryText, { anniversaryText = it }, "Anniversary", placeholder = "YYYY-MM-DD") }
                     item { CalinoTextField(note, { note = it }, "Notes", singleLine = false, minLines = 4, maxLines = 8) }
-                    onDelete?.let {
+                    onDelete?.let { delete ->
                         item {
-                            TextButton(onClick = { showDelete = !showDelete }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Delete contact" }) { Text("Delete contact", color = CalinoColors.Rose) }
                             AnimatedVisibility(showDelete, enter = fadeIn(tween(150)), exit = fadeOut(tween(120))) {
                                 Row(Modifier.fillMaxWidth().background(CalinoColors.Rose.copy(.09f)).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text("Remove this contact?", style = CalinoTypography.bodyMedium, modifier = Modifier.weight(1f))
-                                    TextButton(onClick = { closeAnimated(it) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Delete", color = CalinoColors.Rose) }
+                                    TextButton(onClick = { closeAnimated(delete) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Delete", color = CalinoColors.Rose) }
                                 }
                             }
                         }
@@ -631,6 +635,21 @@ private fun ContactEditor(
                         }
                     }
                 }
+                ModalActionPill(
+                    addLabel = if (isNew) "New contact" else "Edit contact",
+                    morphFromAddPill = true,
+                    cancelLabel = "Cancel",
+                    onCancel = ::dismiss,
+                    cancelDescription = "Cancel contact editing",
+                    secondaryLabel = onDelete?.let { "Delete" },
+                    onSecondary = onDelete?.let { { showDelete = !showDelete } },
+                    secondaryDescription = "Delete contact",
+                    primaryLabel = "Save",
+                    onPrimary = ::saveContact,
+                    primaryEnabled = canSave,
+                    primaryDescription = "Save contact",
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
+                )
             }
         },
     )
