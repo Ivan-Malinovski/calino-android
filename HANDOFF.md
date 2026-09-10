@@ -62,9 +62,9 @@ test-coverage work described immediately below remains valid and unfinished.
   the large-screen context is preserved rather than replaced.
 - Dismissal follows the presentation edge: downward swipe for compact sheets,
   outward horizontal swipe from the panel header for expanded panels, and
-  Back/close/scrim for centered floating windows. The rules are width-based;
-  they do not yet inspect fold hinges or posture, so a spanning foldable is
-  treated as one available window.
+  the same downward swipe plus Back/close/scrim for centered floating windows.
+  The rules are width-based; they do not yet inspect fold hinges or posture,
+  so a spanning foldable is treated as one available window.
 - Pure boundary/mode coverage lives in `AdaptiveWindowRulesTest`. API 36
   emulator checks covered the compact baseline, centered medium cards,
   expanded day/detail/editor panels, bounded search, short landscape, and

@@ -334,10 +334,10 @@ fun DayModalSurface(
         val sideDismissLanePx = with(density) { 72.dp.toPx() }
         Box(
             panelModifier.pointerInput(mode, layoutDirection) {
-                // The bottom sheet keeps its existing two-axis contract. A
-                // floating window only pages horizontally. An end panel
-                // reserves its header lane for outward dismissal so body
-                // swipes can still page the selected day.
+                // Bottom sheets and centered floating windows keep the same
+                // two-axis contract. An end panel reserves its header lane
+                // for outward dismissal so body swipes can still page the
+                // selected day.
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     val pointerId = down.id
@@ -382,7 +382,10 @@ fun DayModalSurface(
                                 dragX = (startDragX + totalX).coerceIn(-horizontalDragLimitPx, horizontalDragLimitPx)
                                 dragY = startDragY
                             }
-                        } else if (mode == CalinoSurfaceMode.BottomSheet && axisDecided && totalY > 0f) {
+                        } else if (
+                            (mode == CalinoSurfaceMode.BottomSheet || mode == CalinoSurfaceMode.FloatingWindow) &&
+                            axisDecided && totalY > 0f
+                        ) {
                             // A downward dismissal can begin anywhere on the
                             // sheet, including inside the event list.
                             change.consume()
@@ -395,7 +398,7 @@ fun DayModalSurface(
                         val outwardDrag = dragX * outwardSign
                         val sideDismiss = sideDismissStarted && outwardDrag > dismissThresholdPx
                         val horizontalPage = !sideDismissStarted && abs(dragX) > horizontalThresholdPx && abs(dragX) > dragY
-                        val swipeDown = mode == CalinoSurfaceMode.BottomSheet &&
+                        val swipeDown = (mode == CalinoSurfaceMode.BottomSheet || mode == CalinoSurfaceMode.FloatingWindow) &&
                             dragY > dismissThresholdPx && dragY > abs(dragX)
                         when {
                             swipeDown || sideDismiss -> {

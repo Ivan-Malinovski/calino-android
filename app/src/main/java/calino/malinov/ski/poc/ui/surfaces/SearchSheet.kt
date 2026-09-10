@@ -158,7 +158,11 @@ fun CalinoSearchSheet(
                 exit = scaleOut(tween(duration), targetScale = .94f) + fadeOut(tween(duration)),
                 modifier = Modifier.align(Alignment.Center),
             ) {
-                searchContent(Modifier)
+                SwipeDownDismiss(
+                    visible = expanded,
+                    onDismiss = ::requestClose,
+                    content = searchContent,
+                )
             }
         }
     }

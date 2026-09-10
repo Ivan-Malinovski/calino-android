@@ -89,8 +89,16 @@ fun AdaptiveDetailCard(
             DetailCardSurface(dragModifier, handleColor = handleColor, content = content)
         }
 
-        CalinoSurfaceMode.FloatingWindow ->
-            DetailCardSurface(modifier, handleColor = handleColor, content = content)
+        CalinoSurfaceMode.FloatingWindow -> SwipeDownDismiss(
+            visible = visible,
+            onDismiss = onDismiss,
+            modifier = modifier,
+            dismissDistance = dismissDistance,
+            resetKey = resetKey,
+            canStartDismiss = canStartDismiss,
+        ) { dragModifier ->
+            DetailCardSurface(dragModifier, handleColor = handleColor, content = content)
+        }
 
         CalinoSurfaceMode.EndPanel -> {
             val headerLanePx = with(LocalDensity.current) { 72.dp.toPx() }
