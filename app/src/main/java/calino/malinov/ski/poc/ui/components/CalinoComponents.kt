@@ -1149,12 +1149,16 @@ fun AddPill(
             )
         }
         // Hoisted: a draw scope cannot read the palette's composition local.
-        val pillInk = CalinoColors.Ink
+        val pillFill = CalinoColors.FloatFill
         Row(
             Modifier
                 .offset { IntOffset(dragX.roundToInt(), 0) }
                 .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
                 .clip(RoundedCornerShape(CalinoShapes.Pill))
+                // Carries the pill's shape where the fill is too close to the
+                // canvas to do it alone. Transparent in light, which needs no
+                // edge and never drew one.
+                .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill))
                 .onGloballyPositioned { pillOrigin = it.positionInRoot() }
                 .drawBehind {
                     if (backdrop != null && canBlur) {
@@ -1164,9 +1168,9 @@ fun AddPill(
                             translate(-offset.x, -offset.y) { drawLayer(backdrop) }
                         }
                         drawLayer(blurred)
-                        drawRect(pillInk.copy(alpha = .86f))
+                        drawRect(pillFill.copy(alpha = .86f))
                     } else {
-                        drawRect(pillInk)
+                        drawRect(pillFill)
                     }
                 }
                 .calinoPressable(pressedScale = .97f, onClick = onClick)
@@ -1191,13 +1195,13 @@ fun AddPill(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Canvas, modifier = Modifier.size(19.dp), contentDescription = null)
+            CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
             AnimatedContent(
                 targetState = label,
                 transitionSpec = { fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith fadeOut(tween(CalinoMotion.FadeThroughMillis)) },
                 label = "add pill label",
             ) { text ->
-                Text(text, color = CalinoColors.Canvas, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text, color = CalinoColors.OnFloat, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

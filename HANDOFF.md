@@ -1370,6 +1370,12 @@ here. Three of its rules are implemented here:
   theme-independent and must stay; real paint on an accent or ink fill must be
   `OnAccent`/`OnInk`. Watch `WeekDay`, where the pill is `Ink` and its date is
   `OnInk` -- move one without the other and the date disappears.
+- **Inverting a solid fill literally.** The add pill is [Ink] on paper, which
+  defines itself with no edge. Flipping that to cream at night made it the
+  loudest thing on screen. `FloatFill`/`OnFloat`/`FloatBorder` let dark keep the
+  pill dark and give it a brighter hairline instead; light's border is
+  `Transparent`, exactly as it always drew. The same question is still open for
+  the selected-day chip in the week strip, which is still a solid `Ink` block.
 - **Event colors are data, not tokens.** `Event.color` is a raw ARGB `Long`
   from the fixtures and from whatever a CalDAV server chose. `eventColor(Long)`
   is the single seam: it runs `CalinoPalette.forEvent`, which maps the six

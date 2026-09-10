@@ -72,6 +72,7 @@ class CalinoPaletteTest {
             assertContrast(palette, "Ink3 on Canvas", palette.Ink3, palette.Canvas)
             assertContrast(palette, "OnAccent on Accent", palette.OnAccent, palette.Accent)
             assertContrast(palette, "OnInk on Ink", palette.OnInk, palette.Ink)
+            assertContrast(palette, "OnFloat on FloatFill", palette.OnFloat, palette.FloatFill)
         }
     }
 
@@ -103,6 +104,19 @@ class CalinoPaletteTest {
             distance(dark, CalinoThemes.PaperDark.Canvas) >=
                 distance(light, CalinoThemes.PaperLight.Canvas),
         )
+    }
+
+    @Test
+    fun `a floating control that cannot rely on its fill gets an edge`() {
+        // Light fills the add pill with ink on paper, which defines itself.
+        // Dark keeps it dark, so something has to carry the shape.
+        CalinoThemes.all.forEach { palette ->
+            val standsOutOnItsOwn = contrastRatio(palette.FloatFill, palette.Canvas) >= 3f
+            assertTrue(
+                "${palette.id}: the floating fill neither contrasts with the canvas nor has a border",
+                standsOutOnItsOwn || palette.FloatBorder.alpha > 0f,
+            )
+        }
     }
 
     @Test

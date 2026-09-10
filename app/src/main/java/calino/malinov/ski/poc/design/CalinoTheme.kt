@@ -62,6 +62,18 @@ data class CalinoPalette(
     val OnAccent: Color,
     /** What reads legibly on a surface painted with [Ink] at full weight. */
     val OnInk: Color,
+    /**
+     * A control that floats over the canvas -- the add pill.
+     *
+     * Light fills it with [Ink] and needs no edge: a dark lozenge on paper
+     * defines itself. Inverting that literally at night gives a solid cream
+     * slab, which is the loudest thing on the screen and reads as a hole
+     * punched in the page. So dark keeps the pill dark and lets a brighter
+     * hairline draw its shape instead.
+     */
+    val FloatFill: Color,
+    val OnFloat: Color,
+    val FloatBorder: Color,
     val Rose: Color,
     val Blue: Color,
     val Green: Color,
@@ -183,6 +195,9 @@ object CalinoThemes {
         AccentSoft = Color(0xFFEFE7DB),
         OnAccent = Color.White,
         OnInk = Color.White,
+        FloatFill = Color(0xFF2C2823),
+        OnFloat = Color(0xFFFAF8F3),
+        FloatBorder = Color.Transparent,
         Rose = Color(0xFFC2697F),
         Blue = Color(0xFF5B7FB5),
         Green = Color(0xFF5D9A78),
@@ -214,6 +229,9 @@ object CalinoThemes {
         AccentSoft = Color(0xFF33291F),
         OnAccent = Color(0xFF1A1816),
         OnInk = Color(0xFF1A1816),
+        FloatFill = Color(0xFF242220),
+        OnFloat = Color(0xFFF0ECE6),
+        FloatBorder = Color(0xFFF0ECE6).copy(alpha = .22f),
         Rose = Color(0xFFD4877F),
         Blue = Color(0xFF7D9FD1),
         Green = Color(0xFF6AAA85),
