@@ -114,6 +114,7 @@ enum class SettingsSection(val title: String, val shortTitle: String) {
     Notifications("Notifications", "Alerts"),
     Sync("Sync", "Sync"),
     Data("Data", "Data"),
+    AiVision("AI Photo Import", "AI Photo"),
 }
 
 private val SettingsNavLaneHeight = 44.dp
@@ -140,6 +141,7 @@ fun SettingsSurface(
     // A non-null id asks the calendars surface to scroll that account into
     // view; `startAdding` asks it to open the add sheet on arrival.
     onOpenAccounts: (startAdding: Boolean, focusAccountId: String?) -> Unit = { _, _ -> },
+    openAiVisionRequest: Int = 0,
 ) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.General.name) }
     val section = remember(sectionName) {
@@ -148,6 +150,10 @@ fun SettingsSurface(
     val currentSection by rememberUpdatedState(section)
     val sectionRailState = rememberLazyListState()
     val sectionPagerState = rememberPagerState(initialPage = section.ordinal) { SettingsSection.entries.size }
+
+    LaunchedEffect(openAiVisionRequest) {
+        if (openAiVisionRequest > 0) sectionName = SettingsSection.AiVision.name
+    }
 
     LaunchedEffect(section) {
         sectionRailState.animateScrollToItem(SettingsSection.entries.indexOf(section))

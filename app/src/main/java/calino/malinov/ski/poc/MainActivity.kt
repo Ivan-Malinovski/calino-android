@@ -1,7 +1,12 @@
 package calino.malinov.ski.poc
 
 import android.app.Application
+import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -39,6 +44,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -72,6 +78,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -99,6 +106,9 @@ import calino.malinov.ski.poc.data.model.NewTask
 import calino.malinov.ski.poc.data.model.EditorDraft
 import calino.malinov.ski.poc.data.model.blankEditorDraft
 import calino.malinov.ski.poc.data.model.editorDraftFor
+import calino.malinov.ski.poc.data.ai.AiEventCandidate
+import calino.malinov.ski.poc.data.ai.AiVisionClient
+import calino.malinov.ski.poc.data.ai.AiVisionSettingsStore
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.search.CalinoSearchResult
 import calino.malinov.ski.poc.data.repository.CalDavAccountStore
@@ -162,11 +172,16 @@ import calino.malinov.ski.poc.ui.surfaces.JournalSurface
 import calino.malinov.ski.poc.ui.surfaces.SettingsSurface
 import calino.malinov.ski.poc.ui.surfaces.CalinoSearchSheet
 import calino.malinov.ski.poc.ui.surfaces.Tasks
+import calino.malinov.ski.poc.ui.surfaces.AiCandidateReview
+import calino.malinov.ski.poc.ui.surfaces.AiProcessingOverlay
+import calino.malinov.ski.poc.ui.surfaces.updateAiShortcut
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val DateLabel = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
 
@@ -243,10 +258,37 @@ private fun PockRoute.rootOrder(): Int = when (this) {
 }
 
 class MainActivity : ComponentActivity() {
+    var incomingImage by mutableStateOf<Uri?>(null)
+        private set
+    var aiShortcutRequest by mutableIntStateOf(0)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consumeAiIntent(intent)
         enableEdgeToEdge()
         setContent { CalinoApp() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeAiIntent(intent)
+    }
+
+    fun consumeIncomingImage() { incomingImage = null }
+
+    private fun consumeAiIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            @Suppress("DEPRECATION")
+            val single = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            @Suppress("DEPRECATION")
+            val multiple = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            incomingImage = single ?: multiple?.firstOrNull()
+        } else if (intent.data?.host == "ai-photo-import") {
+            aiShortcutRequest += 1
+        }
     }
 }
 
@@ -535,6 +577,82 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var pendingUndo by remember { mutableStateOf<UndoableChange?>(null) }
     var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
     var undoNonce by remember { mutableIntStateOf(0) }
+    val activity = LocalActivity.current as? MainActivity ?: return
+    val aiSettingsStore = remember { AiVisionSettingsStore(activity) }
+    val aiClient = remember { AiVisionClient() }
+    LaunchedEffect(Unit) { updateAiShortcut(activity, aiSettingsStore.load().hasApiKey) }
+    var aiCandidates by remember { mutableStateOf<List<AiEventCandidate>?>(null) }
+    var aiQueue by remember { mutableStateOf<List<AiEventCandidate>>(emptyList()) }
+    var aiDraft by remember { mutableStateOf<EditorDraft?>(null) }
+    var aiBusy by remember { mutableStateOf(false) }
+    var aiStage by remember { mutableStateOf("Sending photo…") }
+    var aiError by remember { mutableStateOf<String?>(null) }
+    var aiErrorNeedsSettings by remember { mutableStateOf(false) }
+    var showPhotoSource by remember { mutableStateOf(false) }
+    var openAiSettingsRequest by remember { mutableIntStateOf(0) }
+    var pickedImage by remember { mutableStateOf<Pair<ByteArray, String>?>(null) }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            val bytes = runCatching { activity.contentResolver.openInputStream(it)?.use(java.io.InputStream::readBytes) }.getOrNull()
+            if (bytes != null) pickedImage = bytes to (activity.contentResolver.getType(it) ?: "image/jpeg")
+        }
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        bitmap?.let { image ->
+            pickedImage = ByteArrayOutputStream().use { image.compress(Bitmap.CompressFormat.JPEG, 90, it); it.toByteArray() } to "image/jpeg"
+        }
+    }
+
+    fun requestPhotoImport() {
+        if (!aiSettingsStore.load().hasApiKey) {
+            aiError = "Set up AI Photo Import in Settings first."
+            aiErrorNeedsSettings = true
+            openAiSettingsRequest += 1
+            route = PockRoute.Settings
+        } else showPhotoSource = true
+    }
+
+    LaunchedEffect(activity.incomingImage) {
+        val uri = activity.incomingImage ?: return@LaunchedEffect
+        activity.consumeIncomingImage()
+        if (!aiSettingsStore.load().hasApiKey) {
+            aiError = "Set up AI Photo Import in Settings first."
+            aiErrorNeedsSettings = true
+            openAiSettingsRequest += 1
+            route = PockRoute.Settings
+            return@LaunchedEffect
+        }
+        val bytes = runCatching { activity.contentResolver.openInputStream(uri)?.use(java.io.InputStream::readBytes) }.getOrNull()
+        if (bytes == null) { aiErrorNeedsSettings = false; aiError = "Could not read the shared photo." }
+        else pickedImage = bytes to (activity.contentResolver.getType(uri) ?: "image/jpeg")
+    }
+    LaunchedEffect(activity.aiShortcutRequest) { if (activity.aiShortcutRequest > 0) requestPhotoImport() }
+    LaunchedEffect(pickedImage) {
+        val image = pickedImage ?: return@LaunchedEffect
+        val key = aiSettingsStore.apiKey() ?: return@LaunchedEffect
+        aiBusy = true
+        aiStage = "Sending photo…"
+        val stageJob = launch { delay(1500); aiStage = "Reading details…"; delay(7500); aiStage = "Still working…" }
+        runCatching { aiClient.extract(aiSettingsStore.load(), key, image.first, image.second) }
+            .onSuccess { found -> if (found.any(AiEventCandidate::isUsable)) aiCandidates = found else { aiErrorNeedsSettings = false; aiError = "No event or task details were found. Try a clearer photo." } }
+            .onFailure { error ->
+                aiErrorNeedsSettings = Regex("authentication|401|403", RegexOption.IGNORE_CASE).containsMatchIn(error.message.orEmpty())
+                android.util.Log.e("CalinoAiVision", "Photo extraction failed: ${error::class.java.simpleName}: ${error.message}")
+                aiError = if (aiErrorNeedsSettings) {
+                    "Your AI API key looks invalid or expired."
+                } else {
+                    val detail = error.message?.trim()?.take(240).orEmpty()
+                    if (detail.isBlank()) "Could not read event details from that photo."
+                    else "Could not read event details: $detail"
+                }
+            }
+        stageJob.cancel()
+        aiBusy = false
+        // Clearing the effect key before the request completed cancelled this
+        // coroutine immediately. Consume the image only after all result state
+        // has been committed.
+        pickedImage = null
+    }
 
     LaunchedEffect(pendingUndo) {
         pendingUndo?.let { displayedUndo = it }
@@ -597,6 +715,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun dismissQuickAdd() {
         editEventId = null
+        aiDraft = null
+        aiQueue = emptyList()
         quickAddMorphFromAddPill = false
         when (quickAddOrigin) {
             PocReturnTarget.DayModal -> {
@@ -675,9 +795,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
     }
 
+    val aiContextBlur by animateDpAsState(
+        targetValue = if (aiBusy || aiCandidates != null) 10.dp else 0.dp,
+        animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+        label = "AI context blur",
+    )
+    // Keep the blur on the calendar/content sibling only. AI surfaces are
+    // drawn after this block and must stay crisp above the blurred context.
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize()
             .background(CalinoColors.Canvas)
+            .blur(aiContextBlur)
             .padding(WindowInsets.safeDrawing.asPaddingValues()),
     ) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -842,6 +971,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             accountsFocusId = focusAccountId
                             route = PockRoute.Accounts
                         },
+                        openAiVisionRequest = openAiSettingsRequest,
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,
@@ -957,6 +1087,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         morphFromAddPill = quickAddMorphFromAddPill,
                         draft = editing
                             ?.let(::editorDraftFor)
+                            ?: aiDraft
                             ?: run {
                                 val defaults = LocalCalinoPreferences.current
                                 blankEditorDraft(
@@ -983,7 +1114,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             quickAddOrigin = PocReturnTarget.Journal
                         }
                         selectedDate = draft.date
-                        dismissQuickAdd()
+                        if (aiQueue.isNotEmpty()) {
+                            val next = aiQueue.first()
+                            aiQueue = aiQueue.drop(1)
+                            aiDraft = aiDraftFor(next, selectedDate)
+                            quickAddKind = if (next.kind == "task") QuickAddKind.Task else QuickAddKind.Event
+                        } else {
+                            aiDraft = null
+                            dismissQuickAdd()
+                        }
                     },
                 )
             }
@@ -1056,6 +1195,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     searchOriginRoute = rootRoute
                     searchVisible = true
                 },
+                onPhoto = if (rootRoute == PockRoute.Day && aiSettingsStore.load().hasApiKey) ::requestPhotoImport else null,
                 label = when (rootRoute) {
                     PockRoute.Tasks -> "New task"
                     PockRoute.Journal -> "New entry"
@@ -1130,8 +1270,41 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             journals = snapshot.journals,
             onDismiss = { journalReviewVisible = false },
         )
-}
+    }
 
+    AiProcessingOverlay(aiBusy, aiStage)
+    AiCandidateReview(aiCandidates, onCancel = { aiCandidates = null }) { selected ->
+        aiCandidates = null
+        if (selected.isNotEmpty()) {
+            val first = selected.first()
+            aiQueue = selected.drop(1)
+            aiDraft = aiDraftFor(first, selectedDate)
+            selectedDate = aiDraft!!.date
+            openQuickAdd(if (first.kind == "task") QuickAddKind.Task else QuickAddKind.Event, PocReturnTarget.Calendar)
+        }
+    }
+    if (showPhotoSource) AlertDialog(
+        onDismissRequest = { showPhotoSource = false },
+        title = { Text("Import from photo") },
+        text = { Text("Take a photo or choose one already on this device.") },
+        confirmButton = { TextButton(onClick = { showPhotoSource = false; cameraLauncher.launch(null) }) { Text("Camera") } },
+        dismissButton = { TextButton(onClick = { showPhotoSource = false; galleryLauncher.launch("image/*") }) { Text("Photos") } },
+    )
+    aiError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { aiError = null },
+            title = { Text("AI Photo Import") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = {
+                aiError = null
+                if (aiErrorNeedsSettings) { openAiSettingsRequest += 1; route = PockRoute.Settings }
+                else openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar)
+            }) { Text(if (aiErrorNeedsSettings) "Open settings" else "Add manually") } },
+            dismissButton = { TextButton(onClick = { aiError = null }) { Text("Cancel") } },
+        )
+    }
+
+}
 }
 
 }
@@ -1240,4 +1413,24 @@ private fun saveEditorDraft(repository: CalinoRepository, draft: EditorDraft) {
             if (id == null) repository.addJournal(draft.toNewJournal())
             else repository.updateJournal(id, draft.toNewJournal())
     }
+}
+
+private fun aiDraftFor(candidate: AiEventCandidate, fallbackDate: LocalDate): EditorDraft {
+    val start = candidate.start
+    val minutes = if (start != null && candidate.end != null) {
+        java.time.Duration.between(start, candidate.end).toMinutes().toInt().takeIf { it > 0 }
+    } else null
+    val kind = if (candidate.kind == "task") PocQuickAddKind.Task else PocQuickAddKind.Event
+    return EditorDraft(
+        kind = kind,
+        rawInput = candidate.title.orEmpty(),
+        title = candidate.title.orEmpty(),
+        date = start?.toLocalDate() ?: fallbackDate,
+        startTime = if (candidate.allDay) null else start?.toLocalTime(),
+        durationMinutes = minutes ?: if (kind == PocQuickAddKind.Event) EditorDraft.DefaultDurationMinutes else null,
+        allDay = candidate.allDay,
+        location = candidate.location,
+        description = candidate.description,
+        touched = calino.malinov.ski.poc.data.model.EditorField.entries.toSet(),
+    )
 }

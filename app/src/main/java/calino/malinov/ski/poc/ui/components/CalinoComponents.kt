@@ -1108,6 +1108,7 @@ fun AddPill(
     destinationLabel: (Int) -> String? = { null },
     onSwipe: (Int) -> Unit = {},
     onSearch: () -> Unit = {},
+    onPhoto: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     var dragX by remember { mutableFloatStateOf(0f) }
@@ -1230,6 +1231,18 @@ fun AddPill(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            onPhoto?.let { photo ->
+                Text(
+                    "Photo",
+                    color = CalinoColors.OnFloat,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(CalinoShapes.Pill))
+                        .clickable(onClick = photo)
+                        .semantics { contentDescription = "Import event or task from photo" }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
             CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
             AnimatedContent(
                 targetState = label,
