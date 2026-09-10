@@ -16,6 +16,15 @@ iCalendar mapping via biweekly, and Keystore-encrypted credential storage. The
 app declares `INTERNET`. With no account connected it still serves the frozen
 May 2026 fixture data, so the sample surfaces stay reachable.
 
+### Launcher icon — 2026-09-10
+
+- The manifest now declares an adaptive `ic_launcher` and `ic_launcher_round`.
+  Their foreground is the generated transparent calendar page at
+  `app/src/main/res/drawable-nodpi/ic_launcher_foreground.png`, with the fixed
+  espresso `launcher_background` behind it.
+- The API 36 emulator app drawer shows the page centered and legible inside
+  the launcher's circular mask. No physical-phone validation.
+
 Recurrence is expanded **on the client**, so a repeating event lands on every
 occurrence in the fetch window regardless of what the server will do.
 
