@@ -49,6 +49,37 @@ recurrence expansion after that. The remaining work is in **"CalDAV — what
 still needs doing"** near the end of this file. The fixture-backed
 test-coverage work described immediately below remains valid and unfinished.
 
+### Pill-morph search and configurable event window — 2026-09-10
+
+- Swiping upward on the floating Add pill now reveals a Search destination and
+  commits into a floating search capsule. The capsule starts at the pill's
+  bottom-centre geometry, then animates its width, height, corner radius and
+  fill before focusing the keyboard; closing reverses the handoff before the
+  Add pill returns. Horizontal pill navigation and taps retain their existing
+  ownership, with dominant-axis locking deciding the gesture once.
+- Search is local and offline over the active `CalinoSnapshot`. It groups
+  events, tasks and journals, matching titles plus useful metadata (event
+  notes/location/categories/calendar, task notes/category, journal body).
+  Expanded CalDAV events de-duplicate by UID and each group is capped.
+- A pure English date phrase offers `Go to …`; event-like text offers an Add
+  event proposal while existing matches remain below it. Selecting the
+  proposal seeds the existing full editor rather than saving immediately, so
+  the read-only CalDAV/local-overlay posture is unchanged. The parser now
+  covers relative dates, weekdays, ISO/month dates, times, durations,
+  locations and common recurrence phrases.
+- Event/task results open their existing detail cards and Back restores the
+  same search query. Journal results open the exact entry. Search dismissal
+  clears the query; opening and returning from a result preserves it.
+- `CalinoEventSyncRange` is a persisted preference under Settings → Sync:
+  ±6 months, ±1 year, ±2 years (default), or ±5 years. A change updates the
+  repository window at runtime and reloads the cache/network through the
+  existing generation-ordered read path. Tasks and journals remain unbounded
+  REPORTs; there is no server search or write behavior.
+- Pure behavior coverage lives in `CalinoSearchTest`, the parser tests, the
+  preference tests and the adjusted repository cache-window assertion. API 36
+  emulator checks covered pill opening, keyboard/insets, grouped results,
+  editor seeding and Back restoration, plus the Sync setting layout.
+
 ## Earlier task list — fixture-backed calendar functionality after the interaction polish pass
 
 The zoom performance pass, swipable week strip, swipable Settings categories,

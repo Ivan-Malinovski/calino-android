@@ -89,6 +89,21 @@ enum class CalinoDefaultReminder(val label: String, val minutesBefore: Int?) {
     }
 }
 
+/** The bounded VEVENT window fetched on either side of the current month. */
+enum class CalinoEventSyncRange(val label: String, val months: Long) {
+    SixMonths("6 mo", 6),
+    OneYear("1 yr", 12),
+    TwoYears("2 yr", 24),
+    FiveYears("5 yr", 60),
+    ;
+
+    companion object {
+        val Default = TwoYears
+        fun fromName(name: String?): CalinoEventSyncRange =
+            entries.firstOrNull { it.name == name } ?: Default
+    }
+}
+
 /**
  * Which palette the app paints itself in.
  *

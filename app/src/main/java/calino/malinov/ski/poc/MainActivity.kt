@@ -90,6 +90,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.occursOn
+import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.NewJournal
@@ -98,6 +99,7 @@ import calino.malinov.ski.poc.data.model.EditorDraft
 import calino.malinov.ski.poc.data.model.blankEditorDraft
 import calino.malinov.ski.poc.data.model.editorDraftFor
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
+import calino.malinov.ski.poc.data.search.CalinoSearchResult
 import calino.malinov.ski.poc.data.repository.CalDavAccountStore
 import calino.malinov.ski.poc.data.repository.CalDavClient
 import calino.malinov.ski.poc.data.repository.CalinoRepository
@@ -140,6 +142,7 @@ import calino.malinov.ski.poc.ui.surfaces.QuickAddSheetState
 import calino.malinov.ski.poc.ui.surfaces.toParserKind
 import calino.malinov.ski.poc.ui.surfaces.JournalSurface
 import calino.malinov.ski.poc.ui.surfaces.SettingsSurface
+import calino.malinov.ski.poc.ui.surfaces.CalinoSearchSheet
 import calino.malinov.ski.poc.ui.surfaces.Tasks
 import java.io.File
 import java.time.LocalDate
@@ -300,6 +303,8 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     fun refresh() = calDavRepository.refresh()
 
+    fun setEventWindowMonths(months: Long) = calDavRepository.setWindowMonths(months)
+
     private fun updateActiveRepository() {
         val connected = accountStore.accounts().isNotEmpty()
         hasAccountsState.value = connected
@@ -322,6 +327,9 @@ fun CalinoApp() {
     // Read before the theme, not inside it: the palette is a function of a
     // preference, so the preference has to exist first.
     val preferences = rememberCalinoPreferences(pocViewModel.preferenceStore)
+    LaunchedEffect(preferences.eventSyncRange) {
+        pocViewModel.setEventWindowMonths(preferences.eventSyncRange.months)
+    }
     val dark = when (preferences.themeChoice) {
         CalinoThemeChoice.System -> isSystemInDarkTheme()
         CalinoThemeChoice.Light -> false
@@ -395,6 +403,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var taskDetailOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
     var quickAddOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
     var quickAddKind by rememberSaveable(stateSaver = QuickAddKindSaver) { mutableStateOf(QuickAddKind.Event) }
+    var quickAddSeed by rememberSaveable { mutableStateOf("") }
+    var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchOriginRoute by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
     var notificationOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
     // Calendars is reachable from the sidebar and from Settings, so back
     // has to return to whichever one opened it.
@@ -407,6 +419,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var journalReviewVisible by rememberSaveable { mutableStateOf(false) }
     var journalEditorVisible by rememberSaveable { mutableStateOf(false) }
     var journalOpenEntryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var journalSearchReturn by rememberSaveable { mutableStateOf(false) }
     var sidebarVisible by rememberSaveable { mutableStateOf(false) }
     // The landscape month root puts the day beside the grid. The pill
     // belongs over that pane, not centred on the rule between the two.
@@ -429,6 +442,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun openQuickAdd(kind: QuickAddKind, origin: PocReturnTarget) {
         editEventId = null
+        quickAddSeed = ""
         quickAddKind = kind
         quickAddOrigin = origin
         route = PockRoute.QuickAdd
@@ -437,6 +451,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     /** The same editor, seeded from a record that already exists. */
     fun openEditor(event: CalEvent, origin: PocReturnTarget) {
         editEventId = event.id
+        quickAddSeed = ""
         quickAddKind = QuickAddKind.Event
         quickAddOrigin = origin
         route = PockRoute.QuickAdd
@@ -451,6 +466,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PocReturnTarget.Agenda -> route = PockRoute.Agenda
             PocReturnTarget.Tasks -> route = PockRoute.Tasks
             PocReturnTarget.Journal -> route = PockRoute.Journal
+            PocReturnTarget.Search -> {
+                route = searchOriginRoute
+                searchVisible = true
+            }
             else -> {
                 route = PockRoute.Day
                 showDayModal = false
@@ -462,6 +481,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         route = when (taskDetailOrigin) {
             PocReturnTarget.Tasks -> PockRoute.Tasks
             PocReturnTarget.Agenda -> PockRoute.Agenda
+            PocReturnTarget.Search -> searchOriginRoute.also { searchVisible = true }
             else -> PockRoute.Day
         }
     }
@@ -494,6 +514,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PocReturnTarget.Agenda -> {
                 route = PockRoute.Agenda
                 showDayModal = false
+            }
+            PocReturnTarget.Search -> {
+                route = searchOriginRoute
+                searchVisible = true
             }
             PocReturnTarget.Calendar -> {
                 route = PockRoute.Day
@@ -558,11 +582,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
                 PocReturnTarget.Tasks -> PockRoute.Tasks
                 PocReturnTarget.Journal -> PockRoute.Journal
+                PocReturnTarget.Search -> searchOriginRoute
                 else -> PockRoute.Day
             }
             PockRoute.TaskDetail -> when (taskDetailOrigin) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
                 PocReturnTarget.Tasks -> PockRoute.Tasks
+                PocReturnTarget.Search -> searchOriginRoute
                 else -> PockRoute.Day
             }
             PockRoute.QuickAdd -> when (quickAddOrigin) {
@@ -571,6 +597,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 PocReturnTarget.Journal -> PockRoute.Journal
                 PocReturnTarget.Settings -> PockRoute.Settings
                 PocReturnTarget.Detail -> PockRoute.Day
+                PocReturnTarget.Search -> searchOriginRoute
                 else -> PockRoute.Day
             }
             PockRoute.Notifications -> PockRoute.Notifications
@@ -679,7 +706,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body))
                         },
                         onDelete = { entry -> repository.deleteJournal(entry.id) },
-                        onEditingChanged = { journalEditorVisible = it },
+                        onEditingChanged = { editing ->
+                            journalEditorVisible = editing
+                            if (!editing && journalSearchReturn && journalOpenEntryId == null) {
+                                journalSearchReturn = false
+                                route = searchOriginRoute
+                                searchVisible = true
+                            }
+                        },
                         openEntryId = journalOpenEntryId,
                         onOpenEntryConsumed = { journalOpenEntryId = null },
                         onOpenMenu = { sidebarVisible = true },
@@ -817,6 +851,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 blankEditorDraft(
                                     kind = quickAddKind.toParserKind(),
                                     date = selectedDate,
+                                    title = quickAddSeed,
                                     defaultDurationMinutes = defaults.defaultDuration.minutes,
                                     defaultReminderMinutes = defaults.defaultReminder.minutesBefore,
                                 )
@@ -874,7 +909,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             else -> false
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = pillVisible && !sidebarVisible,
+            visible = pillVisible && !sidebarVisible && !searchVisible,
             enter = slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
             exit = slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
             modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 20.dp),
@@ -905,6 +940,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 onSwipe = { direction ->
                     pillRoutes.getOrNull(pillIndex + direction)?.let(::navigateRoot)
                 },
+                onSearch = {
+                    searchOriginRoute = rootRoute
+                    searchVisible = true
+                },
                 label = when (rootRoute) {
                     PockRoute.Tasks -> "New task"
                     PockRoute.Journal -> "New entry"
@@ -926,6 +965,50 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             selectedRoute = rootRoute,
             onRoute = { next -> navigateRoot(next) },
             onDismiss = { sidebarVisible = false },
+        )
+    }
+
+    if (searchVisible) {
+        CalinoSearchSheet(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            snapshot = snapshot,
+            baseDate = selectedDate,
+            onDismiss = { searchVisible = false; searchQuery = "" },
+            onSelect = { result ->
+                searchVisible = false
+                when (result) {
+                    is CalinoSearchResult.NavigateDate -> {
+                        selectedDate = result.date
+                        navigateRoot(PockRoute.Day)
+                        searchQuery = ""
+                    }
+                    is CalinoSearchResult.AddEvent -> {
+                        selectedDate = result.parsed.date
+                        quickAddSeed = result.raw
+                        quickAddKind = QuickAddKind.Event
+                        quickAddOrigin = PocReturnTarget.Search
+                        editEventId = null
+                        route = PockRoute.QuickAdd
+                    }
+                    is CalinoSearchResult.Event -> {
+                        selectedEventId = result.event.id
+                        selectedEventOccurrenceDay = result.event.placementDate()?.toEpochDay()
+                        detailOrigin = PocReturnTarget.Search
+                        route = PockRoute.Detail
+                    }
+                    is CalinoSearchResult.Task -> {
+                        selectedTaskId = result.task.id
+                        taskDetailOrigin = PocReturnTarget.Search
+                        route = PockRoute.TaskDetail
+                    }
+                    is CalinoSearchResult.Journal -> {
+                        journalOpenEntryId = result.journal.id
+                        journalSearchReturn = true
+                        route = PockRoute.Journal
+                    }
+                }
+            },
         )
     }
 

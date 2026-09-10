@@ -143,6 +143,7 @@ fun EditorDraft.applyInput(
             else -> parsed.durationMinutes ?: defaultDurationMinutes
         },
         location = if (EditorField.Location in touched) location else parsed.location ?: location,
+        recurrence = parsed.recurrence ?: recurrence,
         body = if (kind == PocQuickAddKind.Journal) body else input.trim(),
     )
 }

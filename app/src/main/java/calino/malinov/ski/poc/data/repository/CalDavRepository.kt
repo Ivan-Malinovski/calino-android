@@ -54,10 +54,12 @@ class CalDavRepository(
     private val cache: CalendarCache = CalendarCache.None,
     private val mapper: ICalMapper = ICalMapper(),
     private val today: () -> LocalDate = { LocalDate.now() },
-    private val windowMonths: Long = DefaultWindowMonths,
+    windowMonths: Long = DefaultWindowMonths,
     /** Injected so tests can drive the fetch on their own scheduler. */
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : CalinoRepository {
+
+    private var windowMonths: Long = windowMonths
 
     private val listeners = CopyOnWriteArrayList<(CalinoSnapshot) -> Unit>()
 
@@ -133,6 +135,14 @@ class CalDavRepository(
 
     /** Refetches without going back to the cache; the data on screen stays put. */
     fun refresh() = reload(useCache = false)
+
+    /** Updates the bounded event window and immediately reloads when it changed. */
+    fun setWindowMonths(months: Long) {
+        require(months > 0)
+        if (windowMonths == months) return
+        windowMonths = months
+        reload(useCache = true)
+    }
 
     private fun reload(useCache: Boolean) {
         if (sources.isEmpty()) return
@@ -379,6 +389,6 @@ class CalDavRepository(
          * like `FREQ=DAILY` with no UNTIL is infinite. The window is what
          * bounds it -- see `ICalMapper.parse`.
          */
-        const val DefaultWindowMonths = 6L
+        const val DefaultWindowMonths = 24L
     }
 }

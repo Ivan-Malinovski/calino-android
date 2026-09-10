@@ -1101,12 +1101,15 @@ fun AddPill(
     canSwipe: (Int) -> Boolean = { false },
     destinationLabel: (Int) -> String? = { null },
     onSwipe: (Int) -> Unit = {},
+    onSearch: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     var dragX by remember { mutableFloatStateOf(0f) }
+    var dragY by remember { mutableFloatStateOf(0f) }
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentCanSwipe by rememberUpdatedState(canSwipe)
     val currentDestinationLabel by rememberUpdatedState(destinationLabel)
+    val currentOnSearch by rememberUpdatedState(onSearch)
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     // Frosted glass over the surface behind it: a blurred patch of the
@@ -1123,6 +1126,9 @@ fun AddPill(
         scope.launch {
             animate(dragX, 0f, animationSpec = spring(dampingRatio = .78f, stiffness = 520f)) { value, _ -> dragX = value }
         }
+        scope.launch {
+            animate(dragY, 0f, animationSpec = spring(dampingRatio = .78f, stiffness = 520f)) { value, _ -> dragY = value }
+        }
     }
 
     // A drag left moves forward through the views, matching the direction the
@@ -1132,6 +1138,15 @@ fun AddPill(
     val progress = (abs(dragX) / commitPx).coerceIn(0f, 1f)
 
     Box(modifier, contentAlignment = Alignment.Center) {
+        if (dragY < 0f) {
+            SwipeDestinationChip(
+                label = "Search",
+                direction = 1,
+                progress = (abs(dragY) / commitPx).coerceIn(0f, 1f),
+                modifier = Modifier.align(Alignment.TopCenter).wrapContentSize(unbounded = true)
+                    .offset { IntOffset(0, (-dragY * .30f).roundToInt()) },
+            )
+        }
         if (destination != null) {
             // The chip sits on the edge the pill is vacating and trails it, so
             // it reads as something uncovered rather than a second floating
@@ -1152,7 +1167,7 @@ fun AddPill(
         val pillFill = CalinoColors.FloatFill
         Row(
             Modifier
-                .offset { IntOffset(dragX.roundToInt(), 0) }
+                .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
                 .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
                 .clip(RoundedCornerShape(CalinoShapes.Pill))
                 // Carries the pill's shape where the fill is too close to the
@@ -1175,22 +1190,36 @@ fun AddPill(
                 }
                 .calinoPressable(pressedScale = .97f, onClick = onClick)
                 .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
+                    var horizontal = false
+                    var vertical = false
+                    detectDragGestures(
+                        onDragStart = { horizontal = false; vertical = false },
                         onDragEnd = {
-                            val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
-                            if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
+                            if (vertical && dragY <= -commitPx) currentOnSearch()
+                            if (horizontal) {
+                                val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
+                                if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
+                            }
                             settle()
                         },
                         onDragCancel = { settle() },
                     ) { change, amount ->
+                        if (!horizontal && !vertical) {
+                            horizontal = abs(amount.x) >= abs(amount.y)
+                            vertical = !horizontal
+                        }
                         change.consume()
-                        val next = dragX + amount
-                        val direction = if (next < 0f) 1 else -1
-                        val limit = if (currentCanSwipe(direction)) maxTravelPx else edgeTravelPx
-                        dragX = next.coerceIn(-limit, limit)
+                        if (horizontal) {
+                            val next = dragX + amount.x
+                            val direction = if (next < 0f) 1 else -1
+                            val limit = if (currentCanSwipe(direction)) maxTravelPx else edgeTravelPx
+                            dragX = next.coerceIn(-limit, limit)
+                        } else {
+                            dragY = (dragY + amount.y).coerceIn(-maxTravelPx, edgeTravelPx)
+                        }
                     }
                 }
-                .semantics(mergeDescendants = true) { contentDescription = label }
+                .semantics(mergeDescendants = true) { contentDescription = "$label. Swipe up to search" }
                 .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),

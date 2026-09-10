@@ -5,6 +5,7 @@ import calino.malinov.ski.poc.design.CalinoPalette
 import calino.malinov.ski.poc.design.CalinoThemes
 import calino.malinov.ski.poc.state.CalinoPreferenceStore
 import calino.malinov.ski.poc.util.CalinoThemeChoice
+import calino.malinov.ski.poc.util.CalinoEventSyncRange
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
@@ -50,6 +51,15 @@ class CalinoPaletteTest {
         store.saveThemeChoice(CalinoThemeChoice.Dark)
         assertEquals(CalinoThemeChoice.Dark, store.loadThemeChoice())
         store.saveThemeChoice(CalinoThemeChoice.Default)
+    }
+
+    @Test fun `event sync range defaults safely and survives storage`() {
+        assertEquals(CalinoEventSyncRange.TwoYears, CalinoEventSyncRange.fromName(null))
+        assertEquals(CalinoEventSyncRange.TwoYears, CalinoEventSyncRange.fromName("FutureRange"))
+        val store = CalinoPreferenceStore.InMemory
+        store.saveEventSyncRange(CalinoEventSyncRange.FiveYears)
+        assertEquals(CalinoEventSyncRange.FiveYears, store.loadEventSyncRange())
+        store.saveEventSyncRange(CalinoEventSyncRange.Default)
     }
 
     /**

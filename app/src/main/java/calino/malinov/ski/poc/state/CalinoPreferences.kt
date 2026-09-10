@@ -12,6 +12,7 @@ import calino.malinov.ski.poc.util.CalinoDefaultDuration
 import calino.malinov.ski.poc.util.CalinoDefaultReminder
 import calino.malinov.ski.poc.util.CalinoDefaultView
 import calino.malinov.ski.poc.util.CalinoEventDensity
+import calino.malinov.ski.poc.util.CalinoEventSyncRange
 import calino.malinov.ski.poc.util.CalinoThemeChoice
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.CalinoWeekStart
@@ -62,6 +63,8 @@ data class CalinoPreferences(
     val setShowEndTimes: (Boolean) -> Unit = {},
     val showLocations: Boolean = true,
     val setShowLocations: (Boolean) -> Unit = {},
+    val eventSyncRange: CalinoEventSyncRange = CalinoEventSyncRange.Default,
+    val setEventSyncRange: (CalinoEventSyncRange) -> Unit = {},
 )
 
 val LocalCalinoPreferences = staticCompositionLocalOf { CalinoPreferences() }
@@ -99,6 +102,8 @@ interface CalinoPreferenceStore {
     fun saveShowEndTimes(show: Boolean)
     fun loadShowLocations(): Boolean
     fun saveShowLocations(show: Boolean)
+    fun loadEventSyncRange(): CalinoEventSyncRange
+    fun saveEventSyncRange(range: CalinoEventSyncRange)
 
     object InMemory : CalinoPreferenceStore {
         private var themeChoice = CalinoThemeChoice.Default
@@ -113,6 +118,7 @@ interface CalinoPreferenceStore {
         private var hideCompleted = false
         private var endTimes = true
         private var locations = true
+        private var syncRange = CalinoEventSyncRange.Default
 
         override fun loadThemeChoice() = themeChoice
         override fun saveThemeChoice(choice: CalinoThemeChoice) { themeChoice = choice }
@@ -138,6 +144,8 @@ interface CalinoPreferenceStore {
         override fun saveShowEndTimes(show: Boolean) { endTimes = show }
         override fun loadShowLocations() = locations
         override fun saveShowLocations(show: Boolean) { locations = show }
+        override fun loadEventSyncRange() = syncRange
+        override fun saveEventSyncRange(range: CalinoEventSyncRange) { syncRange = range }
     }
 }
 
@@ -192,6 +200,9 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 
     override fun loadShowLocations(): Boolean = prefs.getBoolean(ShowLocationsKey, true)
     override fun saveShowLocations(show: Boolean) = putBoolean(ShowLocationsKey, show)
+    override fun loadEventSyncRange(): CalinoEventSyncRange =
+        CalinoEventSyncRange.fromName(name(EventSyncRangeKey))
+    override fun saveEventSyncRange(range: CalinoEventSyncRange) = putString(EventSyncRangeKey, range.name)
 
     private companion object {
         const val ThemeChoiceKey = "theme_choice"
@@ -206,6 +217,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val HideCompletedTasksKey = "hide_completed_tasks"
         const val ShowEndTimesKey = "show_end_times"
         const val ShowLocationsKey = "show_locations"
+        const val EventSyncRangeKey = "event_sync_range"
     }
 }
 
@@ -227,6 +239,7 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
     var hideCompletedTasks by remember(store) { mutableStateOf(store.loadHideCompletedTasks()) }
     var showEndTimes by remember(store) { mutableStateOf(store.loadShowEndTimes()) }
     var showLocations by remember(store) { mutableStateOf(store.loadShowLocations()) }
+    var eventSyncRange by remember(store) { mutableStateOf(store.loadEventSyncRange()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
         setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
@@ -252,5 +265,7 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
         setShowEndTimes = { value -> showEndTimes = value; store.saveShowEndTimes(value) },
         showLocations = showLocations,
         setShowLocations = { value -> showLocations = value; store.saveShowLocations(value) },
+        eventSyncRange = eventSyncRange,
+        setEventSyncRange = { value -> eventSyncRange = value; store.saveEventSyncRange(value) },
     )
 }

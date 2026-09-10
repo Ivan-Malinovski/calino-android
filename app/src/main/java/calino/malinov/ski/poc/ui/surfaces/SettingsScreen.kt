@@ -99,6 +99,7 @@ import calino.malinov.ski.poc.util.CalinoDefaultDuration
 import calino.malinov.ski.poc.util.CalinoDefaultReminder
 import calino.malinov.ski.poc.util.CalinoDefaultView
 import calino.malinov.ski.poc.util.CalinoEventDensity
+import calino.malinov.ski.poc.util.CalinoEventSyncRange
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.CalinoWeekStart
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -635,6 +636,7 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
 
 @Composable
 private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean, String?) -> Unit) {
+    val preferences = LocalCalinoPreferences.current
     SettingsPage("Sync") {
         SettingsGroup("Connected accounts") {
             if (accounts.isEmpty()) {
@@ -669,6 +671,15 @@ private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean
             ) { Text("+  Add calendar account", color = CalinoColors.Accent) }
         }
         SettingsGroup("Sync settings") {
+            SettingChoiceRow(
+                label = "Event sync range",
+                description = "Past and future events kept available offline and in search",
+                options = CalinoEventSyncRange.entries,
+                selected = preferences.eventSyncRange,
+                labelOf = { it.label },
+                onSelected = preferences.setEventSyncRange,
+            )
+            SettingDivider()
             PlannedRow("Sync frequency", "How often the cache refreshes", value = "When Calino opens")
             PlannedToggleRow("Sync on launch", "Refresh before the first screen appears", checked = true)
         }

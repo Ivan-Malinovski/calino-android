@@ -2,6 +2,7 @@ package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
+import calino.malinov.ski.poc.data.parser.parseDateNavigation
 import java.time.LocalDate
 import java.time.LocalTime
 import org.junit.Assert.assertEquals
@@ -39,5 +40,23 @@ class PocQuickAddParserTest {
         assertEquals("Send the invoice", draft.title)
         assertEquals(baseDate, draft.date)
         assertNull(draft.time)
+    }
+
+    @Test fun dateNavigation_supportsRelativeWeekdaysAndIsoDates() {
+        assertEquals(LocalDate.of(2026, 5, 22), parseDateNavigation("next Friday", baseDate))
+        assertEquals(LocalDate.of(2027, 2, 3), parseDateNavigation("2027-02-03", baseDate))
+        assertNull(parseDateNavigation("Lunch next Friday", baseDate))
+    }
+
+    @Test fun event_parsesWeeklyRecurrence() {
+        val draft = parseQuickAdd(PocQuickAddKind.Event, "Standup every weekday at 9", baseDate)
+        assertEquals("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", draft.recurrence)
+        assertEquals(LocalTime.of(9, 0), draft.time)
+    }
+
+    @Test fun dateDayIsNotMistakenForAClockTime() {
+        val draft = parseQuickAdd(PocQuickAddKind.Event, "Dinner May 20 at 7pm", baseDate)
+        assertEquals(LocalDate.of(2026, 5, 20), draft.date)
+        assertEquals(LocalTime.of(19, 0), draft.time)
     }
 }

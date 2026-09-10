@@ -345,8 +345,8 @@ END:VCALENDAR
         // re-expanded for a different window later.
         assertTrue(entry!!.resources.isNotEmpty())
         assertTrue(entry.resources.all { it.ics.contains("BEGIN:VCALENDAR") })
-        assertEquals(LocalDate.of(2026, 3, 1), entry.windowStart)
-        assertEquals(LocalDate.of(2027, 3, 1), entry.windowEnd)
+        assertEquals(LocalDate.of(2024, 9, 1), entry.windowStart)
+        assertEquals(LocalDate.of(2028, 9, 1), entry.windowEnd)
     }
 
     @Test
