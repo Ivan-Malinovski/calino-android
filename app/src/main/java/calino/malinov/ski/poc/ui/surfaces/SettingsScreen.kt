@@ -82,7 +82,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.repository.FixtureCategories
+import androidx.compose.foundation.isSystemInDarkTheme
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoPalette
+import calino.malinov.ski.poc.design.CalinoThemes
+import calino.malinov.ski.poc.util.CalinoThemeChoice
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.design.CalinoShapes
@@ -253,6 +257,8 @@ fun SettingsSurface(
                     animationSpec = tween(180),
                     label = "settings section rail affordance",
                 )
+                // Hoisted: a draw scope cannot read the palette's composition local.
+                val canvas = CalinoColors.Canvas
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -261,7 +267,7 @@ fun SettingsSurface(
                         .drawWithCache {
                             val fadeWidth = 34.dp.toPx()
                             val fadeBrush = Brush.horizontalGradient(
-                                colors = listOf(Color.Transparent, CalinoColors.Canvas),
+                                colors = listOf(Color.Transparent, canvas),
                                 startX = size.width - fadeWidth,
                                 endX = size.width,
                             )
@@ -415,21 +421,28 @@ private fun GeneralSettings() = SettingsPage("General") {
 
 @Composable
 private fun AppearanceSettings() {
+    val preferences = LocalCalinoPreferences.current
     SettingsPage("Appearance") {
         SettingsGroup("Theme") {
-            // The palette is a single light set of literals read statically by
-            // every surface, including draw code that cannot see a
-            // CompositionLocal. Until that is a provided value there is nothing
-            // for these to switch, so they say so rather than pretending.
-            Column(Modifier.padding(18.dp).alphaIfDisabled(false)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Appearance", style = CalinoTypography.labelLarge)
-                    PlannedTag()
-                }
+            Column(Modifier.padding(18.dp)) {
+                Text("Appearance", style = CalinoTypography.labelLarge)
                 Text("Paper, night, or follow the system.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    listOf("Light" to CalinoColors.Canvas, "System" to CalinoColors.Side, "Dark" to Color(0xFF26231F)).forEach { (name, color) ->
-                        ThemeCard(name, color, selected = name == "Light", enabled = false) {}
+                    CalinoThemeChoice.entries.forEach { choice ->
+                        // System previews whichever palette the phone is
+                        // currently in, so the card shows what choosing it
+                        // would actually do rather than a third invented look.
+                        val preview = when (choice) {
+                            CalinoThemeChoice.Light -> CalinoThemes.PaperLight
+                            CalinoThemeChoice.Dark -> CalinoThemes.PaperDark
+                            CalinoThemeChoice.System ->
+                                if (isSystemInDarkTheme()) CalinoThemes.PaperDark else CalinoThemes.PaperLight
+                        }
+                        ThemeCard(
+                            choice.label,
+                            preview,
+                            selected = choice == preferences.themeChoice,
+                        ) { preferences.setThemeChoice(choice) }
                     }
                 }
             }
@@ -829,7 +842,7 @@ private fun SettingToggleRow(label: String, description: String, checked: Boolea
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
-        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = CalinoColors.Accent, uncheckedThumbColor = Color.White, uncheckedTrackColor = CalinoColors.Ink3.copy(.26f), uncheckedBorderColor = Color.Transparent),
+        colors = SwitchDefaults.colors(checkedThumbColor = CalinoColors.OnAccent, checkedTrackColor = CalinoColors.Accent, uncheckedThumbColor = CalinoColors.Panel, uncheckedTrackColor = CalinoColors.Ink3.copy(.26f), uncheckedBorderColor = Color.Transparent),
         modifier = Modifier.semantics { contentDescription = "$label toggle" },
     )
 }
@@ -871,8 +884,15 @@ private fun SettingSegmented(label: String, options: List<String>, selected: Int
     )
 }
 
+/**
+ * A miniature of what a theme actually looks like.
+ *
+ * It paints itself from [preview]'s own values rather than from `name == "Dark"`
+ * branches, so registering another palette in `CalinoThemes` gives it a correct
+ * preview for free.
+ */
 @Composable
-private fun ThemeCard(name: String, color: Color, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+private fun ThemeCard(name: String, preview: CalinoPalette, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     val outline by animateColorAsState(
         if (selected) CalinoColors.Accent else CalinoColors.Line,
         tween(180),
@@ -898,11 +918,11 @@ private fun ThemeCard(name: String, color: Color, selected: Boolean, enabled: Bo
             }
             .padding(7.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(68.dp).clip(RoundedCornerShape(7.dp)).background(color)) {
+        Box(Modifier.fillMaxWidth().height(68.dp).clip(RoundedCornerShape(7.dp)).background(preview.Canvas)) {
             Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(Modifier.fillMaxWidth(.65f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(if (name == "Dark") Color.White.copy(.55f) else CalinoColors.Ink.copy(.35f)))
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(7) { Box(Modifier.size(7.dp).clip(CircleShape).background(if (name == "Dark") Color.White.copy(.25f) else CalinoColors.Ink.copy(.12f))) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(5) { Box(Modifier.size(11.dp, 5.dp).clip(RoundedCornerShape(2.dp)).background(if (name == "Dark") CalinoColors.Accent.copy(.7f) else CalinoColors.Accent.copy(.5f))) } }
+                Box(Modifier.fillMaxWidth(.65f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(preview.Ink.copy(.35f)))
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(7) { Box(Modifier.size(7.dp).clip(CircleShape).background(preview.Ink.copy(.12f))) } }
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(5) { Box(Modifier.size(11.dp, 5.dp).clip(RoundedCornerShape(2.dp)).background(preview.Accent.copy(.55f))) } }
             }
         }
         Text(name, style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium), color = foreground, modifier = Modifier.padding(top = 7.dp, start = 2.dp, bottom = 2.dp))

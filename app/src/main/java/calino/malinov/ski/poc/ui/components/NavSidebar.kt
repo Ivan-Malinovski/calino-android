@@ -160,7 +160,10 @@ fun NavSidebar(
                             .padding(start = 12.dp, top = 12.dp, bottom = 12.dp)
                             .width(cardWidth)
                             .fillMaxHeight()
-                            .shadow(18.dp, RoundedCornerShape(CalinoShapes.Card), clip = false)
+                            // The flat-dark rule: a drop shadow is a light-mode
+                            // device. In dark the Panel step and the hairline
+                            // below carry the elevation instead.
+                            .shadow(18.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Card), clip = false)
                             .clip(RoundedCornerShape(CalinoShapes.Card))
                             .background(CalinoColors.Panel)
                             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))

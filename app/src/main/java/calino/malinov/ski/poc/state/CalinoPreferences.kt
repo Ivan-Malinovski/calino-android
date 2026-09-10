@@ -12,6 +12,7 @@ import calino.malinov.ski.poc.util.CalinoDefaultDuration
 import calino.malinov.ski.poc.util.CalinoDefaultReminder
 import calino.malinov.ski.poc.util.CalinoDefaultView
 import calino.malinov.ski.poc.util.CalinoEventDensity
+import calino.malinov.ski.poc.util.CalinoThemeChoice
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.CalinoWeekStart
 
@@ -28,6 +29,12 @@ import calino.malinov.ski.poc.util.CalinoWeekStart
  */
 @Immutable
 data class CalinoPreferences(
+    /**
+     * Which palette the app paints itself in. Resolved to a
+     * `CalinoPalette` once, at the root, rather than by each surface.
+     */
+    val themeChoice: CalinoThemeChoice = CalinoThemeChoice.Default,
+    val setThemeChoice: (CalinoThemeChoice) -> Unit = {},
     val timeFormat: CalinoTimeFormat = CalinoTimeFormat.Default,
     val setTimeFormat: (CalinoTimeFormat) -> Unit = {},
     /**
@@ -68,6 +75,8 @@ val LocalTimeFormat: CalinoTimeFormat
  * app; the in-memory default keeps unit tests and previews off disk.
  */
 interface CalinoPreferenceStore {
+    fun loadThemeChoice(): CalinoThemeChoice
+    fun saveThemeChoice(choice: CalinoThemeChoice)
     fun loadTimeFormat(): CalinoTimeFormat
     fun saveTimeFormat(format: CalinoTimeFormat)
     fun loadShowZoomHandle(): Boolean
@@ -92,6 +101,7 @@ interface CalinoPreferenceStore {
     fun saveShowLocations(show: Boolean)
 
     object InMemory : CalinoPreferenceStore {
+        private var themeChoice = CalinoThemeChoice.Default
         private var timeFormat = CalinoTimeFormat.Default
         private var zoomHandle = true
         private var weekStart = CalinoWeekStart.Default
@@ -104,6 +114,8 @@ interface CalinoPreferenceStore {
         private var endTimes = true
         private var locations = true
 
+        override fun loadThemeChoice() = themeChoice
+        override fun saveThemeChoice(choice: CalinoThemeChoice) { themeChoice = choice }
         override fun loadTimeFormat() = timeFormat
         override fun saveTimeFormat(format: CalinoTimeFormat) { timeFormat = format }
         override fun loadShowZoomHandle() = zoomHandle
@@ -140,6 +152,9 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     private fun putString(key: String, value: String) = prefs.edit().putString(key, value).apply()
     private fun putBoolean(key: String, value: Boolean) = prefs.edit().putBoolean(key, value).apply()
     private fun name(key: String): String? = prefs.getString(key, null)
+
+    override fun loadThemeChoice(): CalinoThemeChoice = CalinoThemeChoice.fromName(name(ThemeChoiceKey))
+    override fun saveThemeChoice(choice: CalinoThemeChoice) = putString(ThemeChoiceKey, choice.name)
 
     override fun loadTimeFormat(): CalinoTimeFormat = CalinoTimeFormat.fromName(name(TimeFormatKey))
     override fun saveTimeFormat(format: CalinoTimeFormat) = putString(TimeFormatKey, format.name)
@@ -179,6 +194,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveShowLocations(show: Boolean) = putBoolean(ShowLocationsKey, show)
 
     private companion object {
+        const val ThemeChoiceKey = "theme_choice"
         const val TimeFormatKey = "time_format"
         const val ShowZoomHandleKey = "show_zoom_handle"
         const val WeekStartKey = "week_start"
@@ -199,6 +215,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
  */
 @Composable
 fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
+    var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
     var timeFormat by remember(store) { mutableStateOf(store.loadTimeFormat()) }
     var showZoomHandle by remember(store) { mutableStateOf(store.loadShowZoomHandle()) }
     var weekStart by remember(store) { mutableStateOf(store.loadWeekStart()) }
@@ -211,6 +228,8 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
     var showEndTimes by remember(store) { mutableStateOf(store.loadShowEndTimes()) }
     var showLocations by remember(store) { mutableStateOf(store.loadShowLocations()) }
     return CalinoPreferences(
+        themeChoice = themeChoice,
+        setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
         timeFormat = timeFormat,
         setTimeFormat = { value -> timeFormat = value; store.saveTimeFormat(value) },
         showZoomHandle = showZoomHandle,

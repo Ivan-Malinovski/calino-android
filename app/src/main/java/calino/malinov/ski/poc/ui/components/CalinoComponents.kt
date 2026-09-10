@@ -54,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -119,7 +120,17 @@ import kotlinx.coroutines.launch
 private val Mono = androidx.compose.ui.text.font.FontFamily.Monospace
 private val ShortDateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
-fun eventColor(value: Long): Color = Color(value)
+/**
+ * A stored calendar color, made fit for the current theme.
+ *
+ * The single seam for data-driven color. Event colors arrive as raw ARGB longs
+ * from the fixtures and from CalDAV servers, chosen by whoever made the
+ * calendar and usually against a white one, so they are adapted on the way out
+ * rather than stored differently.
+ */
+@Composable
+@ReadOnlyComposable
+fun eventColor(value: Long): Color = CalinoColors.forEvent(Color(value))
 
 /**
  * Adds the native downward-dismiss gesture to a surface.
@@ -279,6 +290,9 @@ internal fun Modifier.calinoPressable(
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    // Hoisted: a draw scope cannot read the palette's composition local. The
+    // wash also has to invert -- darkening an already dark row does nothing.
+    val pressWash = CalinoColors.PressWash
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
         animationSpec = tween(CalinoMotion.PressMillis),
@@ -287,7 +301,7 @@ internal fun Modifier.calinoPressable(
     return graphicsLayer { scaleX = scale; scaleY = scale }
         .drawWithContent {
             drawContent()
-            if (pressed) drawRect(Color.Black.copy(alpha = .06f))
+            if (pressed) drawRect(pressWash)
         }
         .clickable(
             interactionSource = interactionSource,
@@ -484,7 +498,7 @@ private fun TaskCheckbox(checked: Boolean, color: Color, modifier: Modifier, cir
             .border(1.5.dp, stroke, shape),
         contentAlignment = Alignment.Center,
     ) {
-        if (checked) CalinoIcon(CalinoIcon.Check, tint = Color.White, modifier = Modifier.fillMaxSize().padding(2.dp), contentDescription = null)
+        if (checked) CalinoIcon(CalinoIcon.Check, tint = CalinoColors.OnAccent, modifier = Modifier.fillMaxSize().padding(2.dp), contentDescription = null)
     }
 }
 
@@ -885,13 +899,15 @@ fun CalinoMonthHeading(
 
 @Composable
 fun DayGroupHeader(day: LocalDate, isToday: Boolean = false, eventCount: Int? = null, modifier: Modifier = Modifier, empty: Boolean = false) {
+    // Hoisted: a draw scope cannot read the palette's composition local.
+    val hairline = CalinoColors.Line2
     Row(
         modifier
             .fillMaxWidth()
             .heightIn(min = 58.dp)
             .drawBehind {
                 val y = size.height - 1.dp.toPx()
-                drawLine(CalinoColors.Line2, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.dp.toPx())
+                drawLine(hairline, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.dp.toPx())
             }
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
@@ -1132,10 +1148,12 @@ fun AddPill(
                     .offset { IntOffset((-dragX * .3f).roundToInt(), 0) },
             )
         }
+        // Hoisted: a draw scope cannot read the palette's composition local.
+        val pillInk = CalinoColors.Ink
         Row(
             Modifier
                 .offset { IntOffset(dragX.roundToInt(), 0) }
-                .shadow(14.dp, RoundedCornerShape(CalinoShapes.Pill), clip = false)
+                .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
                 .clip(RoundedCornerShape(CalinoShapes.Pill))
                 .onGloballyPositioned { pillOrigin = it.positionInRoot() }
                 .drawBehind {
@@ -1146,9 +1164,9 @@ fun AddPill(
                             translate(-offset.x, -offset.y) { drawLayer(backdrop) }
                         }
                         drawLayer(blurred)
-                        drawRect(CalinoColors.Ink.copy(alpha = .86f))
+                        drawRect(pillInk.copy(alpha = .86f))
                     } else {
-                        drawRect(CalinoColors.Ink)
+                        drawRect(pillInk)
                     }
                 }
                 .calinoPressable(pressedScale = .97f, onClick = onClick)
@@ -1291,6 +1309,8 @@ fun ZoomHandle(level: Int, caption: String, modifier: Modifier = Modifier, onCli
 fun DetailRow(icon: CalinoIcon, label: String, value: String?, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     if (value.isNullOrBlank()) return
     val pressModifier = if (onClick != null) Modifier.calinoPressable(onClick = onClick) else Modifier
+    // Hoisted: a draw scope cannot read the palette's composition local.
+    val hairline = CalinoColors.Line2
     Row(
         modifier
             .fillMaxWidth()
@@ -1298,7 +1318,7 @@ fun DetailRow(icon: CalinoIcon, label: String, value: String?, modifier: Modifie
             .then(pressModifier)
             .drawBehind {
                 val y = size.height - 1.dp.toPx()
-                drawLine(CalinoColors.Line2, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.dp.toPx())
+                drawLine(hairline, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.dp.toPx())
             }
             .semantics(mergeDescendants = true) { contentDescription = "$label: $value" }
             .padding(vertical = 15.dp),
@@ -1335,7 +1355,7 @@ fun CalinoScrim(visible: Boolean, modifier: Modifier = Modifier, onDismiss: (() 
         Box(
             Modifier
                 .fillMaxSize()
-                .background(CalinoColors.Ink.copy(alpha = .38f))
+                .background(CalinoColors.Scrim)
                 .then(if (onDismiss != null) Modifier.clickable(role = Role.Button, onClick = onDismiss) else Modifier)
                 .semantics { contentDescription = "Dismiss" },
         )

@@ -322,6 +322,8 @@ fun HomeScreen(
     /** Reports whether the landscape day pane is currently showing. */
     onSplitPaneChanged: (Boolean) -> Unit = {},
 ) {
+    // Hoisted: the compact lane's draw scope cannot read the composition local.
+    val canvas = CalinoColors.Canvas
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
     // The default view seeds the zoom once, on the first composition of a
     // session. Reading it continuously would pin the calendar to that level and
@@ -1049,7 +1051,7 @@ fun HomeScreen(
                                     abs(weekPagerState.currentPageOffsetFraction) > .001f ||
                                     weekPageFor(weekStripDay, weekStart) != weekPagerState.settledPage
                                 if (previewVisible) {
-                                    drawRect(CalinoColors.Canvas)
+                                    drawRect(canvas)
                                     drawContent()
                                 }
                             },
@@ -1520,8 +1522,8 @@ private fun WeekDay(
         label = "week selection",
     )
     val eventDensity = LocalCalinoPreferences.current.eventDensity
-    val weekdayColor = lerpColor(CalinoColors.Ink3, Color.White.copy(.65f), selectedWeight)
-    val dateColor = lerpColor(CalinoColors.Ink2, Color.White, selectedWeight)
+    val weekdayColor = lerpColor(CalinoColors.Ink3, CalinoColors.OnInk.copy(.65f), selectedWeight)
+    val dateColor = lerpColor(CalinoColors.Ink2, CalinoColors.OnInk, selectedWeight)
     val interactionModifier = if (interactionEnabled) {
         Modifier.clickable(onClick = onClick)
     } else {
@@ -1573,7 +1575,7 @@ private fun WeekDay(
                 Box(Modifier.size(
                     width = if (event.allDay) 18.dp else 5.dp,
                     height = if (event.allDay) 3.dp else 5.dp,
-                ).clip(RoundedCornerShape(2.dp)).background(Color(event.color)))
+                ).clip(RoundedCornerShape(2.dp)).background(CalinoColors.forEvent(Color(event.color))))
             }
         }
     }
@@ -1779,6 +1781,8 @@ private fun MorphingMonthGrid(
     targetHeight: Dp,
     onDay: (LocalDate) -> Unit,
 ) {
+    // Hoisted once: draw scopes cannot read the palette's composition local.
+    val colors = CalinoColors
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
     val eventDensity = LocalCalinoPreferences.current.eventDensity
@@ -1872,7 +1876,7 @@ private fun MorphingMonthGrid(
                             horizontalPaddingPx + cellWidthPx * column + (cellWidthPx - layout.size.width) / 2f,
                             (headerHeightPx - layout.size.height) / 2f,
                         ),
-                        color = faded(CalinoColors.Ink3),
+                        color = faded(colors.Ink3),
                     )
                 }
 
@@ -1885,8 +1889,8 @@ private fun MorphingMonthGrid(
                     val isSelected = date == selected
                     val isToday = date == today
                     val cellFill = when {
-                        isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f)
-                        isToday -> CalinoColors.AccentSoft.copy(alpha = .45f)
+                        isSelected -> colors.AccentSoft.copy(alpha = .72f)
+                        isToday -> colors.AccentSoft.copy(alpha = .45f)
                         else -> Color.Transparent
                     }
                     if (cellFill != Color.Transparent) {
@@ -1902,17 +1906,17 @@ private fun MorphingMonthGrid(
                     if (isSelected || isToday) {
                         drawCircle(
                             color = faded(
-                                if (isSelected) CalinoColors.Accent else CalinoColors.Accent.copy(alpha = .78f),
+                                if (isSelected) colors.Accent else colors.Accent.copy(alpha = .78f),
                             ),
                             radius = dateSizePx / 2f,
                             center = Offset(cellLeft + cellWidthPx / 2f, dateTop + dateSizePx / 2f),
                         )
                     }
                     val dateLayout = dateLayouts[index]
-                    val dateColor = if (isSelected) Color.White else if (YearMonth.from(date) == month) {
-                        CalinoColors.Ink2
+                    val dateColor = if (isSelected) colors.OnAccent else if (YearMonth.from(date) == month) {
+                        colors.Ink2
                     } else {
-                        CalinoColors.Ink3.copy(.5f)
+                        colors.Ink3.copy(.5f)
                     }
                     drawText(
                         dateLayout,
@@ -1954,8 +1958,8 @@ private fun MorphingMonthGrid(
                             val y = markerTop + (chipTop - markerTop) * eventMorph
                             val width = markerWidth + (chipWidth - markerWidth) * eventMorph
                             val height = markerHeight + (chipHeightPx - markerHeight) * eventMorph
-                            val eventColor = Color(event.color)
-                            val chipColor = eventTint(eventColor, if (event.allDay) .18f else .10f)
+                            val eventColor = colors.forEvent(Color(event.color))
+                            val chipColor = colors.tint(Color(event.color), if (event.allDay) .18f else .10f)
                             val textMorph = smoothStep(((eventMorph - .55f) / .45f).coerceIn(0f, 1f))
                             drawRoundRect(
                                 color = faded(lerpColor(eventColor, chipColor, eventMorph)),
@@ -1977,13 +1981,13 @@ private fun MorphingMonthGrid(
                                             x + chipTextStartPx,
                                             y + (height - layout.size.height) / 2f,
                                         ),
-                                        color = faded(CalinoColors.Ink, textMorph),
+                                        color = faded(colors.Ink, textMorph),
                                     )
                                 }
                             }
                         } else {
                             drawRoundRect(
-                                color = faded(Color(event.color), 1f - eventMorph),
+                                color = faded(colors.forEvent(Color(event.color)), 1f - eventMorph),
                                 topLeft = Offset(markerLeft, markerTop),
                                 size = Size(markerWidth, markerHeight),
                                 cornerRadius = CornerRadius(with(density) { 2.dp.toPx() }),
@@ -2007,12 +2011,12 @@ private fun MorphingMonthGrid(
                                 cellLeft + (cellWidthPx - layout.size.width) / 2f,
                                 eventAreaTop + 2 * chipHeightPx,
                             ),
-                            color = faded(CalinoColors.Ink3, overflowMorph),
+                            color = faded(colors.Ink3, overflowMorph),
                         )
                     }
                     if (date in monthJournalDates) {
                         drawCircle(
-                            color = faded(CalinoColors.Plum),
+                            color = faded(colors.Plum),
                             radius = journalRadiusPx,
                             center = Offset(
                                 cellLeft + cellWidthPx / 2f,
@@ -2185,6 +2189,8 @@ private fun StaticMonthGrid(
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
+    // Hoisted once: draw scopes cannot read the palette's composition local.
+    val colors = CalinoColors
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
     val eventDensity = LocalCalinoPreferences.current.eventDensity
@@ -2376,7 +2382,7 @@ private fun StaticMonthGrid(
                                     (compactStartHeightPx - compactWeekContentHeightPx) / 2f * compactProgress,
                             ),
                             color = faded(
-                                lerpColor(CalinoColors.Ink3, Color.White,
+                                lerpColor(colors.Ink3, colors.OnInk,
                                     (1f - abs(compactSelectorIndex - column)).coerceIn(0f, 1f) * compactProgress),
                             ),
                         )
@@ -2439,8 +2445,8 @@ private fun StaticMonthGrid(
                             },
                             color = faded(
                                 when (region.kind) {
-                                    WashKind.Weekend -> CalinoColors.WeekendWash
-                                    WashKind.OutsideMonth -> CalinoColors.OutsideMonthWash
+                                    WashKind.Weekend -> colors.WeekendWash
+                                    WashKind.OutsideMonth -> colors.OutsideMonthWash
                                 },
                                 washAlpha,
                             ),
@@ -2453,7 +2459,7 @@ private fun StaticMonthGrid(
                         naturalWeekHeight.coerceAtLeast(1f),
                     )
                     drawRoundRect(
-                        color = faded(CalinoColors.Ink.copy(alpha = .95f), compactProgress),
+                        color = faded(colors.Ink.copy(alpha = .95f), compactProgress),
                         topLeft = Offset(
                             compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(0f, 6f),
                             compactWeekCenter - pillHeight / 2f,
@@ -2500,8 +2506,8 @@ private fun StaticMonthGrid(
                         cellTop + dateTopPaddingPx
                     }
                     val compactFill = when {
-                        isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f * (1f - compactProgress))
-                        isToday -> CalinoColors.AccentSoft.copy(alpha = .45f * (1f - compactProgress))
+                        isSelected -> colors.AccentSoft.copy(alpha = .72f * (1f - compactProgress))
+                        isToday -> colors.AccentSoft.copy(alpha = .45f * (1f - compactProgress))
                         else -> Color.Transparent
                     }
                     if (compactFill != Color.Transparent) {
@@ -2513,8 +2519,8 @@ private fun StaticMonthGrid(
                         )
                     }
                     val detailFill = when {
-                        isSelected -> CalinoColors.AccentSoft.copy(alpha = .72f * detailProgress)
-                        isToday -> CalinoColors.AccentSoft.copy(alpha = .45f * detailProgress)
+                        isSelected -> colors.AccentSoft.copy(alpha = .72f * detailProgress)
+                        isToday -> colors.AccentSoft.copy(alpha = .45f * detailProgress)
                         else -> Color.Transparent
                     }
                     if (detailFill != Color.Transparent) {
@@ -2529,7 +2535,7 @@ private fun StaticMonthGrid(
                         if (!isSelected || compactProgress < .999f) {
                             drawCircle(
                                 color = faded(
-                                    if (isSelected) CalinoColors.Accent else CalinoColors.Accent.copy(alpha = .78f),
+                                    if (isSelected) colors.Accent else colors.Accent.copy(alpha = .78f),
                                     if (isSelected && zoom <= 1f) 1f - compactProgress else 1f,
                                 ),
                                 radius = dateSizePx / 2f,
@@ -2546,16 +2552,16 @@ private fun StaticMonthGrid(
                         ),
                         color = faded(if (compactWeekStyle && compactWeekSelectionWeight > .001f) {
                             lerpColor(
-                                if (inMonthFlags[index]) CalinoColors.Ink2 else CalinoColors.Ink3.copy(.5f),
-                                Color.White,
+                                if (inMonthFlags[index]) colors.Ink2 else colors.Ink3.copy(.5f),
+                                colors.OnInk,
                                 compactWeekSelectionWeight,
                             )
                         } else if (isSelected) {
-                            Color.White
+                            colors.OnAccent
                         } else if (inMonthFlags[index]) {
-                            CalinoColors.Ink2
+                            colors.Ink2
                         } else {
-                            CalinoColors.Ink3.copy(.5f)
+                            colors.Ink3.copy(.5f)
                         }),
                     )
 
@@ -2595,11 +2601,11 @@ private fun StaticMonthGrid(
                             val y = fromY + (chipTop - fromY) * morph
                             val width = fromWidth + (chipWidth - fromWidth) * morph
                             val height = fromHeight + (chipHeightPx - fromHeight) * morph
-                            val eventColor = Color(event.color)
+                            val eventColor = colors.forEvent(Color(event.color))
                             // The same fill and hairline edge the full-size
                             // event card wears, so a day's cards and its
                             // agenda entries read as one family.
-                            val chipColor = eventTint(eventColor, .12f, CalinoColors.Panel)
+                            val chipColor = colors.tint(eventColor, .12f, colors.Panel)
                             val corner = CornerRadius(
                                 with(density) { 2.dp.toPx() } + (chipCornerPx - with(density) { 2.dp.toPx() }) * morph,
                             )
@@ -2628,13 +2634,13 @@ private fun StaticMonthGrid(
                                             x + chipTextStartPx,
                                             y + (height - layout.size.height) / 2f,
                                         ),
-                                        color = faded(CalinoColors.Ink, textProgress * chipFade),
+                                        color = faded(colors.Ink, textProgress * chipFade),
                                     )
                                 }
                             }
                         } else if (hasMarker) {
                             drawRoundRect(
-                                color = faded(Color(event.color), 1f - detailProgress),
+                                color = faded(colors.forEvent(Color(event.color)), 1f - detailProgress),
                                 topLeft = Offset(markerLeft, markerTop),
                                 size = Size(markerWidth, markerHeight),
                                 cornerRadius = CornerRadius(2.dp.toPx()),
@@ -2652,7 +2658,7 @@ private fun StaticMonthGrid(
                                     eventAreaTop + chipPitchPx * shownCount +
                                         (overflowHeightPx - layout.size.height) / 2f,
                                 ),
-                                color = faded(CalinoColors.Ink3, overflowProgress),
+                                color = faded(colors.Ink3, overflowProgress),
                             )
                         }
                     }
@@ -2889,7 +2895,7 @@ private fun CompactMonthRow(
             // the label dark rather than leaving white text on the canvas.
             val regularDateColor = if (inMonth) CalinoColors.Ink2 else CalinoColors.Ink3.copy(.5f)
             val dateColor = if (today) {
-                lerpColor(Color.White, CalinoColors.Ink2, compactProgress)
+                lerpColor(CalinoColors.OnAccent, CalinoColors.Ink2, compactProgress)
             } else {
                 regularDateColor
             }
@@ -2936,7 +2942,7 @@ private fun CompactMonthRow(
                                 .width(if (event.allDay) 16.dp else 4.dp)
                                 .height(if (event.allDay) 3.dp else 4.dp)
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(Color(event.color)),
+                                .background(CalinoColors.forEvent(Color(event.color))),
                         )
                     }
                 }
@@ -3128,7 +3134,7 @@ private fun DayCell(
             Text(
                 date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
                 fontSize = 10.sp,
-                color = lerpColor(CalinoColors.Ink3, Color.White, compactSelectedWeight),
+                color = lerpColor(CalinoColors.Ink3, CalinoColors.OnInk, compactSelectedWeight),
             )
         }
         val dateSize = lerpDp(lerpDp(22.dp, 25.dp, detailProgress), 18.dp, compactProgress)
@@ -3136,7 +3142,7 @@ private fun DayCell(
             inMonth -> CalinoColors.Ink2
             else -> CalinoColors.Ink3.copy(.5f)
         }
-        val compactDateColor = if (compactSelectedWeight > .5f) Color.White else CalinoColors.Ink2
+        val compactDateColor = if (compactSelectedWeight > .5f) CalinoColors.OnInk else CalinoColors.Ink2
         Row(
             Modifier.fillMaxWidth().height(dateSize),
             verticalAlignment = Alignment.CenterVertically,
@@ -3166,7 +3172,7 @@ private fun DayCell(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = lerpColor(
-                        lerpColor(monthDateColor, if (selected || today) Color.White else monthDateColor, selectedWeight),
+                        lerpColor(monthDateColor, if (selected || today) CalinoColors.OnAccent else monthDateColor, selectedWeight),
                         compactDateColor,
                         compactProgress,
                     ),
@@ -3196,6 +3202,8 @@ private fun DayCell(
  */
 @Composable
 private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, modifier: Modifier) {
+    // Hoisted once: draw scopes cannot read the palette's composition local.
+    val colors = CalinoColors
     // Only the first two events ever become readable chips. The remaining
     // events stay compact dots/lines and fade out as detail expands, so
     // measuring them as full composable subtrees only adds work to the hot
@@ -3221,7 +3229,7 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
                 Text(
                     "+$overflow",
                     fontSize = 10.sp,
-                    color = CalinoColors.Ink3,
+                    color = colors.Ink3,
                     modifier = Modifier.graphicsLayer { alpha = detailProgress },
                 )
             }
@@ -3253,8 +3261,8 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
                     0,
                     progress,
                 ).toFloat()
-                val color = Color(event.color)
-                val chipColor = eventTint(color, if (event.allDay) .18f else .10f)
+                val color = colors.forEvent(Color(event.color))
+                val chipColor = colors.tint(Color(event.color), if (event.allDay) .18f else .10f)
                 drawRoundRect(
                     color = lerpColor(color, chipColor, progress).copy(alpha = 1f - progress),
                     topLeft = androidx.compose.ui.geometry.Offset(
@@ -3335,7 +3343,7 @@ private fun EventDensityContent(events: List<CalEvent>, detailProgress: Float, m
 @Composable
 private fun EventDensityItem(event: CalEvent, detailProgress: Float) {
     val progress = detailProgress.coerceIn(0f, 1f)
-    val color = Color(event.color)
+    val color = CalinoColors.forEvent(Color(event.color))
     val chipColor = eventTint(color, if (event.allDay) .18f else .10f)
     Box(
         Modifier.fillMaxSize()
@@ -3400,7 +3408,7 @@ private fun EventChip(event: CalEvent, minHeight: Dp = 34.dp, onClick: (() -> Un
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .semantics(mergeDescendants = true) { contentDescription = eventDescription(event, timeFormat) }
             .background(eventTint(Color(event.color), if (agendaStyle) .12f else .10f, CalinoColors.Panel))
-            .border(1.dp, Color(event.color).copy(alpha = if (agendaStyle) .16f else .12f), shape)
+            .border(1.dp, CalinoColors.forEvent(Color(event.color)).copy(alpha = if (agendaStyle) .16f else .12f), shape)
             .padding(horizontal = if (agendaStyle) 10.dp else 4.dp, vertical = if (agendaStyle) 7.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -3408,7 +3416,7 @@ private fun EventChip(event: CalEvent, minHeight: Dp = 34.dp, onClick: (() -> Un
             Modifier.width(if (agendaStyle) 4.dp else 2.dp)
                 .height(if (agendaStyle) 30.dp else 22.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(Color(event.color)),
+                .background(CalinoColors.forEvent(Color(event.color))),
         )
         if (agendaStyle) {
             Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -3455,6 +3463,8 @@ private fun DayPagerSurface(
     onTaskClick: ((CalTask) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
+    // Hoisted once: draw scopes cannot read the palette's composition local.
+    val colors = CalinoColors
     val dayRailVisibility = Modifier.drawWithContent {
         if (zoomState.value < DaySurfaceBlendEnd) drawContent()
     }
@@ -3505,7 +3515,7 @@ private fun DayPagerSurface(
                             // Cover the rail before drawing the incoming
                             // agenda so the transition has one readable
                             // surface at every frame.
-                            drawRect(CalinoColors.Canvas)
+                            drawRect(colors.Canvas)
                             this@drawWithContent.drawContent()
                         }
                     }
@@ -3761,6 +3771,8 @@ private fun CompactLaneScrim(
     blend: () -> Float,
     modifier: Modifier = Modifier,
 ) {
+    // Hoisted once: draw scopes cannot read the palette's composition local.
+    val colors = CalinoColors
     val blurred = rememberGraphicsLayer()
     // RenderEffect is Android 12+. Below it, the tint and the dissolving edge
     // carry the effect on their own.
@@ -3779,9 +3791,9 @@ private fun CompactLaneScrim(
                     // The tint mutes it to a suggestion of what is underneath
                     // and keeps the strip on top legible. It goes fully opaque
                     // as the month grid takes the lane.
-                    drawRect(CalinoColors.Canvas.copy(alpha = lerp(1f, .74f, laneBlend)))
+                    drawRect(colors.Canvas.copy(alpha = lerp(1f, .74f, laneBlend)))
                 } else {
-                    drawRect(CalinoColors.Canvas)
+                    drawRect(colors.Canvas)
                 }
                 val softEdge = CompactLaneSoftEdge.toPx().coerceAtMost(size.height)
                 val fadeStart = ((size.height - softEdge) / size.height).coerceIn(0f, 1f)
@@ -3799,13 +3811,15 @@ private fun CompactLaneScrim(
 
 @Composable
 private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: ((CalEvent) -> Unit)?) {
+    // Hoisted once: draw scopes cannot read the palette's composition local.
+    val colors = CalinoColors
     val timeFormat = LocalTimeFormat
     val slots = remember(dayEvents) { layoutDayRail(dayEvents) }
     Box(Modifier.fillMaxWidth().height(1488.dp)) {
         Canvas(Modifier.fillMaxSize()) {
             repeat(24) { hour ->
                 val y = hour * 62.dp.toPx()
-                drawLine(CalinoColors.Ink.copy(.08f), androidx.compose.ui.geometry.Offset(52.dp.toPx(), y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
+                drawLine(colors.Ink.copy(.08f), androidx.compose.ui.geometry.Offset(52.dp.toPx(), y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
             }
         }
         (0..23).forEach { hour ->
@@ -3813,7 +3827,7 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                 timeFormat.formatHour(hour),
                 Modifier.offset(x = 8.dp, y = (hour * 62 - 7).dp),
                 fontSize = 10.sp,
-                color = CalinoColors.Ink3,
+                color = colors.Ink3,
             )
         }
         // Overlapping events share the rail's width instead of being stacked
@@ -3840,7 +3854,7 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                         .clip(RoundedCornerShape(11.dp))
                         .then(if (onEvent != null) Modifier.clickable { onEvent(event) } else Modifier)
                         .semantics(mergeDescendants = true) { contentDescription = eventDescription(event, timeFormat) }
-                        .background(eventTint(Color(event.color), .13f, CalinoColors.Panel))
+                        .background(eventTint(Color(event.color), .13f, colors.Panel))
                         .border(1.dp, Color(event.color).copy(alpha = .16f), RoundedCornerShape(11.dp))
                         .padding(horizontal = 8.dp, vertical = 5.dp),
                 ) {
@@ -3849,7 +3863,7 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                             Modifier.width(4.dp)
                                 .fillMaxHeight()
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(Color(event.color)),
+                                .background(CalinoColors.forEvent(Color(event.color))),
                         )
                         Column(Modifier.padding(start = 8.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(
@@ -3859,7 +3873,7 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = CalinoColors.Ink,
+                                color = colors.Ink,
                             )
                             if (showMetadata) {
                                 val metadata = buildString {
@@ -3871,7 +3885,7 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                                         ?.takeIf { railPreferences.showLocations }
                                         ?.let { append(" · ").append(it) }
                                 }
-                                Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = CalinoColors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = colors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -3889,8 +3903,8 @@ private fun HourRailContent(day: LocalDate, dayEvents: List<CalEvent>, onEvent: 
                     .height(8.dp)
                     .semantics { contentDescription = "Current time, ${timeFormat.format(now.time)}" },
             ) {
-                drawLine(CalinoColors.Rose, androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
-                drawCircle(CalinoColors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()))
+                drawLine(colors.Rose, androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
+                drawCircle(colors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()))
             }
         }
     }

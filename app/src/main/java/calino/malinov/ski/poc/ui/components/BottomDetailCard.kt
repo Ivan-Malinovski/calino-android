@@ -58,7 +58,7 @@ fun BottomDetailOverlay(
     // includes the IME. Adding it again subtracted the keyboard twice and
     // crushed the card to its header and action row.
     BoxWithConstraints(modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(CalinoColors.Ink.copy(alpha = .28f * progress))
+        Box(Modifier.fillMaxSize().background(CalinoColors.scrim(.28f * progress))
             .semantics { contentDescription = "Dismiss detail card" }
             .clickable(onClick = onDismiss))
         // A short landscape window has no room to spare for the peek of the

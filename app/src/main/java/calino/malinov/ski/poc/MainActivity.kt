@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
@@ -106,7 +107,12 @@ import calino.malinov.ski.poc.data.repository.UndoableChange
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import calino.malinov.ski.poc.design.CalinoTheme
+import calino.malinov.ski.poc.design.CalinoThemes
+import calino.malinov.ski.poc.util.CalinoThemeChoice
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
@@ -309,17 +315,47 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 /** The launch shell for the native app. No WebView or Capacitor is involved. */
 @Composable
 fun CalinoApp() {
-    CalinoTheme {
-        val pocViewModel = viewModel<PocRepositoryViewModel>()
-        // The clock runs for real once an account is connected; with only the
-        // fixture data it stays frozen so the sample stays deterministic.
-        val now by rememberCalinoNow(live = pocViewModel.hasAccounts)
-        val preferences = rememberCalinoPreferences(pocViewModel.preferenceStore)
+    val pocViewModel = viewModel<PocRepositoryViewModel>()
+    // The clock runs for real once an account is connected; with only the
+    // fixture data it stays frozen so the sample stays deterministic.
+    val now by rememberCalinoNow(live = pocViewModel.hasAccounts)
+    // Read before the theme, not inside it: the palette is a function of a
+    // preference, so the preference has to exist first.
+    val preferences = rememberCalinoPreferences(pocViewModel.preferenceStore)
+    val dark = when (preferences.themeChoice) {
+        CalinoThemeChoice.System -> isSystemInDarkTheme()
+        CalinoThemeChoice.Light -> false
+        CalinoThemeChoice.Dark -> true
+    }
+    CalinoTheme(if (dark) CalinoThemes.PaperDark else CalinoThemes.PaperLight) {
+        SystemBarAppearance(light = !dark)
         CompositionLocalProvider(
             LocalCalinoNow provides now,
             LocalCalinoPreferences provides preferences,
         ) {
             CalinoAppContent(pocViewModel)
+        }
+    }
+}
+
+/**
+ * Keeps the status and navigation bar icons legible against whatever the app is
+ * painted in.
+ *
+ * The manifest theme used to assert dark icons unconditionally, which is right
+ * for paper and unreadable over ink. It has to be the insets controller rather
+ * than a resource qualifier, because an in-app Light or Dark choice must beat
+ * the system's night setting -- and `values-night` cannot see that choice.
+ */
+@Composable
+private fun SystemBarAppearance(light: Boolean) {
+    val view = LocalView.current
+    if (view.isInEditMode) return
+    val window = (view.context as? android.app.Activity)?.window ?: return
+    SideEffect {
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
         }
     }
 }
@@ -940,7 +976,7 @@ private fun PocUndoBanner(
         modifier = modifier.fillMaxWidth(.92f),
         shape = RoundedCornerShape(16.dp),
         color = CalinoColors.Ink,
-        contentColor = Color.White,
+        contentColor = CalinoColors.OnInk,
     ) {
         androidx.compose.foundation.layout.Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),

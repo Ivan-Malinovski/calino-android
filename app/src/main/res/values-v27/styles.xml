@@ -2,10 +2,11 @@
     <style name="Theme.CalinoPoc" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#B07D4F</item>
+        <!-- The launch window, before Compose paints. values-night carries the
+             dark twin so a cold start on a dark phone does not flash paper. -->
+        <item name="android:windowBackground">@color/launch_canvas</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>

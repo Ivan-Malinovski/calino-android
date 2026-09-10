@@ -1,10 +1,18 @@
 package calino.malinov.ski.poc.design
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -13,36 +21,229 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.R
 
-object CalinoColors {
-    val Canvas = Color(0xFFFAF8F3)
-    val Panel = Color.White
-    val Side = Color(0xFFF6F3ED)
-    val Ink = Color(0xFF2C2823)
-    val Ink2 = Color(0xFF6F6A62)
-    val Ink3 = Color(0xFFA39D93)
-    val Accent = Color(0xFFB07D4F)
-    val AccentSoft = Color(0xFFEFE7DB)
-    val Line = Ink.copy(alpha = .09f)
-    val Line2 = Ink.copy(alpha = .05f)
-    val Rose = Color(0xFFC2697F)
-    val Blue = Color(0xFF5B7FB5)
-    val Green = Color(0xFF5D9A78)
-    val Amber = Color(0xFFBF944E)
-    val Plum = Color(0xFF8A6AA8)
-    val Teal = Color(0xFF4A9B96)
+/**
+ * One theme's colors.
+ *
+ * The property names are deliberately capitalised. They were the members of an
+ * `object CalinoColors` read statically from every surface in the app, and
+ * keeping the spelling is what let the palette become a provided value without
+ * touching the hundreds of call sites that read it. Read them through
+ * [CalinoColors], never by holding a palette in a field.
+ *
+ * Values track `src/themes/built-in.css` in the Calino web repository, which is
+ * the same design system. Two of its rules matter here:
+ *
+ * - **The warm neutral rule.** No flat grey, no pure black, no pure white.
+ *   Every neutral carries the paper's warmth, in both directions.
+ * - **The flat-dark rule.** Shadows are a light-mode device. A dark theme
+ *   expresses elevation through the [Canvas]/[Panel]/[Side] steps and its
+ *   hairlines instead, which is what [elevationAlpha] gates.
+ */
+@Immutable
+data class CalinoPalette(
+    /** Stable key for persistence. Never rename a shipped one. */
+    val id: String,
+    /** What the settings picker calls it. */
+    val name: String,
+    val isDark: Boolean,
+    val Canvas: Color,
+    val Panel: Color,
+    val Side: Color,
+    val Ink: Color,
+    val Ink2: Color,
+    val Ink3: Color,
+    val Accent: Color,
+    val AccentSoft: Color,
+    /**
+     * What reads legibly *on* [Accent]. Paper white in light; in dark it flips
+     * back to the canvas, because white on the lightened accent measures
+     * 2.63:1 where ink measures 6.74:1.
+     */
+    val OnAccent: Color,
+    /** What reads legibly on a surface painted with [Ink] at full weight. */
+    val OnInk: Color,
+    val Rose: Color,
+    val Blue: Color,
+    val Green: Color,
+    val Amber: Color,
+    val Plum: Color,
+    val Teal: Color,
+    /**
+     * How much heavier a scrim has to be in this theme. A veil that reads
+     * clearly over paper barely registers over ink, because there is far less
+     * brightness left to take away.
+     */
+    val scrimBoost: Float,
+    /** The wash a pressed row takes on. */
+    val PressWash: Color,
+    /**
+     * How far to push [eventTint]'s mix. A tint that reads as a whisper over
+     * paper disappears entirely over ink, so dark mixes harder.
+     */
+    val eventTintScale: Float,
+    /** Multiplier on drop-shadow alpha. Zero in dark, per the flat-dark rule. */
+    val elevationAlpha: Float,
+) {
+    // Derived from Ink exactly as they always were, so they follow it into a
+    // dark palette without a second set of literals to keep in step.
+    val Line: Color get() = Ink.copy(alpha = .09f)
+    val Line2: Color get() = Ink.copy(alpha = .05f)
 
     /**
      * Washes that give the month grid a readable structure. Every cell used to
      * be the same paper, so a Saturday, a Wednesday and a day belonging to the
      * next month were indistinguishable until you read the number. These are
-     * warm greys drawn from [Ink], deliberately faint: they should register as
-     * rhythm rather than as boxes, and they are painted as bands that abut
-     * rather than overlap: stacking two of them on one cell compounds into a
-     * patch far darker than either was meant to be.
+     * drawn from [Ink], deliberately faint: they should register as rhythm
+     * rather than as boxes, and they are painted as bands that abut rather
+     * than overlap: stacking two of them on one cell compounds into a patch
+     * far darker than either was meant to be.
      */
-    val WeekendWash = Ink.copy(alpha = .045f)
-    val OutsideMonthWash = Ink.copy(alpha = .022f)
+    val WeekendWash: Color get() = Ink.copy(alpha = .045f)
+    val OutsideMonthWash: Color get() = Ink.copy(alpha = .022f)
+
+    /**
+     * A calendar color, made fit for this theme's background.
+     *
+     * Event colors are *data*: they come from the fixtures and from whatever a
+     * CalDAV server chose, as raw ARGB longs, so a palette cannot simply
+     * rename them. The six the app ships have designed dark counterparts;
+     * anything else a server sends is lifted toward the ink so a color picked
+     * against a white calendar does not sink into a dark one.
+     */
+    fun forEvent(color: Color): Color {
+        if (!isDark) return color
+        return DarkHues[color.value] ?: lerp(color, Ink, .26f)
+    }
+
+    /**
+     * [color] laid over [over] at [percent] strength, scaled for this theme.
+     *
+     * The member form exists for draw scopes, which cannot call the composable
+     * [eventTint] but do hold a hoisted palette. Same algorithm, one place.
+     */
+    /**
+     * A veil at [alpha], weighted for this theme.
+     *
+     * Each surface keeps the strength it chose; only the theme's boost differs.
+     * Never build a scrim out of [Ink]: at night that is nearly white, and a
+     * scrim made of it lightens the very thing it is meant to push back.
+     */
+    fun scrim(alpha: Float): Color =
+        Color.Black.copy(alpha = (alpha * scrimBoost).coerceIn(0f, 1f))
+
+    /** The standard modal veil. */
+    val Scrim: Color get() = scrim(.38f)
+
+    fun tint(color: Color, percent: Float, over: Color = Canvas): Color =
+        lerp(over, forEvent(color), (percent * eventTintScale).coerceIn(0f, 1f))
+
+    private companion object {
+        /**
+         * Keyed on the light palette's own hues, so a fixture written against
+         * paper resolves to the value designed for ink rather than to the
+         * generic lift.
+         */
+        val DarkHues: Map<ULong, Color> by lazy {
+            val light = CalinoThemes.PaperLight
+            val dark = CalinoThemes.PaperDark
+            mapOf(
+                light.Rose.value to dark.Rose,
+                light.Blue.value to dark.Blue,
+                light.Green.value to dark.Green,
+                light.Amber.value to dark.Amber,
+                light.Plum.value to dark.Plum,
+                light.Teal.value to dark.Teal,
+                light.Accent.value to dark.Accent,
+            )
+        }
+    }
 }
+
+/**
+ * The themes the app can be set to.
+ *
+ * Two ship. The registry exists because the web app carries a dozen more --
+ * Slate, Mist, Catppuccin, Bauhaus -- and porting one should be an entry here
+ * and nothing else.
+ */
+object CalinoThemes {
+
+    /** The paper the app has always been. */
+    val PaperLight = CalinoPalette(
+        id = "paper-light",
+        name = "Light",
+        isDark = false,
+        Canvas = Color(0xFFFAF8F3),
+        Panel = Color.White,
+        Side = Color(0xFFF6F3ED),
+        Ink = Color(0xFF2C2823),
+        Ink2 = Color(0xFF6F6A62),
+        Ink3 = Color(0xFFA39D93),
+        Accent = Color(0xFFB07D4F),
+        AccentSoft = Color(0xFFEFE7DB),
+        OnAccent = Color.White,
+        OnInk = Color.White,
+        Rose = Color(0xFFC2697F),
+        Blue = Color(0xFF5B7FB5),
+        Green = Color(0xFF5D9A78),
+        Amber = Color(0xFFBF944E),
+        Plum = Color(0xFF8A6AA8),
+        Teal = Color(0xFF4A9B96),
+        scrimBoost = 1f,
+        PressWash = Color(0xFF2C2823).copy(alpha = .06f),
+        eventTintScale = 1f,
+        elevationAlpha = 1f,
+    )
+
+    /**
+     * The same paper at night. Values are the web's `[data-theme='dark']`
+     * block; the three status hues are its measured ones, and Blue, Plum and
+     * Teal are lifted by the move the accent makes (#B07D4F -> #C9956A).
+     */
+    val PaperDark = CalinoPalette(
+        id = "paper-dark",
+        name = "Dark",
+        isDark = true,
+        Canvas = Color(0xFF1A1816),
+        Panel = Color(0xFF242220),
+        Side = Color(0xFF2A2826),
+        Ink = Color(0xFFF0ECE6),
+        Ink2 = Color(0xFFA8A29A),
+        Ink3 = Color(0xFF989086),
+        Accent = Color(0xFFC9956A),
+        AccentSoft = Color(0xFF33291F),
+        OnAccent = Color(0xFF1A1816),
+        OnInk = Color(0xFF1A1816),
+        Rose = Color(0xFFD4877F),
+        Blue = Color(0xFF7D9FD1),
+        Green = Color(0xFF6AAA85),
+        Amber = Color(0xFFD4A54F),
+        Plum = Color(0xFFA98BC4),
+        Teal = Color(0xFF6FB8B3),
+        scrimBoost = 1.55f,
+        PressWash = Color(0xFFF0ECE6).copy(alpha = .06f),
+        eventTintScale = 1.6f,
+        elevationAlpha = 0f,
+    )
+
+    val all: List<CalinoPalette> = listOf(PaperLight, PaperDark)
+
+    /** Falls back rather than throwing: an id may come from an older install. */
+    fun byId(id: String?): CalinoPalette = all.firstOrNull { it.id == id } ?: PaperLight
+}
+
+val LocalCalinoPalette = staticCompositionLocalOf { CalinoThemes.PaperLight }
+
+/**
+ * The palette in force.
+ *
+ * This used to be `object CalinoColors`, a set of static literals. It reads the
+ * same at every call site and is now whatever theme the user chose. Draw code
+ * cannot read a composition local, so hoist this into a `val` in the enclosing
+ * composable and capture that in the lambda.
+ */
+val CalinoColors: CalinoPalette
+    @Composable @ReadOnlyComposable get() = LocalCalinoPalette.current
 
 object CalinoSpacing {
     val Base = 4.dp
@@ -106,38 +307,83 @@ object CalinoMotion {
 }
 
 @Composable
-fun CalinoTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = androidx.compose.material3.lightColorScheme(
-            primary = CalinoColors.Accent,
-            onPrimary = CalinoColors.Panel,
-            primaryContainer = CalinoColors.AccentSoft,
-            onPrimaryContainer = CalinoColors.Ink,
-            secondary = CalinoColors.Ink2,
-            onSecondary = CalinoColors.Panel,
-            secondaryContainer = CalinoColors.Side,
-            onSecondaryContainer = CalinoColors.Ink,
-            tertiary = CalinoColors.Rose,
-            onTertiary = CalinoColors.Panel,
-            background = CalinoColors.Canvas,
-            surface = CalinoColors.Panel,
-            surfaceVariant = CalinoColors.Side,
-            onBackground = CalinoColors.Ink,
-            onSurface = CalinoColors.Ink,
-            onSurfaceVariant = CalinoColors.Ink2,
-            outline = CalinoColors.Line,
-            outlineVariant = CalinoColors.Line2,
-            scrim = CalinoColors.Ink.copy(alpha = .38f),
-        ),
-        typography = CalinoTypography,
-        shapes = Shapes(
-            small = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Chip),
-            medium = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Row),
-            large = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Card),
-        ),
-        content = content,
-    )
+fun CalinoTheme(
+    palette: CalinoPalette = CalinoThemes.PaperLight,
+    content: @Composable () -> Unit,
+) {
+    val scheme = if (palette.isDark) {
+        darkColorScheme(
+            primary = palette.Accent,
+            onPrimary = palette.OnAccent,
+            primaryContainer = palette.AccentSoft,
+            onPrimaryContainer = palette.Ink,
+            secondary = palette.Ink2,
+            onSecondary = palette.OnInk,
+            secondaryContainer = palette.Side,
+            onSecondaryContainer = palette.Ink,
+            tertiary = palette.Rose,
+            onTertiary = palette.OnAccent,
+            background = palette.Canvas,
+            surface = palette.Panel,
+            surfaceVariant = palette.Side,
+            onBackground = palette.Ink,
+            onSurface = palette.Ink,
+            onSurfaceVariant = palette.Ink2,
+            outline = palette.Line,
+            outlineVariant = palette.Line2,
+            scrim = palette.Scrim,
+        )
+    } else {
+        lightColorScheme(
+            primary = palette.Accent,
+            onPrimary = palette.OnAccent,
+            primaryContainer = palette.AccentSoft,
+            onPrimaryContainer = palette.Ink,
+            secondary = palette.Ink2,
+            onSecondary = palette.OnInk,
+            secondaryContainer = palette.Side,
+            onSecondaryContainer = palette.Ink,
+            tertiary = palette.Rose,
+            onTertiary = palette.OnAccent,
+            background = palette.Canvas,
+            surface = palette.Panel,
+            surfaceVariant = palette.Side,
+            onBackground = palette.Ink,
+            onSurface = palette.Ink,
+            onSurfaceVariant = palette.Ink2,
+            outline = palette.Line,
+            outlineVariant = palette.Line2,
+            scrim = palette.Scrim,
+        )
+    }
+    // Material defaults LocalContentColor to black outside a Surface, and most
+    // of the app's Text has no explicit color because black was right on paper.
+    // Providing it here is what carries all of those into a dark theme.
+    CompositionLocalProvider(
+        LocalCalinoPalette provides palette,
+        LocalContentColor provides palette.Ink,
+    ) {
+        MaterialTheme(
+            colorScheme = scheme,
+            typography = CalinoTypography,
+            shapes = Shapes(
+                small = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Chip),
+                medium = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Row),
+                large = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Card),
+            ),
+            content = content,
+        )
+    }
 }
 
+/**
+ * An event's color laid over a background at [percent] strength.
+ *
+ * Composable so that [over] can default to the current canvas and so the mix
+ * can carry the palette's [CalinoPalette.eventTintScale]: the same 10% that
+ * reads as a whisper over paper is invisible over ink.
+ */
+@Composable
+@ReadOnlyComposable
 fun eventTint(color: Color, percent: Float, over: Color = CalinoColors.Canvas): Color =
-    androidx.compose.ui.graphics.lerp(over, color, percent.coerceIn(0f, 1f))
+    CalinoColors.tint(color, percent, over)

@@ -88,3 +88,31 @@ enum class CalinoDefaultReminder(val label: String, val minutesBefore: Int?) {
             entries.firstOrNull { it.name == name } ?: Default
     }
 }
+
+/**
+ * Which palette the app paints itself in.
+ *
+ * [System] is the default because it is what the app effectively did before the
+ * setting existed for anyone whose phone was in light mode, and it is the
+ * answer most people want. The other two are deliberate overrides that beat the
+ * system setting.
+ *
+ * This names a *mode*, not a theme. The web app stores a mode plus a separate
+ * theme id for each of light and dark, and that is the shape to grow into once
+ * `CalinoThemes` registers more than the two built-in palettes: add
+ * `lightThemeId`/`darkThemeId` preferences beside this one rather than adding
+ * entries here.
+ */
+enum class CalinoThemeChoice(val label: String) {
+    Light("Light"),
+    System("System"),
+    Dark("Dark"),
+    ;
+
+    companion object {
+        val Default = System
+
+        fun fromName(name: String?): CalinoThemeChoice =
+            entries.firstOrNull { it.name == name } ?: Default
+    }
+}

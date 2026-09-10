@@ -261,14 +261,16 @@ Today button appears and targets the real date. The full
   selected weekday while swiping a whole week, previews neighboring weeks,
   and commits the selected date only when the week pager settles. The current
   emulator check committed Week 21 → Week 22 and preserved Monday selection.
-- Settings are real. `CalinoPreferences` now carries eleven values, all
+- Settings are real. `CalinoPreferences` now carries twelve values, all
   persisted and all defaulting to what the app did before the setting existed:
-  time format, pull bar, first day of week, event density, week numbers,
+  theme, time format, pull bar, first day of week, event density, week numbers,
   default view, default event duration, default reminder, hide completed tasks,
-  show end times, show locations. Rows with nothing behind them yet -- theme,
+  show end times, show locations. Rows with nothing behind them yet --
   accent, font size, timezone, date format, language, notifications, sync
   frequency, categories CRUD, import/export -- are tagged PLANNED, dimmed, and
   genuinely inert rather than moving without meaning anything.
+- Dark mode is real, and the palette is a theme registry rather than a
+  boolean. See "Theming" below before touching any color.
 - Adding a preference is still the six-step pattern in `CalinoPreferences.kt`.
   The trap is `SettingSegmented`, which keeps the selection in its own
   `rememberSaveable`: wired segmented rows use `SettingChoiceRow`, which binds
@@ -699,8 +701,8 @@ horizontal section rail and these sections:
 - Sync
 - Data
 
-The page includes representative controls for regional defaults, theme,
-accent, font size, calendar display, event defaults, reminders, categories,
+The page includes representative controls for regional defaults, accent,
+font size, calendar display, event defaults, reminders, categories,
 import/export placeholders, and danger-zone placeholders. Controls change
 local Compose preview state only, with one exception: the Sync section's
 connected-accounts group reads live `CalDavAccountStore` state, and both its
@@ -1321,3 +1323,85 @@ adb -s <serial> install -r app/build/outputs/apk/debug/app-debug.apk
 The debug APK is:
 
 `app/build/outputs/apk/debug/app-debug.apk`
+
+
+## Theming
+
+`design/CalinoTheme.kt` owns the whole design system. What used to be
+`object CalinoColors`, a set of static literals every surface read directly, is
+now three things:
+
+- `CalinoPalette` -- an `@Immutable data class` holding one theme's colors.
+- `CalinoThemes` -- the registry. `PaperLight` and `PaperDark` ship; `all` and
+  `byId` are what a settings picker and a stored preference talk to.
+- `CalinoColors` -- a `@Composable @ReadOnlyComposable` property returning
+  `LocalCalinoPalette.current`.
+
+The property kept the old name **and** the old capitalised field names on
+purpose. That is what let ~483 existing call sites keep compiling untouched
+while the palette became a provided value; the ~50 that could not -- draw
+scopes, non-composable helpers, default arguments -- were enumerated by the
+compiler rather than found by grep. Do not "fix" the capitalisation.
+
+Values track `src/themes/built-in.css` in the Calino **web** repository, which
+is the same design system. That repo is reference only; never edit it from
+here. Three of its rules are implemented here:
+
+- **The warm neutral rule.** No flat grey, no pure black, no pure white.
+- **The flat-dark rule.** Shadows are a light-mode device. `elevationAlpha` is
+  `0f` in dark, and elevation is expressed by the `Canvas`/`Panel`/`Side` steps
+  and the hairlines instead.
+- **Event tint.** A mix that reads as a whisper over paper is invisible over
+  ink, so `eventTintScale` pushes it to 1.6x in dark.
+
+### Things that bit, and will bite again
+
+- **`Text` with no explicit color.** Material defaults `LocalContentColor` to
+  black outside a `Surface`, which was right on paper and invisible on ink.
+  `CalinoTheme` now provides `LocalContentColor` from the palette, which is
+  what carries every implicit `Text` into a dark theme. The month heading was
+  the one that showed it.
+- **Scrims built out of `Ink`.** At night `Ink` is nearly white, so a scrim
+  made of it *lightens* what it is meant to push back. Use
+  `CalinoColors.scrim(alpha)`; each surface keeps its own weight and the
+  palette's `scrimBoost` makes dark heavier.
+- **`Color.White` on a selected surface.** Three kinds live in the tree and
+  only one is a bug: alpha masks inside `BlendMode.DstIn` gradients are
+  theme-independent and must stay; real paint on an accent or ink fill must be
+  `OnAccent`/`OnInk`. Watch `WeekDay`, where the pill is `Ink` and its date is
+  `OnInk` -- move one without the other and the date disappears.
+- **Event colors are data, not tokens.** `Event.color` is a raw ARGB `Long`
+  from the fixtures and from whatever a CalDAV server chose. `eventColor(Long)`
+  is the single seam: it runs `CalinoPalette.forEvent`, which maps the six
+  hues the app ships to designed dark counterparts and lifts anything else off
+  the canvas. The editor's swatch row deliberately *stores* the light hues, so
+  picking Rose at night does not persist a value that reads washed out by day.
+
+### Adding a theme
+
+Add a `CalinoPalette` to `CalinoThemes` and list it in `all`. Nothing else --
+the settings cards paint their own previews from palette values. `CalinoPaletteTest`
+asserts every **dark** palette clears WCAG AA 4.5:1 for `Ink`/`Ink2`/`Ink3` and
+the two on-colors, which is what stops an unreadable port from shipping.
+
+`CalinoThemeChoice` names a *mode* (System/Light/Dark), not a theme. Once the
+registry holds more than the two built-ins, follow the web's shape and add
+`lightThemeId`/`darkThemeId` preferences beside it rather than adding enum
+entries.
+
+### Known gaps
+
+- **Light mode's contrast was left alone, deliberately.** `PaperLight.Ink3`
+  (`#A39D93`) measures about 2.7:1 and fails WCAG AA; the web's `built-in.css`
+  has since corrected the same tokens to `#655F57` and `#756D62`. Adopting them
+  changes how light mode looks on every surface, so it is its own pass with its
+  own emulator review. `CalinoPaletteTest` exempts light palettes and says why.
+- **Cold-start flash.** `values-night/colors.xml` gives the launch window a dark
+  background, so a dark *system* launches dark. Someone who forces Dark while
+  the system is Light still gets one light frame: the launch theme is resolved
+  from resource qualifiers before Compose runs and cannot see an in-app
+  preference. Fixing it means persisting the choice somewhere the launch theme
+  can read, which was out of scope here.
+- The accent-color picker is still PLANNED. `Accent` is a palette field, so
+  wiring it is small, but each of the five accents needs a soft/contrast pair
+  per mode.

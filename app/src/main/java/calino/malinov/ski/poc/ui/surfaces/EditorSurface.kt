@@ -338,7 +338,7 @@ private fun KindSelector(selected: PocQuickAddKind, onSelect: (PocQuickAddKind) 
                 onClick = { onSelect(entry) },
                 colors = ButtonDefaults.textButtonColors(
                     containerColor = if (selected == entry) CalinoColors.Ink else CalinoColors.Ink.copy(.06f),
-                    contentColor = if (selected == entry) Color.White else CalinoColors.Ink,
+                    contentColor = if (selected == entry) CalinoColors.OnInk else CalinoColors.Ink,
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.semantics {

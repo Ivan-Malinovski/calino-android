@@ -68,6 +68,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -177,8 +178,11 @@ private const val CompletionUndoWindowMillis = 5_000L
 private val May18 = FixtureNow.today
 private val dateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
 
-private fun eventColor(event: CalEvent) = Color(event.color)
-private fun taskColor(task: CalTask) = Color(task.color)
+@Composable @ReadOnlyComposable
+private fun eventColor(event: CalEvent) = CalinoColors.forEvent(Color(event.color))
+
+@Composable @ReadOnlyComposable
+private fun taskColor(task: CalTask) = CalinoColors.forEvent(Color(task.color))
 
 private fun recurrenceSummary(event: CalEvent): String = formatRecurrenceSummary(event)
 
@@ -319,7 +323,7 @@ fun DayModalSurface(
         // visible backdrop instead of being replaced by a second fake calendar.
         Box(
             Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = scrim * (1f - (dragY / dismissDistancePx).coerceIn(0f, .72f))))
+                .background(CalinoColors.scrim(scrim * (1f - (dragY / dismissDistancePx).coerceIn(0f, .72f))))
                 .clickable(onClick = dismiss)
                 .semantics { contentDescription = "Dismiss day details" },
         )
@@ -823,7 +827,7 @@ private fun Attendees(attendees: List<Attendee>) {
         Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy((-7).dp)) {
             attendees.take(3).forEach { attendee ->
                 Box(Modifier.size(32.dp).clip(CircleShape).background(CalinoColors.Accent).semantics { contentDescription = attendee.name }) {
-                    Text(attendee.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
+                    Text(attendee.name.take(1), color = CalinoColors.OnAccent, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
                 }
             }
             if (attendees.size > 3) {
@@ -1024,7 +1028,7 @@ fun TasksSurface(
                         ) {
                             Text(
                                 if (completed.size == 1) "Completed" else "${completed.size} tasks completed",
-                                color = Color.White,
+                                color = CalinoColors.OnInk,
                                 style = CalinoTypography.bodyMedium,
                                 modifier = Modifier.weight(1f),
                             )
@@ -1191,12 +1195,12 @@ private fun TaskRow(
                 ) {
                     CalinoIcon(
                         if (offset < 0f) CalinoIcon.Repeat else CalinoIcon.Check,
-                        tint = Color.White.copy(alpha = actionProgress.coerceAtLeast(.72f)),
+                        tint = CalinoColors.OnAccent.copy(alpha = actionProgress.coerceAtLeast(.72f)),
                         modifier = Modifier.size(18.dp),
                         contentDescription = null,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(actionLabel, color = Color.White.copy(alpha = actionProgress.coerceAtLeast(.72f)), style = CalinoTypography.bodyMedium)
+                    Text(actionLabel, color = CalinoColors.OnAccent.copy(alpha = actionProgress.coerceAtLeast(.72f)), style = CalinoTypography.bodyMedium)
                 }
             }
             Row(
@@ -1249,7 +1253,7 @@ private fun TaskRow(
                         if (task.done) {
                             CalinoIcon(
                                 CalinoIcon.Check,
-                                tint = Color.White,
+                                tint = CalinoColors.OnAccent,
                                 modifier = Modifier.size(14.dp),
                                 contentDescription = null,
                             )

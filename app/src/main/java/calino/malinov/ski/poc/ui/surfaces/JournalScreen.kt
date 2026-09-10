@@ -636,6 +636,11 @@ private fun MarkdownPreview(markdown: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Composable because inline code carries palette colors, and the palette is a
+ * composition local rather than the static object it used to be.
+ */
+@Composable
 private fun markdownInline(value: String): AnnotatedString = buildAnnotatedString {
     var cursor = 0
     MarkdownTokenPattern.findAll(value).forEach { match ->

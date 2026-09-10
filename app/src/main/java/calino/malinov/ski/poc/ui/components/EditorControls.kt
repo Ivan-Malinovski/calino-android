@@ -51,6 +51,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoPalette
+import calino.malinov.ski.poc.design.CalinoThemes
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
@@ -250,13 +252,17 @@ fun CalinoToggleRow(
     }
 }
 
-private val SwatchColors = listOf(
-    "Rose" to CalinoColors.Rose,
-    "Blue" to CalinoColors.Blue,
-    "Green" to CalinoColors.Green,
-    "Amber" to CalinoColors.Amber,
-    "Plum" to CalinoColors.Plum,
-)
+/**
+ * The colors this row writes into a draft.
+ *
+ * Deliberately the light palette's hues rather than the current theme's: an
+ * event color is *data*, stored and sent to a server, so picking Rose at night
+ * must not persist a value that reads as washed-out by day. The swatch is
+ * *painted* through [CalinoPalette.forEvent], so it still looks right in dark.
+ */
+private val SwatchColors = with(CalinoThemes.PaperLight) {
+    listOf("Rose" to Rose, "Blue" to Blue, "Green" to Green, "Amber" to Amber, "Plum" to Plum)
+}
 
 @Composable
 fun CalinoColorSwatchRow(selected: Color, modifier: Modifier = Modifier, onSelect: (Color) -> Unit) {
@@ -278,7 +284,7 @@ fun CalinoColorSwatchRow(selected: Color, modifier: Modifier = Modifier, onSelec
                     Modifier
                         .size(30.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(color)
+                        .background(CalinoColors.forEvent(color))
                         .border(if (selected == color) 3.dp else 0.dp, CalinoColors.Canvas, RoundedCornerShape(10.dp)),
                 )
             }
