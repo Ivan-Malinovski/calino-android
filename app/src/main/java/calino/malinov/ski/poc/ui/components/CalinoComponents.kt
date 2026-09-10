@@ -104,6 +104,7 @@ import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
 import java.time.LocalDate
 import java.time.YearMonth
@@ -634,11 +635,13 @@ internal fun splitMeridiem(time: String): Pair<String, String?> {
 @Composable
 fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRowVariant = AgendaRowVariant.Card, onClick: (() -> Unit)? = null) {
     val timeFormat = LocalTimeFormat
+    val showLocations = LocalCalinoPreferences.current.showLocations
     AgendaRow(
         title = event.title,
         color = eventColor(event.color),
         time = event.start?.let { timeFormat.format(it) },
-        subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
+        subtitle = event.location?.takeIf { showLocations }
+            ?: if (event.recurrence != null) "Repeats weekly" else null,
         modifier = modifier,
         variant = variant,
         onClick = onClick,

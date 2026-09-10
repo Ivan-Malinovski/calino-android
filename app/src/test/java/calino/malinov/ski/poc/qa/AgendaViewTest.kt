@@ -7,6 +7,7 @@ import calino.malinov.ski.poc.state.restoresAgenda
 import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.ui.home.MonthPagerPageCount
 import calino.malinov.ski.poc.ui.home.monthEventIndex
+import calino.malinov.ski.poc.util.CalinoWeekStart
 import calino.malinov.ski.poc.ui.home.monthForPage
 import calino.malinov.ski.poc.ui.home.monthPageFor
 import org.junit.Assert.assertEquals
@@ -41,7 +42,7 @@ class AgendaViewTest {
         val days = (1..fixtureMonth.lengthOfMonth()).map(fixtureMonth::atDay)
         assertEquals(31, days.size)
 
-        val index = monthEventIndex(repository.events(), fixtureMonth)
+        val index = monthEventIndex(repository.events(), fixtureMonth, CalinoWeekStart.Monday)
         // The shared index spans the whole month grid, so it must at least
         // cover every day the agenda actually renders.
         assertTrue(days.any { index.containsKey(it) })

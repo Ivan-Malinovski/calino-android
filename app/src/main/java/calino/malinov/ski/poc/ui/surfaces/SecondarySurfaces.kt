@@ -118,6 +118,7 @@ import calino.malinov.ski.poc.data.parser.parseQuickAdd
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.formatCalinoDuration
@@ -567,7 +568,12 @@ private fun EventDetailContent(
             label(event.calendarId, Modifier.padding(top = 12.dp))
             Text(event.title, style = CalinoTypography.headlineLarge, modifier = Modifier.padding(top = 6.dp))
             Text(
-                eventHeaderText(event, occurrenceDate, LocalTimeFormat),
+                eventHeaderText(
+                    event = event,
+                    occurrenceDate = occurrenceDate,
+                    timeFormat = LocalTimeFormat,
+                    showEndTimes = LocalCalinoPreferences.current.showEndTimes,
+                ),
                 style = CalinoTypography.bodyLarge,
                 color = CalinoColors.Ink2,
                 modifier = Modifier.padding(top = 8.dp),
@@ -779,7 +785,12 @@ fun TaskDetailSurface(
  * the detail surface is opened for a concrete occurrence. Show that tapped
  * date while retaining the series time and duration.
  */
-private fun eventHeaderText(event: CalEvent, occurrenceDate: LocalDate?, timeFormat: CalinoTimeFormat): String {
+private fun eventHeaderText(
+    event: CalEvent,
+    occurrenceDate: LocalDate?,
+    timeFormat: CalinoTimeFormat,
+    showEndTimes: Boolean,
+): String {
     val date = occurrenceDate ?: event.start?.toLocalDate() ?: event.date
     if (event.allDay || event.start == null) {
         return date?.format(dateFormat)?.let { "$it · All day" } ?: "All day"
@@ -790,7 +801,7 @@ private fun eventHeaderText(event: CalEvent, occurrenceDate: LocalDate?, timeFor
         append(displayedDate)
         append(" · ")
         append(timeFormat.format(event.start))
-        event.durationMinutes?.let { minutes -> append(" · "); append(formatCalinoDuration(minutes)) }
+        event.durationMinutes?.takeIf { showEndTimes }?.let { minutes -> append(" · "); append(formatCalinoDuration(minutes)) }
     }
 }
 

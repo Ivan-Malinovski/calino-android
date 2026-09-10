@@ -114,7 +114,19 @@ data class EditorDraft(
  * the person has not edited by hand. The title always follows the line, since
  * the line *is* the title field.
  */
-fun EditorDraft.applyInput(input: String, baseDate: LocalDate): EditorDraft {
+/**
+ * Re-derives the parsed fields from what the person has typed.
+ *
+ * [defaultDurationMinutes] is the fallback for an event whose line says nothing
+ * about length. It is a parameter rather than the constant because this runs on
+ * every keystroke: seeding a draft and then calling this would overwrite the
+ * user's chosen default a moment later.
+ */
+fun EditorDraft.applyInput(
+    input: String,
+    baseDate: LocalDate,
+    defaultDurationMinutes: Int = EditorDraft.DefaultDurationMinutes,
+): EditorDraft {
     val parsed = parseQuickAdd(kind, input, baseDate)
     return copy(
         rawInput = input,
@@ -128,7 +140,7 @@ fun EditorDraft.applyInput(input: String, baseDate: LocalDate): EditorDraft {
         durationMinutes = when {
             EditorField.Duration in touched -> durationMinutes
             kind != PocQuickAddKind.Event -> durationMinutes
-            else -> parsed.durationMinutes ?: EditorDraft.DefaultDurationMinutes
+            else -> parsed.durationMinutes ?: defaultDurationMinutes
         },
         location = if (EditorField.Location in touched) location else parsed.location ?: location,
         body = if (kind == PocQuickAddKind.Journal) body else input.trim(),
@@ -147,8 +159,25 @@ fun EditorDraft.isParsed(field: EditorField, baseDate: LocalDate): Boolean {
     }
 }
 
-fun blankEditorDraft(kind: PocQuickAddKind, date: LocalDate, title: String = ""): EditorDraft =
-    EditorDraft(kind = kind, date = date).applyInput(title, date)
+/**
+ * A new draft, seeded from the user's new-event defaults.
+ *
+ * The defaults are passed in rather than read here: this is a data model with
+ * no view of the composition, and the parser may still overwrite either field
+ * from what the person actually typed.
+ */
+fun blankEditorDraft(
+    kind: PocQuickAddKind,
+    date: LocalDate,
+    title: String = "",
+    defaultDurationMinutes: Int = EditorDraft.DefaultDurationMinutes,
+    defaultReminderMinutes: Int? = null,
+): EditorDraft = EditorDraft(
+    kind = kind,
+    date = date,
+    durationMinutes = defaultDurationMinutes,
+    reminders = defaultReminderMinutes?.let { listOf(Reminder(minutesBefore = it)) } ?: emptyList(),
+).applyInput(title, date, defaultDurationMinutes)
 
 /** Seeds the editor from a saved event so editing cannot silently drop a field. */
 fun editorDraftFor(event: CalEvent): EditorDraft {

@@ -1,8 +1,11 @@
 package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.ui.home.monthCellChipCapacity
+import calino.malinov.ski.poc.ui.home.monthCellMarkerCap
 import calino.malinov.ski.poc.ui.home.monthCellShownCount
+import calino.malinov.ski.poc.util.CalinoEventDensity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -43,6 +46,35 @@ class MonthCellDensityTest {
     fun `days that fit are never rolled up`() {
         assertEquals(0, monthCellShownCount(0, 3))
         assertEquals(3, monthCellShownCount(3, 3))
+    }
+
+    @Test
+    fun `the density setting only ever lowers what fits`() {
+        // Dense is "everything the cell can hold", not "draw past the bottom".
+        assertEquals(3, monthCellChipCapacity(83f, chipHeight, chipGap, CalinoEventDensity.Dense.maxItems))
+        assertEquals(2, monthCellChipCapacity(83f, chipHeight, chipGap, CalinoEventDensity.Quiet.maxItems))
+        assertEquals(3, monthCellChipCapacity(83f, chipHeight, chipGap, CalinoEventDensity.Balanced.maxItems))
+        // A tablet-height cell is where Balanced starts to bite.
+        assertEquals(4, monthCellChipCapacity(200f, chipHeight, chipGap, CalinoEventDensity.Balanced.maxItems))
+    }
+
+    @Test
+    fun `a renderer's own limit wins over a denser setting`() {
+        assertEquals(2, monthCellMarkerCap(CalinoEventDensity.Quiet, 4))
+        assertEquals(3, monthCellMarkerCap(CalinoEventDensity.Dense, 3))
+        assertEquals(4, monthCellMarkerCap(CalinoEventDensity.Balanced, 4))
+    }
+
+    @Test
+    fun `every renderer counts its overflow the same way`() {
+        // The invariant behind "+n": it is always what did not fit, never a
+        // literal, so the chip path and the morph path cannot disagree.
+        val events = 7
+        listOf(2, 3, 4).forEach { cap ->
+            val shown = monthCellShownCount(events, cap)
+            assertEquals(events - shown, events - monthCellShownCount(events, cap))
+            assertTrue(shown < cap || events <= cap)
+        }
     }
 
     @Test

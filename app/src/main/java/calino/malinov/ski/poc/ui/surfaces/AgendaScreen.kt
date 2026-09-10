@@ -47,6 +47,7 @@ import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.ui.components.AgendaRow
 import calino.malinov.ski.poc.ui.components.AgendaRowVariant
@@ -188,9 +189,12 @@ private fun AgendaMonthPage(
     onAddOn: (LocalDate) -> Unit,
 ) {
     val days = remember(month) { (1..month.lengthOfMonth()).map(month::atDay) }
-    val eventsByDay = remember(events, month) { monthEventIndex(events, month) }
-    val tasksByDay = remember(tasks, month) {
-        days.associateWith { day -> tasksDueOn(tasks, day) }.filterValues { it.isNotEmpty() }
+    val weekStart = LocalCalinoPreferences.current.weekStart
+    val eventsByDay = remember(events, month, weekStart) { monthEventIndex(events, month, weekStart) }
+    val hideCompletedTasks = LocalCalinoPreferences.current.hideCompletedTasks
+    val tasksByDay = remember(tasks, month, hideCompletedTasks) {
+        val visible = tasks.filterNot { hideCompletedTasks && it.done }
+        days.associateWith { day -> tasksDueOn(visible, day) }.filterValues { it.isNotEmpty() }
     }
     val listState = rememberLazyListState()
 

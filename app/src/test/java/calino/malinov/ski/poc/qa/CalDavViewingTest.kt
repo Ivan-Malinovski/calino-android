@@ -10,6 +10,7 @@ import calino.malinov.ski.poc.data.model.CalDavCalendar
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.ui.home.monthEventIndex
+import calino.malinov.ski.poc.util.CalinoWeekStart
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -31,7 +32,7 @@ class CalDavViewingTest {
     private val september = YearMonth.of(2026, 9)
 
     private fun events(): List<CalEvent> = parse(CalDavFixtures.Events).events
-    private fun index() = monthEventIndex(events(), september)
+    private fun index() = monthEventIndex(events(), september, CalinoWeekStart.Monday)
 
     @Test
     fun `the month grid places every fixture event on its own day`() {

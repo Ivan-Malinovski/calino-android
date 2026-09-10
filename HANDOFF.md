@@ -261,6 +261,51 @@ Today button appears and targets the real date. The full
   selected weekday while swiping a whole week, previews neighboring weeks,
   and commits the selected date only when the week pager settles. The current
   emulator check committed Week 21 → Week 22 and preserved Monday selection.
+- Settings are real. `CalinoPreferences` now carries eleven values, all
+  persisted and all defaulting to what the app did before the setting existed:
+  time format, pull bar, first day of week, event density, week numbers,
+  default view, default event duration, default reminder, hide completed tasks,
+  show end times, show locations. Rows with nothing behind them yet -- theme,
+  accent, font size, timezone, date format, language, notifications, sync
+  frequency, categories CRUD, import/export -- are tagged PLANNED, dimmed, and
+  genuinely inert rather than moving without meaning anything.
+- Adding a preference is still the six-step pattern in `CalinoPreferences.kt`.
+  The trap is `SettingSegmented`, which keeps the selection in its own
+  `rememberSaveable`: wired segmented rows use `SettingChoiceRow`, which binds
+  `CompactSegmentedControl` straight to the preference.
+- First day of week is real, and Monday is no longer baked into the grid.
+  `util/CalinoWeek.kt` owns the vocabulary -- `startOfWeek`, `weekdayColumn`,
+  `dayOfWeekForColumn`, `weekdayLetters`, `weekendColumns`, `gridStart`. Three
+  things to know before touching it:
+  - `LocalDate.with(DayOfWeek.SUNDAY)` is **not** "previous or same". It moves
+    within the Monday..Sunday ISO week, so for a Monday it jumps six days
+    forward. `startOfWeek` uses `previousOrSame`; `WeekStartTest` fails loudly
+    if anyone simplifies it back.
+  - `monthGridRows` returns 5 or 6 for the *same* month depending on the week
+    start, so every cache sized `rows * 7` moves with it. They key on
+    `monthGridGeometry(month, weekStart)` rather than the month; treat a
+    surviving `remember(month, ...)` in a renderer as a bug.
+  - The week pager's page index for a date is not stable across the change --
+    for a Sunday it shifts by one. The three pager states are wrapped in
+    `key(weekStart)` and seeded from the live `selectedEpoch`. Without that a
+    restored pager reads back a date a week off and the settled-page collector
+    commits it, which is a wrong date rather than a cosmetic glitch.
+- The weekend wash is computed, not hardcoded. Under a Sunday start the weekend
+  is columns 0 and 6 -- two bands, not one -- so `monthWashPlan` returns regions
+  in column space with per-corner flags and the draw code just renders them.
+  Regions abut rather than overlap: two translucent washes on one cell compound
+  into a patch far darker than either. `MonthWashPlanTest` sweeps both settings
+  across every month of 2026 asserting no cell is washed twice.
+- Event density caps what a month cell shows, layered over the measured
+  geometry and never replacing it, so Dense means "everything that fits". The
+  morph paths keep their two-chip ceiling on purpose -- it is a performance
+  limit on the hot zoom path -- so they use `min(2, density.maxItems)`. Every
+  "+n" is `eventCount - monthCellShownCount(...)` against that renderer's own
+  cap; no renderer subtracts a literal.
+- Settings has a landscape layout: above `shouldSplit` the section chips become
+  a side rail with the content pane beside them. Same `sectionName` and pager
+  state as portrait, so chip taps and swipes cannot disagree between
+  orientations.
 - At the compact endpoint the day rail reaches up behind the zoom handle and
   the week strip (`CompactLaneOverlap` in `HomeScreen.kt`) instead of starting
   below them, so hours slide under a frosted lane rather than stopping at a

@@ -75,6 +75,7 @@ import calino.malinov.ski.poc.util.formatRecurrenceRule
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.util.formatCalinoDuration
 import java.time.format.DateTimeFormatter
@@ -108,6 +109,9 @@ fun EditorSurface(
     onSave: (EditorDraft) -> Unit = {},
     visible: Boolean = true,
 ) {
+    // The length a line with no stated end falls back to, which the parser
+    // re-applies on every keystroke.
+    val defaultDurationMinutes = LocalCalinoPreferences.current.defaultDuration.minutes
     var draft by remember(initial.editingId, initial.kind) { mutableStateOf(initial) }
     var shown by remember { mutableStateOf(true) }
     var closing by remember { mutableStateOf(false) }
@@ -172,14 +176,14 @@ fun EditorSurface(
             ) {
                 if (!draft.isEditing) {
                     KindSelector(draft.kind) { entry ->
-                        draft = draft.copy(kind = entry).applyInput(draft.rawInput, baseDate)
+                        draft = draft.copy(kind = entry).applyInput(draft.rawInput, baseDate, defaultDurationMinutes)
                     }
                 }
 
                 EditorSection(null) {
                     CalinoTextField(
                         value = draft.rawInput,
-                        onValueChange = { draft = draft.applyInput(it, baseDate) },
+                        onValueChange = { draft = draft.applyInput(it, baseDate, defaultDurationMinutes) },
                         label = when (draft.kind) {
                             PocQuickAddKind.Event -> "What is happening?"
                             PocQuickAddKind.Task -> "What needs doing?"
@@ -209,7 +213,7 @@ fun EditorSurface(
                 // A saved record was never parsed from a typed line,
                 // so the chip row would be claiming something untrue.
                 if (!isJournal && !draft.isEditing) {
-                    ParsedChips(draft, baseDate, pickStartDate, pickStartTime) { minutes ->
+                    ParsedChips(draft, baseDate, defaultDurationMinutes, pickStartDate, pickStartTime) { minutes ->
                         draft = draft.copy(
                             durationMinutes = minutes,
                             touched = draft.touched + EditorField.Duration,
@@ -352,6 +356,7 @@ private fun KindSelector(selected: PocQuickAddKind, onSelect: (PocQuickAddKind) 
 private fun ParsedChips(
     draft: EditorDraft,
     baseDate: LocalDate,
+    defaultDurationMinutes: Int,
     pickDate: () -> Unit,
     pickTime: () -> Unit,
     onDuration: (Int) -> Unit,
@@ -373,7 +378,7 @@ private fun ParsedChips(
                     onClick = pickTime,
                 )
                 CalinoChip(
-                    text = formatEditorDuration(draft.durationMinutes ?: EditorDraft.DefaultDurationMinutes),
+                    text = formatEditorDuration(draft.durationMinutes ?: defaultDurationMinutes),
                     selected = draft.isParsed(EditorField.Duration, baseDate),
                     description = "Change duration",
                     onClick = {

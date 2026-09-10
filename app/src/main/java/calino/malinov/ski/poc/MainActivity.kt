@@ -776,7 +776,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         date = selectedDate,
                         draft = editing
                             ?.let(::editorDraftFor)
-                            ?: blankEditorDraft(quickAddKind.toParserKind(), selectedDate),
+                            ?: run {
+                                val defaults = LocalCalinoPreferences.current
+                                blankEditorDraft(
+                                    kind = quickAddKind.toParserKind(),
+                                    date = selectedDate,
+                                    defaultDurationMinutes = defaults.defaultDuration.minutes,
+                                    defaultReminderMinutes = defaults.defaultReminder.minutesBefore,
+                                )
+                            },
                     ),
                     calendars = snapshot.calendars,
                     categories = snapshot.categories,

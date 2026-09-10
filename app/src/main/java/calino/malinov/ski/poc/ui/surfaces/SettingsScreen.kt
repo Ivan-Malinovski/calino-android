@@ -71,6 +71,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -88,8 +89,14 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
+import calino.malinov.ski.poc.state.shouldSplit
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
+import calino.malinov.ski.poc.util.CalinoDefaultDuration
+import calino.malinov.ski.poc.util.CalinoDefaultReminder
+import calino.malinov.ski.poc.util.CalinoDefaultView
+import calino.malinov.ski.poc.util.CalinoEventDensity
 import calino.malinov.ski.poc.util.CalinoTimeFormat
+import calino.malinov.ski.poc.util.CalinoWeekStart
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** The mobile settings sections mirror the eight-section web handoff. */
@@ -105,6 +112,9 @@ enum class SettingsSection(val title: String, val shortTitle: String) {
 }
 
 private val SettingsNavLaneHeight = 44.dp
+
+/** The landscape rail: wide enough for the longest section name and no wider. */
+private val SettingsRailWidth = 232.dp
 private val SettingsNavPillHeight = 28.dp
 private val SettingsRowVerticalPadding = 6.dp
 // Keep enough room for a readable label beside any trailing preference value.
@@ -159,85 +169,144 @@ fun SettingsSurface(
             }
     }
 
-    Column(
-        Modifier.fillMaxSize().background(CalinoColors.Canvas),
-    ) {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
-            onOpenMenu?.let {
-                MenuButton(onClick = it, modifier = Modifier.padding(bottom = 2.dp))
-            }
-            Text("Settings", style = CalinoTypography.displayLarge)
-            Text(
-                "Shape Calino around the way you think.",
-                style = CalinoTypography.bodyMedium,
-                color = CalinoColors.Ink2,
-                modifier = Modifier.padding(top = 3.dp),
-            )
-            Text(
-                "UI preview · Time format is live and persists; the other controls change the preview only.",
-                style = CalinoTypography.bodySmall,
-                color = CalinoColors.Ink3,
-                modifier = Modifier.padding(top = 5.dp),
-            )
-        }
+    // Same rule the calendar uses for its split: a window wide enough for two
+    // columns, and wider than it is tall. Landscape alone is not enough -- a
+    // phone turned sideways is still too narrow to carry a rail beside the
+    // settings card.
+    BoxWithConstraints(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+        val sideRail = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt())
 
-        val endFadeAlpha by animateFloatAsState(
-            targetValue = if (sectionRailState.canScrollForward) 1f else 0f,
-            animationSpec = tween(180),
-            label = "settings section rail affordance",
-        )
-        Box(
-            Modifier
-                .fillMaxWidth()
-                // Draw the affordance over the rail without adding a touch
-                // target that could steal a horizontal drag from the chips.
-                .drawWithCache {
-                    val fadeWidth = 34.dp.toPx()
-                    val fadeBrush = Brush.horizontalGradient(
-                        colors = listOf(Color.Transparent, CalinoColors.Canvas),
-                        startX = size.width - fadeWidth,
-                        endX = size.width,
+        val header: @Composable (Modifier) -> Unit = { headerModifier ->
+            Column(headerModifier) {
+                onOpenMenu?.let {
+                    MenuButton(onClick = it, modifier = Modifier.padding(bottom = 2.dp))
+                }
+                Text(
+                    "Settings",
+                    style = if (sideRail) CalinoTypography.headlineLarge else CalinoTypography.displayLarge,
+                )
+                Text(
+                    "Shape Calino around the way you think.",
+                    style = CalinoTypography.bodyMedium,
+                    color = CalinoColors.Ink2,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+                if (!sideRail) {
+                    Text(
+                        "Everything here is live and remembered. Rows marked PLANNED have no behaviour behind them yet.",
+                        style = CalinoTypography.bodySmall,
+                        color = CalinoColors.Ink3,
+                        modifier = Modifier.padding(top = 5.dp),
                     )
-                    onDrawWithContent {
-                        drawContent()
-                        if (endFadeAlpha > 0f) {
-                            drawRect(
-                                brush = fadeBrush,
-                                topLeft = Offset(size.width - fadeWidth, 0f),
-                                size = Size(fadeWidth, size.height),
-                                alpha = endFadeAlpha,
-                            )
-                        }
-                    }
-                },
-        ) {
-            LazyRow(
-                state = sectionRailState,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                items(SettingsSection.entries, key = { it.name }) { entry ->
-                    SettingsNavChip(entry, selected = entry == section) { sectionName = entry.name }
                 }
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-        HorizontalPager(
-            state = sectionPagerState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            beyondViewportPageCount = 1,
-            key = { page -> SettingsSection.entries[page].name },
-        ) { page ->
-            SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications, calDavAccounts, onOpenAccounts)
+        // One pager in both layouts: the rail and the swipe stay two ways of
+        // driving the same selection rather than two code paths that can
+        // disagree.
+        val pager: @Composable (Modifier) -> Unit = { pagerModifier ->
+            HorizontalPager(
+                state = sectionPagerState,
+                modifier = pagerModifier,
+                beyondViewportPageCount = 1,
+                key = { page -> SettingsSection.entries[page].name },
+            ) { page ->
+                SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications, calDavAccounts, onOpenAccounts)
+            }
+        }
+
+        if (sideRail) {
+            Row(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier
+                        .width(SettingsRailWidth)
+                        .fillMaxHeight()
+                        .background(CalinoColors.Side),
+                ) {
+                    header(Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
+                    LazyColumn(
+                        state = sectionRailState,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        items(SettingsSection.entries, key = { it.name }) { entry ->
+                            SettingsNavChip(
+                                section = entry,
+                                selected = entry == section,
+                                modifier = Modifier.fillMaxWidth(),
+                                useFullTitle = true,
+                            ) { sectionName = entry.name }
+                        }
+                    }
+                }
+                Box(Modifier.fillMaxHeight().width(1.dp).background(CalinoColors.Line))
+                pager(Modifier.weight(1f).fillMaxHeight())
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                header(Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
+
+                val endFadeAlpha by animateFloatAsState(
+                    targetValue = if (sectionRailState.canScrollForward) 1f else 0f,
+                    animationSpec = tween(180),
+                    label = "settings section rail affordance",
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        // Draw the affordance over the rail without adding a touch
+                        // target that could steal a horizontal drag from the chips.
+                        .drawWithCache {
+                            val fadeWidth = 34.dp.toPx()
+                            val fadeBrush = Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, CalinoColors.Canvas),
+                                startX = size.width - fadeWidth,
+                                endX = size.width,
+                            )
+                            onDrawWithContent {
+                                drawContent()
+                                if (endFadeAlpha > 0f) {
+                                    drawRect(
+                                        brush = fadeBrush,
+                                        topLeft = Offset(size.width - fadeWidth, 0f),
+                                        size = Size(fadeWidth, size.height),
+                                        alpha = endFadeAlpha,
+                                    )
+                                }
+                            }
+                        },
+                ) {
+                    LazyRow(
+                        state = sectionRailState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        items(SettingsSection.entries, key = { it.name }) { entry ->
+                            SettingsNavChip(entry, selected = entry == section) { sectionName = entry.name }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
+                pager(Modifier.weight(1f).fillMaxWidth())
+            }
         }
     }
 }
 
 @Composable
-private fun SettingsNavChip(section: SettingsSection, selected: Boolean, onClick: () -> Unit) {
+private fun SettingsNavChip(
+    section: SettingsSection,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    /** The side rail has room for the real section name; the top rail does not. */
+    useFullTitle: Boolean = false,
+    onClick: () -> Unit,
+) {
     val background by animateColorAsState(
         if (selected) CalinoColors.AccentSoft else CalinoColors.Panel,
         tween(160),
@@ -254,7 +323,7 @@ private fun SettingsNavChip(section: SettingsSection, selected: Boolean, onClick
         label = "settings nav outline",
     )
     Box(
-        Modifier
+        modifier
             // Keep the tab's touch target comfortable while the pill itself
             // stays compact in the horizontal rail.
             .height(SettingsNavLaneHeight)
@@ -270,14 +339,15 @@ private fun SettingsNavChip(section: SettingsSection, selected: Boolean, onClick
         Box(
             Modifier
                 .height(SettingsNavPillHeight)
+                .then(if (useFullTitle) Modifier.fillMaxWidth() else Modifier)
                 .clip(RoundedCornerShape(999.dp))
                 .background(background)
                 .border(1.dp, outline, RoundedCornerShape(999.dp))
                 .padding(horizontal = 15.dp),
-            contentAlignment = Alignment.Center,
+            contentAlignment = if (useFullTitle) Alignment.CenterStart else Alignment.Center,
         ) {
             Text(
-                section.shortTitle,
+                if (useFullTitle) section.title else section.shortTitle,
                 color = foreground,
                 style = CalinoTypography.labelMedium,
                 textAlign = TextAlign.Center,
@@ -325,8 +395,8 @@ private fun SettingsPage(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun GeneralSettings() = SettingsPage("General") {
     SettingsGroup("Regional defaults") {
-        SettingRow("Timezone", "Used for event times and reminders") { SettingValue("Copenhagen") }
-        SettingRow("Date format", "How dates are written across Calino") { SettingValue("18 May 2026") }
+        PlannedRow("Timezone", "Used for event times and reminders", value = "Copenhagen")
+        PlannedRow("Date format", "How dates are written across Calino", value = "18 May 2026")
         SettingRow("Time format", "Choose the clock that feels natural", controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
             // Unlike its neighbours this one is wired through: it drives every
             // clock face in the app, not just its own segmented control.
@@ -339,31 +409,36 @@ private fun GeneralSettings() = SettingsPage("General") {
                 semanticLabel = "Time format",
             )
         }
-        SettingRow("First day of week", "Used by every calendar grid", controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
-            SettingSegmented("First day of week", listOf("Monday", "Sunday"), selected = 0)
-        }
-        SettingRow("Language", "The interface language") { SettingValue("English") }
+        PlannedRow("Language", "The interface language", value = "English")
     }
 }
 
 @Composable
 private fun AppearanceSettings() {
-    var appearance by rememberSaveable { mutableStateOf("Light") }
-    var accent by rememberSaveable { mutableStateOf(0) }
     SettingsPage("Appearance") {
         SettingsGroup("Theme") {
-            Column(Modifier.padding(18.dp)) {
-                Text("Appearance", style = CalinoTypography.labelLarge)
+            // The palette is a single light set of literals read statically by
+            // every surface, including draw code that cannot see a
+            // CompositionLocal. Until that is a provided value there is nothing
+            // for these to switch, so they say so rather than pretending.
+            Column(Modifier.padding(18.dp).alphaIfDisabled(false)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Appearance", style = CalinoTypography.labelLarge)
+                    PlannedTag()
+                }
                 Text("Paper, night, or follow the system.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     listOf("Light" to CalinoColors.Canvas, "System" to CalinoColors.Side, "Dark" to Color(0xFF26231F)).forEach { (name, color) ->
-                        ThemeCard(name, color, selected = appearance == name) { appearance = name }
+                        ThemeCard(name, color, selected = name == "Light", enabled = false) {}
                     }
                 }
             }
             SettingDivider()
-            Column(Modifier.padding(18.dp)) {
-                Text("Accent color", style = CalinoTypography.labelLarge)
+            Column(Modifier.padding(18.dp).alphaIfDisabled(false)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Accent color", style = CalinoTypography.labelLarge)
+                    PlannedTag()
+                }
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     listOf(
                         "Accent" to CalinoColors.Accent,
@@ -372,59 +447,108 @@ private fun AppearanceSettings() {
                         "Green" to CalinoColors.Green,
                         "Plum" to CalinoColors.Plum,
                     ).forEachIndexed { index, (name, color) ->
-                        AccentSwatch(name, color, selected = accent == index) { accent = index }
+                        AccentSwatch(name, color, selected = index == 0, enabled = false) {}
                     }
                 }
             }
             SettingDivider()
-            SettingRow("Font size", "Tune the reading scale", controlLayout = SettingRowControlLayout.AdaptiveSegmented) { SettingSegmented("Font size", listOf("Small", "Default", "Large"), selected = 1) }
+            PlannedRow("Font size", "Tune the reading scale", value = "Default")
         }
     }
 }
 
 @Composable
 private fun CalendarSettings() {
-    var weekNumbers by rememberSaveable { mutableStateOf(false) }
-    var recurring by rememberSaveable { mutableStateOf(true) }
-    var compactPast by rememberSaveable { mutableStateOf(false) }
-    var hideDone by rememberSaveable { mutableStateOf(false) }
+    val preferences = LocalCalinoPreferences.current
     SettingsPage("Calendar") {
         SettingsGroup("Display") {
-            SettingRow("Default view", "The view Calino opens first", controlLayout = SettingRowControlLayout.AdaptiveSegmented) { SettingSegmented("Default view", listOf("Month", "Week", "Day"), 0) }
-            SettingToggleRow("Show week numbers", "Add ISO week numbers to the grid", weekNumbers) { weekNumbers = it }
-            // Wired through, unlike its neighbours: this one changes the
-            // calendar itself. With the bar hidden, a vertical drag on the
-            // grid still changes zoom.
-            val preferences = LocalCalinoPreferences.current
+            SettingChoiceRow(
+                label = "Default view",
+                description = "The view Calino opens first",
+                options = CalinoDefaultView.entries,
+                selected = preferences.defaultView,
+                labelOf = { it.label },
+                onSelected = preferences.setDefaultView,
+            )
+            SettingChoiceRow(
+                label = "First day of week",
+                description = "Where every calendar grid begins",
+                options = CalinoWeekStart.entries,
+                selected = preferences.weekStart,
+                labelOf = { it.label },
+                onSelected = preferences.setWeekStart,
+            )
+            SettingToggleRow(
+                "Show week numbers",
+                "Add the ISO week to the month heading",
+                preferences.showWeekNumbers,
+                preferences.setShowWeekNumbers,
+            )
             SettingToggleRow(
                 "Show pull bar",
                 "The zoom bar between the calendar and the day",
                 preferences.showZoomHandle,
-            ) { preferences.setShowZoomHandle(it) }
-            SettingRow("Event density", "How much detail to show in a month", controlLayout = SettingRowControlLayout.AdaptiveSegmented) { SettingSegmented("Event density", listOf("Quiet", "Balanced", "Dense"), 1) }
+                preferences.setShowZoomHandle,
+            )
+            SettingChoiceRow(
+                label = "Event density",
+                description = "How much of a busy day a month cell shows",
+                options = CalinoEventDensity.entries,
+                selected = preferences.eventDensity,
+                labelOf = { it.label },
+                onSelected = preferences.setEventDensity,
+            )
         }
         SettingsGroup("Grid behaviour") {
-            SettingToggleRow("Compact recurring events", "Keep repeated events calm in busy months", recurring) { recurring = it }
-            SettingToggleRow("Compact past weeks", "Give more room to the weeks ahead", compactPast) { compactPast = it }
-            SettingToggleRow("Hide completed tasks", "Keep finished work out of the calendar", hideDone) { hideDone = it }
+            PlannedToggleRow("Compact recurring events", "Keep repeated events calm in busy months", checked = true)
+            PlannedToggleRow("Compact past weeks", "Give more room to the weeks ahead", checked = false)
+            SettingToggleRow(
+                "Hide completed tasks",
+                "Keep finished work out of the calendar",
+                preferences.hideCompletedTasks,
+                preferences.setHideCompletedTasks,
+            )
         }
     }
 }
 
 @Composable
 private fun EventSettings() {
-    var endTimes by rememberSaveable { mutableStateOf(true) }
-    var locations by rememberSaveable { mutableStateOf(true) }
-    var snap by rememberSaveable { mutableStateOf(false) }
+    val preferences = LocalCalinoPreferences.current
     SettingsPage("Events") {
         SettingsGroup("New event defaults") {
-            SettingRow("Default duration", "Used when a time is parsed without an end", controlLayout = SettingRowControlLayout.AdaptiveSegmented) { SettingSegmented("Default duration", listOf("30m", "60m", "90m"), 1) }
-            SettingRow("Default calendar", "Where quick additions are filed") { SettingValue("Personal") }
+            SettingChoiceRow(
+                label = "Default duration",
+                description = "Used when a time is parsed without an end",
+                options = CalinoDefaultDuration.entries,
+                selected = preferences.defaultDuration,
+                labelOf = { it.label },
+                onSelected = preferences.setDefaultDuration,
+            )
+            SettingChoiceRow(
+                label = "Default reminder",
+                description = "What a new event reminds you with",
+                options = CalinoDefaultReminder.entries,
+                selected = preferences.defaultReminder,
+                labelOf = { it.label },
+                onSelected = preferences.setDefaultReminder,
+            )
+            PlannedRow("Default calendar", "Where quick additions are filed", value = "Personal")
         }
         SettingsGroup("Display") {
-            SettingToggleRow("Show end times", "Keep the agenda easy to scan", endTimes) { endTimes = it }
-            SettingToggleRow("Show locations", "Include places below event titles", locations) { locations = it }
-            SettingToggleRow("Snap to grid", "Align times to 15-minute increments", snap) { snap = it }
+            SettingToggleRow(
+                "Show end times",
+                "Include how long an event runs",
+                preferences.showEndTimes,
+                preferences.setShowEndTimes,
+            )
+            SettingToggleRow(
+                "Show locations",
+                "Include places below event titles",
+                preferences.showLocations,
+                preferences.setShowLocations,
+            )
+            PlannedToggleRow("Snap to grid", "Align times to 15-minute increments", checked = false)
         }
     }
 }
@@ -481,17 +605,14 @@ private fun CategoryRow(category: String, index: Int, colors: List<Color>) {
 
 @Composable
 private fun NotificationSettings(onOpenPreview: () -> Unit) {
-    var eventReminders by rememberSaveable { mutableStateOf(true) }
-    var taskReminders by rememberSaveable { mutableStateOf(true) }
-    var dailyBrief by rememberSaveable { mutableStateOf(false) }
     SettingsPage("Notifications") {
         SettingsGroup("Events") {
-            SettingToggleRow("Event reminders", "A quiet nudge before an event begins", eventReminders) { eventReminders = it }
-            SettingRow("Default reminder", "Used for newly created events", enabled = eventReminders) { SettingValue("10 minutes before") }
+            PlannedToggleRow("Event reminders", "A quiet nudge before an event begins", checked = true)
+            PlannedRow("Default reminder", "Used for newly created events", value = "10 minutes before")
         }
         SettingsGroup("Tasks") {
-            SettingToggleRow("Tasks due", "Remind me when a task reaches its date", taskReminders) { taskReminders = it }
-            SettingToggleRow("Daily brief", "A calm summary at the start of the day", dailyBrief) { dailyBrief = it }
+            PlannedToggleRow("Tasks due", "Remind me when a task reaches its date", checked = true)
+            PlannedToggleRow("Daily brief", "A calm summary at the start of the day", checked = false)
         }
         SettingsGroup("Preview") {
             SettingActionRow("Notification preview", "See how Calino keeps notification actions focused", "Open", enabled = true, onClick = onOpenPreview)
@@ -501,7 +622,6 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
 
 @Composable
 private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean, String?) -> Unit) {
-    var launchSync by rememberSaveable { mutableStateOf(true) }
     SettingsPage("Sync") {
         SettingsGroup("Connected accounts") {
             if (accounts.isEmpty()) {
@@ -536,8 +656,8 @@ private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean
             ) { Text("+  Add calendar account", color = CalinoColors.Accent) }
         }
         SettingsGroup("Sync settings") {
-            SettingRow("Sync frequency", "How often the cache would refresh") { SettingValue("When Calino opens") }
-            SettingToggleRow("Sync on launch", "Refresh before the first screen appears", launchSync) { launchSync = it }
+            PlannedRow("Sync frequency", "How often the cache refreshes", value = "When Calino opens")
+            PlannedToggleRow("Sync on launch", "Refresh before the first screen appears", checked = true)
         }
     }
 }
@@ -581,7 +701,11 @@ private fun SettingRow(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = SettingsRowVerticalPadding)
-            .alphaIfDisabled(enabled),
+            .alphaIfDisabled(enabled)
+            // Dimming alone used to leave the control live, so a row that meant
+            // nothing could still be toggled -- and a screen reader was offered
+            // a switch that could not move.
+            .semantics { if (!enabled) disabled() },
     ) {
         // On phone-sized settings cards every control gets its own line. This
         // prevents both segmented controls and ordinary values/switches from
@@ -615,6 +739,88 @@ private fun SettingRowLabel(label: String, description: String, modifier: Modifi
     Column(modifier) {
         Text(label, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
         Text(description, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+/**
+ * A segmented row bound to a real preference.
+ *
+ * Deliberately not [SettingSegmented]: that helper keeps the selection in its
+ * own `rememberSaveable`, which is exactly what made most of this screen move
+ * without meaning anything.
+ */
+@Composable
+private fun <T> SettingChoiceRow(
+    label: String,
+    description: String,
+    options: List<T>,
+    selected: T,
+    labelOf: (T) -> String,
+    onSelected: (T) -> Unit,
+) = SettingRow(label, description, controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
+    CompactSegmentedControl(
+        options = options.map(labelOf),
+        selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+        onSelected = { index -> onSelected(options[index]) },
+        modifier = Modifier.fillMaxWidth(),
+        semanticLabel = label,
+    )
+}
+
+/**
+ * A row for a setting that has no behaviour behind it yet.
+ *
+ * It reads as deliberately unavailable rather than broken: dimmed, tagged, and
+ * genuinely inert -- the control cannot be moved by touch, and accessibility is
+ * told the row is disabled rather than being offered a switch that does
+ * nothing.
+ */
+@Composable
+private fun PlannedRow(label: String, description: String, value: String? = null) = SettingRow(
+    label = label,
+    description = description,
+    enabled = false,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        value?.let { SettingValue(it) }
+        PlannedTag()
+    }
+}
+
+@Composable
+private fun PlannedTag() = Text(
+    "PLANNED",
+    style = CalinoTypography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 1.sp),
+    color = CalinoColors.Ink3,
+    modifier = Modifier
+        .clip(RoundedCornerShape(6.dp))
+        .background(CalinoColors.Ink.copy(alpha = .05f))
+        .padding(horizontal = 6.dp, vertical = 3.dp),
+)
+
+@Composable
+private fun PlannedToggleRow(label: String, description: String, checked: Boolean) = SettingRow(
+    label = label,
+    description = description,
+    enabled = false,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PlannedTag()
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            enabled = false,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = CalinoColors.Canvas,
+                checkedTrackColor = CalinoColors.Accent,
+                uncheckedThumbColor = CalinoColors.Canvas,
+                uncheckedTrackColor = CalinoColors.Ink3.copy(alpha = .45f),
+                disabledCheckedThumbColor = CalinoColors.Canvas,
+                disabledCheckedTrackColor = CalinoColors.Accent,
+                disabledUncheckedThumbColor = CalinoColors.Canvas,
+                disabledUncheckedTrackColor = CalinoColors.Ink3.copy(alpha = .45f),
+            ),
+        )
     }
 }
 
@@ -666,7 +872,7 @@ private fun SettingSegmented(label: String, options: List<String>, selected: Int
 }
 
 @Composable
-private fun ThemeCard(name: String, color: Color, selected: Boolean, onClick: () -> Unit) {
+private fun ThemeCard(name: String, color: Color, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     val outline by animateColorAsState(
         if (selected) CalinoColors.Accent else CalinoColors.Line,
         tween(180),
@@ -683,11 +889,12 @@ private fun ThemeCard(name: String, color: Color, selected: Boolean, onClick: ()
             .heightIn(min = 112.dp)
             .clip(RoundedCornerShape(12.dp))
             .border(2.dp, outline, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 contentDescription = "$name theme preview"
                 role = Role.RadioButton
                 this.selected = selected
+                if (!enabled) disabled()
             }
             .padding(7.dp),
     ) {
@@ -703,7 +910,7 @@ private fun ThemeCard(name: String, color: Color, selected: Boolean, onClick: ()
 }
 
 @Composable
-private fun AccentSwatch(name: String, color: Color, selected: Boolean, onClick: () -> Unit) {
+private fun AccentSwatch(name: String, color: Color, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     val outlineWidth by androidx.compose.animation.core.animateDpAsState(
         if (selected) 3.dp else 0.dp,
         tween(180),
@@ -712,9 +919,10 @@ private fun AccentSwatch(name: String, color: Color, selected: Boolean, onClick:
     Box(
         Modifier
             .size(48.dp)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 contentDescription = "$name accent color"
+                if (!enabled) disabled()
             },
         contentAlignment = Alignment.Center,
     ) {
