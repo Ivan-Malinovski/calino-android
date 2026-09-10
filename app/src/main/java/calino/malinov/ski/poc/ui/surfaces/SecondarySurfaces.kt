@@ -561,7 +561,6 @@ private fun EventDetailContent(
     onBack: () -> Unit,
     onPrimary: () -> Unit,
 ) {
-    val compactHeader = LocalCalinoSurfaceMode.current == CalinoSurfaceMode.EndPanel
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
     var moreOpen by remember(event.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
@@ -572,12 +571,35 @@ private fun EventDetailContent(
                 .padding(
                     start = 22.dp,
                     end = 22.dp,
-                    top = if (compactHeader) 8.dp else 20.dp,
-                    bottom = if (compactHeader) 16.dp else 24.dp,
+                    top = 4.dp,
+                    bottom = 16.dp,
                 ),
         ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                 IconButtonGlyph("‹", "Back", { onBack() })
+                Column(Modifier.weight(1f)) {
+                    label(event.calendarId)
+                    Text(
+                        event.title,
+                        style = CalinoTypography.headlineLarge,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    Text(
+                        eventHeaderText(
+                            event = event,
+                            occurrenceDate = occurrenceDate,
+                            timeFormat = LocalTimeFormat,
+                            showEndTimes = LocalCalinoPreferences.current.showEndTimes,
+                        ),
+                        style = CalinoTypography.bodyLarge,
+                        color = CalinoColors.Ink2,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
                 Box {
                     IconButtonGlyph("⋮", "More actions", { moreOpen = true })
                     DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
@@ -588,19 +610,6 @@ private fun EventDetailContent(
                     }
                 }
             }
-            label(event.calendarId, Modifier.padding(top = if (compactHeader) 4.dp else 12.dp))
-            Text(event.title, style = CalinoTypography.headlineLarge, modifier = Modifier.padding(top = if (compactHeader) 2.dp else 6.dp))
-            Text(
-                eventHeaderText(
-                    event = event,
-                    occurrenceDate = occurrenceDate,
-                    timeFormat = LocalTimeFormat,
-                    showEndTimes = LocalCalinoPreferences.current.showEndTimes,
-                ),
-                style = CalinoTypography.bodyLarge,
-                color = CalinoColors.Ink2,
-                modifier = Modifier.padding(top = 8.dp),
-            )
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             event.location?.let { location -> item(key = "location") { DetailRow("⌖", "Location", location) } }

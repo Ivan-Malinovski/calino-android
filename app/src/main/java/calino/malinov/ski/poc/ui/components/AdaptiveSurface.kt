@@ -105,7 +105,7 @@ fun AdaptiveSurfaceHost(
         val floatingWidth = minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap)
         val floatingHeight = minOf((maxHeight - 32.dp).coerceAtLeast(1.dp), surfaceHeightCap)
         val sideWidth by animateDpAsState(
-            targetValue = minOf((maxWidth * .62f).coerceAtLeast(1.dp), surfaceWidthCap),
+            targetValue = minOf((maxWidth * .46f).coerceAtLeast(1.dp), surfaceWidthCap),
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
             label = "adaptive side panel width",
         )
@@ -319,10 +319,10 @@ fun DetailCardSurface(
         if (mode == CalinoSurfaceMode.EndPanel) {
             Box(
                 Modifier.fillMaxWidth().height(16.dp).background(handleColor),
-                contentAlignment = Alignment.CenterStart,
+                contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    Modifier.padding(start = 12.dp).width(4.dp).height(14.dp)
+                    Modifier.width(36.dp).height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
                         .background(CalinoColors.Ink.copy(alpha = .18f)),
                 )

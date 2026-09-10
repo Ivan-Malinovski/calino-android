@@ -61,8 +61,9 @@ test-coverage work described immediately below remains valid and unfinished.
   presenter. The underlying calendar remains mounted and receives a scrim, so
   the large-screen context is preserved rather than replaced.
 - Expanded side panels are inset from the window edge, fully rounded, and
-  elevated so they read as floating cards; the event-detail header uses a
-  tighter large-screen layout to keep the title visible sooner.
+  elevated so they read as floating cards, with a narrower sub-half-window
+  width target so more calendar context remains visible; event-detail headers use
+  the tighter layout in every presentation mode.
 - Dismissal follows the presentation edge: downward swipe for compact sheets,
   outward horizontal swipe from the panel header for expanded panels, and
   the same downward swipe plus Back/close/scrim for centered floating windows.
