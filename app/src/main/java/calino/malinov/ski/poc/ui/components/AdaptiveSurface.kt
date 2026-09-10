@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -54,9 +55,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp as lerpDp
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.state.CalinoSurfaceKind
+import calino.malinov.ski.poc.state.LocalHingeOpenness
+import calino.malinov.ski.poc.state.foldSplitProgress
 import calino.malinov.ski.poc.state.CalinoSurfaceMode
 import calino.malinov.ski.poc.state.calinoSurfaceModeFor
 import calino.malinov.ski.poc.state.calinoWindowClassFor
@@ -102,13 +106,31 @@ fun AdaptiveSurfaceHost(
         )
         val surfaceWidthCap = kind.widthCapDp.dp
         val surfaceHeightCap = kind.heightCapDp.dp
-        val floatingWidth = minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap)
+        // Bending the device halves the room a transient surface may take, in
+        // step with the hinge, so a sheet or a panel does not end up lying
+        // across the crease while the calendar behind it has already parted.
+        val hingeOpenness = LocalHingeOpenness.current
+        val splitProgress by remember(hingeOpenness) {
+            derivedStateOf {
+                val openness = hingeOpenness?.value ?: return@derivedStateOf 0f
+                (foldSplitProgress(openness) * 100f).roundToInt() / 100f
+            }
+        }
+        val foldWidthCap = lerpDp(
+            maxWidth,
+            ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp),
+            splitProgress,
+        )
+        val floatingWidth = minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap, foldWidthCap)
         val floatingHeight = minOf((maxHeight - 32.dp).coerceAtLeast(1.dp), surfaceHeightCap)
-        val sideWidth by animateDpAsState(
+        val settledSideWidth by animateDpAsState(
             targetValue = minOf((maxWidth * .46f).coerceAtLeast(1.dp), surfaceWidthCap),
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
             label = "adaptive side panel width",
         )
+        // The animation is for a window-size change. The fold cap is applied
+        // after it, so the panel tracks the hinge instead of chasing it.
+        val sideWidth = minOf(settledSideWidth, foldWidthCap)
         val sideHeight = (maxHeight - 24.dp).coerceAtLeast(1.dp)
         val bottomHeight = maxHeight * if (maxHeight < 520.dp) .96f else .86f
 

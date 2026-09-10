@@ -85,12 +85,74 @@ test-coverage work described immediately below remains valid and unfinished.
 - Dismissal follows the presentation edge: downward swipe for compact sheets,
   outward horizontal swipe from the panel header for expanded panels, and
   the same downward swipe plus Back/close/scrim for centered floating windows.
-  The rules are width-based; they do not yet inspect fold hinges or posture,
-  so a spanning foldable is treated as one available window.
+  The rules run through `calinoLayoutSpec(width, height, posture)`, one entry
+  point over the width buckets and the split-pane predicate so the two cannot
+  disagree about the same device. Posture comes from `androidx.window`, reduced
+  to `CalinoFoldPosture` by the pure `foldPostureOf(...)`; a half-open book
+  posture splits into two panes from 600dp rather than 720dp, because the crease
+  already divides the surface, and the pane rule then places the divider inside
+  the hinge band so neither pane straddles it.
 - Pure boundary/mode coverage lives in `AdaptiveWindowRulesTest`. API 36
   emulator checks covered the compact baseline, centered medium cards,
   expanded day/detail/editor panels, bounded search, short landscape, and
   side-panel dismissal. No physical-phone validation.
+
+### Fold morph on the month root — 2026-09-10
+
+- Unfolding used to be a cut: `HomeScreen` early-returned into a separate
+  `SplitHomeLayout` tree, so the grid was torn down and rebuilt at the new size
+  and the day pane arrived already open. It now settles instead. A `morph`
+  `Animatable` runs 0..1 over `CalinoMotion.FoldMorphMillis` and drives a
+  clamped scale from the geometry the layout had into the one it now has, plus
+  the day pane's width, so the pane grows with the grid rather than after it.
+- It is keyed on the width the grid actually gets -- the window less the pane
+  -- and not on the split decision, with `MinFoldMorphRatio` (4%) filtering out
+  inset shuffling. Keying it on the arrangement was the first attempt and was
+  wrong on the device it was built for: a Z Fold's inner display in portrait is
+  about 673dp, under `SplitPaneMinWidthDp`, so the most common unfold left the
+  arrangement identical and nothing moved.
+- The zoom continuum survives the fold. Entering split, the compact surface is
+  already gone, so the zoom is snapped to the pinned endpoint and the outgoing
+  value stored in `zoomBeforeSplit`; folding back animates from the endpoint to
+  that stored value, so the calendar reopens where it was left.
+- On a device that reports `Sensor.TYPE_HINGE_ANGLE` the fold is not an
+  animation at all: the layout follows the angle. `hingeOpenness(degrees,
+  sensorRange)` normalises to 0..1 and `foldSplitProgress(openness)` ramps from
+  flat (.97) to properly bent (.70), so the panes part as the device parts and
+  stop wherever the hinge stops. Jetpack's `FoldingFeature` cannot do this -- it
+  only ever says FLAT or HALF_OPENED, which is a jump, not a move.
+- What the progress drives: the month root's day pane grows from its resting
+  360dp to an even share of the window (`(width - 44dp) / 2`, the rule being
+  44dp), and a fold begun on a window at least `BookPostureSplitMinWidthDp` wide
+  creates the split even where width alone would not -- the crease is doing the
+  dividing. The transient surfaces take the same cap in `AdaptiveSurface` and
+  `SearchSheet`, so a sheet, a floating window or an end panel is down to half
+  the window by the time the calendar behind it has parted, rather than lying
+  across the crease. The side panel's own width animation stays for window-size
+  changes, with the fold cap applied after it so it tracks the hinge instead of
+  chasing it.
+- The value is quantized to one percent before it reaches layout. The sensor
+  streams finely and the month grid is expensive to remeasure; a percent is well
+  under what an eye can see and well over what a pager wants to be remeasured
+  at.
+- The timed morph stays underneath for the moment the window size actually
+  changes, and is all there is on a device with no such sensor
+  (`getDefaultSensor` returns null and the whole path is skipped). It is
+  suppressed while the hinge is driving, so the app never animates on its own
+  while the user is still moving the device. There is no blur: it only ever had
+  one visible level in practice and was not wanted.
+- What this is *not*: the panel handoff itself belongs to the system, which
+  hands the app a new window size and nothing else. Nothing here animates across
+  that swap the way a foldable iPhone does -- the blur exists to cover the frame
+  in which the new arrangement lays out. Do not describe it as a shared-element
+  transition; there is no shared node between the two arrangements.
+- Pure coverage in `FoldPostureTest` (posture mapping, book-posture split
+  threshold, keep-out band, preserved width buckets). Nothing here is exercised
+  by an instrumented test -- there are no Compose UI tests in this repo. The
+  morph itself is verified only by an emulator resize (`wm size`), which stands
+  in for a window change and cannot exercise the hinge sensor at all. The
+  hinge-driven path -- which is now most of the behaviour -- has never run on
+  hardware, because no emulator here reports a hinge angle.
 
 ### Pill-morph search and configurable event window — 2026-09-10
 

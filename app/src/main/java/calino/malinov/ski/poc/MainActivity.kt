@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.enableEdgeToEdge
@@ -111,11 +112,28 @@ import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.window.layout.FoldingFeature
+import androidx.window.layout.WindowInfoTracker
 import androidx.core.view.WindowCompat
 import calino.malinov.ski.poc.design.CalinoTheme
 import calino.malinov.ski.poc.design.CalinoThemes
 import calino.malinov.ski.poc.util.CalinoThemeChoice
 import calino.malinov.ski.poc.state.FixtureNow
+import calino.malinov.ski.poc.state.CalinoFoldPosture
+import calino.malinov.ski.poc.state.LocalFoldPosture
+import calino.malinov.ski.poc.state.LocalHingeOpenness
+import calino.malinov.ski.poc.state.hingeOpenness
+import calino.malinov.ski.poc.state.foldPostureOf
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.SharedPreferencesPreferenceStore
@@ -340,10 +358,97 @@ fun CalinoApp() {
         CompositionLocalProvider(
             LocalCalinoNow provides now,
             LocalCalinoPreferences provides preferences,
+            LocalFoldPosture provides rememberFoldPosture(),
+            LocalHingeOpenness provides rememberHingeOpenness(),
         ) {
             CalinoAppContent(pocViewModel)
         }
     }
+}
+
+/**
+ * The hinge, as the layout rules want it: in dp, and reduced to the few facts
+ * that change a layout. `BoxWithConstraints` cannot see a fold, so this is the
+ * one place the app asks the platform about the device's shape.
+ */
+@Composable
+private fun rememberFoldPosture(): CalinoFoldPosture {
+    val activity = LocalActivity.current ?: return CalinoFoldPosture.None
+    val density = LocalDensity.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val tracker = remember(activity) { WindowInfoTracker.getOrCreate(activity) }
+    var posture by remember { mutableStateOf(CalinoFoldPosture.None) }
+    LaunchedEffect(tracker, density, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            tracker.windowLayoutInfo(activity).collect { info ->
+                val fold = info.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
+                posture = if (fold == null) {
+                    CalinoFoldPosture.None
+                } else {
+                    val vertical = fold.orientation == FoldingFeature.Orientation.VERTICAL
+                    // A vertical hinge divides the window left/right; a
+                    // horizontal one divides it top/bottom.
+                    val start = if (vertical) fold.bounds.left else fold.bounds.top
+                    val end = if (vertical) fold.bounds.right else fold.bounds.bottom
+                    with(density) {
+                        foldPostureOf(
+                            isVerticalHinge = vertical,
+                            isHalfOpen = fold.state == FoldingFeature.State.HALF_OPENED,
+                            isSeparating = fold.isSeparating,
+                            hingeStartDp = start.toDp().value,
+                            hingeEndDp = end.toDp().value,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    return posture
+}
+
+/**
+ * The hinge angle as a 0..1 openness, or null where there is no such sensor.
+ *
+ * It is an on-change wake-up sensor, so it costs nothing while the device sits
+ * still and delivers a stream while it moves -- which is exactly the shape the
+ * fold morph wants. The value is a plain `MutableFloatState` read inside a
+ * `graphicsLayer` block, so a fold repaints without recomposing the calendar.
+ */
+@Composable
+private fun rememberHingeOpenness(): State<Float>? {
+    val context = LocalActivity.current ?: return null
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val sensorManager = remember(context) {
+        context.getSystemService(SensorManager::class.java)
+    }
+    val hinge = remember(sensorManager) {
+        sensorManager?.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE)
+    } ?: return null
+    val openness = remember { mutableFloatStateOf(1f) }
+    DisposableEffect(sensorManager, hinge, lifecycleOwner) {
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val degrees = event.values.firstOrNull() ?: return
+                openness.floatValue = hingeOpenness(degrees, hinge.maximumRange)
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START ->
+                    sensorManager?.registerListener(listener, hinge, SensorManager.SENSOR_DELAY_GAME)
+                Lifecycle.Event.ON_STOP -> sensorManager?.unregisterListener(listener)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            sensorManager?.unregisterListener(listener)
+        }
+    }
+    return openness
 }
 
 /**

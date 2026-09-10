@@ -340,6 +340,14 @@ object CalinoMotion {
     const val ContentEnterMillis = 180
     const val ContentExitMillis = 160
     const val SurfaceFadeMillis = 220
+
+    /**
+     * Unfolding is a bigger move than any in-app transition, so it gets the
+     * longest timing in the app -- long enough to read as the same surface
+     * growing, short enough that the device is not still animating once the
+     * hinge has stopped.
+     */
+    const val FoldMorphMillis = 320
 }
 
 @Composable

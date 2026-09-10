@@ -9,6 +9,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -91,6 +92,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -140,9 +142,13 @@ import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.state.BookPostureSplitMinWidthDp
+import calino.malinov.ski.poc.state.LocalFoldPosture
+import calino.malinov.ski.poc.state.LocalHingeOpenness
+import calino.malinov.ski.poc.state.foldSplitProgress
 import calino.malinov.ski.poc.state.SplitPaneWidthDp
+import calino.malinov.ski.poc.state.calinoLayoutSpec
 import calino.malinov.ski.poc.state.openTasksDueOn
-import calino.malinov.ski.poc.state.shouldSplit
 import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
@@ -192,6 +198,12 @@ import kotlinx.coroutines.launch
 private val PagerEpoch = LocalDate.of(2026, 5, 18)
 private const val DaytimeScrollHour = 9
 private const val ZoomStepDp = 280f
+
+/**
+ * Smallest relative width change that counts as a fold rather than as insets
+ * moving. Four percent is well under a hinge and well over a status bar.
+ */
+private const val MinFoldMorphRatio = .04f
 private const val DayPagerCenter = 100_000
 private const val DayPagerPageCount = DayPagerCenter * 2 + 1
 private const val WeekPagerCenter = 10_000
@@ -820,13 +832,127 @@ fun HomeScreen(
     // of the zoom continuum: the month grid is pinned open beside a day pane,
     // so the week strip, the day rail and the zoom gesture are not composed.
     var dayPaneCollapsed by rememberSaveable { mutableStateOf(false) }
+    // The zoom the compact layout was left at, so folding back does not dump
+    // the calendar at the split layout's pinned endpoint.
+    var zoomBeforeSplit by rememberSaveable { mutableFloatStateOf(initialZoom) }
     BoxWithConstraints(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
-    val splitLayout = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt())
+    val layoutSpec = calinoLayoutSpec(
+        widthDp = maxWidth.value.toInt(),
+        heightDp = maxHeight.value.toInt(),
+        posture = LocalFoldPosture.current,
+    )
+    val hingeOpenness = LocalHingeOpenness.current
+    /**
+     * How far the fold has divided the layout, 0 flat and 1 properly bent.
+     *
+     * Quantized before it reaches the layout: the sensor delivers a fine
+     * stream and the month grid is expensive to remeasure, so the panes move in
+     * one-percent steps. That is well under what an eye can see moving and well
+     * over what a pager wants to be remeasured at.
+     */
+    val splitProgress by remember(hingeOpenness) {
+        derivedStateOf {
+            val openness = hingeOpenness?.value ?: return@derivedStateOf 0f
+            (foldSplitProgress(openness) * 100f).roundToInt() / 100f
+        }
+    }
+    // Bending the device divides the layout even where width alone would not:
+    // the crease is doing the dividing, so the rule only has to be wide enough
+    // for two readable columns.
+    val foldSplitting = splitProgress > 0f && maxWidth.value >= BookPostureSplitMinWidthDp
+    val splitLayout = layoutSpec.splitPanes || foldSplitting
+
+    /**
+     * How far the arrangement has settled after a fold, 0 at the change and 1
+     * once it is done.
+     *
+     * Android hands the app a new window size; the swap between the physical
+     * panels belongs to the system and cannot be animated from here. What can
+     * be animated is everything after: rather than appearing already at its new
+     * size, the calendar starts at the geometry it had and settles into the one
+     * it now has, under a brief blur that covers the frame in which it
+     * re-lays-out.
+     *
+     * Keyed on the width the calendar actually gets, not on the split
+     * decision. A book-style foldable unfolds into a portrait window that is
+     * wider but still one pane -- keying on the arrangement meant the most
+     * common unfold on the device this was built for changed nothing at all.
+     */
+    val morph = remember { Animatable(1f) }
+    // Scale the incoming layout starts at. Captured when the change fires,
+    // since it depends on the width the calendar is coming *from*.
+    var morphStartScale by remember { mutableFloatStateOf(1f) }
+    var lastSplit by remember { mutableStateOf<Boolean?>(null) }
+    var lastContentWidth by remember { mutableFloatStateOf(0f) }
+    // Width the grid itself gets: the window, less the pane when there is one.
+    val contentWidth = (maxWidth.value - if (splitLayout) SplitPaneWidthDp.toFloat() else 0f)
+        .coerceAtLeast(1f)
+    LaunchedEffect(splitLayout, contentWidth) {
+        val previousSplit = lastSplit
+        val previousWidth = lastContentWidth
+        lastSplit = splitLayout
+        lastContentWidth = contentWidth
+        if (previousSplit == null) {
+            // First measure. There is no previous geometry to travel from.
+            morph.snapTo(1f)
+            return@LaunchedEffect
+        }
+        val ratio = previousWidth / contentWidth
+        // A few dp of inset shuffling is not a fold. Only a real change moves.
+        if (previousSplit == splitLayout && abs(1f - ratio) < MinFoldMorphRatio) {
+            morph.snapTo(1f)
+            return@LaunchedEffect
+        }
+        if (previousSplit != splitLayout) {
+            if (splitLayout) {
+                // The split grid is pinned to the detailed endpoint. Entering,
+                // the compact surface is already gone, so there is nothing to
+                // animate; remember where it was instead.
+                zoomBeforeSplit = settledZoom
+                cancelMotion()
+                zoomState.floatValue = 2f
+                settledZoom = 2f
+            } else {
+                animateZoomTo(zoomBeforeSplit)
+            }
+        }
+        if (foldSplitting) {
+            // The hinge is already driving this one. Running a timed animation
+            // over the top would be the app moving on its own while the user
+            // is still moving the device.
+            morph.snapTo(1f)
+            return@LaunchedEffect
+        }
+        // Clamped hard: this should read as the grid settling into its new
+        // size, not as a zoom.
+        morphStartScale = ratio.coerceIn(.88f, 1.14f)
+        morph.snapTo(0f)
+        morph.animateTo(1f, tween(CalinoMotion.FoldMorphMillis, easing = FastOutSlowInEasing))
+    }
+    val morphFraction = morph.value
+    val foldMorph = if (morphFraction >= 1f) {
+        Modifier
+    } else {
+        Modifier.graphicsLayer {
+            // Read here rather than in composition: the layer repaints without
+            // recomposing the calendar.
+            val scale = morphStartScale + (1f - morphStartScale) * morph.value
+            scaleX = scale
+            scaleY = scale
+            transformOrigin = TransformOrigin.Center
+        }
+    }
     val dayPaneShowing = splitLayout && !dayPaneCollapsed
     LaunchedEffect(dayPaneShowing) { onSplitPaneChanged(dayPaneShowing) }
     DisposableEffect(Unit) { onDispose { onSplitPaneChanged(false) } }
     if (splitLayout) {
         SplitHomeLayout(
+            modifier = foldMorph,
+            morphFraction = morphFraction,
+            splitProgress = splitProgress,
+            windowWidth = maxWidth,
+            hingeStartDp = layoutSpec.hingeStartDp,
+            hingeBandDp = layoutSpec.hingeBandDp,
             selected = selected,
             weekStart = weekStart,
             showWeekNumber = showWeekNumber,
@@ -869,7 +995,7 @@ fun HomeScreen(
         )
         return@BoxWithConstraints
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(foldMorph.fillMaxSize()) {
         MonthHeading(
             day = selected,
             showWeekNumber = showWeekNumber,
@@ -1200,6 +1326,12 @@ fun HomeScreen(
  */
 @Composable
 private fun SplitHomeLayout(
+    modifier: Modifier = Modifier,
+    morphFraction: Float,
+    splitProgress: Float,
+    windowWidth: Dp,
+    hingeStartDp: Float?,
+    hingeBandDp: Float,
     selected: LocalDate,
     weekStart: CalinoWeekStart,
     showWeekNumber: Boolean,
@@ -1223,18 +1355,34 @@ private fun SplitHomeLayout(
     // The grid is drawn at its detailed endpoint and stays there. MonthPager
     // reads this as a plain State, so a constant is all the zoom it needs.
     val pinnedZoom = remember { mutableFloatStateOf(2f) }
-    val paneWidth by animateDpAsState(
+    val settledPaneWidth by animateDpAsState(
         targetValue = if (dayPaneCollapsed) 0.dp else SplitPaneWidthDp.dp,
         animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
         label = "day pane width",
     )
+    // The pane grows with the grid settling rather than arriving already open,
+    // so an unfold reads as one motion.
+    val restingWidth = settledPaneWidth * morphFraction
+    // Folding drives the two panes towards equal shares. The rule between them
+    // is 44dp wide, so an even split is half of what is left after it.
+    val evenWidth = ((windowWidth - 44.dp) / 2f).coerceAtLeast(0.dp)
+    val paneWidth = lerpDp(restingWidth, evenWidth, splitProgress.coerceIn(0f, 1f))
+    // Half open, the crease is a real edge: put the rule in the band so
+    // neither pane straddles it.
+    val hingeSplit = hingeStartDp != null && hingeStartDp > 0f && !dayPaneCollapsed
     val dayEvents = remember(events, selected) {
         events.filter { it.occursOn(selected) }
     }
     val dayTasks = tasksByDueDate[selected].orEmpty()
 
-    Row(Modifier.fillMaxSize()) {
-        Column(Modifier.weight(1f).fillMaxHeight()) {
+    Row(modifier.fillMaxSize()) {
+        Column(
+            if (hingeSplit) {
+                Modifier.width(hingeStartDp!!.dp).fillMaxHeight()
+            } else {
+                Modifier.weight(1f).fillMaxHeight()
+            },
+        ) {
             MonthHeading(
                 day = selected,
                 showWeekNumber = showWeekNumber,
@@ -1267,13 +1415,18 @@ private fun SplitHomeLayout(
                 )
             }
         }
+        if (hingeSplit) {
+            Spacer(Modifier.width((hingeBandDp.dp - 44.dp).coerceAtLeast(0.dp)).fillMaxHeight())
+        }
         DayPaneDivider(collapsed = dayPaneCollapsed, onToggle = onToggleDayPane)
         if (paneWidth > 0.dp) {
             DayPane(
                 day = selected,
                 events = dayEvents,
                 tasks = dayTasks,
-                modifier = Modifier.width(paneWidth).fillMaxHeight().clipToBounds(),
+                modifier = (if (hingeSplit) Modifier.weight(1f) else Modifier.width(paneWidth))
+                    .fillMaxHeight()
+                    .clipToBounds(),
                 onEventClick = { _, event -> onEventClick?.invoke(event) },
                 onTaskClick = onTaskClick,
                 onTaskDone = onTaskDone,

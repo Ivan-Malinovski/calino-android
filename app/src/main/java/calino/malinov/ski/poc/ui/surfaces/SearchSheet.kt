@@ -37,7 +37,13 @@ import calino.malinov.ski.poc.data.search.*
 import calino.malinov.ski.poc.design.*
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.lerp as lerpDp
 import calino.malinov.ski.poc.state.CalinoSurfaceKind
+import calino.malinov.ski.poc.state.LocalHingeOpenness
+import calino.malinov.ski.poc.state.foldSplitProgress
 import calino.malinov.ski.poc.state.CalinoSurfaceMode
 import calino.malinov.ski.poc.state.calinoSurfaceModeFor
 import calino.malinov.ski.poc.state.calinoWindowClassFor
@@ -92,12 +98,26 @@ fun CalinoSearchSheet(
             CalinoSurfaceKind.Search,
         )
         val compact = mode == CalinoSurfaceMode.BottomSheet
+        // Same rule as the other transient surfaces: a fold in progress halves
+        // the room, so search does not straddle the crease.
+        val hingeOpenness = LocalHingeOpenness.current
+        val splitProgress by remember(hingeOpenness) {
+            derivedStateOf {
+                val openness = hingeOpenness?.value ?: return@derivedStateOf 0f
+                (foldSplitProgress(openness) * 100f).roundToInt() / 100f
+            }
+        }
+        val foldWidthCap = lerpDp(
+            maxWidth,
+            ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp),
+            splitProgress,
+        )
         val resultCount = groupsCount(results)
         val expandedHeight = if (query.isBlank()) 190.dp else minOf(580.dp, (150 + resultCount * 66).dp)
         val expandedWidth = if (compact) {
             (maxWidth - 24.dp).coerceAtLeast(1.dp)
         } else {
-            minOf((maxWidth - 48.dp).coerceAtLeast(1.dp), CalinoSurfaceKind.Search.widthCapDp.dp)
+            minOf((maxWidth - 48.dp).coerceAtLeast(1.dp), CalinoSurfaceKind.Search.widthCapDp.dp, foldWidthCap)
         }
         val expandedHeightTarget = if (compact) {
             minOf(maxHeight * .72f, expandedHeight)

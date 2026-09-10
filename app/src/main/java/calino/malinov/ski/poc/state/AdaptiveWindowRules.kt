@@ -48,3 +48,42 @@ fun calinoSurfaceModeFor(
         CalinoSurfaceMode.EndPanel
     }
 }
+
+/**
+ * Narrowest window that splits into two panes *because of a hinge*. A half-open
+ * book already divides the surface for you, so the two-column layout reads well
+ * below [SplitPaneMinWidthDp] -- but not on a genuinely small window.
+ */
+const val BookPostureSplitMinWidthDp = 600
+
+/**
+ * One answer for "what shape is this window", so the surface rules and the
+ * month root cannot disagree about the same device.
+ */
+data class CalinoLayoutSpec(
+    val windowClass: CalinoWindowClass,
+    val splitPanes: Boolean,
+    val hingeStartDp: Float?,
+    val hingeEndDp: Float?,
+) {
+    /** Width of the band no content should straddle; zero when there is none. */
+    val hingeBandDp: Float
+        get() = if (hingeStartDp != null && hingeEndDp != null) hingeEndDp - hingeStartDp else 0f
+}
+
+fun calinoLayoutSpec(
+    widthDp: Int,
+    heightDp: Int,
+    posture: CalinoFoldPosture = CalinoFoldPosture.None,
+): CalinoLayoutSpec {
+    val bookSplit = posture.isBookPosture && widthDp >= BookPostureSplitMinWidthDp
+    // The keep-out band is only meaningful across a vertical hinge in the pose
+    // where the crease is a real edge. Flat, the fold is just a seam.
+    val separating = posture.isBookPosture
+    return CalinoLayoutSpec(
+        windowClass = calinoWindowClassFor(widthDp),
+        splitPanes = shouldSplit(widthDp, heightDp) || bookSplit,
+        hingeStartDp = if (separating) posture.hingeStartDp else null,
+        hingeEndDp = if (separating) posture.hingeEndDp else null,
+    )
+}
