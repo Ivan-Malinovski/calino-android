@@ -331,7 +331,7 @@ fun HomeScreen(
     onTaskClick: ((CalTask) -> Unit)? = null,
     onOpenDay: ((LocalDate) -> Unit)? = null,
     interactionEnabled: Boolean = true,
-    /** Reports whether the landscape day pane is currently showing. */
+    /** Reports whether the large split month layout is active. */
     onSplitPaneChanged: (Boolean) -> Unit = {},
 ) {
     // Hoisted: the compact lane's draw scope cannot read the composition local.
@@ -942,8 +942,10 @@ fun HomeScreen(
             transformOrigin = TransformOrigin.Center
         }
     }
-    val dayPaneShowing = splitLayout && !dayPaneCollapsed
-    LaunchedEffect(dayPaneShowing) { onSplitPaneChanged(dayPaneShowing) }
+    // This callback describes the layout, rather than the pane's visibility:
+    // the shell uses it to keep the add pill in the same right-side lane while
+    // the day pane is collapsed and expanded.
+    LaunchedEffect(splitLayout) { onSplitPaneChanged(splitLayout) }
     DisposableEffect(Unit) { onDispose { onSplitPaneChanged(false) } }
     if (splitLayout) {
         SplitHomeLayout(

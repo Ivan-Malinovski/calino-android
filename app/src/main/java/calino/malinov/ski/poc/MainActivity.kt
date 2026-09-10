@@ -527,9 +527,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var journalOpenEntryId by rememberSaveable { mutableStateOf<String?>(null) }
     var journalSearchReturn by rememberSaveable { mutableStateOf(false) }
     var sidebarVisible by rememberSaveable { mutableStateOf(false) }
-    // The landscape month root puts the day beside the grid. The pill
-    // belongs over that pane, not centred on the rule between the two.
-    var splitDayPaneVisible by remember { mutableStateOf(false) }
+    // The large landscape month root reserves a right-side lane for the pill,
+    // even while the day pane itself is collapsed. That keeps the affordance
+    // anchored when the pane opens or closes.
+    var splitMonthLayoutVisible by remember { mutableStateOf(false) }
     var journalEntryRequest by rememberSaveable { mutableIntStateOf(0) }
     var pendingUndo by remember { mutableStateOf<UndoableChange?>(null) }
     var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
@@ -763,7 +764,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             taskDetailOrigin = PocReturnTarget.Calendar
                             route = PockRoute.TaskDetail
                         },
-                        onSplitPaneChanged = { splitDayPaneVisible = it },
+                        onSplitPaneChanged = { splitMonthLayoutVisible = it },
                     )
                     PockRoute.Agenda -> AgendaScreen(
                         // The snapshot rather than a direct repository
@@ -1025,10 +1026,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 20.dp),
             label = "add pill visibility",
         ) {
-            // In the landscape split the pill rides over the day pane, so
-            // the lane it centres in is the pane rather than the window.
+            // In the large landscape split the pill rides in the right-side
+            // lane. Keep that lane even when the day pane is collapsed, so
+            // toggling the pane does not recenter the pill.
             val pillLaneWidth by animateDpAsState(
-                targetValue = if (splitDayPaneVisible) (SplitPaneWidthDp + 44).dp else 0.dp,
+                targetValue = if (splitMonthLayoutVisible) (SplitPaneWidthDp + 44).dp else 0.dp,
                 animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
                 label = "add pill lane",
             )

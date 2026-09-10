@@ -354,9 +354,10 @@ Today button appears and targets the real date. The full
   tap on the day already showing there opens the day modal.
 - `DayPane` and the month agenda share `AgendaDayBlock` (`AgendaScreen.kt`), so
   the row set, sort order and "Nothing scheduled" case cannot drift.
-- `dayPaneCollapsed` lives in `HomeScreen` as `rememberSaveable` and is reported
-  up through `onSplitPaneChanged`, which `MainActivity` uses to slide the add
-  pill over the day pane rather than leaving it centred on the rule.
+- `dayPaneCollapsed` lives in `HomeScreen` as `rememberSaveable`. The split
+  layout reports through `onSplitPaneChanged`, and `MainActivity` keeps the add
+  pill in the same right-side lane even while that pane is collapsed, so the
+  pill does not recenter when the pane is toggled.
 - Landscape damage pass on the other roots: Agenda, Tasks, Journal and the
   sidebar were undamaged. Two fixes were needed — `SettingValue` no longer fills
   the row width (it was starving the label into one-character wrapping in the
