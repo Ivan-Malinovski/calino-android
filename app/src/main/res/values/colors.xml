@@ -3,5 +3,5 @@
     <color name="launch_canvas">#FAF8F3</color>
     <!-- Adaptive launcher icon background; fixed so the mark stays consistent
          when the phone switches between light and dark app themes. -->
-    <color name="launcher_background">#2C2823</color>
+    <color name="launcher_background">#4A423A</color>
 </resources>

@@ -22,8 +22,17 @@ May 2026 fixture data, so the sample surfaces stay reachable.
   Their foreground is the generated transparent calendar page at
   `app/src/main/res/drawable-nodpi/ic_launcher_foreground.png`, with the fixed
   espresso `launcher_background` behind it.
-- The API 36 emulator app drawer shows the page centered and legible inside
-  the launcher's circular mask. No physical-phone validation.
+- The art is pre-padded into the adaptive safe zone. A launcher renders only
+  the center 72dp of the 108dp layer, a 1.5x zoom, so foreground art that fills
+  the layer gets its edges masked away. The page occupies about 45% of the
+  layer, which lands near 68% of the visible icon under any mask. Do not
+  regenerate this PNG edge-to-edge -- the rings and the page corners are the
+  first things a squircle eats.
+- The selected detail variant adds a restrained 3-by-3 date grid with one
+  terracotta highlighted cell; the API 36 emulator app drawer keeps it legible
+  without changing the padded scale.
+- The earlier edge-to-edge art was confirmed clipped in a physical phone's app
+  drawer. The padded art has not been checked on hardware yet.
 
 Recurrence is expanded **on the client**, so a repeating event lands on every
 occurrence in the fetch window regardless of what the server will do.
