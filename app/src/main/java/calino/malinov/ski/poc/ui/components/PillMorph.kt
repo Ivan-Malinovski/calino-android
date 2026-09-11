@@ -55,7 +55,15 @@ class CalinoPillLane {
     var addPillBoundsLabel by mutableStateOf<String?>(null)
         internal set
 
+    /**
+     * Records where the root pill is resting. Ignored while a modal holds the
+     * lane: the root pill is only the anchor while it owns the lane, and a
+     * root pill that is on its way out is still laid out on the frames it
+     * spends leaving. Taking those, the modal pill chases the departing pill
+     * off the bottom of the screen and stays wherever it last saw it.
+     */
     internal fun setAddPill(bounds: Rect, label: String) {
+        if (claimedByModal) return
         addPillBounds = bounds
         addPillBoundsLabel = label
     }

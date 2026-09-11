@@ -1418,12 +1418,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     onDismiss = ::dismissQuickAdd,
                     // The editor owns every field now, so the host only
                     // decides between creating and updating a record.
+                    // Where this editor is going back to, decided as Save is
+                    // pressed rather than once the record is written: the pill
+                    // starts morphing back immediately, and it morphs into the
+                    // add pill of the screen it will land on.
+                    onSaveStarted = { draft ->
+                        if (draft.kind == PocQuickAddKind.Journal) {
+                            journalReviewVisible = false
+                            quickAddOrigin = PocReturnTarget.Journal
+                        }
+                    },
                     onSave = { draft ->
                         launchWrite({ saveEditorDraft(repository, draft) }) {
-                            if (draft.kind == PocQuickAddKind.Journal) {
-                                journalReviewVisible = false
-                                quickAddOrigin = PocReturnTarget.Journal
-                            }
                             selectedDate = draft.date
                             if (aiQueue.isNotEmpty()) {
                                 val next = aiQueue.first()

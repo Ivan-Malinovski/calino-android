@@ -1649,7 +1649,13 @@ fun ModalActionPill(
     // expanded form for the frames it has left.
     val morphSource = remember { morphFromAddPill }
     val canMorph = morphSource && !addText.isNullOrBlank()
-    val anchor = if (inPillLane && lane.addPillBoundsLabel == addText) lane.addPillBounds else null
+    // Two different questions about the root pill, and only one of them cares
+    // what it says. Where it sits is the lane, which is the same lane whatever
+    // the label; how big it is was measured for one particular label, and is
+    // worth nothing once the label has moved on -- then the pill measures its
+    // own add form instead, which is what it would have done from the start.
+    val anchor = if (inPillLane) lane.addPillBounds else null
+    val anchorSized = anchor != null && lane.addPillBoundsLabel == addText
 
     val morph = remember { Animatable(if (canMorph) 0f else 1f) }
     // A drag toward dismissal returns the pill to its add shape as it goes,
@@ -1694,8 +1700,8 @@ fun ModalActionPill(
     // Each form owns its own half of the move, with a short overlap: the add
     // label is gone before the actions are readable, so the pill reads as one
     // shape stretching rather than two labels sharing it.
-    val anchorWidth = anchor?.width?.roundToInt() ?: 0
-    val anchorHeight = anchor?.height?.roundToInt() ?: 0
+    val anchorWidth = if (anchorSized) anchor!!.width.roundToInt() else 0
+    val anchorHeight = if (anchorSized) anchor!!.height.roundToInt() else 0
     val addAlpha = ((.55f - progress) / .55f).coerceIn(0f, 1f)
     val actionsAlpha = ((progress - .45f) / .55f).coerceIn(0f, 1f)
     val actionsLive = progress > .5f

@@ -2102,6 +2102,7 @@ fun QuickAddSheet(
     onPhoto: (() -> Unit)? = null,
     onDismiss: () -> Unit = {},
     onSave: (EditorDraft) -> Unit = {},
+    onSaveStarted: (EditorDraft) -> Unit = {},
 ) {
     var mounted by remember { mutableStateOf(state.visible) }
     LaunchedEffect(state.visible) {
@@ -2117,6 +2118,7 @@ fun QuickAddSheet(
             onPhoto = onPhoto,
             onDismiss = { mounted = false; onDismiss() },
             onSave = onSave,
+            onSaveStarted = onSaveStarted,
             visible = state.visible,
             morphFromAddPill = state.morphFromAddPill,
         )

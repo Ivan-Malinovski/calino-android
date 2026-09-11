@@ -121,6 +121,14 @@ fun EditorSurface(
     onPhoto: (() -> Unit)? = null,
     onDismiss: () -> Unit = {},
     onSave: (EditorDraft) -> Unit = {},
+    /**
+     * Called the moment Save is pressed, before the card starts leaving. The
+     * pill morphs back into whatever add pill the host is about to show, and
+     * it has to know which one that is before the morph starts, not when the
+     * record has been written -- a kind switched to Journal goes back to a
+     * different screen than the one this editor was opened from.
+     */
+    onSaveStarted: (EditorDraft) -> Unit = {},
     visible: Boolean = true,
     morphFromAddPill: Boolean = false,
 ) {
@@ -196,7 +204,11 @@ fun EditorSurface(
                 cancelLabel = "Cancel",
                 onCancel = dismiss,
                 primaryLabel = "Save",
-                onPrimary = { val saved = draft; closeAfterAnimation { onSave(saved) } },
+                onPrimary = {
+                    val saved = draft
+                    onSaveStarted(saved)
+                    closeAfterAnimation { onSave(saved) }
+                },
                 primaryEnabled = draft.canSave(),
                 primaryDescription = "Save editor",
                 cancelDescription = "Cancel editor",

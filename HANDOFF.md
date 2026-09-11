@@ -120,6 +120,25 @@ continue the UI work.
   keeps the lane's anchor point and the button rides off its trailing edge,
   fading in with `lane.morphProgress`. A plain row would push the pill off the
   anchor to make room for the button.
+- The lane's anchor is only recorded while the root pill *owns* the lane:
+  `setAddPill` returns early once `claimedByModal` is set. A root pill on its
+  way out is still laid out on every frame it spends sliding away, and taking
+  those bounds the modal pill chases it off the bottom edge and stays there --
+  which is what the contact detail pill stuck at the bottom of the screen was.
+- Position and size are two separate questions about the anchor. The lane is
+  the same lane whatever the root pill says, so the modal pill is *placed*
+  against `addPillBounds` whenever they exist; the recorded *size* is used only
+  while `addPillBoundsLabel` still matches, and otherwise the pill measures its
+  own add form. Gating both on the label sent the pill to the bottom-centre
+  fallback whenever the label it was returning to was not the one that had been
+  measured.
+- Where a modal returns to has to be settled before the morph back starts, not
+  when its write lands. `EditorSurface` reports `onSaveStarted` as Save is
+  pressed, and that is where `MainActivity` points `quickAddOrigin` at the
+  journal screen for a journal draft. Deciding it in the write's callback left
+  the pill morphing back into the *calendar's* add pill and then snapping to
+  the journal's once the record was saved.
+
 - Contact detail's card now animates out (`detailShown`) instead of vanishing.
   Without that window there is nothing for the pill to morph back into.
 - `MainActivity` decides the root pill's silent exit from the **route**
