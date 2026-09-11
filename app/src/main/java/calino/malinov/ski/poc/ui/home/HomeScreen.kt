@@ -377,7 +377,6 @@ fun HomeScreen(
     onSplitPaneChanged: (Boolean) -> Unit = {},
 ) {
     // Hoisted: the compact lane's draw scope cannot read the composition local.
-    val canvas = CalinoColors.Canvas
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
     // The default view seeds the zoom once, on the first composition of a
     // session. Reading it continuously would pin the calendar to that level and
@@ -1282,6 +1281,18 @@ fun HomeScreen(
                 // underneath the morphing canvas lets the canvas take over
                 // at the exact shared row instead of painting a separate
                 // week surface on top of a fading month.
+                // While the week pager owns the compact lane it is the only
+                // surface allowed to draw that row: the month canvas hides
+                // its own copy instead of the strip painting an opaque
+                // backing over it. An opaque backing was what made the lane
+                // lose its translucency over the rail mid-swipe.
+                val weekPreviewActive = remember(weekPagerState, weekStripDay, weekStart) {
+                    derivedStateOf {
+                        weekPagerState.isScrollInProgress ||
+                            abs(weekPagerState.currentPageOffsetFraction) > .001f ||
+                            weekPageFor(weekStripDay, weekStart) != weekPagerState.settledPage
+                    }
+                }
                 if (zoomState.value < MonthEndpointBlendEnd) {
                         WeekStrip(
                         state = weekPagerState,
@@ -1319,16 +1330,12 @@ fun HomeScreen(
                             .drawWithContent {
                                 // The month Canvas owns the idle endpoint.
                                 // During a horizontal preview this layer
-                                // becomes the sole owner of the whole compact
-                                // lane. The opaque backing is important: a
-                                // transparent pager would leave the committed
-                                // month row visible underneath and create the
-                                // reported double-strip effect.
-                                val previewVisible = weekPagerState.isScrollInProgress ||
-                                    abs(weekPagerState.currentPageOffsetFraction) > .001f ||
-                                    weekPageFor(weekStripDay, weekStart) != weekPagerState.settledPage
-                                if (previewVisible) {
-                                    drawRect(canvas)
+                                // becomes the sole owner of the compact lane,
+                                // and the month row underneath goes away on
+                                // its own, so nothing has to be painted over
+                                // it. Keeping the lane unpainted is what lets
+                                // the rail keep showing through the strip.
+                                if (weekPreviewActive.value) {
                                     drawContent()
                                 }
                             },
@@ -1389,6 +1396,7 @@ fun HomeScreen(
                         compactDay = weekStripDay,
                         compactSelectorIndex = { compactSelectorIndex.value },
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
+                        compactLaneOwnedByWeek = weekPreviewActive,
                         modifier = Modifier.fillMaxSize(),
                         gestureModifier = Modifier,
                         // At the compact endpoint the week pager is the sole
@@ -1592,6 +1600,7 @@ private fun SplitHomeLayout(
                     compactDay = selected,
                     compactSelectorIndex = { selected.weekdayColumn(weekStart).toFloat() },
                     compactBoundaryTransition = false,
+                    compactLaneOwnedByWeek = remember { mutableStateOf(false) },
                     modifier = Modifier.fillMaxSize(),
                     // No vertical zoom drag in this layout, so the pager is
                     // the sole owner of the pointer stream over the grid.
@@ -2105,6 +2114,7 @@ private fun MonthPager(
     compactDay: LocalDate,
     compactSelectorIndex: () -> Float,
     compactBoundaryTransition: Boolean,
+    compactLaneOwnedByWeek: androidx.compose.runtime.State<Boolean>,
     modifier: Modifier,
     gestureModifier: Modifier,
     userScrollEnabled: Boolean,
@@ -2122,7 +2132,14 @@ private fun MonthPager(
     // StaticMonthGrid owns the compact endpoint as well as the expanded
     // month. The week pager remains an interaction/preview layer, so the
     // selected week never fades out while a second idle row fades in.
-    val monthVisualAlpha = remember { mutableFloatStateOf(1f) }
+    // Hidden outright while the week pager is previewing another week: at the
+    // compact endpoint the only thing this canvas contributes is the very row
+    // the strip is drawing, and two copies of it would read as a double strip.
+    val monthVisualAlpha = remember(zoomState, compactLaneOwnedByWeek) {
+        derivedStateOf {
+            if (compactLaneOwnedByWeek.value && zoomState.value < .999f) 0f else 1f
+        }
+    }
     Box(modifier.clipToBounds().then(gestureModifier)) {
         fun effectiveMonth(page: Int): YearMonth {
             val pagerMonth = monthForPage(page)
