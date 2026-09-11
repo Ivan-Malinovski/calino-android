@@ -91,10 +91,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -1228,6 +1230,7 @@ fun TasksSurface(
     val taskTree = remember(tasks) { TaskTree(tasks) }
     var draggingTaskId by remember { mutableStateOf<String?>(null) }
     var dragDistanceY by remember { mutableFloatStateOf(0f) }
+    var dragDistanceX by remember { mutableFloatStateOf(0f) }
     // Positions are only read while a drag is recomposing. Keeping this map
     // non-snapshot avoids turning every ordinary LazyColumn scroll frame into
     // a whole TasksSurface recomposition.
@@ -1331,19 +1334,32 @@ fun TasksSurface(
             }
         }
     }
-    val beginTaskDrag: (CalTask) -> Unit = { task -> draggingTaskId = task.id; dragDistanceY = 0f }
-    val moveTaskDrag: (Offset) -> Unit = { amount -> dragDistanceY += amount.y }
+    // Dragging a subtask clear of its indent is the inverse of dropping one row
+    // onto another: it lets go of the parent without going through the menu.
+    val unnestThresholdPx = with(LocalDensity.current) { 56.dp.toPx() }
+    val unnestingTaskId = draggingTaskId?.takeIf { id ->
+        dropTarget == null &&
+            dragDistanceX <= -unnestThresholdPx &&
+            tasks.firstOrNull { it.id == id }?.parentTaskId != null
+    }
+    val beginTaskDrag: (CalTask) -> Unit = { task -> draggingTaskId = task.id; dragDistanceY = 0f; dragDistanceX = 0f }
+    val moveTaskDrag: (Offset) -> Unit = { amount -> dragDistanceY += amount.y; dragDistanceX += amount.x }
     val finishTaskDrag: () -> Unit = {
         val dragged = tasks.firstOrNull { it.id == draggingTaskId }
         // A null target is reserved for an explicit top-level action in the
         // menu. A drag that misses a valid task (including a cycle-forming
         // descendant) should simply spring back instead of unexpectedly
         // promoting the source task.
-        if (dragged != null && dropTarget != null) onTaskDrop(dragged, dropTarget)
+        if (dragged != null && dropTarget != null) {
+            onTaskDrop(dragged, dropTarget)
+        } else if (dragged != null && unnestingTaskId == dragged.id) {
+            onTaskDrop(dragged, null)
+        }
         draggingTaskId = null
         dragDistanceY = 0f
+        dragDistanceX = 0f
     }
-    val cancelTaskDrag: () -> Unit = { draggingTaskId = null; dragDistanceY = 0f }
+    val cancelTaskDrag: () -> Unit = { draggingTaskId = null; dragDistanceY = 0f; dragDistanceX = 0f }
 
     Column(Modifier.fillMaxSize().background(CalinoColors.Canvas).padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1399,6 +1415,7 @@ fun TasksSurface(
                         finishTaskDrag,
                         cancelTaskDrag,
                         recordTaskPosition,
+                        unnestingTaskId,
                     )
                     TaskBucket(
                         "Today",
@@ -1419,6 +1436,7 @@ fun TasksSurface(
                         finishTaskDrag,
                         cancelTaskDrag,
                         recordTaskPosition,
+                        unnestingTaskId,
                     )
                     TaskBucket(
                         "This week",
@@ -1439,6 +1457,7 @@ fun TasksSurface(
                         finishTaskDrag,
                         cancelTaskDrag,
                         recordTaskPosition,
+                        unnestingTaskId,
                     )
                     TaskBucket(
                         "Later",
@@ -1459,6 +1478,7 @@ fun TasksSurface(
                         finishTaskDrag,
                         cancelTaskDrag,
                         recordTaskPosition,
+                        unnestingTaskId,
                     )
                     TaskBucket(
                         "No date",
@@ -1479,6 +1499,7 @@ fun TasksSurface(
                         finishTaskDrag,
                         cancelTaskDrag,
                         recordTaskPosition,
+                        unnestingTaskId,
                     )
                     TaskBucket(
                         "Completed",
@@ -1499,6 +1520,7 @@ fun TasksSurface(
                         finishTaskDrag,
                         cancelTaskDrag,
                         recordTaskPosition,
+                        unnestingTaskId,
                     )
                     if (activeVisible.isEmpty()) {
                         item(key = "tasks-empty:${activeFilter.name}") {
@@ -1629,6 +1651,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
     onTaskPositioned: (CalTask, LayoutCoordinates) -> Unit,
+    unnestingTaskId: String?,
 ) {
     if (tasks.isNotEmpty()) {
         item(key = "bucket:$name") {
@@ -1639,7 +1662,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                     .padding(top = 10.dp, bottom = 3.dp),
             )
         }
-        tasks.forEach { originalTask ->
+        // Rails are drawn from the rendered order: a level keeps its rail when a
+        // later row still sits at that depth before the list climbs above it.
+        val depths = tasks.map { taskTree.depth(it.id) }
+        val lineages = depths.indices.map { index ->
+            List(depths[index]) { level ->
+                var continues = false
+                for (next in index + 1 until depths.size) {
+                    val nextDepth = depths[next]
+                    if (nextDepth < level) break
+                    if (nextDepth == level) { continues = true; break }
+                }
+                continues
+            }
+        }
+        tasks.forEachIndexed { index, originalTask ->
             val task = renderTask(originalTask)
             // A completion can move a row from its date bucket to Completed.
             // Give each bucket its own identity so LazyColumn fades the old
@@ -1653,12 +1690,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                     showReschedule = reschedulingTaskId == task.id,
                     onRescheduleTo = onRescheduleTo,
                     onClick = { onTaskClick(task) },
-                    depth = taskTree.depth(task.id),
+                    depth = depths[index],
+                    nestingLines = lineages[index],
                     hasSubtasks = taskTree.directChildren(task.id).isNotEmpty(),
                     subtasksCollapsed = task.id in collapsedTaskIds,
                     onToggleSubtasks = { onToggleSubtasks(task) },
                     onTaskAction = onTaskAction,
                     isDropTarget = dropTarget?.id == task.id,
+                    isUnnesting = unnestingTaskId == task.id,
                     onDragStart = { onDragStart(task) },
                     onDrag = onDrag,
                     onDragEnd = onDragEnd,
@@ -1667,6 +1706,35 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                     modifier = Modifier.animateItem(),
                 )
             }
+        }
+    }
+}
+
+/** Indent applied per nesting level, and the width of one connector rail slot. */
+private const val TaskNestStep = 20
+
+/**
+ * Draws the subtask connectors in the gutter left of an indented row: a rail for
+ * every ancestor level that still continues below, and an elbow from this row's
+ * own level into the card edge.
+ */
+private fun DrawScope.drawNestRails(
+    depth: Int,
+    nestingLines: List<Boolean>,
+    color: Color,
+    stepPx: Float,
+    strokePx: Float,
+) {
+    if (depth <= 0) return
+    val centerY = size.height / 2f
+    for (level in 0 until depth) {
+        val x = level * stepPx + stepPx / 2f
+        val continues = nestingLines.getOrElse(level) { false }
+        val own = level == depth - 1
+        val endY = if (own && !continues) centerY else size.height
+        drawLine(color, Offset(x, 0f), Offset(x, endY), strokePx, StrokeCap.Round)
+        if (own) {
+            drawLine(color, Offset(x, centerY), Offset(depth * stepPx, centerY), strokePx, StrokeCap.Round)
         }
     }
 }
@@ -1681,11 +1749,14 @@ private fun TaskRow(
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { _, _ -> },
     onClick: (() -> Unit)? = null,
     depth: Int = 0,
+    /** Per ancestor level, whether that level still has a row below this one. */
+    nestingLines: List<Boolean> = emptyList(),
     hasSubtasks: Boolean = false,
     subtasksCollapsed: Boolean = false,
     onToggleSubtasks: () -> Unit = {},
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     isDropTarget: Boolean = false,
+    isUnnesting: Boolean = false,
     onDragStart: (() -> Unit)? = null,
     onDrag: ((Offset) -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null,
@@ -1696,6 +1767,8 @@ private fun TaskRow(
     val today = LocalCalinoNow.current.today
     var drag by remember(task.id) { mutableStateOf(0f) }
     var verticalDrag by remember(task.id) { mutableFloatStateOf(0f) }
+    var liftedDrag by remember(task.id) { mutableStateOf(Offset.Zero) }
+    var isLifted by remember(task.id) { mutableStateOf(false) }
     var isDragging by remember(task.id) { mutableStateOf(false) }
     val animatedOffset by animateFloatAsState(
         targetValue = if (isDragging) drag else 0f,
@@ -1721,6 +1794,14 @@ private fun TaskRow(
         label = "task drop border",
     )
     val canAct = !task.done
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (subtasksCollapsed) 0f else 90f,
+        animationSpec = tween(180),
+        label = "subtask chevron",
+    )
+    val railColor = CalinoColors.Ink.copy(alpha = .10f)
+    val stepPx = with(density) { TaskNestStep.dp.toPx() }
+    val strokePx = with(density) { 1.dp.toPx() }
     val description = buildString {
         append(task.title)
         task.due?.let { append(", due "); append(it.format(DateTimeFormatter.ofPattern("MMM d", Locale.US))) }
@@ -1734,10 +1815,10 @@ private fun TaskRow(
         Modifier.calinoLongPressDrag(
             onClick = onClick,
             onLongPress = { menuOpen = true },
-            onDragStart = { verticalDrag = 0f; onDragStart?.invoke() },
-            onDrag = { amount -> verticalDrag += amount.y; onDrag(amount) },
-            onDragEnd = { _ -> onDragEnd?.invoke(); verticalDrag = 0f },
-            onDragCancel = { onDragCancel?.invoke(); verticalDrag = 0f },
+            onDragStart = { verticalDrag = 0f; liftedDrag = Offset.Zero; isLifted = true; onDragStart?.invoke() },
+            onDrag = { amount -> verticalDrag += amount.y; liftedDrag += amount; onDrag(amount) },
+            onDragEnd = { _ -> onDragEnd?.invoke(); verticalDrag = 0f; liftedDrag = Offset.Zero; isLifted = false },
+            onDragCancel = { onDragCancel?.invoke(); verticalDrag = 0f; liftedDrag = Offset.Zero; isLifted = false },
         )
     } else {
         Modifier.combinedClickable(
@@ -1759,7 +1840,15 @@ private fun TaskRow(
         Box(
             Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(0, verticalDrag.roundToInt()) }
+                .offset { IntOffset(liftedDrag.x.roundToInt(), verticalDrag.roundToInt()) }
+                // Drawn before the indent padding so the rails land in the
+                // gutter the card has been pushed out of. A carried row drops
+                // its own rails -- they would otherwise travel with the card
+                // and hide the fact that it has left the parent.
+                .drawBehind {
+                    if (!isLifted) drawNestRails(depth, nestingLines, railColor, stepPx, strokePx)
+                }
+                .padding(start = (depth * TaskNestStep).dp)
                 .clip(rowShape),
         ) {
             if (canAct) {
@@ -1816,7 +1905,6 @@ private fun TaskRow(
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (depth > 0) Spacer(Modifier.width((depth * 18).dp))
                 Box(
                     Modifier
                         .size(44.dp)
@@ -1887,6 +1975,18 @@ private fun TaskRow(
                     }
                 }
                 AnimatedVisibility(
+                    visible = isUnnesting,
+                    enter = fadeIn(tween(100)),
+                    exit = fadeOut(tween(80)),
+                ) {
+                    Text(
+                        "Move to top level",
+                        color = CalinoColors.Accent,
+                        style = CalinoTypography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
+                AnimatedVisibility(
                     visible = isDropTarget,
                     enter = fadeIn(tween(100)),
                     exit = fadeOut(tween(80)),
@@ -1897,24 +1997,6 @@ private fun TaskRow(
                         style = CalinoTypography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
-                }
-                if (canAct) {
-                    // Completion has one clear 44dp target at the leading edge.
-                    // Keep reschedule as the separate trailing action; the
-                    // horizontal swipe remains available on the whole row.
-                    IconButton(
-                        onClick = { onReschedule(task) },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .semantics { contentDescription = "Reschedule ${task.title}" },
-                    ) {
-                        CalinoIcon(
-                            CalinoIcon.Repeat,
-                            tint = CalinoColors.Ink2,
-                            modifier = Modifier.size(18.dp),
-                            contentDescription = null,
-                        )
-                    }
                 }
                 if (hasSubtasks) {
                     IconButton(
@@ -1929,7 +2011,14 @@ private fun TaskRow(
                                 }
                             },
                     ) {
-                        Text(if (subtasksCollapsed) "›" else "⌄", color = CalinoColors.Ink2, fontSize = 20.sp)
+                        CalinoIcon(
+                            CalinoIcon.Forward,
+                            tint = CalinoColors.Ink3,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .graphicsLayer { rotationZ = chevronRotation },
+                            contentDescription = null,
+                        )
                     }
                 }
             }
@@ -1943,7 +2032,7 @@ private fun TaskRow(
         }
         AnimatedVisibility(visible = showReschedule, enter = expandVertically(tween(180)) + fadeIn(tween(160)), exit = shrinkVertically(tween(160)) + fadeOut(tween(120))) {
             FlowRow(
-                Modifier.fillMaxWidth().padding(start = 44.dp, top = 5.dp, bottom = 3.dp),
+                Modifier.fillMaxWidth().padding(start = (depth * TaskNestStep + 44).dp, top = 5.dp, bottom = 3.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
