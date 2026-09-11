@@ -12,6 +12,10 @@ continue the UI work.
 - Event detail has one overflow affordance. The header button was removed and
   More is now the trailing segment inside the shared bottom action pill, after
   Cancel and Edit.
+- Events without location, notes, attendees, or recurrence use a tighter
+  400×360dp preview cap (half-height at most on a phone), avoiding an empty
+  full-height body while keeping richer events scrollable in the regular
+  preview.
 
 ### Sidebar polish — 2026-09-11
 

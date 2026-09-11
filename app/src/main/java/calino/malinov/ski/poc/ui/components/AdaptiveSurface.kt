@@ -152,8 +152,18 @@ fun AdaptiveSurfaceHost(
             ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp),
             splitProgress,
         )
-        val floatingWidth = minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap, foldWidthCap)
-        val floatingHeight = minOf((maxHeight - 32.dp).coerceAtLeast(1.dp), surfaceHeightCap)
+        val floatingWidthTarget = minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap, foldWidthCap)
+        val floatingHeightTarget = minOf((maxHeight - 32.dp).coerceAtLeast(1.dp), surfaceHeightCap)
+        val floatingWidth by animateDpAsState(
+            targetValue = floatingWidthTarget,
+            animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+            label = "adaptive floating width",
+        )
+        val floatingHeight by animateDpAsState(
+            targetValue = floatingHeightTarget,
+            animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+            label = "adaptive floating height",
+        )
         val settledSideWidth by animateDpAsState(
             targetValue = minOf((maxWidth * .46f).coerceAtLeast(1.dp), surfaceWidthCap),
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
@@ -163,11 +173,17 @@ fun AdaptiveSurfaceHost(
         // after it, so the panel tracks the hinge instead of chasing it.
         val sideWidth = minOf(settledSideWidth, foldWidthCap)
         val sideHeight = (maxHeight - 24.dp).coerceAtLeast(1.dp)
-        val bottomHeight = when {
+        val bottomHeightTarget = when {
             maxHeight < 520.dp -> maxHeight * .96f
+            kind == CalinoSurfaceKind.CompactPreview -> minOf(maxHeight * .5f, surfaceHeightCap)
             kind == CalinoSurfaceKind.Preview -> minOf(maxHeight * .68f, surfaceHeightCap)
             else -> maxHeight * .86f
         }
+        val bottomHeight by animateDpAsState(
+            targetValue = bottomHeightTarget,
+            animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+            label = "adaptive bottom sheet height",
+        )
 
         val enter = when (mode) {
             CalinoSurfaceMode.BottomSheet ->

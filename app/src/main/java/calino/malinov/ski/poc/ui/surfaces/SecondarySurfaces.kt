@@ -675,11 +675,15 @@ fun EventDetailSurface(
     // The pill lane shows one pill for the whole pager, so the overflow it
     // opens belongs to whichever event is settled under it.
     val laneEvent = events.getOrNull(pager.currentPage) ?: event
+    val compactPreview = laneEvent.location.isNullOrBlank() &&
+        laneEvent.notes.isNullOrBlank() &&
+        laneEvent.attendees.isEmpty() &&
+        laneEvent.recurrence == null
     var moreOpen by remember(laneEvent.id) { mutableStateOf(false) }
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
-        surfaceKind = CalinoSurfaceKind.Preview,
+        surfaceKind = if (compactPreview) CalinoSurfaceKind.CompactPreview else CalinoSurfaceKind.Preview,
         pill = {
             EventDetailPill(
                 event = laneEvent,
