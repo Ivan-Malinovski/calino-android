@@ -1296,7 +1296,17 @@ fun HomeScreen(
                             weekPageFor(weekStripDay, weekStart) != weekPagerState.settledPage
                     }
                 }
-                if (zoomState.value < MonthEndpointBlendEnd) {
+                // Both of these are booleans that flip twice in a whole drag,
+                // but reading the zoom float in composition made every sample
+                // of that drag recompose the calendar, the month pager's three
+                // page trees and the day surface underneath them.
+                val weekStripMounted by remember(zoomState) {
+                    derivedStateOf { zoomState.value < MonthEndpointBlendEnd }
+                }
+                val monthPagerScrollable by remember(zoomState) {
+                    derivedStateOf { zoomState.value >= MonthEndpointBlendEnd }
+                }
+                if (weekStripMounted) {
                         WeekStrip(
                         state = weekPagerState,
                         day = selected,
@@ -1394,8 +1404,14 @@ fun HomeScreen(
                         // The day rail is intentionally pulled upward behind
                         // the handle. The visible month ends where that rail
                         // begins, not at the full measured month layer.
-                        visibleGridHeight = (calendarHeight.value + handleHeight - laneOverlap)
-                            .coerceAtLeast(0.dp),
+                        // Deferred: this tracks the zoom, and reading it here
+                        // recomposed the month pager, all three of its page
+                        // trees and their 42 hit nodes on every drag sample.
+                        // Its only consumer is a drop, which reads it then.
+                        visibleGridHeight = {
+                            (calendarHeight.value + handleHeight - laneOverlap)
+                                .coerceAtLeast(0.dp)
+                        },
                         compactDay = weekStripDay,
                         compactSelectorIndex = { compactSelectorIndex.value },
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
@@ -1407,8 +1423,7 @@ fun HomeScreen(
                         // as the visual morph reaches its handoff threshold,
                         // including while a reverse zoom settle is still in
                         // flight.
-                        userScrollEnabled = interactionEnabled &&
-                            zoomState.value >= MonthEndpointBlendEnd,
+                        userScrollEnabled = interactionEnabled && monthPagerScrollable,
                         onDay = { date ->
                             if (interactionEnabled) {
                                 // The split level is a selection surface. Only
@@ -1599,7 +1614,7 @@ private fun SplitHomeLayout(
                     zoomState = pinnedZoom,
                     compactGridHeight = gridHeight,
                     detailedGridHeight = gridHeight,
-                    visibleGridHeight = gridHeight,
+                    visibleGridHeight = { gridHeight },
                     compactDay = selected,
                     compactSelectorIndex = { selected.weekdayColumn(weekStart).toFloat() },
                     compactBoundaryTransition = false,
@@ -2213,7 +2228,7 @@ private fun MonthPager(
     zoomState: androidx.compose.runtime.State<Float>,
     compactGridHeight: Dp,
     detailedGridHeight: Dp,
-    visibleGridHeight: Dp,
+    visibleGridHeight: () -> Dp,
     compactDay: LocalDate,
     compactSelectorIndex: () -> Float,
     compactBoundaryTransition: Boolean,
@@ -2606,7 +2621,7 @@ private fun MonthGridHitTargets(
     zoomState: androidx.compose.runtime.State<Float>? = null,
     compactGridHeight: Dp = targetHeight,
     detailedGridHeight: Dp = targetHeight,
-    visibleGridHeight: Dp = detailedGridHeight,
+    visibleGridHeight: () -> Dp = { detailedGridHeight },
     compactDay: LocalDate = selected,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
@@ -2718,7 +2733,7 @@ private fun MonthGridHitTargets(
                     cellWidthPx = eventCellWidthPx ?: 1f,
                     rowHeightPx = eventDetailedRowHeightPx ?: 1f,
                     zoom = zoom,
-                    visibleGridHeightPx = with(density) { visibleGridHeight.toPx() },
+                    visibleGridHeightPx = { with(density) { visibleGridHeight().toPx() } },
                 )
             }
         },
@@ -2856,7 +2871,7 @@ private fun MonthEventDragTarget(
     cellWidthPx: Float,
     rowHeightPx: Float,
     zoom: Float,
-    visibleGridHeightPx: Float,
+    visibleGridHeightPx: () -> Float,
 ) {
     var menuOpen by remember(event.id) { mutableStateOf(false) }
     var dragOffset by remember(event.id) { mutableStateOf(Offset.Zero) }
@@ -2892,7 +2907,7 @@ private fun MonthEventDragTarget(
                     detailed = zoom >= 1f,
                     finalPointer = finalPointer,
                     gridBounds = gridBounds,
-                    visibleGridHeightPx = visibleGridHeightPx,
+                    visibleGridHeightPx = visibleGridHeightPx(),
                 )?.let { targetDate -> callback(event, targetDate) }
                 dragOffset = Offset.Zero
                 onDragVisualChanged?.invoke(event, null)
@@ -2953,7 +2968,7 @@ private fun StaticMonthGrid(
     zoomState: androidx.compose.runtime.State<Float>,
     compactGridHeight: Dp,
     detailedGridHeight: Dp,
-    visibleGridHeight: Dp,
+    visibleGridHeight: () -> Dp,
     compactDay: LocalDate,
     compactSelectorIndex: () -> Float,
     interactionEnabled: Boolean,

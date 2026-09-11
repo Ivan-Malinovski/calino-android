@@ -65,16 +65,26 @@ internal class LocalOverlay {
     }
 
     fun applyToEvents(base: List<CalEvent>): List<CalEvent> =
-        merge(base, events) { it.id }.filterNot { it.id in deletedEvents }
+        merge(base, events) { it.id }.without(deletedEvents) { it.id }
 
     fun applyToTasks(base: List<CalTask>): List<CalTask> =
-        merge(base, tasks) { it.id }.filterNot { it.id in deletedTasks }
+        merge(base, tasks) { it.id }.without(deletedTasks) { it.id }
 
     fun applyToJournals(base: List<JournalEntry>): List<JournalEntry> =
-        merge(base, journals) { it.id }.filterNot { it.id in deletedJournals }
+        merge(base, journals) { it.id }.without(deletedJournals) { it.id }
 
     fun applyToContacts(base: List<Contact>): List<Contact> =
-        merge(base, contacts) { it.id }.filterNot { it.id in deletedContacts }
+        merge(base, contacts) { it.id }.without(deletedContacts) { it.id }
+
+    /**
+     * Identity matters here, not just contents. The UI caches month indices
+     * and measured text against the list it was handed, and an unconditional
+     * filter handed it a fresh list on every publish -- dozens of times during
+     * a sync -- throwing all of that away each time for an overlay that was
+     * usually empty.
+     */
+    private fun <T> List<T>.without(deleted: Set<String>, id: (T) -> String): List<T> =
+        if (deleted.isEmpty()) this else filterNot { id(it) in deleted }
 
     /** Server records first, with local edits replacing matches in place. */
     private fun <T> merge(base: List<T>, edits: Map<String, T>, id: (T) -> String): List<T> {
