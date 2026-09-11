@@ -1,5 +1,6 @@
 package calino.malinov.ski.poc.qa
 
+import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.state.PocReturnTarget
@@ -64,6 +65,42 @@ class AgendaViewTest {
         val due = task.due!!
         assertTrue(tasksDueOn(repository.tasks(), due).any { it.id == task.id })
         assertFalse(tasksDueOn(repository.tasks(), due.plusDays(1)).any { it.id == task.id })
+    }
+
+    @Test
+    fun expandedMonth_ordersSpansThenRecurringThenOneOffEvents_stably() {
+        val day = LocalDate.of(2026, 5, 12)
+        fun event(
+            id: String,
+            recurrence: String? = null,
+            endDate: LocalDate? = null,
+        ) = CalEvent(
+            id = id,
+            title = id,
+            color = 0L,
+            start = null,
+            durationMinutes = null,
+            allDay = true,
+            recurrence = recurrence,
+            calendarId = "test",
+            date = day,
+            endDate = endDate,
+        )
+        val events = listOf(
+            event("one-off-a"),
+            event("recurring-a", recurrence = "FREQ=WEEKLY"),
+            event("span-a", endDate = day.plusDays(2)),
+            event("one-off-b"),
+            event("span-b", recurrence = "FREQ=DAILY", endDate = day.plusDays(1)),
+            event("recurring-b", recurrence = "FREQ=MONTHLY"),
+        )
+
+        assertEquals(
+            listOf("span-a", "span-b", "recurring-a", "recurring-b", "one-off-a", "one-off-b"),
+            monthEventIndex(events, YearMonth.from(day), CalinoWeekStart.Monday)
+                .getValue(day)
+                .map { it.id },
+        )
     }
 
     @Test

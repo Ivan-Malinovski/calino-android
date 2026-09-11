@@ -6,6 +6,13 @@ continue the UI work.
 
 ## Current state
 
+### Expanded-month event ordering — 2026-09-11
+
+- Expanded month cells use a stable priority: multi-day spans first, recurring
+  events and recurrence instances second, and one-off events last. Repository
+  order is preserved within each priority group, and the same ordered list
+  drives both painted chips and their input lanes.
+
 ### Timed empty-slot creation — 2026-09-11
 
 - At the compact week-strip/day-rail endpoint, tapping empty timed space opens

@@ -139,6 +139,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.poc.data.model.CalEvent
+import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.occursOn
@@ -3770,9 +3771,19 @@ internal fun monthEventIndex(
     return buildMap {
         repeat(cellCount) { index ->
             val date = start.plusDays(index.toLong())
-            val dayEvents = eventsFor(events, date)
+            val dayEvents = eventsFor(events, date).sortedBy(::expandedMonthEventPriority)
             if (dayEvents.isNotEmpty()) put(date, dayEvents)
         }
+    }
+}
+
+/** Stable lane priority for the expanded month: spans, recurrence members, then one-offs. */
+private fun expandedMonthEventPriority(event: CalEvent): Int {
+    val start = event.placementDate()
+    return when {
+        start != null && event.endDate?.isAfter(start) == true -> 0
+        event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null -> 1
+        else -> 2
     }
 }
 
