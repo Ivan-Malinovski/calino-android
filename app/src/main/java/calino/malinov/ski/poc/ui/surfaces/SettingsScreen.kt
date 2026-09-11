@@ -516,7 +516,7 @@ private fun CalendarSettings() {
             )
             SettingToggleRow(
                 "Show week numbers",
-                "Add the ISO week to the month heading",
+                "An ISO week-number rail down the left of the month grid",
                 preferences.showWeekNumbers,
                 preferences.setShowWeekNumbers,
             )

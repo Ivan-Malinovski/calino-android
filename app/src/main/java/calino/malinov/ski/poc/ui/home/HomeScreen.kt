@@ -191,6 +191,7 @@ import calino.malinov.ski.poc.util.DayRailSlot
 import calino.malinov.ski.poc.util.formatCalinoDuration
 import calino.malinov.ski.poc.util.WashKind
 import calino.malinov.ski.poc.util.gridStart
+import calino.malinov.ski.poc.util.isoWeekNumber
 import calino.malinov.ski.poc.util.monthWashPlan
 import calino.malinov.ski.poc.util.layoutDayRail
 import calino.malinov.ski.poc.util.leadingCells
@@ -204,7 +205,6 @@ import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
-import java.time.temporal.IsoFields
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -270,6 +270,16 @@ private object CompactWeekMetrics {
     val PillHeight = 58.dp
     val PillHorizontalPadding = 3.dp
     val PillRadius = 14.dp
+
+    /**
+     * The rail down the left of the grid that carries the week numbers.
+     *
+     * It lives here rather than with the month renderer because the compact
+     * week endpoint has to reserve exactly the same rail: the morph blends the
+     * two geometries frame by frame, and a gutter present in one endpoint but
+     * not the other would slide every cell sideways as the grid opens.
+     */
+    val WeekGutterWidth = 22.dp
 }
 
 /**
@@ -417,7 +427,6 @@ fun HomeScreen(
     val density = LocalDensity.current
     val preferences = LocalCalinoPreferences.current
     val weekStart = preferences.weekStart
-    val showWeekNumber = preferences.showWeekNumbers
     val railScroll = rememberScrollState(
         initial = with(density) {
             (DaytimeScrollHour * TimelineBaseHourHeightDp).dp.roundToPx()
@@ -1073,7 +1082,6 @@ fun HomeScreen(
             hingeBandDp = layoutSpec.hingeBandDp,
             selected = selected,
             weekStart = weekStart,
-            showWeekNumber = showWeekNumber,
             events = events,
             journals = journals,
             tasksByDueDate = tasksByDueDate,
@@ -1120,7 +1128,6 @@ fun HomeScreen(
     Column(foldMorph.fillMaxSize()) {
         MonthHeading(
             day = selected,
-            showWeekNumber = showWeekNumber,
             onOpenMenu = onOpenMenu,
             onPreviousMonth = {
                 scope.launch {
@@ -1554,7 +1561,6 @@ private fun SplitHomeLayout(
     hingeBandDp: Float,
     selected: LocalDate,
     weekStart: CalinoWeekStart,
-    showWeekNumber: Boolean,
     events: List<CalEvent>,
     journals: List<JournalEntry>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
@@ -1609,7 +1615,6 @@ private fun SplitHomeLayout(
         ) {
             MonthHeading(
                 day = selected,
-                showWeekNumber = showWeekNumber,
                 onOpenMenu = onOpenMenu,
                 onPreviousMonth = onPreviousMonth,
                 onNextMonth = onNextMonth,
@@ -1716,7 +1721,6 @@ private fun daySurfaceBlend(zoom: Float): Float = smoothStep(
 @Composable
 private fun MonthHeading(
     day: LocalDate,
-    showWeekNumber: Boolean,
     onOpenMenu: (() -> Unit)?,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -1728,9 +1732,9 @@ private fun MonthHeading(
     onNextMonth = onNextMonth,
     onToday = onToday,
     showToday = day != LocalCalinoNow.current.today,
-    // The grid's own selection pill already says which day is selected, so the
-    // subtitle carries only what the grid cannot show.
-    subtitle = if (showWeekNumber) "Week ${day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)}" else null,
+    // The grid's own selection pill says which day is selected and the week
+    // rail down its left edge says which week, so the heading needs neither.
+    subtitle = null,
 )
 
 /**
@@ -1811,11 +1815,15 @@ private fun DrawScope.drawCompactWeekRow(
     bandTop: Float,
     bandHeight: Float,
     alpha: Float = 1f,
+    gutterPx: Float = 0f,
 ) {
     if (alpha <= .001f) return
     val selector = selectorIndex.coerceIn(0f, 6f)
-    val insetPx = CompactWeekMetrics.HorizontalPadding.toPx()
-    val cellWidthPx = ((size.width - insetPx * 2f) / 7f).coerceAtLeast(0f)
+    val paddingPx = CompactWeekMetrics.HorizontalPadding.toPx()
+    // The week-number rail is carved out of the content width, so the row's
+    // right edge stays put whether or not the numbers are showing.
+    val insetPx = paddingPx + gutterPx
+    val cellWidthPx = ((size.width - insetPx - paddingPx) / 7f).coerceAtLeast(0f)
     val weekdayHeightPx = visual.weekdayLayouts.maxOf { it.size.height }.toFloat()
     val weekdayGapPx = 4.dp.toPx()
     val dateSizePx = 22.dp.toPx()
@@ -2643,6 +2651,7 @@ private fun MonthGridHitTargets(
     onEventDrop: ((CalEvent, LocalDate) -> Unit)? = null,
     eventCellWidthPx: Float? = null,
     eventDetailedRowHeightPx: Float? = null,
+    weekGutter: Dp = 0.dp,
     onDragVisualChanged: ((CalEvent, Offset?) -> Unit)? = null,
 ) {
     // Read here rather than inside the draw scope, which is not composable.
@@ -2753,6 +2762,9 @@ private fun MonthGridHitTargets(
         modifier = Modifier.fillMaxWidth(),
     ) { measurables, constraints ->
         val horizontalPaddingPx = CompactWeekMetrics.HorizontalPadding.roundToPx()
+        // Rounded the same way the canvas rounds it, or the tap lanes would
+        // sit a pixel off the cells they belong to.
+        val gridLeftPx = horizontalPaddingPx + weekGutter.roundToPx()
         val headerHeightPx = 22.dp.roundToPx().toFloat()
         val compactHeightPx = compactGridHeight.roundToPx().toFloat()
         val detailedHeightPx = detailedGridHeight.roundToPx().toFloat()
@@ -2786,7 +2798,8 @@ private fun MonthGridHitTargets(
         } else {
             compactEqualRowHeightPx + (detailedRowHeightPx - compactEqualRowHeightPx) * detailProgress
         }
-        val cellWidth = ((constraints.maxWidth - horizontalPaddingPx * 2) / 7).coerceAtLeast(1)
+        val cellWidth =
+            ((constraints.maxWidth - gridLeftPx - horizontalPaddingPx) / 7).coerceAtLeast(1)
         val cellCount = rows * 7
         val cellPlaceables = measurables.take(cellCount).mapIndexed { index, measurable ->
             val row = index / 7
@@ -2821,7 +2834,7 @@ private fun MonthGridHitTargets(
                     repeat(7) { column ->
                         val index = row * 7 + column
                         cellPlaceables[index].placeRelative(
-                            x = horizontalPaddingPx + column * cellWidth,
+                            x = gridLeftPx + column * cellWidth,
                             y = y.roundToInt(),
                         )
                     }
@@ -2851,7 +2864,7 @@ private fun MonthGridHitTargets(
                         dateEvents.forEachIndexed { eventOffset, _ ->
                             val placeable = eventPlaceables.getOrNull(eventIndex++) ?: return@forEachIndexed
                             placeable.placeRelative(
-                                x = horizontalPaddingPx + column * cellWidth,
+                                x = gridLeftPx + column * cellWidth,
                                 y = eventTop.roundToInt() + eventOffset *
                                     eventHitPitchPx.roundToInt(),
                             )
@@ -2995,6 +3008,7 @@ private fun StaticMonthGrid(
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
     val eventDensity = LocalCalinoPreferences.current.eventDensity
+    val showWeekNumbers = LocalCalinoPreferences.current.showWeekNumbers
     val geometry = remember(month, weekStart) { monthGridGeometry(month, weekStart) }
     val start = geometry.start
     val rows = geometry.rows
@@ -3013,7 +3027,11 @@ private fun StaticMonthGrid(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val horizontalPadding = CompactWeekMetrics.HorizontalPadding
         val headerHeight = 22.dp
-        val gridWidth = (maxWidth - horizontalPadding * 2).coerceAtLeast(0.dp)
+        // The week-number rail is taken out of the content width rather than
+        // added to the left padding, so turning the numbers on narrows the
+        // cells instead of pushing the grid off its right margin.
+        val weekGutter = if (showWeekNumbers) CompactWeekMetrics.WeekGutterWidth else 0.dp
+        val gridWidth = (maxWidth - horizontalPadding * 2 - weekGutter).coerceAtLeast(0.dp)
         val cellWidth = gridWidth / 7
         val cellWidthPx = with(density) { cellWidth.toPx() }
         val headerHeightPx = with(density) { headerHeight.toPx() }
@@ -3021,6 +3039,9 @@ private fun StaticMonthGrid(
         val detailedGridHeightPx = with(density) { detailedGridHeight.toPx() }
         val detailedRowHeightPx = ((detailedGridHeightPx - headerHeightPx) / rows).coerceAtLeast(0f)
         val horizontalPaddingPx = with(density) { horizontalPadding.toPx() }
+        val weekGutterPx = with(density) { weekGutter.toPx() }
+        /** Where column 0 begins: the page margin plus the week-number rail. */
+        val gridLeftPx = horizontalPaddingPx + weekGutterPx
         val dateGapPx = with(density) { 1.dp.toPx() }
         val dateTopPaddingPx = with(density) { 2.dp.toPx() }
         val compactDateSizePx = with(density) { 22.dp.toPx() }
@@ -3048,6 +3069,15 @@ private fun StaticMonthGrid(
         }
         val weekdayLayouts = remember(density, weekStart) {
             weekdayLetters(weekStart).map { textMeasurer.measure(it, weekdayStyle) }
+        }
+        val weekNumberStyle = remember { ComposeTextStyle(fontSize = 10.sp, lineHeight = 12.sp) }
+        val weekNumberLayouts = remember(geometry, showWeekNumbers, density) {
+            if (!showWeekNumbers) emptyList() else List(rows) { row ->
+                textMeasurer.measure(
+                    text = isoWeekNumber(start.plusDays(row * 7L)).toString(),
+                    style = weekNumberStyle,
+                )
+            }
         }
         val eventTextMaxWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f - chipTextStartPx - chipTextEndPx)
             .roundToInt()
@@ -3175,9 +3205,11 @@ private fun StaticMonthGrid(
                 } else compactStartHeightPx / 2f +
                     (naturalWeekTop + naturalWeekHeight / 2f - compactStartHeightPx / 2f) *
                     stripGeometryProgress
-                val compactWeekInsetPx = with(density) { CompactWeekMetrics.HorizontalPadding.toPx() }
+                // The week endpoint reserves the same rail the month grid
+                // does, so the morph moves cells vertically only.
+                val compactWeekInsetPx = gridLeftPx
                 val compactWeekCellWidthPx =
-                    ((size.width - compactWeekInsetPx * 2f) / 7f).coerceAtLeast(0f)
+                    ((size.width - compactWeekInsetPx - horizontalPaddingPx) / 7f).coerceAtLeast(0f)
                 val compactWeekContentHeightPx = weekdayLayouts.maxOf { it.size.height } +
                     with(density) { 4.dp.toPx() } + compactDateSizePx + dateGapPx + eventAreaHeightPx
                 var contentFade = 1f
@@ -3211,7 +3243,7 @@ private fun StaticMonthGrid(
                         drawText(
                             layout,
                             topLeft = Offset(
-                                horizontalPaddingPx + cellWidthPx * column + (cellWidthPx - layout.size.width) / 2f,
+                                gridLeftPx + cellWidthPx * column + (cellWidthPx - layout.size.width) / 2f,
                                 (headerHeightPx - layout.size.height) / 2f * (1f - compactProgress) +
                                     (compactStartHeightPx - compactWeekContentHeightPx) / 2f * compactProgress,
                             ),
@@ -3219,6 +3251,47 @@ private fun StaticMonthGrid(
                                 lerpColor(colors.Ink3, colors.OnSelection,
                                     (1f - abs(compactSelectorIndex - column)).coerceIn(0f, 1f) * compactProgress),
                             ),
+                        )
+                    }
+                }
+                /**
+                 * The week numbers, one per row, centred in the rail.
+                 *
+                 * A collapsing row's number fades with the row rather than
+                 * sliding, so the numbers do not pile up on top of each other
+                 * as the grid closes onto the week strip. The selected week
+                 * keeps its number at both endpoints: the strip reserves the
+                 * same rail, so there is somewhere for it to sit.
+                 */
+                fun drawWeekNumbers() {
+                    if (weekNumberLayouts.isEmpty()) return
+                    // Aligned with the dates rather than centred in the row. A
+                    // detailed row is tall enough that its middle is nowhere
+                    // near the week it labels, and a number parked there reads
+                    // as adrift between two rows instead of heading one.
+                    // [dateTopFor] also carries the strip's own placement, so
+                    // the number rides the morph along with the dates.
+                    val dateSizePx = compactDateSizePx +
+                        (detailedDateSizePx - compactDateSizePx) * detailProgress
+                    weekNumberLayouts.forEachIndexed { row, layout ->
+                        val rowAlpha =
+                            if (zoom <= 1f && row != compactWeekRow) 1f - compactProgress else 1f
+                        if (rowAlpha <= .001f) return@forEachIndexed
+                        val center = if (sharedCompactRow) {
+                            if (row != compactWeekRow) return@forEachIndexed
+                            compactStartHeightPx / 2f
+                        } else {
+                            dateTopFor(row, 0) + dateSizePx / 2f
+                        }
+                        drawText(
+                            layout,
+                            topLeft = Offset(
+                                horizontalPaddingPx + (weekGutterPx - layout.size.width) / 2f,
+                                center - layout.size.height / 2f,
+                            ),
+                            // A reference rail, not content: it sits a step
+                            // quieter than the dates it indexes.
+                            color = faded(colors.Ink3, factor = .75f * rowAlpha),
                         )
                     }
                 }
@@ -3259,9 +3332,9 @@ private fun StaticMonthGrid(
                         val top = region.row?.let { rowTopFor(it) } ?: gridTop
                         val bottom = region.row?.let { it -> rowTopFor(it) + rowHeightFor(it) } ?: gridBottom
                         val rect = Rect(
-                            horizontalPaddingPx + cellWidthPx * region.columns.first,
+                            gridLeftPx + cellWidthPx * region.columns.first,
                             top,
-                            horizontalPaddingPx + cellWidthPx * (region.columns.last + 1),
+                            gridLeftPx + cellWidthPx * (region.columns.last + 1),
                             bottom,
                         )
                         fun radius(round: Boolean) = CornerRadius(if (round) washRadius else 0f)
@@ -3326,7 +3399,7 @@ private fun StaticMonthGrid(
                     val cellRowHeight = rowHeightFor(row)
                     val compactWeekStyle = zoom < 1f && row == compactWeekRow
                     if (sharedCompactRow && row == compactWeekRow) return@repeat
-                    val cellLeft = horizontalPaddingPx + cellWidthPx * column
+                    val cellLeft = gridLeftPx + cellWidthPx * column
                     contentFade = if (zoom <= 1f && row != compactWeekRow) 1f - compactProgress else 1f
                     clipRect(
                         left = cellLeft,
@@ -3559,9 +3632,9 @@ private fun StaticMonthGrid(
                                 }
                                 val lastDate = cellDates[row * 7 + endColumn]
                                 val endSpan = expandedMonthSpanSegment(event, lastDate, endColumn)
-                                val barLeft = horizontalPaddingPx + cellWidthPx * column +
+                                val barLeft = gridLeftPx + cellWidthPx * column +
                                     if (span.continuesFromPreviousWeek) 0f else chipHorizontalPaddingPx
-                                val barRight = horizontalPaddingPx + cellWidthPx * (endColumn + 1) -
+                                val barRight = gridLeftPx + cellWidthPx * (endColumn + 1) -
                                     if (endSpan.continuesToNextWeek) 0f else chipHorizontalPaddingPx
                                 val top = rowTopFor(row) + dateTopPaddingPx +
                                     (compactDateSizePx + (detailedDateSizePx - compactDateSizePx) * detailProgress) +
@@ -3667,7 +3740,7 @@ private fun StaticMonthGrid(
                             (detailedDateSizePx - compactDateSizePx) * detailProgress
                         val ghostTop = dateTopFor(row, column) + dateSizePx + dateGapPx +
                             chipPitchPx * draggedIndex + visual.offset.y
-                        val ghostLeft = horizontalPaddingPx + cellWidthPx * column +
+                        val ghostLeft = gridLeftPx + cellWidthPx * column +
                             chipHorizontalPaddingPx + visual.offset.x
                         val dragged = sourceEvents[draggedIndex]
                         val ghostColor = colors.forEvent(Color(dragged.color))
@@ -3699,6 +3772,7 @@ private fun StaticMonthGrid(
                 }
             }
                 contentFade = 1f
+                drawWeekNumbers()
                 if (sharedCompactRow) {
                     drawCompactWeekRow(
                         visual = compactRowVisual,
@@ -3707,6 +3781,7 @@ private fun StaticMonthGrid(
                         bandTop = 0f,
                         bandHeight = compactStartHeightPx,
                         alpha = drawAlpha,
+                        gutterPx = weekGutterPx,
                     )
                 } else {
                     drawWeekdayHeadings()
@@ -3732,6 +3807,7 @@ private fun StaticMonthGrid(
                 onEventDrop = onEventDrop,
                 eventCellWidthPx = cellWidthPx,
                 eventDetailedRowHeightPx = detailedRowHeightPx,
+                weekGutter = weekGutter,
                 onDragVisualChanged = { event, offset ->
                     draggedEvent = offset?.let { MonthEventDragVisual(event.id, it) }
                 },

@@ -3,6 +3,7 @@ package calino.malinov.ski.poc.util
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.temporal.IsoFields
 import java.time.temporal.TemporalAdjusters
 
 /**
@@ -70,6 +71,19 @@ fun dayOfWeekForColumn(column: Int, weekStart: CalinoWeekStart): DayOfWeek =
  */
 fun weekdayLetters(weekStart: CalinoWeekStart): List<String> =
     List(7) { column -> WeekdayLetterByDay.getValue(dayOfWeekForColumn(column, weekStart)) }
+
+/**
+ * The ISO week number of the grid row beginning on [rowStart].
+ *
+ * Always ISO 8601, whichever day the week is set to begin on. Under a Sunday
+ * start the row's own first day sits in the *previous* ISO week, so the number
+ * is taken from the Monday inside the row: one row, one number, and it agrees
+ * with what every other calendar prints for those weekdays. For a Monday start
+ * the adjuster is a no-op, so one expression covers both.
+ */
+fun isoWeekNumber(rowStart: LocalDate): Int =
+    rowStart.with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY))
+        .get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)
 
 /**
  * The columns the weekend occupies. Contiguous at the end of the row for a
