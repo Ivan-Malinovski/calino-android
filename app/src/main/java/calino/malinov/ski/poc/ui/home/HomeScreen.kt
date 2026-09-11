@@ -110,6 +110,7 @@ import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.Layout
@@ -1183,7 +1184,11 @@ fun HomeScreen(
                     var anchorLevel = 0
                     var velocityTracker = VelocityTracker()
                     while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        // Observe after descendants. An armed event-card drag
+                        // consumes its movement in Initial; seeing that here
+                        // lets the card keep the stream while an unconsumed
+                        // vertical drag on empty month space can zoom.
+                        val event = awaitPointerEvent(PointerEventPass.Final)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         // A second pointer belongs to the timeline pinch
                         // recognizer below. Do not let the one-finger calendar
@@ -1215,15 +1220,15 @@ fun HomeScreen(
                             if (abs(travel.y) > viewConfiguration.touchSlop * .5f &&
                                 abs(travel.y) > abs(travel.x)
                             ) {
-                                // Once the month surface owns the visual
-                                // space, a vertical drag that began on an
-                                // event must remain an event drag. Otherwise
-                                // this ancestor claims the Initial pass first,
-                                // zooms the grid under the finger, and the
-                                // event target can disappear before release.
+                                // A held event chip consumes position changes
+                                // before this Final-pass observer. Preserve its
+                                // drag, but do not reject the whole month grid:
+                                // that blanket rejection made levels 1 and 2
+                                // impossible to expand or collapse by swiping.
                                 if (!startedOnDaySurface &&
                                     !startedOnHandle &&
-                                    zoomState.value >= MonthEndpointBlendStart
+                                    change.positionChange() == Offset.Zero &&
+                                    change.positionChangeIgnoreConsumed() != Offset.Zero
                                 ) {
                                     break
                                 }

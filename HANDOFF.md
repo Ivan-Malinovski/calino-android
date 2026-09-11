@@ -6,6 +6,14 @@ continue the UI work.
 
 ## Current state
 
+### Full-month vertical gesture ownership — 2026-09-11
+
+- Vertical zoom now observes the final pointer pass once the month grid is
+  visible. Empty month space can therefore expand the split month into the
+  full calendar and collapse it again, while an armed event-chip drag keeps
+  ownership through its consumed movement. The previous blanket guard treated
+  every touch on the month grid as an event drag and disabled both directions.
+
 ### Expanded-month event ordering — 2026-09-11
 
 - Expanded month cells use a stable priority: multi-day spans first, recurring
