@@ -8,6 +8,7 @@ import calino.malinov.ski.poc.state.restoresAgenda
 import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.ui.home.MonthPagerPageCount
 import calino.malinov.ski.poc.ui.home.monthEventIndex
+import calino.malinov.ski.poc.ui.home.expandedMonthSpanSegment
 import calino.malinov.ski.poc.util.CalinoWeekStart
 import calino.malinov.ski.poc.ui.home.monthForPage
 import calino.malinov.ski.poc.ui.home.monthPageFor
@@ -140,6 +141,35 @@ class AgendaViewTest {
         assertTrue(index.getValue(day).contains(event))
         assertFalse(index.containsKey(day.plusDays(1)))
     }
+
+    @Test
+    fun expandedMonthSpan_connectsWithinAWeekAndBreaksAtWeekEdges() {
+        val monday = LocalDate.of(2026, 5, 11)
+        val event = CalEvent(
+            id = "week-span",
+            title = "Week span",
+            color = 0L,
+            start = null,
+            durationMinutes = null,
+            allDay = true,
+            calendarId = "test",
+            date = monday,
+            endDate = monday.plusDays(8),
+        )
+
+        assertEquals(listOf(false, true, false, false), expandedMonthSpanSegment(event, monday, 0).edges())
+        assertEquals(listOf(true, true, false, false), expandedMonthSpanSegment(event, monday.plusDays(3), 3).edges())
+        assertEquals(listOf(true, false, false, true), expandedMonthSpanSegment(event, monday.plusDays(6), 6).edges())
+        assertEquals(listOf(false, true, true, false), expandedMonthSpanSegment(event, monday.plusDays(7), 0).edges())
+        assertEquals(listOf(true, false, false, false), expandedMonthSpanSegment(event, monday.plusDays(8), 1).edges())
+    }
+
+    private fun calino.malinov.ski.poc.ui.home.ExpandedMonthSpanSegment.edges() = listOf(
+        continuesFromPrevious,
+        continuesToNext,
+        continuesFromPreviousWeek,
+        continuesToNextWeek,
+    )
 
     @Test
     fun agendaOrigin_restoresTheAgenda() {

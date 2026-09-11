@@ -15,7 +15,12 @@ continue the UI work.
 - Timed events whose duration crosses a date boundary appear on every date
   they occupy (without treating an exact midnight end as occupying the next
   day). Only the real current date gets the solid today disc; a selected day
-  carried across month paging retains the softer cell selection alone.
+  carried across month paging gets no expanded-month cell highlight. Multi-day
+  chips join edge-to-edge as one uninterrupted weekly bar. Their title is
+  drawn once per weekly run across its available width, and arrow-shaped ends
+  show when the span continues across a week-row boundary. Each weekly run
+  gets one continuous hairline outline, and its title is measured at the exact
+  run width so glyphs stay crisp and ellipsis happens cleanly when necessary.
 
 ### Timed empty-slot creation — 2026-09-11
 

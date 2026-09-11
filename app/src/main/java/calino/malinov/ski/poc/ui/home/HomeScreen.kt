@@ -140,6 +140,7 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.lastCoveredDate
+import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.occursOn
@@ -2223,7 +2224,6 @@ private fun MorphingMonthGrid(
                 }
             }
         }
-
         Box(Modifier.fillMaxSize()) {
             Canvas(Modifier.fillMaxSize()) {
                 val zoom = zoomState.value.coerceIn(0f, 2f)
@@ -2278,11 +2278,7 @@ private fun MorphingMonthGrid(
                     val cellTop = headerHeightPx + rowHeightPx * row
                     val isSelected = date == selected
                     val isToday = date == today
-                    val cellFill = when {
-                        isSelected -> colors.AccentSoft.copy(alpha = .72f)
-                        isToday -> colors.AccentSoft.copy(alpha = .45f)
-                        else -> Color.Transparent
-                    }
+                    val cellFill = if (isToday) colors.AccentSoft.copy(alpha = .45f) else Color.Transparent
                     if (cellFill != Color.Transparent) {
                         drawRoundRect(
                             color = faded(cellFill),
@@ -2342,20 +2338,35 @@ private fun MorphingMonthGrid(
                         val markerHeight = with(density) { if (event.allDay) 3.dp.toPx() else 5.dp.toPx() }
                         val markerTop = eventAreaTop + (with(density) { 7.dp.toPx() } - markerHeight) / 2f
                         if (eventIndex < morphChipCount) {
-                            val chipWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f).coerceAtLeast(1f)
+                            val span = expandedMonthSpanSegment(event, date, column)
+                            val targetLeft = cellLeft + if (span.continuesFromPrevious) 0f else chipHorizontalPaddingPx
+                            val targetRight = cellLeft + cellWidthPx -
+                                if (span.continuesToNext) 0f else chipHorizontalPaddingPx
+                            val chipWidth = (targetRight - targetLeft).coerceAtLeast(1f)
                             val chipTop = eventAreaTop + chipHeightPx * eventIndex
-                            val x = markerLeft + (cellLeft + chipHorizontalPaddingPx - markerLeft) * eventMorph
+                            val x = markerLeft + (targetLeft - markerLeft) * eventMorph
                             val y = markerTop + (chipTop - markerTop) * eventMorph
                             val width = markerWidth + (chipWidth - markerWidth) * eventMorph
                             val height = markerHeight + (chipHeightPx - markerHeight) * eventMorph
                             val eventColor = colors.forEvent(Color(event.color))
                             val chipColor = colors.tint(Color(event.color), if (event.allDay) .18f else .10f)
                             val textMorph = smoothStep(((eventMorph - .55f) / .45f).coerceIn(0f, 1f))
-                            drawRoundRect(
+                            val outerCorner = with(density) { 2.dp.toPx() + 4.dp.toPx() * eventMorph }
+                            val leftCorner = outerCorner * if (span.continuesFromPrevious) 1f - eventMorph else 1f
+                            val rightCorner = outerCorner * if (span.continuesToNext) 1f - eventMorph else 1f
+                            drawPath(
+                                Path().apply {
+                                    addRoundRect(
+                                        RoundRect(
+                                            Rect(x, y, x + width, y + height),
+                                            topLeft = CornerRadius(leftCorner),
+                                            bottomLeft = CornerRadius(leftCorner),
+                                            topRight = CornerRadius(rightCorner),
+                                            bottomRight = CornerRadius(rightCorner),
+                                        ),
+                                    )
+                                },
                                 color = faded(lerpColor(eventColor, chipColor, eventMorph)),
-                                topLeft = Offset(x, y),
-                                size = Size(width, height),
-                                cornerRadius = CornerRadius(with(density) { 2.dp.toPx() + 4.dp.toPx() * eventMorph }),
                             )
                             if (eventMorph > .01f) {
                                 drawRoundRect(
@@ -3141,11 +3152,9 @@ private fun StaticMonthGrid(
                         0f
                     }
                     val dateTop = dateTopFor(row, column)
-                    val compactFill = when {
-                        isSelected -> colors.AccentSoft.copy(alpha = .72f * (1f - compactProgress))
-                        isToday -> colors.AccentSoft.copy(alpha = .45f * (1f - compactProgress))
-                        else -> Color.Transparent
-                    }
+                    val compactFill = if (isToday) {
+                        colors.AccentSoft.copy(alpha = .45f * (1f - compactProgress))
+                    } else Color.Transparent
                     if (compactFill != Color.Transparent) {
                         drawRoundRect(
                             color = faded(compactFill),
@@ -3154,11 +3163,9 @@ private fun StaticMonthGrid(
                             cornerRadius = CornerRadius(with(density) { 4.dp.toPx() }),
                         )
                     }
-                    val detailFill = when {
-                        isSelected -> colors.AccentSoft.copy(alpha = .72f * detailProgress)
-                        isToday -> colors.AccentSoft.copy(alpha = .45f * detailProgress)
-                        else -> Color.Transparent
-                    }
+                    val detailFill = if (isToday) {
+                        colors.AccentSoft.copy(alpha = .45f * detailProgress)
+                    } else Color.Transparent
                     if (detailFill != Color.Transparent) {
                         drawRoundRect(
                             color = faded(detailFill),
@@ -3238,8 +3245,11 @@ private fun StaticMonthGrid(
                         if (eventIndex < shownCount) {
                             val morph = if (hasMarker) detailProgress else 1f
                             val chipFade = if (hasMarker) 1f else detailProgress
-                            val chipWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f).coerceAtLeast(1f)
-                            val chipLeft = cellLeft + chipHorizontalPaddingPx
+                            val span = expandedMonthSpanSegment(event, date, column)
+                            val chipLeft = cellLeft + if (span.continuesFromPrevious) 0f else chipHorizontalPaddingPx
+                            val chipRight = cellLeft + cellWidthPx -
+                                if (span.continuesToNext) 0f else chipHorizontalPaddingPx
+                            val chipWidth = (chipRight - chipLeft).coerceAtLeast(1f)
                             val chipTop = eventAreaTop + chipPitchPx * eventIndex
                             val fromX = if (hasMarker) markerLeft else chipLeft
                             val fromY = if (hasMarker) markerTop else chipTop
@@ -3254,24 +3264,48 @@ private fun StaticMonthGrid(
                             // event card wears, so a day's cards and its
                             // agenda entries read as one family.
                             val chipColor = colors.tint(eventColor, .12f, colors.Panel)
-                            val corner = CornerRadius(
-                                with(density) { 2.dp.toPx() } + (chipCornerPx - with(density) { 2.dp.toPx() }) * morph,
-                            )
-                            drawRoundRect(
-                                color = faded(lerpColor(eventColor, chipColor, morph), chipFade),
-                                topLeft = Offset(x, y),
-                                size = Size(width, height),
-                                cornerRadius = corner,
-                            )
-                            if (morph > .01f) {
-                                drawRoundRect(
-                                    color = faded(eventColor.copy(alpha = .16f), morph * chipFade),
-                                    topLeft = Offset(x + chipBorderPx / 2f, y + chipBorderPx / 2f),
-                                    size = Size(
-                                        (width - chipBorderPx).coerceAtLeast(0f),
-                                        (height - chipBorderPx).coerceAtLeast(0f),
+                            val outerCorner = with(density) { 2.dp.toPx() } +
+                                (chipCornerPx - with(density) { 2.dp.toPx() }) * morph
+                            val leftCorner = outerCorner * if (span.continuesFromPrevious) 1f - morph else 1f
+                            val rightCorner = outerCorner * if (span.continuesToNext) 1f - morph else 1f
+                            fun chipPath(inset: Float = 0f): Path {
+                                val rect = Rect(x + inset, y + inset, x + width - inset, y + height - inset)
+                                if (span.continuesFromPreviousWeek || span.continuesToNextWeek) {
+                                    val arrow = min(rect.width / 3f, rect.height * .42f)
+                                    return Path().apply {
+                                        moveTo(
+                                            if (span.continuesFromPreviousWeek) rect.left else rect.left + leftCorner,
+                                            if (span.continuesFromPreviousWeek) rect.center.y else rect.top,
+                                        )
+                                        if (span.continuesFromPreviousWeek) lineTo(rect.left + arrow, rect.top)
+                                        lineTo(rect.right - if (span.continuesToNextWeek) arrow else rightCorner, rect.top)
+                                        if (span.continuesToNextWeek) lineTo(rect.right, rect.center.y)
+                                        lineTo(rect.right - if (span.continuesToNextWeek) arrow else rightCorner, rect.bottom)
+                                        if (span.continuesFromPreviousWeek) lineTo(rect.left + arrow, rect.bottom)
+                                        else lineTo(rect.left + leftCorner, rect.bottom)
+                                        close()
+                                    }
+                                }
+                                return Path().apply {
+                                addRoundRect(
+                                    RoundRect(
+                                        rect,
+                                        topLeft = CornerRadius((leftCorner - inset).coerceAtLeast(0f)),
+                                        bottomLeft = CornerRadius((leftCorner - inset).coerceAtLeast(0f)),
+                                        topRight = CornerRadius((rightCorner - inset).coerceAtLeast(0f)),
+                                        bottomRight = CornerRadius((rightCorner - inset).coerceAtLeast(0f)),
                                     ),
-                                    cornerRadius = corner,
+                                )
+                            }
+                            }
+                            drawPath(
+                                chipPath(),
+                                color = faded(lerpColor(eventColor, chipColor, morph), chipFade),
+                            )
+                            if (morph > .01f && !span.isSpan) {
+                                drawPath(
+                                    chipPath(chipBorderPx / 2f),
+                                    color = faded(eventColor.copy(alpha = .16f), morph * chipFade),
                                     style = Stroke(width = chipBorderPx),
                                 )
                                 val textProgress = smoothStep(((morph - .5f) / .5f).coerceIn(0f, 1f))
@@ -3309,6 +3343,96 @@ private fun StaticMonthGrid(
                                 ),
                                 color = faded(colors.Ink3, overflowProgress),
                             )
+                        }
+                    }
+                }
+                // A multi-day title belongs to the weekly run, not to each
+                // individual day segment. Draw it after the cell clips so it
+                // can use the complete connected width.
+                if (detailProgress > .01f) {
+                    repeat(rows) { row ->
+                        repeat(7) { column ->
+                            val index = row * 7 + column
+                            val date = cellDates[index]
+                            val dayEvents = cellEvents[index]
+                            dayEvents.take(shownCounts[index]).forEachIndexed { lane, event ->
+                                val span = expandedMonthSpanSegment(event, date, column)
+                                if (!span.isSpan || span.continuesFromPrevious) return@forEachIndexed
+                                var endColumn = column
+                                while (endColumn < 6) {
+                                    val nextIndex = row * 7 + endColumn + 1
+                                    if (lane >= shownCounts[nextIndex] || cellEvents[nextIndex].getOrNull(lane)?.id != event.id) break
+                                    endColumn++
+                                }
+                                val lastDate = cellDates[row * 7 + endColumn]
+                                val endSpan = expandedMonthSpanSegment(event, lastDate, endColumn)
+                                val barLeft = horizontalPaddingPx + cellWidthPx * column +
+                                    if (span.continuesFromPreviousWeek) 0f else chipHorizontalPaddingPx
+                                val barRight = horizontalPaddingPx + cellWidthPx * (endColumn + 1) -
+                                    if (endSpan.continuesToNextWeek) 0f else chipHorizontalPaddingPx
+                                val top = rowTopFor(row) + dateTopPaddingPx +
+                                    (compactDateSizePx + (detailedDateSizePx - compactDateSizePx) * detailProgress) +
+                                    dateGapPx + chipPitchPx * lane
+                                val bottom = top + chipHeightPx
+                                val arrow = min((barRight - barLeft) / 3f, chipHeightPx * .42f)
+                                val weeklyPath = if (
+                                    span.continuesFromPreviousWeek || endSpan.continuesToNextWeek
+                                ) {
+                                    Path().apply {
+                                        moveTo(
+                                            if (span.continuesFromPreviousWeek) barLeft else barLeft + chipCornerPx,
+                                            if (span.continuesFromPreviousWeek) (top + bottom) / 2f else top,
+                                        )
+                                        if (span.continuesFromPreviousWeek) lineTo(barLeft + arrow, top)
+                                        lineTo(barRight - if (endSpan.continuesToNextWeek) arrow else 0f, top)
+                                        if (endSpan.continuesToNextWeek) lineTo(barRight, (top + bottom) / 2f)
+                                        lineTo(barRight - if (endSpan.continuesToNextWeek) arrow else 0f, bottom)
+                                        if (span.continuesFromPreviousWeek) lineTo(barLeft + arrow, bottom)
+                                        else lineTo(barLeft + chipCornerPx, bottom)
+                                        close()
+                                    }
+                                } else {
+                                    Path().apply {
+                                        addRoundRect(
+                                            RoundRect(
+                                                Rect(barLeft, top, barRight, bottom),
+                                                cornerRadius = CornerRadius(chipCornerPx),
+                                            ),
+                                        )
+                                    }
+                                }
+                                val eventColor = colors.forEvent(Color(event.color))
+                                drawPath(
+                                    weeklyPath,
+                                    color = faded(colors.tint(eventColor, .12f, colors.Panel), detailProgress),
+                                )
+                                drawPath(
+                                    weeklyPath,
+                                    color = faded(eventColor.copy(alpha = .16f), detailProgress),
+                                    style = Stroke(width = chipBorderPx),
+                                )
+                                val textLeft = barLeft +
+                                    if (span.continuesFromPreviousWeek) arrow + chipTextStartPx / 2f else chipTextStartPx
+                                val textRight = barRight -
+                                    if (endSpan.continuesToNextWeek) arrow + chipTextEndPx / 2f else chipTextEndPx
+                                val titleLayout = textMeasurer.measure(
+                                    text = event.title,
+                                    style = eventStyle,
+                                    overflow = TextOverflow.Ellipsis,
+                                    maxLines = 1,
+                                    constraints = Constraints(
+                                        maxWidth = (textRight - textLeft).roundToInt().coerceAtLeast(1),
+                                    ),
+                                )
+                                drawText(
+                                    titleLayout,
+                                    topLeft = Offset(
+                                        textLeft,
+                                        top + (chipHeightPx - titleLayout.size.height) / 2f,
+                                    ),
+                                    color = faded(colors.Ink, detailProgress),
+                                )
+                            }
                         }
                     }
                 }
@@ -3779,6 +3903,31 @@ private fun expandedMonthEventPriority(event: CalEvent): Int {
         event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null -> 1
         else -> 2
     }
+}
+
+internal data class ExpandedMonthSpanSegment(
+    val isSpan: Boolean,
+    val continuesFromPrevious: Boolean,
+    val continuesToNext: Boolean,
+    val continuesFromPreviousWeek: Boolean,
+    val continuesToNextWeek: Boolean,
+)
+
+internal fun expandedMonthSpanSegment(
+    event: CalEvent,
+    date: LocalDate,
+    column: Int,
+): ExpandedMonthSpanSegment {
+    val first = event.placementDate()
+    val last = event.lastCoveredDate()
+    val isSpan = first != null && last != null
+    return ExpandedMonthSpanSegment(
+        isSpan = isSpan,
+        continuesFromPrevious = isSpan && date > first && column > 0,
+        continuesToNext = isSpan && date < last && column < 6,
+        continuesFromPreviousWeek = isSpan && date > first && column == 0,
+        continuesToNextWeek = isSpan && date < last && column == 6,
+    )
 }
 
 private fun monthJournalDates(
