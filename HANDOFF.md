@@ -239,7 +239,8 @@ continue the UI work.
 ### Web-parity interactions — 2026-09-11
 
 - Calendar events and tasks expose long-press action menus shared with their
-  detail surfaces. Events support edit, duplicate, convert-to-task, and delete;
+  detail surfaces. Events support edit, duplicate, convert-to-task, and a
+  scope-aware delete;
   tasks support edit, subtask creation, promotion, date shortcuts, completion,
   duplicate, convert-to-event, and delete. Recurring event moves and unsafe
   hierarchy edits are rejected with a safe explanation.
@@ -319,6 +320,11 @@ declares `INTERNET`. With no account connected it still serves the frozen May
 - Recurring event edits and deletes support THIS, FUTURE, and ALL scopes. A
   selected expanded occurrence defaults to THIS in the editor and delete
   confirmation. Standalone detached resources safely allow THIS only.
+- Every delete entry point asks for that scope. The detail card expands the
+  confirmation inline and the long-press overflow menu opens it in
+  `EventDeleteSheet`; both render `EventDeleteConfirmBody` and take their
+  starting scope from `defaultEventDeleteScope`, so neither can silently
+  delete a whole series from a single occurrence.
 - A cross-calendar move writes the destination before deleting the source.
   Failed source cleanup is retained as a separate `DELETE_HREF` queue item;
   a failed destination never removes the source.

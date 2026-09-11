@@ -206,6 +206,7 @@ import calino.malinov.ski.poc.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.poc.ui.surfaces.EventMenuAction
 import calino.malinov.ski.poc.ui.surfaces.AiCandidateReview
 import calino.malinov.ski.poc.ui.surfaces.AiProcessingOverlay
+import calino.malinov.ski.poc.ui.surfaces.EventDeleteSheet
 import calino.malinov.ski.poc.ui.surfaces.updateAiShortcut
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -697,6 +698,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
     var undoNonce by remember { mutableIntStateOf(0) }
     var writeError by remember { mutableStateOf<String?>(null) }
+    // The overflow menu can act on one occurrence of a series, so its delete
+    // asks for a scope instead of defaulting to the whole series.
+    var pendingEventDelete by remember { mutableStateOf<CalEvent?>(null) }
     val writeScope = androidx.compose.runtime.rememberCoroutineScope()
     val activity = LocalActivity.current as? MainActivity ?: return
     val aiSettingsStore = remember { AiVisionSettingsStore(activity) }
@@ -901,7 +905,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             EventMenuAction.Edit -> openEditor(event, if (route == PockRoute.Agenda) PocReturnTarget.Agenda else PocReturnTarget.Calendar)
             EventMenuAction.Duplicate -> launchWrite({ repository.duplicateEvent(event) })
             EventMenuAction.ConvertToTask -> launchWrite({ repository.convertEventToTask(event) })
-            EventMenuAction.Delete -> launchWrite({ repository.deleteEvent(event.id) })
+            EventMenuAction.Delete -> pendingEventDelete = event
         }
     }
 
@@ -1697,6 +1701,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             onDismiss = { journalReviewVisible = false },
         )
     }
+
+    EventDeleteSheet(
+        event = pendingEventDelete,
+        onDismiss = { pendingEventDelete = null },
+        onDelete = { target, scope ->
+            pendingEventDelete = null
+            launchWrite({ repository.deleteEvent(target.id, scope) })
+        },
+    )
 
     AiProcessingOverlay(aiBusy, aiStage)
     AiCandidateReview(aiCandidates, onCancel = { aiCandidates = null }) { selected ->
