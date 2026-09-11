@@ -1957,6 +1957,90 @@ private fun WeekDay(
 /** Centre of a compact task row's checkbox: its 8dp inset plus half a 36dp box. */
 private val CompactTaskCheckboxCentre = 26.dp
 
+/** Left edge of that checkbox, which is what a task row lines up by. */
+private val CompactTaskCheckboxLeading = 15.5.dp
+
+/**
+ * The tasks-due block, shared so a day reads the same in the week strip's lane
+ * and in the day pane: one collapsible header, and rows pulled left by their
+ * checkbox inset so the circles line up with the header rather than sitting
+ * indented under it.
+ */
+@Composable
+private fun DayTasksSection(
+    day: LocalDate,
+    dayTasks: List<CalTask>,
+    onTaskDone: ((CalTask, Boolean) -> Unit)?,
+    onTaskClick: ((CalTask) -> Unit)?,
+    onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
+    onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    if (dayTasks.isEmpty()) return
+    var expanded by rememberSaveable(day) { mutableStateOf(true) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) -90f else 90f,
+        animationSpec = tween(180),
+        label = "day tasks chevron",
+    )
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(
+                    enabled = enabled,
+                    onClickLabel = if (expanded) {
+                        "Collapse tasks due for ${day.format(FullDateFormatter)}"
+                    } else {
+                        "Expand tasks due for ${day.format(FullDateFormatter)}"
+                    },
+                ) { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "TASKS DUE · ${dayTasks.count { !it.done }} OPEN",
+                fontSize = 10.sp,
+                letterSpacing = 1.sp,
+                color = CalinoColors.Green,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = CalinoIcons.ChevronRight,
+                contentDescription = null,
+                tint = CalinoColors.Green,
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer { rotationZ = chevronRotation },
+            )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(180)) + fadeIn(tween(140)),
+            exit = shrinkVertically(tween(160)) + fadeOut(tween(120)),
+        ) {
+            Column(
+                Modifier.offset(x = -CompactTaskCheckboxLeading),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                nestWithinList(dayTasks).forEach { (task, depth, nestingLines) ->
+                    CalendarTaskRow(
+                        task = task,
+                        onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
+                        onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
+                        onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
+                        onTaskDrop = onTaskDrop,
+                        depth = depth,
+                        nestingLines = nestingLines,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CalendarTaskRow(
     task: CalTask,
@@ -1981,7 +2065,7 @@ private fun CalendarTaskRow(
                 nestingLines,
                 elbowInset = 14.dp,
                 railOffset = CompactTaskCheckboxCentre,
-                railOverhang = 6.dp,
+                railOverhang = 10.dp,
             ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -4701,7 +4785,6 @@ private fun SelectedDayAgendaPage(
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
-    var tasksExpanded by remember(day) { mutableStateOf(true) }
     val interactionModifier = if (active) {
         modifier.semantics {
             contentDescription = "Agenda for ${day.format(FullDateFormatter)}"
@@ -4734,59 +4817,15 @@ private fun SelectedDayAgendaPage(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
-        if (dayTasks.isNotEmpty()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(
-                        enabled = active,
-                        onClickLabel = if (tasksExpanded) {
-                            "Collapse tasks due for ${day.format(FullDateFormatter)}"
-                        } else {
-                            "Expand tasks due for ${day.format(FullDateFormatter)}"
-                        },
-                    ) { tasksExpanded = !tasksExpanded }
-                    .padding(top = 0.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "TASKS DUE · ${dayTasks.count { !it.done }} OPEN",
-                    fontSize = 10.sp,
-                    letterSpacing = 1.sp,
-                    color = CalinoColors.Green,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    imageVector = CalinoIcons.ChevronRight,
-                    contentDescription = null,
-                    tint = CalinoColors.Green,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .rotate(if (tasksExpanded) -90f else 90f),
-                )
-            }
-            AnimatedVisibility(
-                visible = tasksExpanded,
-                enter = expandVertically(tween(180)) + fadeIn(tween(140)),
-                exit = shrinkVertically(tween(160)) + fadeOut(tween(120)),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                    nestWithinList(dayTasks).forEach { (task, depth, nestingLines) ->
-                        CalendarTaskRow(
-                            task = task,
-                            onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
-                            onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
-                            onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
-                            onTaskDrop = onTaskDrop,
-                            depth = depth,
-                            nestingLines = nestingLines,
-                        )
-                    }
-                }
-            }
-        }
+        DayTasksSection(
+            day = day,
+            dayTasks = dayTasks,
+            onTaskDone = onTaskDone,
+            onTaskClick = onTaskClick,
+            onTaskAction = onTaskAction,
+            onTaskDrop = onTaskDrop,
+            enabled = active,
+        )
         if (dayEvents.isEmpty()) {
             Text("Nothing scheduled", fontSize = 13.sp, color = CalinoColors.Ink3, modifier = Modifier.padding(vertical = 8.dp))
         } else {
@@ -4959,21 +4998,14 @@ private fun DayRailPage(
                     .padding(start = 52.dp, end = 20.dp, top = 5.dp, bottom = 5.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (dayTasks.isNotEmpty()) {
-                    Text("TASKS DUE", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Green)
-                    nestWithinList(dayTasks).forEach { (task, depth, nestingLines) ->
-                        CalendarTaskRow(
-                            task = task,
-                            onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
-                            onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
-                            onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
-                            onTaskDrop = onTaskDrop,
-                            depth = depth,
-                            nestingLines = nestingLines,
-                            modifier = Modifier.padding(vertical = 1.dp),
-                        )
-                    }
-                }
+                DayTasksSection(
+                    day = day,
+                    dayTasks = dayTasks,
+                    onTaskDone = onTaskDone,
+                    onTaskClick = onTaskClick,
+                    onTaskAction = onTaskAction,
+                    onTaskDrop = onTaskDrop,
+                )
                 // Keep local birthday/anniversary reminders visible alongside
                 // the two common fixture all-day records. This is still a
                 // bounded strip, but adding a reminder must not make it look
