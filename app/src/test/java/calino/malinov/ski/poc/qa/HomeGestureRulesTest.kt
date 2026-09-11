@@ -34,6 +34,24 @@ class HomeGestureRulesTest {
     }
 
     @Test
+    fun emptyTimelineTouches_snapToValidHalfHours() {
+        assertEquals(0, timelineCreateMinute(0f, 30))
+        assertEquals(30, timelineCreateMinute(16f, 30))
+        assertEquals(13 * 60 + 30, timelineCreateMinute(13 * 60 + 44f, 30))
+        assertEquals(23 * 60 + 30, timelineCreateMinute(23 * 60 + 59f, 30))
+        assertEquals(null, timelineCreateMinute(-1f, 30))
+        assertEquals(null, timelineCreateMinute(24 * 60f, 30))
+    }
+
+    @Test
+    fun heldEmptyTimelineSelection_usesQuarterHours() {
+        assertEquals(13 * 60, timelineCreateMinute(13 * 60 + 7f, 15))
+        assertEquals(13 * 60 + 15, timelineCreateMinute(13 * 60 + 8f, 15))
+        assertEquals(13 * 60 + 45, timelineCreateMinute(13 * 60 + 52f, 15))
+        assertEquals(23 * 60 + 45, timelineCreateMinute(23 * 60 + 59f, 15))
+    }
+
+    @Test
     fun pagerTarget_invertsLogicalPageDirectionForScreenTravel() {
         assertEquals(-1f, pagerTargetOffset(pageDirection = 1), 0.001f)
         assertEquals(1f, pagerTargetOffset(pageDirection = -1), 0.001f)

@@ -6,6 +6,18 @@ continue the UI work.
 
 ## Current state
 
+### Timed empty-slot creation — 2026-09-11
+
+- At the compact week-strip/day-rail endpoint, tapping empty timed space opens
+  the event editor at the nearest 30-minute start. The seeded time is marked as
+  an explicit editor choice, so typing a title cannot cause Quick Add parsing
+  to replace it.
+- Holding empty timed space reuses the rail-wide event-drop line and time badge.
+  It appears after the same short hold activation, follows the finger in
+  15-minute detents with haptic ticks, and opens the editor at the selected
+  time on release. Movement before activation remains owned by timeline scroll;
+  event cards retain their existing tap, menu, and 15-minute move gestures.
+
 ### Compact day-swipe selector continuity — 2026-09-11
 
 - Compact month/day swipes keep pager ownership until the settled date is

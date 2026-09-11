@@ -3,6 +3,7 @@ package calino.malinov.ski.poc.qa
 import calino.malinov.ski.poc.data.model.CalTask
 import java.time.LocalDate
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Small, pure support rules for deterministic POC QA. Not production navigation state. */
 enum class ZoomRestState(val level: Int) {
@@ -50,6 +51,14 @@ fun timelineScaleAfterPinch(
     minScale: Float = .65f,
     maxScale: Float = 1.8f,
 ): Float = (scale * pinchFactor).coerceIn(minScale, maxScale)
+
+/** Snap a touched timeline position to a valid event start interval. */
+fun timelineCreateMinute(rawMinute: Float, intervalMinutes: Int): Int? {
+    if (rawMinute < 0f || rawMinute >= 24f * 60f) return null
+    val interval = intervalMinutes.coerceAtLeast(1)
+    val latestStart = ((24 * 60 - 1) / interval) * interval
+    return ((rawMinute / interval).roundToInt() * interval).coerceIn(0, latestStart)
+}
 
 /**
  * Settle relative to the level where the drag began. A level changes after

@@ -667,6 +667,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var quickAddOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
     var quickAddKind by rememberSaveable(stateSaver = QuickAddKindSaver) { mutableStateOf(QuickAddKind.Event) }
     var quickAddSeed by rememberSaveable { mutableStateOf("") }
+    var quickAddStartMinute by rememberSaveable { mutableStateOf<Int?>(null) }
     var quickAddParentTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var quickAddMorphFromAddPill by rememberSaveable { mutableStateOf(false) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
@@ -817,9 +818,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         origin: PocReturnTarget,
         morphFromAddPill: Boolean = false,
         parentTaskId: String? = null,
+        startMinute: Int? = null,
     ) {
         editEventId = null
         quickAddSeed = ""
+        quickAddStartMinute = startMinute
         quickAddParentTaskId = parentTaskId
         quickAddMorphFromAddPill = morphFromAddPill
         quickAddKind = kind
@@ -831,6 +834,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun openEditor(event: CalEvent, origin: PocReturnTarget) {
         editEventId = event.id
         quickAddSeed = ""
+        quickAddStartMinute = null
         quickAddParentTaskId = null
         // The detail card's edit action is the source pill for the editor,
         // just like the root add pill is when creating a new event.
@@ -945,6 +949,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         aiDraft = null
         aiQueue = emptyList()
         quickAddParentTaskId = null
+        quickAddStartMinute = null
         quickAddMorphFromAddPill = false
         when (quickAddOrigin) {
             PocReturnTarget.DayModal -> {
@@ -1121,6 +1126,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         },
                         onEventDrop = ::handleEventDrop,
                         onEventTimeDrop = ::handleEventTimeDrop,
+                        onCreateEventAt = { start ->
+                            selectedDate = start.toLocalDate()
+                            openQuickAdd(
+                                QuickAddKind.Event,
+                                PocReturnTarget.Calendar,
+                                startMinute = start.toLocalTime().toSecondOfDay() / 60,
+                            )
+                        },
                         onTaskDrop = { task, date ->
                             launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
                         },
@@ -1406,7 +1419,17 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                     title = quickAddSeed,
                                     defaultDurationMinutes = defaults.defaultDuration.minutes,
                                     defaultReminderMinutes = defaults.defaultReminder.minutesBefore,
-                                ).copy(parentTaskId = quickAddParentTaskId)
+                                ).copy(
+                                    startTime = quickAddStartMinute?.let {
+                                        java.time.LocalTime.MIDNIGHT.plusMinutes(it.toLong())
+                                    },
+                                    parentTaskId = quickAddParentTaskId,
+                                    touched = if (quickAddStartMinute != null) {
+                                        setOf(calino.malinov.ski.poc.data.model.EditorField.Time)
+                                    } else {
+                                        emptySet()
+                                    },
+                                )
                             },
                     ),
                     calendars = snapshot.calendars,

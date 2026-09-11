@@ -71,6 +71,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -150,6 +151,7 @@ import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.qa.shouldExpandFromDayRail
+import calino.malinov.ski.poc.qa.timelineCreateMinute
 import calino.malinov.ski.poc.qa.timelineScaleAfterPinch
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
@@ -361,6 +363,7 @@ fun HomeScreen(
     onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
     onEventDrop: (CalEvent, LocalDate) -> Unit = { _, _ -> },
     onEventTimeDrop: (CalEvent, LocalDateTime) -> Unit = { _, _ -> },
+    onCreateEventAt: ((LocalDateTime) -> Unit)? = null,
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
     onTaskRescheduleTo: (CalTask, LocalDate?) -> Unit = { _, _ -> },
     onTaskClick: ((CalTask) -> Unit)? = null,
@@ -1475,6 +1478,7 @@ fun HomeScreen(
                         onEventAction = onEventAction,
                         onEventDrop = onEventDrop,
                         onEventTimeDrop = onEventTimeDrop,
+                        onCreateEventAt = onCreateEventAt,
                         onTaskDone = onTaskDone,
                         onTaskRescheduleTo = onTaskRescheduleTo,
                         onTaskClick = onTaskClick,
@@ -4256,6 +4260,7 @@ private fun DayPagerSurface(
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
     onEventDrop: ((CalEvent, LocalDate) -> Unit)?,
     onEventTimeDrop: ((CalEvent, LocalDateTime) -> Unit)?,
+    onCreateEventAt: ((LocalDateTime) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
     onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onTaskClick: ((CalTask) -> Unit)?,
@@ -4273,13 +4278,15 @@ private fun DayPagerSurface(
     val hostPreferences = LocalCalinoPreferences.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val railDragEnabled = dayRailOwnsInput && onEventTimeDrop != null
+    val railGestureEnabled = dayRailOwnsInput && (onEventTimeDrop != null || onCreateEventAt != null)
     // Every rail card on every composed page, in root coordinates. The host
     // cannot hit-test a gesture it owns without knowing where the pages put
     // their cards, and a page publishes its own far more cheaply than the host
     // could measure them from the outside.
     val cardBounds = remember { mutableStateMapOf<String, TimelineCardBounds>() }
     var dragSession by remember { mutableStateOf<TimelineDragSession?>(null) }
+    var createSession by remember { mutableStateOf<TimelineCreateSession?>(null) }
+    var activeLaneHeightPx by remember { mutableFloatStateOf(0f) }
     var hostOrigin by remember { mutableStateOf(Offset.Zero) }
     var hostWidth by remember { mutableIntStateOf(0) }
     // -1, 0, 1: which edge the lifted card is resting against.
@@ -4294,11 +4301,24 @@ private fun DayPagerSurface(
         return LocalDateTime.of(day, moved.toLocalTime())
     }
 
+    fun createTargetFor(point: Offset, intervalMinutes: Int): TimelineCreateSession? {
+        if (point.x < with(density) { 52.dp.toPx() } || hourHeightPx <= 0f) return null
+        val rawMinutes = ((point.y - activeLaneHeightPx + scrollState.value) / hourHeightPx * 60f)
+        val minutes = timelineCreateMinute(rawMinutes, intervalMinutes) ?: return null
+        return TimelineCreateSession(
+            dateTime = LocalDateTime.of(
+                dateForDayPage(state.currentPage),
+                java.time.LocalTime.MIDNIGHT.plusMinutes(minutes.toLong()),
+            ),
+            indicatorY = activeLaneHeightPx - scrollState.value + hourHeightPx * minutes / 60f,
+        )
+    }
+
     // A drag parked at either edge turns the days over, one at a time, for as
     // long as it stays there. The pause between them is deliberate: days that
     // flew past faster than the label could be read were impossible to aim.
-    LaunchedEffect(flipDirection, railDragEnabled) {
-        if (flipDirection == 0 || !railDragEnabled) return@LaunchedEffect
+    LaunchedEffect(flipDirection, railGestureEnabled) {
+        if (flipDirection == 0 || !railGestureEnabled) return@LaunchedEffect
         while (true) {
             delay(TimelineDayFlipDelayMs)
             val target = state.currentPage + flipDirection
@@ -4315,7 +4335,7 @@ private fun DayPagerSurface(
                 hostWidth = coords.size.width
             }
             .timelineLiftDrag(
-                enabled = railDragEnabled,
+                enabled = railGestureEnabled,
                 hitTest = { point ->
                     // The recognizer reports points local to this host; the
                     // pages publish their cards in root coordinates.
@@ -4367,6 +4387,18 @@ private fun DayPagerSurface(
                     flipDirection = 0
                     dragSession = null
                 },
+                emptyTarget = ::createTargetFor,
+                onEmptyPreview = { target ->
+                    if (createSession != null && createSession?.dateTime != target.dateTime) {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                    createSession = target
+                },
+                onEmptyCommit = { target ->
+                    createSession = null
+                    onCreateEventAt?.invoke(target.dateTime)
+                },
+                onEmptyCancel = { createSession = null },
             ),
     ) {
     HorizontalPager(
@@ -4403,12 +4435,12 @@ private fun DayPagerSurface(
                     onEventAction = if (dayRailOwnsInput) onEventAction else null,
                     onEventDrop = if (dayRailOwnsInput) onEventDrop else null,
                     draggingCardKey = dragSession?.card?.key,
-                    onCardBounds = if (railDragEnabled) {
+                    onCardBounds = if (railGestureEnabled) {
                         { bounds -> cardBounds[bounds.key] = bounds }
                     } else {
                         null
                     },
-                    onCardGone = if (railDragEnabled) {
+                    onCardGone = if (railGestureEnabled) {
                         { key -> cardBounds.remove(key) }
                     } else {
                         null
@@ -4418,6 +4450,7 @@ private fun DayPagerSurface(
                     onTaskClick = if (dayRailOwnsInput) onTaskClick else null,
                     onTaskAction = if (dayRailOwnsInput) onTaskAction else null,
                     onTaskDrop = if (dayRailOwnsInput) onTaskDrop else null,
+                    onLaneHeight = { activeLaneHeightPx = it },
                 )
             }
             Box(
@@ -4497,6 +4530,23 @@ private fun DayPagerSurface(
                 preferences = hostPreferences,
                 colors = colors,
                 lifted = true,
+            )
+        }
+        createSession?.let { session ->
+            TimelineDropIndicator(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            0,
+                            session.indicatorY.roundToInt() - with(density) { 41.dp.roundToPx() },
+                        )
+                    }
+                    .fillMaxWidth()
+                    .height(51.dp)
+                    .zIndex(21f),
+                time = timeFormat.format(session.dateTime.toLocalTime()),
+                railStart = 52.dp,
+                colors = colors,
             )
         }
     }
@@ -4649,6 +4699,7 @@ private fun DayRailPage(
     onTaskClick: ((CalTask) -> Unit)?,
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
+    onLaneHeight: (Float) -> Unit,
 ) {
     val interactionModifier = if (active) {
         Modifier.semantics { contentDescription = "Timeline, pinch to resize" }
@@ -4665,6 +4716,7 @@ private fun DayRailPage(
     // A day with nothing above the hours gives the space straight back.
     val headerHeight = if (hasHeader) measuredHeader else 0.dp
     val laneHeight = laneOverlap + headerHeight
+    SideEffect { onLaneHeight(with(density) { laneHeight.toPx() }) }
     val railLayer = rememberGraphicsLayer()
     val currentOnTimelinePinch = rememberUpdatedState(onTimelinePinch)
     val timelinePinchGesture = if (scrollEnabled) {
@@ -5016,6 +5068,11 @@ private data class TimelineDragSession(
     val pointer: Offset = Offset.Zero,
 )
 
+private data class TimelineCreateSession(
+    val dateTime: LocalDateTime,
+    val indicatorY: Float,
+)
+
 /** How close to the viewport edge a held drag starts walking days. */
 private val TimelineDayFlipEdge = 52.dp
 
@@ -5032,9 +5089,10 @@ private const val TimelineDayFlipDelayMs = 420L
  * turn over mid-drag without disposing the node that owns the stream, which is
  * what lets a lifted event walk into another day.
  *
- * [hitTest] answers which card the finger went down on, in root coordinates;
- * a miss leaves the gesture inert and silent, since most touches here are
- * scrolls and taps that belong to the page.
+ * [hitTest] answers which card the finger went down on, in root coordinates.
+ * A miss stays unclaimed while the finger is moving (so ordinary scrolling
+ * still belongs to the rail), but a tap creates at the snapped slot and a
+ * stationary hold promotes the miss into the empty-slot selector.
  */
 @Composable
 private fun Modifier.timelineLiftDrag(
@@ -5044,6 +5102,10 @@ private fun Modifier.timelineLiftDrag(
     onDrag: (Offset, Offset) -> Unit,
     onRelease: () -> Unit,
     onCancel: () -> Unit,
+    emptyTarget: (Offset, Int) -> TimelineCreateSession?,
+    onEmptyPreview: (TimelineCreateSession) -> Unit,
+    onEmptyCommit: (TimelineCreateSession) -> Unit,
+    onEmptyCancel: () -> Unit,
 ): Modifier {
     if (!enabled) return this
     val currentHitTest by rememberUpdatedState(hitTest)
@@ -5051,6 +5113,10 @@ private fun Modifier.timelineLiftDrag(
     val currentOnDrag by rememberUpdatedState(onDrag)
     val currentOnRelease by rememberUpdatedState(onRelease)
     val currentOnCancel by rememberUpdatedState(onCancel)
+    val currentEmptyTarget by rememberUpdatedState(emptyTarget)
+    val currentOnEmptyPreview by rememberUpdatedState(onEmptyPreview)
+    val currentOnEmptyCommit by rememberUpdatedState(onEmptyCommit)
+    val currentOnEmptyCancel by rememberUpdatedState(onEmptyCancel)
     val haptics = LocalHapticFeedback.current
     return this.pointerInput(Unit) {
         awaitEachGesture {
@@ -5062,6 +5128,7 @@ private fun Modifier.timelineLiftDrag(
             val liftDelay = minOf(viewConfiguration.longPressTimeoutMillis.toLong(), 220L)
             var card: TimelineCardBounds? = null
             var lifted = false
+            var selectingEmpty = false
             var finished = false
             try {
                 while (!finished) {
@@ -5078,29 +5145,48 @@ private fun Modifier.timelineLiftDrag(
                         // down. Announce the lift now rather than on the first
                         // movement, so the affordance is there to be seen
                         // before the drag rather than after it.
-                        card = currentHitTest(downRoot) ?: break
-                        lifted = true
+                        card = currentHitTest(downRoot)
+                        if (card != null) {
+                            lifted = true
+                            currentOnLift(card, downRoot)
+                        } else {
+                            val target = currentEmptyTarget(downRoot, 15) ?: break
+                            selectingEmpty = true
+                            currentOnEmptyPreview(target)
+                        }
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        currentOnLift(card, downRoot)
                         continue
                     }
                     val change = event.changes.firstOrNull { it.id == pointerId } ?: break
                     if (!change.pressed) {
-                        if (lifted) currentOnRelease()
+                        when {
+                            lifted -> currentOnRelease()
+                            selectingEmpty -> {
+                                val target = currentEmptyTarget(change.position, 15)
+                                if (target != null) currentOnEmptyCommit(target) else currentOnEmptyCancel()
+                            }
+                            currentHitTest(downRoot) == null &&
+                                (change.position - downRoot).getDistance() <= touchSlop ->
+                                currentEmptyTarget(change.position, 30)?.let(currentOnEmptyCommit)
+                        }
                         finished = true
                         continue
                     }
-                    if (!lifted && (change.position - downRoot).getDistance() > touchSlop) {
+                    if (!lifted && !selectingEmpty && (change.position - downRoot).getDistance() > touchSlop) {
                         // Moved before the hold matured: an ordinary scroll.
                         break
                     }
                     if (lifted) {
                         change.consume()
                         currentOnDrag(change.positionChangeIgnoreConsumed(), change.position)
+                    } else if (selectingEmpty) {
+                        change.consume()
+                        currentEmptyTarget(change.position, 15)?.let(currentOnEmptyPreview)
                     }
                 }
             } finally {
                 if (lifted && !finished) currentOnCancel()
+                if (selectingEmpty && !finished) currentOnEmptyCancel()
             }
         }
     }
