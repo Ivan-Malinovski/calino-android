@@ -307,6 +307,31 @@ object CalinoShapes {
     val Pill = 999.dp
 }
 
+/**
+ * The segmented control's geometry.
+ *
+ * Named here rather than left as literals inside the component because the
+ * numbers are what makes one segmented control read as the same object as the
+ * next. Every hand-rolled lookalike the app grew -- an entry-kind picker at a
+ * full pill radius, a journal mode toggle eighteen dips taller -- diverged on
+ * exactly these values while believing it matched.
+ */
+object CalinoSegmented {
+    /** The touch lane the control claims; the painted track is shorter. */
+    val LaneHeight = 48.dp
+    val TrackHeight = 36.dp
+    val TrackRadius = 12.dp
+    val SegmentRadius = 9.dp
+    /**
+     * The gutter between the track's edge and the indicator, on all four
+     * sides, and the gap between segments. The indicator used to be given the
+     * track's full height, so it sat flush against the top and bottom rails
+     * and read as wedged into the track rather than resting in it; the track
+     * grew by the same amount the gutter took, so the label keeps its room.
+     */
+    val Inset = 3.dp
+}
+
 private val Display = FontFamily(Font(R.font.newsreader, FontWeight.Normal))
 private val Sans = FontFamily.SansSerif
 private val Mono = FontFamily.Monospace

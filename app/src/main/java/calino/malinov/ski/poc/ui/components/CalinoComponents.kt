@@ -121,6 +121,7 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
+import calino.malinov.ski.poc.design.CalinoSegmented
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
@@ -1276,15 +1277,16 @@ fun TaskRow(
 /**
  * Shared compact choice control for the mobile surfaces.
  *
- * The outer 44dp lane is a compact touch target; the painted track is 30dp tall.
+ * Every mutually-exclusive text picker in the app goes through here rather than
+ * building its own row of highlighted boxes: the geometry lives in
+ * [CalinoSegmented] and the sliding indicator is the thing a hand-rolled
+ * lookalike always leaves out, which is what made them read as different
+ * controls.
+ *
+ * The outer lane is a compact touch target; the painted track is shorter.
  * Width is bounded by [maxControlWidth] and the parent's available width, so equal
  * option lanes never force a sibling label into a one-character column.
  */
-private object CompactSegmentedMetrics {
-    val TouchLaneHeight = 44.dp
-    val TrackHeight = 30.dp
-}
-
 @Composable
 fun CompactSegmentedControl(
     options: List<String>,
@@ -1297,12 +1299,12 @@ fun CompactSegmentedControl(
     if (options.isEmpty()) return
 
     val safeSelected = selectedIndex.coerceIn(0, options.lastIndex)
-    val trackShape = RoundedCornerShape(10.dp)
-    val segmentShape = RoundedCornerShape(8.dp)
-    val touchLaneHeight = CompactSegmentedMetrics.TouchLaneHeight
-    val trackHeight = CompactSegmentedMetrics.TrackHeight
-    val horizontalPadding = 2.dp
-    val gap = 2.dp
+    val trackShape = RoundedCornerShape(CalinoSegmented.TrackRadius)
+    val segmentShape = RoundedCornerShape(CalinoSegmented.SegmentRadius)
+    val touchLaneHeight = CalinoSegmented.LaneHeight
+    val trackHeight = CalinoSegmented.TrackHeight
+    val horizontalPadding = CalinoSegmented.Inset
+    val gap = CalinoSegmented.Inset
 
     BoxWithConstraints(
         modifier = Modifier
@@ -1328,13 +1330,16 @@ fun CompactSegmentedControl(
                 .clip(trackShape)
                 .background(CalinoColors.Ink.copy(alpha = .05f)),
         )
+        // CenterStart centres it in the lane, so taking the gutter off the
+        // height is all that is needed to inset it top and bottom the same
+        // amount the horizontal padding insets it left and right.
         Box(
             Modifier
                 .align(Alignment.CenterStart)
                 .padding(horizontal = horizontalPadding)
                 .offset(x = indicatorOffset)
                 .width(segmentWidth)
-                .height(trackHeight)
+                .height(trackHeight - horizontalPadding * 2)
                 .clip(segmentShape)
                 .background(CalinoColors.Panel)
                 .border(1.dp, CalinoColors.Line, segmentShape),
@@ -1371,10 +1376,8 @@ fun CompactSegmentedControl(
                     Text(
                         text = option,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        style = CalinoTypography.labelMedium,
                         color = labelColor,
-                        fontSize = 13.5.sp,
-                        lineHeight = 18.sp,
-                        fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,

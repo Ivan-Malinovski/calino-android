@@ -51,11 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -411,39 +407,15 @@ private fun JournalEditor(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
 
-        Row(
-            Modifier
+        CompactSegmentedControl(
+            options = JournalEditorMode.entries.map { it.name },
+            selectedIndex = JournalEditorMode.entries.indexOf(editorMode),
+            onSelected = { editorModeName = JournalEditorMode.entries[it].name },
+            modifier = Modifier
                 .padding(horizontal = 20.dp, vertical = 12.dp)
-                .clip(RoundedCornerShape(13.dp))
-                .background(CalinoColors.Ink.copy(alpha = .05f))
-                .padding(3.dp)
-                .semantics { contentDescription = "Journal editor mode" },
-        ) {
-            JournalEditorMode.entries.forEach { entryMode ->
-                val selected = entryMode == editorMode
-                val color by animateColorAsState(
-                    targetValue = if (selected) CalinoColors.Ink else CalinoColors.Ink2,
-                    animationSpec = tween(140),
-                    label = "journal editor mode color",
-                )
-                Box(
-                    modifier = Modifier
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (selected) CalinoColors.Panel else Color.Transparent)
-                        .semantics(mergeDescendants = true) {
-                            contentDescription = if (entryMode == JournalEditorMode.Write) "Write mode" else "Read mode"
-                            role = Role.Tab
-                            this.selected = selected
-                        }
-                        .clickable { editorModeName = entryMode.name }
-                        .padding(horizontal = 20.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(if (entryMode == JournalEditorMode.Write) "Write" else "Read", style = CalinoTypography.labelMedium, color = color)
-                }
-            }
-        }
+                .width(200.dp),
+            semanticLabel = "Journal editor mode",
+        )
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),

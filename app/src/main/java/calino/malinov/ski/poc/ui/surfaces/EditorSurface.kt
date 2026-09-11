@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -75,7 +74,6 @@ import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoSpacing
-import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.CalinoChip
@@ -84,6 +82,7 @@ import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CalinoMarkdownEditor
 import calino.malinov.ski.poc.ui.components.CalinoTextField
+import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.components.EditorLabel
 import calino.malinov.ski.poc.ui.components.EditorReveal
 import calino.malinov.ski.poc.ui.components.ModalActionPill
@@ -406,32 +405,13 @@ private fun PocQuickAddKind.editorIcon() = when (this) {
 
 @Composable
 private fun KindSelector(selected: PocQuickAddKind, onSelect: (PocQuickAddKind) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 4.dp)
-            .clip(RoundedCornerShape(CalinoShapes.Pill))
-            .background(CalinoColors.Ink.copy(.05f))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        PocQuickAddKind.entries.forEach { entry ->
-            Box(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = 40.dp)
-                    .clip(RoundedCornerShape(CalinoShapes.Pill))
-                    .background(if (selected == entry) CalinoColors.Panel else Color.Transparent)
-                    .clickable(onClick = { onSelect(entry) })
-                    .semantics {
-                        contentDescription = entry.name
-                        stateDescription = if (selected == entry) "Selected" else "Not selected"
-                        role = Role.RadioButton
-                    },
-                contentAlignment = Alignment.Center,
-            ) { Text(entry.name, style = CalinoTypography.labelMedium, color = CalinoColors.Ink) }
-        }
-    }
+    CompactSegmentedControl(
+        options = PocQuickAddKind.entries.map { it.name },
+        selectedIndex = PocQuickAddKind.entries.indexOf(selected),
+        onSelected = { onSelect(PocQuickAddKind.entries[it]) },
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        semanticLabel = "Entry kind",
+    )
 }
 
 @Composable
