@@ -12,6 +12,7 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.repository.CalDavRepository
 import calino.malinov.ski.poc.data.repository.CalDavSource
+import calino.malinov.ski.poc.data.repository.moveEventToDateTime
 import calino.malinov.ski.poc.data.repository.FilePendingChangeStore
 import calino.malinov.ski.poc.data.repository.PendingChangeRequest
 import calino.malinov.ski.poc.data.repository.PendingChangeType
@@ -20,6 +21,7 @@ import calino.malinov.ski.poc.data.repository.WriteResult
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.ArrayDeque
 import java.util.Collections
@@ -193,6 +195,75 @@ class CalDavMoveRepositoryTest {
         assertTrue(calls.any { it.startsWith("DELETE /source/") })
         queueFile.delete()
         Unit
+    }
+
+
+    /**
+     * The timeline drop: a timed event moved to a new hour in the calendar it
+     * already lives in. The reported symptom was the card springing back while
+     * the server had in fact taken the write, so this asserts on what the UI
+     * observes, not only on what the call returned.
+     */
+    @Test
+    fun `same-calendar time move reaches the observed snapshot`() = runBlocking {
+        val cache = MemoryCache()
+        val source = calendar("/source/", "Source")
+        serveTimedEvent()
+        val repository = repository(cache)
+        repository.setSources(listOf(CalDavSource(source, credentials, "account")))
+        repository.awaitSync()
+
+        val event = repository.events().single()
+        assertEquals(LocalDateTime.of(2026, 9, 8, 10, 0), event.start)
+
+        val observed = CopyOnWriteArrayList<CalEvent?>()
+        val subscription = repository.observe { snap ->
+            observed += snap.events.firstOrNull { it.id == event.id }
+        }
+
+        val target = LocalDateTime.of(2026, 9, 8, 14, 30)
+        val result = repository.moveEventToDateTime(event, target)
+        assertTrue("expected the move to be accepted, got $result", result !is WriteResult.Rejected)
+
+        assertEquals("repository state kept the old start", target, repository.events().single().start)
+        assertEquals(
+            "the last published snapshot kept the old start",
+            target,
+            observed.last()?.start,
+        )
+        subscription.close()
+    }
+
+    private fun serveTimedEvent(putCode: Int = 204): MutableList<String> {
+        val calls = Collections.synchronizedList(mutableListOf<String>())
+        val sourceXml = """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+            <response><href>/source/event.ics</href><propstat><prop><getetag>"source-v1"</getetag><C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Calino Test//EN
+BEGIN:VEVENT
+UID:timed-event
+DTSTART:20260908T100000Z
+DTEND:20260908T110000Z
+SUMMARY:Design review
+END:VEVENT
+END:VCALENDAR
+</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>
+        </multistatus>""".trimIndent()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val method = request.method.orEmpty()
+                calls += "$method $path"
+                return when {
+                    method == "PUT" ->
+                        MockResponse().setResponseCode(putCode).setHeader("ETag", "\"source-v2\"")
+                    method == "REPORT" && request.body.readUtf8().contains("VEVENT") -> multiStatus(sourceXml)
+                    method == "REPORT" -> multiStatus("<multistatus xmlns=\"DAV:\"/>")
+                    else -> MockResponse().setResponseCode(500)
+                }
+            }
+        }
+        return calls
     }
 
     private fun repository(cache: CalendarCache, queue: FilePendingChangeStore? = null) = CalDavRepository(

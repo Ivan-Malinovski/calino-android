@@ -1113,6 +1113,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         repository = repository,
                         journals = snapshot.journals,
                         tasks = calendarTasks,
+                        sourceEvents = snapshot.events,
                         visibleCalendarIds = visibleCalendarIds,
                         filterCalendarVisibility = true,
                         modifier = Modifier.fillMaxSize(),

@@ -358,6 +358,14 @@ fun HomeScreen(
     repository: CalinoRepository,
     journals: List<JournalEntry> = emptyList(),
     tasks: List<CalTask> = repository.tasks(),
+    /**
+     * The events to draw. This must be passed by a caller that reads them from
+     * observed state: `repository.events()` is a plain field read, so taking
+     * them here directly subscribed this composable to nothing and a write
+     * stayed invisible until some unrelated change happened to recompose it.
+     * The default keeps previews and standalone call sites working.
+     */
+    sourceEvents: List<CalEvent> = repository.events(),
     visibleCalendarIds: Set<String> = emptySet(),
     filterCalendarVisibility: Boolean = false,
     modifier: Modifier = Modifier,
@@ -391,7 +399,7 @@ fun HomeScreen(
 
     val selected = LocalDate.ofEpochDay(selectedEpoch)
     val today = LocalCalinoNow.current.today
-    val events = repository.events().filter { event ->
+    val events = sourceEvents.filter { event ->
         !filterCalendarVisibility || event.calendarId in visibleCalendarIds
     }
     val hideCompletedTasks = LocalCalinoPreferences.current.hideCompletedTasks
