@@ -374,7 +374,12 @@ fun HomeScreen(
     onDateChanged: (LocalDate) -> Unit = {},
     onDayClick: ((LocalDate) -> Unit)? = null,
     onEventClick: ((CalEvent) -> Unit)? = null,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
+    /**
+     * Null rather than a no-op default: every card below takes this nullable
+     * and shows its long-press menu only when it is non-null, so a no-op here
+     * gave a surface a menu whose every item silently did nothing.
+     */
+    onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
     onEventDrop: (CalEvent, LocalDate) -> Unit = { _, _ -> },
     onEventTimeDrop: (CalEvent, LocalDateTime) -> Unit = { _, _ -> },
     onCreateEventAt: ((LocalDateTime) -> Unit)? = null,
@@ -1563,7 +1568,7 @@ private fun SplitHomeLayout(
     onToday: () -> Unit,
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)?,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit,
+    onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
     onTaskClick: ((CalTask) -> Unit)?,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,

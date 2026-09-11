@@ -1129,6 +1129,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             showDayModal = false
                             route = PockRoute.Detail
                         },
+                        onEventAction = ::handleEventAction,
                         onEventDrop = ::handleEventDrop,
                         onEventTimeDrop = ::handleEventTimeDrop,
                         onCreateEventAt = { start ->

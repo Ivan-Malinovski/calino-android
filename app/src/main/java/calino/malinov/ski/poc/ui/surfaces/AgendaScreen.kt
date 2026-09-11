@@ -94,7 +94,7 @@ fun AgendaScreen(
     onDateChanged: (LocalDate) -> Unit = {},
     /** Carries the row's own day: an agenda row is not always the selected date. */
     onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
+    onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
     onEventDrop: (CalEvent, LocalDate) -> Unit = { _, _ -> },
     onTaskClick: ((CalTask) -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
@@ -198,7 +198,7 @@ private fun AgendaMonthPage(
     events: List<CalEvent>,
     tasks: List<CalTask>,
     onEventClick: ((LocalDate, CalEvent) -> Unit)?,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit,
+    onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
     onTaskClick: ((CalTask) -> Unit)?,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
@@ -264,7 +264,7 @@ internal fun AgendaDayBlock(
     tasks: List<CalTask>,
     modifier: Modifier = Modifier,
     onEventClick: ((LocalDate, CalEvent) -> Unit)?,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit,
+    onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
     onTaskClick: ((CalTask) -> Unit)?,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
@@ -303,7 +303,7 @@ internal fun AgendaDayBlock(
                             subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
                             variant = AgendaRowVariant.Card,
                             onClick = onEventClick?.let { click -> { click(day, event) } },
-                            onLongClick = { menuOpen = true },
+                            onLongClick = onEventAction?.let { { menuOpen = true } },
                             onDragEnd = { offset ->
                                 if (kotlin.math.abs(offset.y) > 36f) {
                                     onEventDrop(event, day.plusDays((offset.y / 76f).roundToInt().toLong()))
@@ -314,7 +314,7 @@ internal fun AgendaDayBlock(
                             event = event,
                             expanded = menuOpen,
                             onDismiss = { menuOpen = false },
-                            onAction = { action -> onEventAction(action, event) },
+                            onAction = { action -> onEventAction?.invoke(action, event) },
                         )
                     }
                 }
@@ -362,7 +362,7 @@ fun DayPane(
     tasks: List<CalTask>,
     modifier: Modifier = Modifier,
     onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
+    onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
     onEventDrop: (CalEvent, LocalDate) -> Unit = { _, _ -> },
     onTaskClick: ((CalTask) -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
