@@ -233,8 +233,23 @@ fun Modifier.calinoLongPressDrag(
                             currentOnDragEnd?.invoke(totalDrag)
                         } else {
                             if (armed) currentOnDragCancel?.invoke()
-                            if (elapsed >= menuDelay) currentOnLongPress?.invoke()
-                            else currentOnClick?.invoke()
+                            // The release reaches us on Initial, before any
+                            // child control has had its pass. A row that fired
+                            // its own tap here stole the gesture from the
+                            // controls it contains -- tapping a task's
+                            // completion circle toggled the task *and* opened
+                            // the row's modal (or, when the modal recomposed
+                            // the row away first, only opened the modal). Let
+                            // the event finish its passes and treat it as a row
+                            // tap only if nothing inside claimed it.
+                            val claimed = awaitPointerEvent(PointerEventPass.Final)
+                                .changes
+                                .firstOrNull { it.id == pointerId }
+                                ?.isConsumed == true
+                            if (!claimed) {
+                                if (elapsed >= menuDelay) currentOnLongPress?.invoke()
+                                else currentOnClick?.invoke()
+                            }
                         }
                         finished = true
                         continue

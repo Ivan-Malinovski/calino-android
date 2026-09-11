@@ -4456,6 +4456,15 @@ private fun DayPagerSurface(
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val railGestureEnabled = dayRailOwnsInput && (onEventTimeDrop != null || onCreateEventAt != null)
+    // Hit testing does not follow the draw condition below: kept composed while
+    // it was invisible, the agenda page still sat in front of the rail and
+    // swallowed every tap in the lane -- the tasks-due rows above the hours
+    // could not be tapped at all, and only the host's own rail gesture ever saw
+    // those taps. Mount it when it starts to show. Derived so crossing the
+    // threshold recomposes once, not on every frame of the zoom.
+    val agendaMounted by remember(zoomState) {
+        derivedStateOf { zoomState.value > DaySurfaceBlendStart }
+    }
     // Every rail card on every composed page, in root coordinates. The host
     // cannot hit-test a gesture it owns without knowing where the pages put
     // their cards, and a page publishes its own far more cheaply than the host
@@ -4480,6 +4489,12 @@ private fun DayPagerSurface(
 
     fun createTargetFor(point: Offset, intervalMinutes: Int): TimelineCreateSession? {
         if (point.x < with(density) { 52.dp.toPx() } || hourHeightPx <= 0f) return null
+        // The lane above the hours is not the timeline: it carries the week
+        // strip's handle band, the tasks-due rows and the all-day chips, each
+        // with its own controls. Treating a tap there as a tap on empty rail
+        // stole it from them -- a tap on a task's completion circle opened the
+        // event composer instead of completing the task.
+        if (point.y < activeLaneHeightPx) return null
         val rawMinutes = ((point.y - activeLaneHeightPx + scrollState.value) / hourHeightPx * 60f)
         val minutes = timelineCreateMinute(rawMinutes, intervalMinutes) ?: return null
         return TimelineCreateSession(
@@ -4649,7 +4664,7 @@ private fun DayPagerSurface(
                     }
                 },
             ) {
-                SelectedDayAgendaPage(
+                if (agendaMounted) SelectedDayAgendaPage(
                     day = pageDay,
                     dayEvents = dayEvents,
                     dayTasks = dayTasks,
