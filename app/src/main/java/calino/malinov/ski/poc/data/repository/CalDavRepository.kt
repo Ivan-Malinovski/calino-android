@@ -66,6 +66,8 @@ data class CalDavSource(
     val committedCursor: CollectionCursor? = null,
     /** True only for metadata returned by a just-completed discovery walk. */
     val metadataFresh: Boolean = false,
+    val visible: Boolean = true,
+    val showTasksInViews: Boolean = true,
 )
 
 data class CardDavSource(
@@ -1221,11 +1223,11 @@ class CalDavRepository(
     }
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
-        val source = sourceForCreate("VTODO", preferredId = null, href = input.href)
+        val source = sourceForCreate("VTODO", preferredId = input.calendarId, href = input.href)
         writableRejection(source, "VTODO")?.let { return it }
         source ?: return WriteResult.Rejected("No calendar is connected.")
 
-        val local = overlay.newTask(input)
+        val local = overlay.newTask(input.copy(calendarId = source.calendar.url))
         val uid = input.uid ?: local.id
         val candidate = local.copy(
             id = uid,
@@ -1254,7 +1256,7 @@ class CalDavRepository(
         source ?: return WriteResult.Rejected("That task's calendar is no longer connected.")
 
         pendingCreateFor(current.id, "VTODO", source.calendar.url)?.let { pending ->
-            val candidate = overlay.newTask(input).copy(
+            val candidate = overlay.newTask(input.copy(calendarId = source.calendar.url)).copy(
                 id = current.id,
                 uid = current.uid ?: current.id,
                 href = null,
@@ -1276,7 +1278,7 @@ class CalDavRepository(
             }
         }
 
-        val candidate = overlay.newTask(input).copy(
+        val candidate = overlay.newTask(input.copy(calendarId = source.calendar.url)).copy(
             id = current.id,
             uid = current.uid ?: current.id,
             href = current.href,
@@ -3951,6 +3953,8 @@ class CalDavRepository(
                 // existed there was nothing downstream that needed to know.
                 readOnly = source.calendar.readOnly,
                 components = source.calendar.components,
+                visible = source.visible,
+                showTasksInViews = source.showTasksInViews,
             )
         }
         val events = overlay.applyToEvents(fetched.events)

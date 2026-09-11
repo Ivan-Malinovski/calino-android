@@ -273,6 +273,8 @@ internal class LocalOverlay {
         category = input.category,
         notes = input.notes,
         reminder = input.reminder,
+        calendarId = input.calendarId,
+        parentTaskId = input.parentTaskId,
     )
 
     private fun contactFrom(id: String, input: NewContact): Contact = Contact(

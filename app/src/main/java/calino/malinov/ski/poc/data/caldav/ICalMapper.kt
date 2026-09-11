@@ -122,7 +122,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         calendars.forEach { calendar ->
             events += mapEvents(calendar, calendarId, color, href, etag, windowStart, windowEnd)
             calendar.todos.forEach { vtodo ->
-                mapTask(vtodo, color, href, etag)?.let(tasks::add)
+                mapTask(vtodo, calendarId, color, href, etag)?.let(tasks::add)
             }
             calendar.journals.forEach { vjournal ->
                 mapJournal(vjournal, href, etag)?.let(journals::add)
@@ -434,7 +434,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
     // --- VTODO ----------------------------------------------------------------
 
-    private fun mapTask(vtodo: VTodo, color: Long, href: String, etag: String?): CalTask? {
+    private fun mapTask(vtodo: VTodo, calendarId: String, color: Long, href: String, etag: String?): CalTask? {
         val uid = vtodo.uid?.value ?: return null
         val summary = vtodo.summary?.value?.trim().orEmpty().ifEmpty { "(no title)" }
 
@@ -475,6 +475,8 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             uid = uid,
             href = href,
             etag = etag,
+            calendarId = calendarId,
+            parentTaskId = vtodo.relatedTo.firstOrNull()?.value?.trim()?.takeIf(String::isNotEmpty),
         )
     }
 

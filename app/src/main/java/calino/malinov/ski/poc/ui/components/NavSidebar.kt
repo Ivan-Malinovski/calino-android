@@ -5,11 +5,16 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.border
@@ -17,19 +22,33 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -60,8 +80,19 @@ import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
+import calino.malinov.ski.poc.data.model.CalDavAccount
+import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.data.repository.CalinoCalendar
+import calino.malinov.ski.poc.data.repository.CalinoSnapshot
+import calino.malinov.ski.poc.data.repository.SyncState
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
+import calino.malinov.ski.poc.ui.surfaces.TaskActionMenu
+import calino.malinov.ski.poc.ui.surfaces.TaskMenuAction
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -78,6 +109,23 @@ fun NavSidebar(
     selectedRoute: PockRoute,
     onRoute: (PockRoute) -> Unit,
     onDismiss: () -> Unit,
+    snapshot: CalinoSnapshot,
+    accounts: List<CalDavAccount> = emptyList(),
+    selectedDate: LocalDate,
+    onDateChanged: (LocalDate) -> Unit,
+    onToggleCalendar: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    onToggleCalendarTasks: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    fixtureHiddenCalendarIds: Set<String> = emptySet(),
+    fixtureHiddenTaskCalendarIds: Set<String> = emptySet(),
+    onToggleFixtureCalendar: (String, Boolean) -> Unit = { _, _ -> },
+    onToggleFixtureCalendarTasks: (String, Boolean) -> Unit = { _, _ -> },
+    onRenameCalendar: (String, String, String) -> Unit = { _, _, _ -> },
+    onColorCalendar: (String, String, Long) -> Unit = { _, _, _ -> },
+    onSyncAll: () -> Unit = {},
+    onSyncCalendar: (String, String) -> Unit = { _, _ -> },
+    onTaskClick: (CalTask) -> Unit = {},
+    onTaskComplete: (CalTask, Boolean) -> Unit = { _, _ -> },
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val preferences = LocalCalinoPreferences.current
@@ -96,6 +144,8 @@ fun NavSidebar(
             .takeIf { preferences.contactsEnabled },
         NavItem(pockRouteLabel(PockRoute.Settings), PockRoute.Settings, CalinoIcons.Settings),
     )
+    val settingsItem = items.first { it.route == PockRoute.Settings }
+    val mainItems = items.filterNot { it.route == PockRoute.Settings }
 
     var dragX by remember { mutableFloatStateOf(0f) }
     var dismissing by remember { mutableStateOf(false) }
@@ -172,13 +222,18 @@ fun NavSidebar(
                             .clip(RoundedCornerShape(CalinoShapes.Card))
                             .background(CalinoColors.Panel)
                             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
-                            .padding(horizontal = 12.dp, vertical = 18.dp),
+                            .padding(horizontal = 12.dp, vertical = 18.dp)
+                            .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
                             "Calino",
                             style = CalinoTypography.titleLarge.copy(fontSize = 22.sp),
                             modifier = Modifier.padding(start = 10.dp, bottom = 10.dp),
+                        )
+                        SidebarMiniCalendar(
+                            selectedDate = selectedDate,
+                            onDateChanged = onDateChanged,
                         )
                         calendarItems.forEach { item ->
                             NavRow(item, selected = selectedRoute == item.route) {
@@ -193,11 +248,33 @@ fun NavSidebar(
                                 .height(1.dp)
                                 .background(CalinoColors.Line),
                         )
-                        items.forEach { item ->
+                        mainItems.forEach { item ->
                             NavRow(item, selected = selectedRoute == item.route) {
                                 onRoute(item.route)
                                 onDismiss()
                             }
+                        }
+                        SidebarExtras(
+                            snapshot = snapshot,
+                            accounts = accounts,
+                            onToggleCalendar = onToggleCalendar,
+                            onToggleCalendarTasks = onToggleCalendarTasks,
+                            fixtureHiddenCalendarIds = fixtureHiddenCalendarIds,
+                            fixtureHiddenTaskCalendarIds = fixtureHiddenTaskCalendarIds,
+                            onToggleFixtureCalendar = onToggleFixtureCalendar,
+                            onToggleFixtureCalendarTasks = onToggleFixtureCalendarTasks,
+                            onRenameCalendar = onRenameCalendar,
+                            onColorCalendar = onColorCalendar,
+                            onSyncAll = onSyncAll,
+                            onSyncCalendar = onSyncCalendar,
+                            onTaskClick = onTaskClick,
+                            onTaskComplete = onTaskComplete,
+                            onTaskAction = onTaskAction,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        NavRow(settingsItem, selected = selectedRoute == settingsItem.route) {
+                            onRoute(settingsItem.route)
+                            onDismiss()
                         }
                         Spacer(Modifier.height(2.dp))
                     }
@@ -205,6 +282,348 @@ fun NavSidebar(
             }
         }
     }
+}
+
+private data class SidebarCalendarRow(
+    val accountId: String?,
+    val calendar: CalinoCalendar,
+    val enabled: Boolean = true,
+)
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@Composable
+private fun SidebarMiniCalendar(
+    selectedDate: LocalDate,
+    onDateChanged: (LocalDate) -> Unit,
+) {
+    var miniMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
+    val cardShape = RoundedCornerShape(12.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(3.dp, cardShape)
+            .clip(cardShape)
+            .background(CalinoColors.Panel)
+            .border(1.dp, CalinoColors.Line, cardShape)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { miniMonth = miniMonth.minusMonths(1) }, modifier = Modifier.size(36.dp)) {
+                Text("‹", fontSize = 22.sp, color = CalinoColors.Ink2)
+            }
+            Text(
+                miniMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)),
+                style = CalinoTypography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { miniMonth = miniMonth.plusMonths(1) }, modifier = Modifier.size(36.dp)) {
+                Text("›", fontSize = 22.sp, color = CalinoColors.Ink2)
+            }
+        }
+        val first = miniMonth.atDay(1)
+        val leading = (first.dayOfWeek.value - 1).coerceIn(0, 6)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 3.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            listOf("M", "T", "W", "T", "F", "S", "S").forEach {
+                Text(it, color = CalinoColors.Ink3, fontSize = 10.sp)
+            }
+        }
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            maxItemsInEachRow = 7,
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            repeat(leading) { Spacer(Modifier.size(32.dp)) }
+            (1..miniMonth.lengthOfMonth()).forEach { dayOfMonth ->
+                val date = miniMonth.atDay(dayOfMonth)
+                val selected = date == selectedDate
+                val today = date == LocalDate.now()
+                TextButton(
+                    onClick = { onDateChanged(date) },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) CalinoColors.Accent else Color.Transparent),
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text(
+                        dayOfMonth.toString(),
+                        color = if (selected) CalinoColors.OnAccent else if (today) CalinoColors.Accent else CalinoColors.Ink2,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+        TextButton(
+            onClick = { onDateChanged(LocalDate.now()); miniMonth = YearMonth.now() },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp),
+        ) {
+            Text("Today", color = CalinoColors.Accent)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@Composable
+private fun SidebarExtras(
+    snapshot: CalinoSnapshot,
+    accounts: List<CalDavAccount>,
+    onToggleCalendar: (String, String, Boolean) -> Unit,
+    onToggleCalendarTasks: (String, String, Boolean) -> Unit,
+    fixtureHiddenCalendarIds: Set<String>,
+    fixtureHiddenTaskCalendarIds: Set<String>,
+    onToggleFixtureCalendar: (String, Boolean) -> Unit,
+    onToggleFixtureCalendarTasks: (String, Boolean) -> Unit,
+    onRenameCalendar: (String, String, String) -> Unit,
+    onColorCalendar: (String, String, Long) -> Unit,
+    onSyncAll: () -> Unit,
+    onSyncCalendar: (String, String) -> Unit,
+    onTaskClick: (CalTask) -> Unit,
+    onTaskComplete: (CalTask, Boolean) -> Unit,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit,
+) {
+    var editingCalendarKey by remember { mutableStateOf<String?>(null) }
+    var editedCalendarName by remember { mutableStateOf("") }
+    var fixtureCalendarNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var fixtureCalendarColors by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    var upcomingTasksExpanded by remember { mutableStateOf(true) }
+    val rows = if (accounts.isEmpty()) {
+        snapshot.calendars.map { calendar ->
+            SidebarCalendarRow(
+                accountId = null,
+                calendar = calendar.copy(
+                    name = fixtureCalendarNames[calendar.id] ?: calendar.name,
+                    color = fixtureCalendarColors[calendar.id] ?: calendar.color,
+                ),
+            )
+        }
+    } else {
+        accounts.flatMap { account ->
+            account.calendars.map { calendar ->
+                SidebarCalendarRow(
+                    accountId = account.id,
+                    calendar = CalinoCalendar(
+                        id = calendar.id,
+                        name = calendar.name,
+                        color = calendar.color,
+                        readOnly = calendar.readOnly,
+                        visible = calendar.visible,
+                        showTasksInViews = calendar.showTasksInViews,
+                    ),
+                    enabled = calendar.enabled,
+                )
+            }
+        }
+    }
+
+    SidebarSectionLabel("CALENDARS")
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        val visibleCount = rows.count { row ->
+            if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
+        }
+        Text("$visibleCount of ${rows.size} visible", color = CalinoColors.Ink3, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        TextButton(onClick = onSyncAll, modifier = Modifier.heightIn(min = 44.dp)) { Text("Sync all", color = CalinoColors.Accent) }
+    }
+    rows.forEach { row ->
+        val key = "${row.accountId.orEmpty()}:${row.calendar.id}"
+        val visible = if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
+        val tasksVisible = if (row.accountId == null) row.calendar.id !in fixtureHiddenTaskCalendarIds else row.calendar.showTasksInViews
+        var menuOpen by remember(key) { mutableStateOf(false) }
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = visible,
+                    onCheckedChange = { value ->
+                        if (row.accountId == null) onToggleFixtureCalendar(row.calendar.id, value)
+                        else onToggleCalendar(row.accountId, row.calendar.id, value)
+                    },
+                    modifier = Modifier.semantics { contentDescription = "Show ${row.calendar.name}" },
+                )
+                Box(Modifier.size(9.dp).clip(CircleShape).background(Color(row.calendar.color)))
+                if (editingCalendarKey == key) {
+                    TextField(
+                        value = editedCalendarName,
+                        onValueChange = { editedCalendarName = it },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        singleLine = true,
+                    )
+                    TextButton(
+                        onClick = {
+                            val name = editedCalendarName.trim()
+                            if (name.isNotEmpty()) {
+                                if (row.accountId == null) {
+                                    fixtureCalendarNames = fixtureCalendarNames + (row.calendar.id to name)
+                                } else {
+                                    onRenameCalendar(row.accountId, row.calendar.id, name)
+                                }
+                                editingCalendarKey = null
+                            }
+                        },
+                        modifier = Modifier.heightIn(min = 44.dp),
+                    ) { Text("Save", color = CalinoColors.Accent) }
+                } else {
+                    Text(
+                        row.calendar.name,
+                        color = if (visible) CalinoColors.Ink else CalinoColors.Ink3,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                            .combinedClickable(
+                                onClick = {},
+                                onDoubleClick = {
+                                    editingCalendarKey = key
+                                    editedCalendarName = row.calendar.name
+                                },
+                            ),
+                        maxLines = 1,
+                    )
+                }
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(44.dp)) { Text("⋮", fontSize = 20.sp, color = CalinoColors.Ink2) }
+                if (row.accountId != null) {
+                    IconButton(onClick = { onSyncCalendar(row.accountId, row.calendar.id) }, modifier = Modifier.size(44.dp)) { Text("↻", fontSize = 17.sp, color = CalinoColors.Ink2) }
+                }
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Rename calendar") },
+                    onClick = {
+                        menuOpen = false
+                        editingCalendarKey = key
+                        editedCalendarName = row.calendar.name
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (tasksVisible) "Hide tasks in calendar" else "Show tasks in calendar") },
+                    onClick = {
+                        menuOpen = false
+                        if (row.accountId == null) onToggleFixtureCalendarTasks(row.calendar.id, !tasksVisible)
+                        else onToggleCalendarTasks(row.accountId, row.calendar.id, !tasksVisible)
+                    },
+                )
+                listOf(
+                    0xFFC2697F to "Rose",
+                    0xFF5B7FB5 to "Blue",
+                    0xFF5D9A78 to "Green",
+                    0xFFBF944E to "Gold",
+                ).forEach { (color, name) ->
+                    DropdownMenuItem(
+                        text = { Text("Use $name color") },
+                        onClick = {
+                            menuOpen = false
+                            if (row.accountId == null) {
+                                fixtureCalendarColors = fixtureCalendarColors + (row.calendar.id to color)
+                            } else {
+                                onColorCalendar(row.accountId, row.calendar.id, color)
+                            }
+                        },
+                    )
+                }
+                DropdownMenuItem(text = { Text("Export ICS") }, onClick = { menuOpen = false })
+            }
+        }
+    }
+
+    val taskCardShape = RoundedCornerShape(12.dp)
+    val upcoming = snapshot.tasks
+        .filter { !it.done }
+        .filter { it.parentTaskId == null }
+        .sortedBy { it.due ?: LocalDate.MAX }
+        .take(10)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(taskCardShape)
+            .background(CalinoColors.Panel)
+            .border(1.dp, CalinoColors.Line, taskCardShape)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .clickable { upcomingTasksExpanded = !upcomingTasksExpanded }
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "UPCOMING TASKS",
+                style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
+                modifier = Modifier.weight(1f),
+            )
+            Text("${upcoming.size}", color = CalinoColors.Ink3, fontSize = 12.sp)
+            Text(
+                if (upcomingTasksExpanded) "⌄" else "›",
+                color = CalinoColors.Ink2,
+                fontSize = 20.sp,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        AnimatedVisibility(
+            visible = upcomingTasksExpanded,
+            enter = expandVertically(tween(180)) + fadeIn(tween(140)),
+            exit = shrinkVertically(tween(140)) + fadeOut(tween(100)),
+        ) {
+            Column {
+                upcoming.forEach { task ->
+                    var menuOpen by remember(task.id) { mutableStateOf(false) }
+                    Box(Modifier.fillMaxWidth()) {
+                        TaskRow(
+                            task = task,
+                            compact = true,
+                            onCheckedChange = { onTaskComplete(task, it) },
+                            onClick = { onTaskClick(task) },
+                            onLongClick = { menuOpen = true },
+                        )
+                        TaskActionMenu(
+                            task = task,
+                            expanded = menuOpen,
+                            onDismiss = { menuOpen = false },
+                            onAction = { action -> onTaskAction(action, task) },
+                        )
+                    }
+                }
+                if (upcoming.isEmpty()) {
+                    Text(
+                        "No upcoming tasks",
+                        color = CalinoColors.Ink3,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                    )
+                }
+            }
+        }
+    }
+
+    val preferences = LocalCalinoPreferences.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("Show completed tasks", color = CalinoColors.Ink2, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Checkbox(
+            checked = !preferences.hideCompletedTasks,
+            onCheckedChange = { preferences.setHideCompletedTasks(!it) },
+            modifier = Modifier.semantics { contentDescription = "Show completed tasks in views" },
+        )
+    }
+
+    SidebarSectionLabel("SYNC")
+    val syncLabel = when (val state = snapshot.sync) {
+        SyncState.Idle -> "Up to date"
+        is SyncState.Loading -> "Syncing…"
+        is SyncState.Ready -> if (state.partial) "Synced with warnings" else "Up to date"
+        is SyncState.Failed -> "Sync failed"
+    }
+    Text(syncLabel, color = if (snapshot.sync is SyncState.Failed) CalinoColors.Rose else CalinoColors.Ink2, fontSize = 12.sp)
+    HorizontalDivider(Modifier.padding(vertical = 12.dp), color = CalinoColors.Line)
+    Text("Privacy", color = CalinoColors.Ink3, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+    Text("Calino on GitHub", color = CalinoColors.Ink3, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+}
+
+@Composable
+private fun SidebarSectionLabel(text: String) {
+    Text(
+        text,
+        style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
+        modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 4.dp),
+    )
 }
 
 /**

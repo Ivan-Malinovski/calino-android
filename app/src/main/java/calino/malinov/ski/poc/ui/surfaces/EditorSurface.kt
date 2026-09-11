@@ -77,6 +77,7 @@ import calino.malinov.ski.poc.ui.components.CalinoChip
 import calino.malinov.ski.poc.ui.components.CalinoColorSwatchRow
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoIcons
+import calino.malinov.ski.poc.ui.components.CalinoMarkdownEditor
 import calino.malinov.ski.poc.ui.components.CalinoTextField
 import calino.malinov.ski.poc.ui.components.EditorLabel
 import calino.malinov.ski.poc.ui.components.EditorReveal
@@ -757,27 +758,20 @@ private fun DescriptionSection(
     onOpen: () -> Unit,
     onDraft: (EditorDraft) -> Unit,
 ) {
+    val fieldLabel = if (draft.kind == PocQuickAddKind.Task) "Notes" else "Description"
     EditorValueRow(
         icon = calino.malinov.ski.poc.ui.components.CalinoIcon.Note,
-        label = "Description",
-        value = draft.description?.takeIf { it.isNotBlank() } ?: "Add description",
+        label = fieldLabel,
+        value = draft.description?.takeIf { it.isNotBlank() } ?: "Add ${fieldLabel.lowercase(Locale.US)}",
         onClick = onOpen,
     )
     EditorReveal(open) {
-        BasicTextField(
+        CalinoMarkdownEditor(
             value = draft.description.orEmpty(),
             onValueChange = { onDraft(draft.copy(description = it)) },
-            modifier = Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 12.dp).heightIn(min = 104.dp).semantics { contentDescription = "Description, editable" },
-            textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
-            cursorBrush = SolidColor(CalinoColors.Accent),
-            minLines = 4,
-            maxLines = 8,
-            decorationBox = { innerTextField ->
-                Box(Modifier.fillMaxWidth()) {
-                    if (draft.description.isNullOrBlank()) Text("Add more detail", color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge)
-                    innerTextField()
-                }
-            },
+            modifier = Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 12.dp),
+            label = fieldLabel,
+            placeholder = "Add more detail",
         )
     }
 }

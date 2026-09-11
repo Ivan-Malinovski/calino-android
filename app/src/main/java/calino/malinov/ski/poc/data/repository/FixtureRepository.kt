@@ -40,6 +40,10 @@ data class CalinoCalendar(
      * a 403 on some servers and silent data loss on others.
      */
     val components: Set<String> = emptySet(),
+    /** Display visibility is independent from whether the collection is synced. */
+    val visible: Boolean = true,
+    /** Whether VTODOs from this collection appear on calendar views. */
+    val showTasksInViews: Boolean = true,
 )
 
 /** Whether this collection will accept a component of [component]. */
@@ -254,6 +258,8 @@ class FixtureRepository : CalinoRepository {
         dueTime = input.dueTime,
         notes = input.notes,
         reminder = input.reminder,
+        calendarId = input.calendarId,
+        parentTaskId = input.parentTaskId,
     )
 
     override suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry> {

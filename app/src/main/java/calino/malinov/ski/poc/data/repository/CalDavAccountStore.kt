@@ -94,6 +94,30 @@ class CalDavAccountStore(
         }
     }
 
+    fun updateCalendarPresentation(
+        accountId: String,
+        calendarId: String,
+        visible: Boolean? = null,
+        showTasksInViews: Boolean? = null,
+        name: String? = null,
+        color: Long? = null,
+    ) {
+        update { accounts ->
+            accounts.map { account ->
+                if (account.id != accountId) account else account.copy(
+                    calendars = account.calendars.map { calendar ->
+                        if (calendar.id != calendarId) calendar else calendar.copy(
+                            visible = visible ?: calendar.visible,
+                            showTasksInViews = showTasksInViews ?: calendar.showTasksInViews,
+                            name = name ?: calendar.name,
+                            color = color ?: calendar.color,
+                        )
+                    },
+                )
+            }
+        }
+    }
+
     /** Replaces an account's collections after a rediscovery. */
     fun replaceCalendars(accountId: String, calendars: List<CalDavCalendar>) {
         update { accounts ->

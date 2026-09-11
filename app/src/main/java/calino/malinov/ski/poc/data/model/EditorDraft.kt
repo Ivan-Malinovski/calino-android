@@ -38,6 +38,8 @@ data class EditorDraft(
     val reminders: List<Reminder> = emptyList(),
     val travelTimeMinutes: Int? = null,
     val relatedTo: List<String> = emptyList(),
+    /** Immediate parent when this draft creates or edits a subtask. */
+    val parentTaskId: String? = null,
     val attendees: List<Attendee> = emptyList(),
     val color: Long = DefaultEventColor,
     /** Journal body; unused by the other two kinds. */
@@ -116,6 +118,8 @@ data class EditorDraft(
         dueTime = startTime,
         notes = description?.trim()?.ifEmpty { null },
         reminder = reminders.firstOrNull(),
+        calendarId = calendarId,
+        parentTaskId = parentTaskId,
     )
 
     fun toNewJournal(): NewJournal = NewJournal(date = date, title = title.trim(), body = body.trim())

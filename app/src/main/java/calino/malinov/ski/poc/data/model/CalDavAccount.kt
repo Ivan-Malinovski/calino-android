@@ -31,6 +31,10 @@ data class CalDavCalendar(
     val readOnly: Boolean = false,
     val ctag: String? = null,
     val syncToken: String? = null,
+    /** Display visibility in the calendar UI, separate from source syncing. */
+    val visible: Boolean = true,
+    /** Whether this collection's tasks appear on calendar surfaces. */
+    val showTasksInViews: Boolean = true,
 )
 
 /**

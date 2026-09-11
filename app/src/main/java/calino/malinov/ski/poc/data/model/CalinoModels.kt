@@ -129,6 +129,10 @@ data class CalTask(
     /** Absolute CalDAV resource URL. Null for records created locally. */
     val href: String? = null,
     val etag: String? = null,
+    /** Calendar collection that owns this VTODO. */
+    val calendarId: String = "personal",
+    /** UID of the immediate parent VTODO, encoded as RELATED-TO. */
+    val parentTaskId: String? = null,
 )
 
 data class JournalEntry(
@@ -186,6 +190,8 @@ data class NewTask(
     /** Absolute CalDAV resource URL. Null for records created locally. */
     val href: String? = null,
     val etag: String? = null,
+    val calendarId: String = "personal",
+    val parentTaskId: String? = null,
 )
 
 data class NewJournal(

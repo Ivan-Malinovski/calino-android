@@ -1,6 +1,8 @@
 package calino.malinov.ski.poc.qa
 
 import calino.malinov.ski.poc.data.repository.FixtureRepository
+import calino.malinov.ski.poc.ui.home.monthEventDropDate
+import calino.malinov.ski.poc.data.repository.moveEventToDateTime
 import calino.malinov.ski.poc.data.repository.WriteResult
 import calino.malinov.ski.poc.data.model.Availability
 import calino.malinov.ski.poc.data.model.NewEvent
@@ -9,6 +11,8 @@ import calino.malinov.ski.poc.data.model.NewJournal
 import calino.malinov.ski.poc.data.model.NewTask
 import calino.malinov.ski.poc.data.model.occursOn
 import java.time.LocalTime
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import calino.malinov.ski.poc.util.formatCalinoDate
 import calino.malinov.ski.poc.util.formatCalinoTime
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
@@ -201,6 +205,65 @@ class PocFixturesTest {
         assertEquals(original.id, updated.id)
         assertEquals(1, repository.events().count { it.id == original.id })
         assertEquals("Lunch with Ivo", repository.events().first { it.id == original.id }.title)
+    }
+
+    @Test
+    fun moveEventToDateTime_keepsEventOnTheRailDayAndPreservesDuration() = runBlocking {
+        val repository = FixtureRepository()
+        val original = repository.events().first { it.id == "evt-lunch" }
+
+        val moved = repository.moveEventToDateTime(
+            original,
+            LocalDateTime.of(2026, 5, 18, 11, 15),
+        ).applied()
+
+        assertEquals(LocalDateTime.of(2026, 5, 18, 11, 15), moved.start)
+        assertEquals(original.durationMinutes, moved.durationMinutes)
+        assertEquals(original.title, moved.title)
+    }
+
+    @Test
+    fun monthEventDropDate_usesGridGeometry_andRejectsOutsideDrops() {
+        val gridStart = LocalDate.of(2026, 4, 26)
+        val source = LocalDate.of(2026, 5, 18)
+
+        assertEquals(
+            LocalDate.of(2026, 5, 26),
+            monthEventDropDate(
+                sourceDate = source,
+                dragOffset = Offset(100f, 80f),
+                gridStart = gridStart,
+                gridCellCount = 42,
+                cellWidthPx = 100f,
+                rowHeightPx = 80f,
+                detailed = true,
+            ),
+        )
+        assertNull(
+            monthEventDropDate(
+                sourceDate = source,
+                dragOffset = Offset(-3000f, 0f),
+                gridStart = gridStart,
+                gridCellCount = 42,
+                cellWidthPx = 100f,
+                rowHeightPx = 80f,
+                detailed = true,
+            ),
+        )
+        assertNull(
+            monthEventDropDate(
+                sourceDate = source,
+                dragOffset = Offset(0f, 500f),
+                gridStart = gridStart,
+                gridCellCount = 42,
+                cellWidthPx = 100f,
+                rowHeightPx = 300f,
+                detailed = true,
+                finalPointer = Offset(50f, 550f),
+                gridBounds = Rect(0f, 0f, 500f, 500f),
+                visibleGridHeightPx = 500f,
+            ),
+        )
     }
 
     @Test

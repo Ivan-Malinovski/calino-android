@@ -19,6 +19,7 @@ import biweekly.property.Location
 import biweekly.property.PercentComplete
 import biweekly.property.RecurrenceRule
 import biweekly.property.RecurrenceId
+import biweekly.property.RelatedTo
 import biweekly.property.Sequence
 import biweekly.property.Status
 import biweekly.property.Summary
@@ -140,6 +141,10 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
 
         vtodo.replaceOrRemove(task.notes?.trim()?.takeIf(String::isNotEmpty)) { Description(it) }
         vtodo.writeCategories(listOfNotNull(task.category))
+        vtodo.removeProperties(RelatedTo::class.java)
+        task.parentTaskId?.trim()?.takeIf(String::isNotEmpty)?.let { parentId ->
+            vtodo.addRelatedTo(RelatedTo(parentId))
+        }
         vtodo.writeCompletion(task.done, now)
         vtodo.stamp(now)
         return vtodo

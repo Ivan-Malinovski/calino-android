@@ -58,12 +58,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.JournalEntry
@@ -71,6 +66,7 @@ import calino.malinov.ski.poc.data.model.JournalDraft
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.ui.components.MenuButton
+import calino.malinov.ski.poc.ui.components.CalinoMarkdown
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
@@ -310,7 +306,6 @@ private fun JournalEmptyState() {
     }
 }
 
-private val MarkdownTokenPattern = Regex("""\*\*.+?\*\*|__.+?__|`[^`]+`|\*.+?\*|_.+?_""")
 private val WordBoundaryPattern = Regex("\\s+")
 
 @Composable
@@ -605,56 +600,8 @@ private fun JournalReadPane(title: String, body: String) {
                 Text("READ MODE", style = CalinoTypography.labelSmall, color = CalinoColors.Accent)
                 Text(title.ifBlank { "Untitled note" }, style = CalinoTypography.displaySmall, modifier = Modifier.padding(top = 7.dp))
                 Box(Modifier.padding(top = 14.dp).fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-                MarkdownPreview(body, modifier = Modifier.padding(top = 18.dp))
+                CalinoMarkdown(body, modifier = Modifier.padding(top = 18.dp))
             }
         }
     }
-}
-
-@Composable
-private fun MarkdownPreview(markdown: String, modifier: Modifier = Modifier) {
-    if (markdown.isBlank()) {
-        Text("Nothing to preview yet.", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = modifier)
-        return
-    }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        markdown.lines().forEachIndexed { index, line ->
-            when {
-                line.isBlank() -> Spacer(Modifier.height(5.dp))
-                line.startsWith("### ") -> Text(markdownInline(line.removePrefix("### ")), style = CalinoTypography.titleMedium, modifier = Modifier.padding(top = if (index == 0) 0.dp else 5.dp))
-                line.startsWith("## ") -> Text(markdownInline(line.removePrefix("## ")), style = CalinoTypography.titleLarge, modifier = Modifier.padding(top = if (index == 0) 0.dp else 6.dp))
-                line.startsWith("# ") -> Text(markdownInline(line.removePrefix("# ")), style = CalinoTypography.headlineSmall, modifier = Modifier.padding(top = if (index == 0) 0.dp else 8.dp))
-                line.startsWith("> ") -> Row(verticalAlignment = Alignment.Top) {
-                    Box(Modifier.padding(end = 10.dp).width(3.dp).height(24.dp).background(CalinoColors.Accent))
-                    Text(markdownInline(line.removePrefix("> ")), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink2)
-                }
-                line.startsWith("- ") || line.startsWith("* ") -> Row(verticalAlignment = Alignment.Top) {
-                    Text("•", style = CalinoTypography.bodyLarge, color = CalinoColors.Accent, modifier = Modifier.width(22.dp))
-                    Text(markdownInline(line.drop(2)), style = CalinoTypography.bodyLarge, modifier = Modifier.weight(1f))
-                }
-                else -> Text(markdownInline(line), style = CalinoTypography.bodyLarge.copy(lineHeight = 25.sp))
-            }
-        }
-    }
-}
-
-/**
- * Composable because inline code carries palette colors, and the palette is a
- * composition local rather than the static object it used to be.
- */
-@Composable
-private fun markdownInline(value: String): AnnotatedString = buildAnnotatedString {
-    var cursor = 0
-    MarkdownTokenPattern.findAll(value).forEach { match ->
-        if (match.range.first > cursor) append(value.substring(cursor, match.range.first))
-        val token = match.value
-        when {
-            token.startsWith("**") && token.endsWith("**") -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(token.drop(2).dropLast(2)) }
-            token.startsWith("__") && token.endsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(token.drop(2).dropLast(2)) }
-            token.startsWith("`") && token.endsWith("`") -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = CalinoColors.Ink.copy(alpha = .07f), color = CalinoColors.Accent)) { append(token.drop(1).dropLast(1)) }
-            else -> withStyle(SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { append(token.drop(1).dropLast(1)) }
-        }
-        cursor = match.range.last + 1
-    }
-    if (cursor < value.length) append(value.substring(cursor))
 }

@@ -192,12 +192,15 @@ class CalDavConnectionManager(
             discovered[account.id].orEmpty()
                 .filter { it.url in enabled }
                 .map {
+                    val stored = account.calendars.firstOrNull { calendar -> calendar.id == it.url }
                     CalDavSource(
                         calendar = it,
                         credentials = credentials,
                         accountId = account.id,
                         committedCursor = committedCursors[account.id]?.get(it.url),
                         metadataFresh = it.url in freshCalendarMetadata[account.id].orEmpty(),
+                        visible = stored?.visible ?: true,
+                        showTasksInViews = stored?.showTasksInViews ?: true,
                     )
                 }
         }
@@ -287,6 +290,8 @@ internal fun mergeDiscoveredCalendars(
     found: List<DiscoveredCalendar>,
 ): List<CalDavCalendar> {
     val enabledById = account.calendars.associate { it.id to it.enabled }
+    val visibleById = account.calendars.associate { it.id to it.visible }
+    val showTasksById = account.calendars.associate { it.id to it.showTasksInViews }
     return found.map { calendar ->
         CalDavCalendar(
             id = calendar.url,
@@ -296,6 +301,8 @@ internal fun mergeDiscoveredCalendars(
             readOnly = calendar.readOnly,
             ctag = calendar.ctag,
             syncToken = calendar.syncToken,
+            visible = visibleById[calendar.url] ?: true,
+            showTasksInViews = showTasksById[calendar.url] ?: true,
         )
     }
 }

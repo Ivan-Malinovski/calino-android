@@ -1,5 +1,6 @@
 package calino.malinov.ski.poc.ui.components
 
+import android.os.SystemClock
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -21,6 +22,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -84,9 +87,12 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -101,6 +107,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.design.CalinoColors
@@ -117,11 +124,141 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val Mono = androidx.compose.ui.text.font.FontFamily.Monospace
 private val ShortDateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+
+/**
+ * One gesture for an actionable row: a normal tap opens it, a held tap opens
+ * its action menu, and a held tap followed by movement becomes a drag.  The
+ * important detail is that movement is left unconsumed until the drag
+ * activation delay has elapsed.  A normal scroll therefore still belongs to
+ * the LazyColumn instead of every row competing with it on every move.
+ *
+ * The drag announces itself the moment it is available rather than on the
+ * first movement: once the hold outlasts the activation delay, [onDragArmed]
+ * fires along with a short haptic tick, so the affordance appears while the
+ * finger is still deciding instead of confirming a drag already underway.
+ */
+@Composable
+fun Modifier.calinoLongPressDrag(
+    enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
+    onDragArmed: (() -> Unit)? = null,
+    onDragStart: (() -> Unit)? = null,
+    onDragStartPosition: ((Offset) -> Unit)? = null,
+    onDrag: ((Offset) -> Unit)? = null,
+    onDragEnd: ((Offset) -> Unit)? = null,
+    onDragCancel: (() -> Unit)? = null,
+): Modifier {
+    if (!enabled) return this
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val currentOnDragArmed by rememberUpdatedState(onDragArmed)
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragStartPosition by rememberUpdatedState(onDragStartPosition)
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+    val currentOnDragCancel by rememberUpdatedState(onDragCancel)
+    val haptics = LocalHapticFeedback.current
+    return this.pointerInput(Unit) {
+        awaitEachGesture {
+            // Join the stream in Initial from the start. Waiting for the main
+            // pass let the scroll node consume a perfectly ordinary tap before
+            // this recognizer had established ownership of the event card.
+            val down = awaitFirstDown(
+                requireUnconsumed = false,
+                pass = PointerEventPass.Initial,
+            )
+            val pointerId = down.id
+            val downClock = SystemClock.uptimeMillis()
+            val touchSlop = viewConfiguration.touchSlop
+            val menuDelay = viewConfiguration.longPressTimeoutMillis.toLong()
+            // The web app's drag sensor activates shortly after the long-press
+            // affordance, while the menu remains reserved for a stationary
+            // hold. This makes the two gestures distinguishable by movement.
+            val dragDelay = minOf(menuDelay, 220L)
+            var totalDrag = Offset.Zero
+            var armed = false
+            var dragging = false
+            var finished = false
+            try {
+                while (!finished) {
+                    // Observe the stream in Initial so a long-press drag can
+                    // claim it before LazyColumn's scroll node consumes the
+                    // first vertical move.  Before the activation delay we
+                    // still leave the stream untouched, preserving normal
+                    // scrolling performance.
+                    // While the hold is still short of the activation delay we
+                    // wait with a deadline rather than purely on input: a
+                    // stationary finger produces no events, and the drag has to
+                    // announce itself on time without one.
+                    val remainingToArm = dragDelay - (SystemClock.uptimeMillis() - downClock)
+                    val event = if (!armed && remainingToArm > 0) {
+                        withTimeoutOrNull(remainingToArm) {
+                            awaitPointerEvent(PointerEventPass.Initial)
+                        }
+                    } else {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                    }
+                    if (event == null) {
+                        armed = true
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        currentOnDragArmed?.invoke()
+                        continue
+                    }
+                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                    // Use the local monotonic clock instead of the event's
+                    // timestamp. It stays correct across synthesized input
+                    // streams (and is equivalent for real touch events).
+                    val elapsed = SystemClock.uptimeMillis() - downClock
+                    val delta = change.positionChangeIgnoreConsumed()
+
+                    if (!change.pressed) {
+                        if (dragging) {
+                            currentOnDragEnd?.invoke(totalDrag)
+                        } else {
+                            if (armed) currentOnDragCancel?.invoke()
+                            if (elapsed >= menuDelay) currentOnLongPress?.invoke()
+                            else currentOnClick?.invoke()
+                        }
+                        finished = true
+                        continue
+                    }
+
+                    if (!dragging && (change.position - down.position).getDistance() > touchSlop) {
+                        if (elapsed < dragDelay) {
+                            // Let the scroll container continue to observe this
+                            // stream. We deliberately do not consume it here.
+                            finished = true
+                            continue
+                        }
+                        if (!armed) {
+                            armed = true
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            currentOnDragArmed?.invoke()
+                        }
+                        dragging = true
+                        currentOnDragStart?.invoke()
+                        currentOnDragStartPosition?.invoke(down.position)
+                    }
+
+                    if (dragging) {
+                        change.consume()
+                        totalDrag += delta
+                        currentOnDrag?.invoke(delta)
+                    }
+                }
+            } finally {
+                if (armed && !finished) currentOnDragCancel?.invoke()
+            }
+        }
+    }
+}
 
 /**
  * A stored calendar color, made fit for the current theme.
@@ -284,6 +421,88 @@ enum class EventChipVariant { Rail, Tint, Task }
 enum class AgendaRowVariant { Card, Flat }
 
 enum class CalinoIcon { Back, Forward, Plus, Search, Calendar, Repeat, Check, Pin, Note, Users, Edit, Trash, Bell, Filter, Clock, More }
+
+/**
+ * A transient feedback toast shared by writes and undoable actions.
+ *
+ * It deliberately stays compact and uses the current palette's panel rather
+ * than a full-width ink banner, so feedback remains legible without taking
+ * over the surface underneath it.
+ */
+@Composable
+fun CalinoToast(
+    message: String,
+    icon: CalinoIcon = CalinoIcon.Bell,
+    accent: Color = Color.Unspecified,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val tone = if (accent == Color.Unspecified) CalinoColors.Accent else accent
+    val shape = RoundedCornerShape(16.dp)
+    Surface(
+        modifier = modifier
+            .widthIn(min = 280.dp, max = 360.dp)
+            .shadow(10.dp * CalinoColors.elevationAlpha, shape, clip = false)
+            .border(1.dp, tone.copy(alpha = .32f), shape),
+        shape = shape,
+        color = CalinoColors.Panel,
+        contentColor = CalinoColors.Ink,
+    ) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, top = 9.dp, end = 4.dp, bottom = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(tone.copy(alpha = .14f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CalinoIcon(icon, tint = tone, modifier = Modifier.size(16.dp), contentDescription = null)
+                }
+                Text(
+                    message,
+                    Modifier.weight(1f),
+                    style = CalinoTypography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (actionLabel != null && onAction != null) {
+                    TextButton(
+                        onClick = onAction,
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        modifier = Modifier.heightIn(min = 40.dp),
+                    ) {
+                        Text(actionLabel, color = tone, fontWeight = FontWeight.Medium)
+                    }
+                }
+                if (onDismiss != null) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .semantics { contentDescription = "Dismiss notification" },
+                    ) {
+                        Text("×", color = CalinoColors.Ink2, fontSize = 20.sp)
+                    }
+                }
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(tone.copy(alpha = .34f)),
+            )
+        }
+    }
+}
 
 /**
  * Pressed surfaces use a very small scale and a 6% ink wash. This keeps the
@@ -511,6 +730,7 @@ private fun TaskCheckbox(checked: Boolean, color: Color, modifier: Modifier, cir
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AgendaRow(
     title: String,
@@ -520,12 +740,15 @@ fun AgendaRow(
     modifier: Modifier = Modifier,
     variant: AgendaRowVariant = AgendaRowVariant.Card,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    onDragEnd: ((Offset) -> Unit)? = null,
     trailingDescription: String? = null,
     struck: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(CalinoShapes.Row)
     val isCard = variant == AgendaRowVariant.Card
+    var dragOffsetY by remember(title) { mutableFloatStateOf(0f) }
     val surface = if (isCard) {
         Modifier
             .clip(shape)
@@ -536,13 +759,32 @@ fun AgendaRow(
     } else {
         Modifier
     }
-    val pressModifier = if (onClick != null) Modifier.calinoPressable(onClick = onClick) else Modifier
+    val pressModifier = when {
+        onClick != null && onLongClick != null -> Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        onClick != null -> Modifier.calinoPressable(onClick = onClick)
+        onLongClick != null -> Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
+        else -> Modifier
+    }
+    val rowInteraction = if (onDragEnd != null) {
+        Modifier.calinoLongPressDrag(
+            onClick = onClick,
+            onLongPress = onLongClick,
+            onDragStart = { dragOffsetY = 0f },
+            onDrag = { amount -> dragOffsetY += amount.y },
+            onDragEnd = { offset -> onDragEnd(offset); dragOffsetY = 0f },
+            onDragCancel = { dragOffsetY = 0f },
+        )
+    } else {
+        pressModifier
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .then(if (isCard) Modifier.heightIn(min = 44.dp) else Modifier)
             .then(surface)
-            .then(pressModifier)
+            .then(rowInteraction)
+            .graphicsLayer { translationY = dragOffsetY }
+            .zIndex(if (abs(dragOffsetY) > .5f) 1f else 0f)
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
                     append(title)
@@ -684,6 +926,8 @@ fun AgendaTaskRow(
     time: String? = null,
     onClick: (() -> Unit)? = null,
     onCheckedChange: ((Boolean) -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    onDragEnd: ((Offset) -> Unit)? = null,
 ) {
     val color = eventColor(task.color)
     AgendaRow(
@@ -694,6 +938,8 @@ fun AgendaTaskRow(
         modifier = modifier,
         variant = AgendaRowVariant.Card,
         onClick = onClick,
+        onLongClick = onLongClick,
+        onDragEnd = onDragEnd,
         trailingDescription = if (task.done) "completed" else "open",
         struck = task.done,
         trailing = {
@@ -723,6 +969,7 @@ fun AgendaTaskRow(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AgendaRow(
     task: CalTask,
@@ -730,19 +977,41 @@ fun AgendaRow(
     onClick: (() -> Unit)? = null,
     onCheckedChange: ((Boolean) -> Unit)? = null,
     compact: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    onDragEnd: ((Offset) -> Unit)? = null,
 ) {
     val color = eventColor(task.color)
+    var dragOffsetY by remember(task.id) { mutableFloatStateOf(0f) }
     val description = buildString {
         append(task.title)
         if (!compact) task.due?.let { append(", due ").append(it.format(ShortDateFormat)) }
         task.category?.let { append(", ").append(it) }
     }
-    val rowPressModifier = if (onClick != null) Modifier.calinoPressable(onClick = onClick) else Modifier
+    val rowPressModifier = when {
+        onClick != null && onLongClick != null -> Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        onClick != null -> Modifier.calinoPressable(onClick = onClick)
+        onLongClick != null -> Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
+        else -> Modifier
+    }
+    val rowInteraction = if (onDragEnd != null) {
+        Modifier.calinoLongPressDrag(
+            onClick = onClick,
+            onLongPress = onLongClick,
+            onDragStart = { dragOffsetY = 0f },
+            onDrag = { amount -> dragOffsetY += amount.y },
+            onDragEnd = { offset -> onDragEnd(offset); dragOffsetY = 0f },
+            onDragCancel = { dragOffsetY = 0f },
+        )
+    } else {
+        rowPressModifier
+    }
     Row(
         modifier
             .fillMaxWidth()
             .heightIn(min = if (compact) 36.dp else 44.dp)
-            .then(rowPressModifier)
+            .then(rowInteraction)
+            .graphicsLayer { translationY = dragOffsetY }
+            .zIndex(if (abs(dragOffsetY) > .5f) 1f else 0f)
             .semantics(mergeDescendants = true) {
                 contentDescription = description
                 stateDescription = if (task.done) "Completed" else "Open"
@@ -951,8 +1220,10 @@ fun TaskRow(
     modifier: Modifier = Modifier,
     onCheckedChange: ((Boolean) -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     compact: Boolean = false,
-) = AgendaRow(task, modifier, onClick, onCheckedChange, compact)
+    onDragEnd: ((Offset) -> Unit)? = null,
+) = AgendaRow(task, modifier, onClick, onCheckedChange, compact, onLongClick, onDragEnd)
 
 /**
  * Shared compact choice control for the mobile surfaces.

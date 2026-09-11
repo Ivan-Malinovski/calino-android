@@ -67,6 +67,7 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
@@ -88,7 +89,11 @@ fun AgendaScreen(
     onDateChanged: (LocalDate) -> Unit = {},
     /** Carries the row's own day: an agenda row is not always the selected date. */
     onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
+    onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
+    onEventDrop: (CalEvent, LocalDate) -> Unit = { _, _ -> },
     onTaskClick: ((CalTask) -> Unit)? = null,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
+    onTaskDrop: (CalTask, LocalDate) -> Unit = { _, _ -> },
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
     onAddOn: (LocalDate) -> Unit = {},
 ) {
@@ -169,7 +174,11 @@ fun AgendaScreen(
                 events = events,
                 tasks = tasks,
                 onEventClick = onEventClick,
+                onEventAction = onEventAction,
+                onEventDrop = onEventDrop,
                 onTaskClick = onTaskClick,
+                onTaskAction = onTaskAction,
+                onTaskDrop = onTaskDrop,
                 onTaskDone = onTaskDone,
                 onAddOn = onAddOn,
             )
@@ -184,7 +193,11 @@ private fun AgendaMonthPage(
     events: List<CalEvent>,
     tasks: List<CalTask>,
     onEventClick: ((LocalDate, CalEvent) -> Unit)?,
+    onEventAction: (EventMenuAction, CalEvent) -> Unit,
+    onEventDrop: (CalEvent, LocalDate) -> Unit,
     onTaskClick: ((CalTask) -> Unit)?,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit,
+    onTaskDrop: (CalTask, LocalDate) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
     onAddOn: (LocalDate) -> Unit,
 ) {
@@ -219,7 +232,11 @@ private fun AgendaMonthPage(
                 tasks = tasksByDay[day].orEmpty(),
                 modifier = Modifier.padding(bottom = 10.dp),
                 onEventClick = onEventClick,
+                onEventAction = onEventAction,
+                onEventDrop = onEventDrop,
                 onTaskClick = onTaskClick,
+                onTaskAction = onTaskAction,
+                onTaskDrop = onTaskDrop,
                 onTaskDone = onTaskDone,
                 onAdd = { onAddOn(day) },
             )
@@ -239,7 +256,11 @@ internal fun AgendaDayBlock(
     tasks: List<CalTask>,
     modifier: Modifier = Modifier,
     onEventClick: ((LocalDate, CalEvent) -> Unit)?,
+    onEventAction: (EventMenuAction, CalEvent) -> Unit,
+    onEventDrop: (CalEvent, LocalDate) -> Unit,
     onTaskClick: ((CalTask) -> Unit)?,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit,
+    onTaskDrop: (CalTask, LocalDate) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
     onAdd: () -> Unit,
 ) {
@@ -263,27 +284,55 @@ internal fun AgendaDayBlock(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 dayEvents.forEach { event ->
-                    AgendaRow(
-                        title = event.title,
-                        color = eventColor(event.color),
-                        time = if (event.allDay) null else event.start?.let { timeFormat.format(it) },
-                        subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
-                        variant = AgendaRowVariant.Card,
-                        onClick = onEventClick?.let { click -> { click(day, event) } },
-                    )
+                    var menuOpen by remember(event.id) { mutableStateOf(false) }
+                    Box {
+                        AgendaRow(
+                            title = event.title,
+                            color = eventColor(event.color),
+                            time = if (event.allDay) null else event.start?.let { timeFormat.format(it) },
+                            subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
+                            variant = AgendaRowVariant.Card,
+                            onClick = onEventClick?.let { click -> { click(day, event) } },
+                            onLongClick = { menuOpen = true },
+                            onDragEnd = { offset ->
+                                if (kotlin.math.abs(offset.y) > 36f) {
+                                    onEventDrop(event, day.plusDays((offset.y / 76f).roundToInt().toLong()))
+                                }
+                            },
+                        )
+                        EventActionMenu(
+                            event = event,
+                            expanded = menuOpen,
+                            onDismiss = { menuOpen = false },
+                            onAction = { action -> onEventAction(action, event) },
+                        )
+                    }
                 }
                 tasks.forEach { task ->
-                    AgendaTaskRow(
-                        task = task,
-                        // Only a task that carries a real due *time* gets a
-                        // clock face. Formatting the due date's midnight gave
-                        // every task an identical "12:00 AM" that said nothing
-                        // -- and, until the gutter was widened, was clipped to
-                        // a plausible-looking "12:00".
-                        time = task.dueTime?.let { timeFormat.format(it) },
-                        onClick = onTaskClick?.let { click -> { click(task) } },
-                        onCheckedChange = { done -> onTaskDone(task, done) },
-                    )
+                    var menuOpen by remember(task.id) { mutableStateOf(false) }
+                    Box {
+                        AgendaTaskRow(
+                            task = task,
+                            // Only a task that carries a real due *time* gets a
+                            // clock face. Formatting the due date's midnight gave
+                            // every task an identical "12:00 AM" that said nothing.
+                            time = task.dueTime?.let { timeFormat.format(it) },
+                            onClick = onTaskClick?.let { click -> { click(task) } },
+                            onCheckedChange = { done -> onTaskDone(task, done) },
+                            onLongClick = { menuOpen = true },
+                            onDragEnd = { offset ->
+                                if (kotlin.math.abs(offset.y) > 36f) {
+                                    onTaskDrop(task, day.plusDays((offset.y / 76f).roundToInt().toLong()))
+                                }
+                            },
+                        )
+                        TaskActionMenu(
+                            task = task,
+                            expanded = menuOpen,
+                            onDismiss = { menuOpen = false },
+                            onAction = { action -> onTaskAction(action, task) },
+                        )
+                    }
                 }
             }
         }
@@ -302,7 +351,11 @@ fun DayPane(
     tasks: List<CalTask>,
     modifier: Modifier = Modifier,
     onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
+    onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
+    onEventDrop: (CalEvent, LocalDate) -> Unit = { _, _ -> },
     onTaskClick: ((CalTask) -> Unit)? = null,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
+    onTaskDrop: (CalTask, LocalDate) -> Unit = { _, _ -> },
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
     onAdd: () -> Unit = {},
 ) {
@@ -319,7 +372,11 @@ fun DayPane(
             events = events,
             tasks = tasks,
             onEventClick = onEventClick,
+            onEventAction = onEventAction,
+            onEventDrop = onEventDrop,
             onTaskClick = onTaskClick,
+            onTaskAction = onTaskAction,
+            onTaskDrop = onTaskDrop,
             onTaskDone = onTaskDone,
             onAdd = onAdd,
         )

@@ -28,6 +28,8 @@ object CalDavAccountJson {
                         .put("color", calendar.color)
                         .put("enabled", calendar.enabled)
                         .put("readOnly", calendar.readOnly)
+                        .put("visible", calendar.visible)
+                        .put("showTasksInViews", calendar.showTasksInViews)
                         .put("ctag", calendar.ctag ?: JSONObject.NULL)
                         .put("syncToken", calendar.syncToken ?: JSONObject.NULL),
                 )
@@ -85,6 +87,8 @@ object CalDavAccountJson {
                     color = calendar.optLong("color", DefaultCalendarColor),
                     enabled = calendar.optBoolean("enabled", true),
                     readOnly = calendar.optBoolean("readOnly", false),
+                    visible = calendar.optBoolean("visible", true),
+                    showTasksInViews = calendar.optBoolean("showTasksInViews", true),
                     ctag = calendar.optString("ctag").takeUnless { it.isBlank() || it == "null" },
                     syncToken = calendar.optString("syncToken")
                         .takeUnless { it.isBlank() || it == "null" },

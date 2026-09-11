@@ -46,6 +46,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("net.sf.biweekly:biweekly:0.6.8")
+    // CommonMark plus the GFM extensions used by the web app through
+    // react-markdown + remark-gfm. These artifacts are JVM-only, have no
+    // Android-incompatible runtime dependencies, and commonmark-java provides
+    // an Android test target for its parser.
+    implementation("org.commonmark:commonmark:0.29.0")
+    implementation("org.commonmark:commonmark-ext-autolink:0.29.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.29.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.29.0")
+    implementation("org.commonmark:commonmark-ext-task-list-items:0.29.0")
     implementation("com.googlecode.ez-vcard:ez-vcard:0.12.1") {
         exclude(group = "org.freemarker", module = "freemarker")
         exclude(group = "org.jsoup", module = "jsoup")

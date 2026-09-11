@@ -23,12 +23,14 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
@@ -43,6 +45,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -73,8 +76,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
@@ -83,6 +88,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.Color
@@ -91,6 +97,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -107,6 +116,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import calino.malinov.ski.poc.data.model.Attendee
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.occursOn
@@ -124,6 +134,7 @@ import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.state.TaskTree
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.formatCalinoDuration
 import calino.malinov.ski.poc.design.CalinoSpacing
@@ -138,9 +149,12 @@ import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoChip
+import calino.malinov.ski.poc.ui.components.CalinoMarkdown
+import calino.malinov.ski.poc.ui.components.CalinoMarkdownEditor
 import calino.malinov.ski.poc.ui.components.ModalActionPill
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
+import calino.malinov.ski.poc.ui.components.calinoLongPressDrag
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
 import calino.malinov.ski.poc.util.nextOccurrences
 import calino.malinov.ski.poc.state.CalinoSurfaceKind
@@ -154,6 +168,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private data class TaskDropBounds(val top: Float, val bottom: Float)
 
 /** Small, stable routes to make these surfaces easy to wire into a pager later. */
 sealed interface PockRoute {
@@ -171,6 +187,127 @@ sealed interface PockRoute {
 }
 enum class QuickAddKind { Event, Task, Journal }
 enum class TaskFilter { All, Active, Completed }
+
+enum class TaskMenuAction {
+    Edit,
+    AddSubtask,
+    Promote,
+    Today,
+    Tomorrow,
+    NextWeek,
+    ToggleDone,
+    Duplicate,
+    ConvertToEvent,
+    Delete,
+}
+
+enum class EventMenuAction {
+    Edit,
+    Duplicate,
+    ConvertToTask,
+    Delete,
+}
+
+/** Compact action menu matching the web app's plain, paper-like context menu. */
+@Composable
+private fun CalinoActionMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .widthIn(min = 184.dp, max = 264.dp)
+            .shadow(10.dp, shape)
+            .clip(shape)
+            .background(CalinoColors.Panel)
+            .border(1.dp, CalinoColors.Line, shape)
+            .padding(vertical = 4.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun CalinoActionMenuItem(
+    text: String,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val itemShape = RoundedCornerShape(5.dp)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 32.dp)
+            .clip(itemShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = text }
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text,
+            color = when {
+                danger && enabled -> CalinoColors.Rose
+                enabled -> CalinoColors.Ink
+                else -> CalinoColors.Ink3
+            },
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        )
+    }
+}
+
+/** One action list shared by ledger rows and calendar task rows. */
+@Composable
+fun TaskActionMenu(
+    task: CalTask,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onAction: (TaskMenuAction) -> Unit,
+    hasSubtasks: Boolean = false,
+) {
+    CalinoActionMenu(expanded = expanded, onDismiss = onDismiss) {
+        @Composable
+        fun action(action: TaskMenuAction, text: String, enabled: Boolean = true) {
+            CalinoActionMenuItem(text = text, enabled = enabled, danger = action == TaskMenuAction.Delete) {
+                onDismiss()
+                onAction(action)
+            }
+        }
+        action(TaskMenuAction.Edit, "Edit task")
+        if (!hasSubtasks) action(TaskMenuAction.AddSubtask, "Add subtask")
+        if (task.parentTaskId != null) action(TaskMenuAction.Promote, "Move to top level")
+        action(TaskMenuAction.Today, "Move to today", !task.done)
+        action(TaskMenuAction.Tomorrow, "Move to tomorrow", !task.done)
+        action(TaskMenuAction.NextWeek, "Move to next week", !task.done)
+        action(TaskMenuAction.ToggleDone, if (task.done) "Mark as open" else "Mark as done")
+        action(TaskMenuAction.Duplicate, "Duplicate")
+        action(TaskMenuAction.ConvertToEvent, "Convert to event", task.due != null)
+        action(TaskMenuAction.Delete, "Delete task")
+    }
+}
+
+@Composable
+fun EventActionMenu(
+    event: CalEvent,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onAction: (EventMenuAction) -> Unit,
+) {
+    CalinoActionMenu(expanded = expanded, onDismiss = onDismiss) {
+        CalinoActionMenuItem("Edit event") { onDismiss(); onAction(EventMenuAction.Edit) }
+        CalinoActionMenuItem("Duplicate") { onDismiss(); onAction(EventMenuAction.Duplicate) }
+        CalinoActionMenuItem(
+            "Convert to task",
+            enabled = event.recurrence == null && event.recurrenceId == null && event.recurrenceDate == null,
+        ) { onDismiss(); onAction(EventMenuAction.ConvertToTask) }
+        CalinoActionMenuItem("Delete event", danger = true) { onDismiss(); onAction(EventMenuAction.Delete) }
+    }
+}
 
 private data class CompletionUndo(val task: CalTask)
 
@@ -503,6 +640,7 @@ fun EventDetailSurface(
     onEventSelected: (CalEvent) -> Unit = {},
     onEditEvent: (CalEvent) -> Unit = { onPrimary() },
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
+    onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
 ) {
     var shown by remember { mutableStateOf(true) }
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -557,6 +695,7 @@ fun EventDetailSurface(
                         onDeleteEvent = { target, scope ->
                             closeAfterAnimation { onDeleteEvent(target, scope) }
                         },
+                        onEventAction = onEventAction,
                     )
                 }
             }
@@ -572,6 +711,7 @@ private fun EventDetailContent(
     onBack: () -> Unit,
     onPrimary: () -> Unit,
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
+    onEventAction: (EventMenuAction, CalEvent) -> Unit,
 ) {
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
     var moreOpen by remember(event.id) { mutableStateOf(false) }
@@ -627,6 +767,19 @@ private fun EventDetailContent(
                     IconButtonGlyph("⋮", "More actions", { moreOpen = true })
                     DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                         DropdownMenuItem(
+                            text = { Text("Edit event") },
+                            onClick = { moreOpen = false; onEventAction(EventMenuAction.Edit, event) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Duplicate") },
+                            onClick = { moreOpen = false; onEventAction(EventMenuAction.Duplicate, event) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Convert to task") },
+                            enabled = !recurring,
+                            onClick = { moreOpen = false; onEventAction(EventMenuAction.ConvertToTask, event) },
+                        )
+                        DropdownMenuItem(
                             text = { Text(if (recurring) "Delete occurrence" else "Delete event") },
                             onClick = {
                                 moreOpen = false
@@ -639,7 +792,7 @@ private fun EventDetailContent(
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             event.location?.let { location -> item(key = "location") { DetailRow("⌖", "Location", location) } }
-            event.notes?.let { notes -> item(key = "notes") { DetailRow("≡", "Notes", notes) } }
+            event.notes?.let { notes -> item(key = "notes") { DetailRow("≡", "Notes", notes, markdown = true) } }
             if (event.attendees.isNotEmpty()) item(key = "attendees") { Attendees(event.attendees) }
             if (event.recurrence != null) item(key = "occurrences") {
                 Column(Modifier.padding(top = 20.dp, bottom = 16.dp)) {
@@ -740,12 +893,15 @@ private fun EventDetailContent(
 @Composable
 fun TaskDetailSurface(
     task: CalTask,
+    tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
     onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+    onAddSubtask: () -> Unit = {},
 ) {
     val today = LocalCalinoNow.current.today
     var title by remember(task.id) { mutableStateOf(task.title) }
     var category by remember(task.id) { mutableStateOf(task.category.orEmpty()) }
+    var notes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var due by remember(task.id) { mutableStateOf(task.due) }
     var done by remember(task.id) { mutableStateOf(task.done) }
     var shown by remember(task.id) { mutableStateOf(true) }
@@ -761,6 +917,14 @@ fun TaskDetailSurface(
                         due = due,
                         color = task.color,
                         category = category.trim().ifEmpty { null },
+                        dueTime = task.dueTime,
+                        notes = notes.trim().ifEmpty { null },
+                        reminder = task.reminder,
+                        uid = task.uid,
+                        href = task.href,
+                        etag = task.etag,
+                        calendarId = task.calendarId,
+                        parentTaskId = task.parentTaskId,
                     ),
                     done,
                 )
@@ -839,6 +1003,34 @@ fun TaskDetailSurface(
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
                 )
+                CalinoMarkdownEditor(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "Notes",
+                    placeholder = "Add task notes",
+                )
+                val subtasks = tasks.filter { it.parentTaskId == task.id }
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        label("Subtasks", Modifier.weight(1f))
+                        TextButton(onClick = onAddSubtask, modifier = Modifier.heightIn(min = 44.dp)) {
+                            Text("Add", color = CalinoColors.Accent)
+                        }
+                    }
+                    if (subtasks.isEmpty()) {
+                        Text("No subtasks yet", color = CalinoColors.Ink3, fontSize = 12.sp)
+                    } else {
+                        subtasks.forEach { child ->
+                            Text(
+                                "• ${child.title}",
+                                color = if (child.done) CalinoColors.Ink3 else CalinoColors.Ink2,
+                                textDecoration = if (child.done) TextDecoration.LineThrough else TextDecoration.None,
+                                modifier = Modifier.padding(start = 5.dp),
+                            )
+                        }
+                    }
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     label("Due date")
                     Row(
@@ -929,11 +1121,18 @@ private fun eventHeaderText(
 }
 
 @Composable
-private fun DetailRow(icon: String, name: String, value: String) {
+private fun DetailRow(icon: String, name: String, value: String, markdown: Boolean = false) {
     Column(Modifier.fillMaxWidth().padding(vertical = 15.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             Text(icon, fontSize = 20.sp, color = CalinoColors.Ink3, modifier = Modifier.width(38.dp).padding(top = 1.dp))
-            Column(Modifier.weight(1f)) { label(name); Text(value, style = CalinoTypography.bodyLarge) }
+            Column(Modifier.weight(1f)) {
+                label(name)
+                if (markdown) {
+                    CalinoMarkdown(value, modifier = Modifier.padding(top = 6.dp))
+                } else {
+                    Text(value, style = CalinoTypography.bodyLarge)
+                }
+            }
         }
     }
     HorizontalDivider(color = CalinoColors.Ink.copy(.06f))
@@ -971,6 +1170,8 @@ fun TasksSurface(
     onTaskClick: (CalTask) -> Unit = {},
     onUndoComplete: (CalTask) -> Unit = {},
     onOpenMenu: (() -> Unit)? = null,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
+    onTaskDrop: (CalTask, CalTask?) -> Unit = { _, _ -> },
 ) {
     val today = LocalCalinoNow.current.today
     var filter by remember { mutableStateOf(TaskFilter.All) }
@@ -980,6 +1181,32 @@ fun TasksSurface(
     val haptic = LocalHapticFeedback.current
     val taskScope = rememberCoroutineScope()
     var completionJobs by remember { mutableStateOf<Map<String, Job>>(emptyMap()) }
+    var collapsedTaskIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    val taskTree = remember(tasks) { TaskTree(tasks) }
+    var draggingTaskId by remember { mutableStateOf<String?>(null) }
+    var dragDistanceY by remember { mutableFloatStateOf(0f) }
+    // Positions are only read while a drag is recomposing. Keeping this map
+    // non-snapshot avoids turning every ordinary LazyColumn scroll frame into
+    // a whole TasksSurface recomposition.
+    val taskDropBounds = remember { mutableMapOf<String, TaskDropBounds>() }
+
+    val recordTaskPosition: (CalTask, LayoutCoordinates) -> Unit = { task, coordinates ->
+        val bounds = coordinates.boundsInRoot()
+        val next = TaskDropBounds(bounds.top, bounds.bottom)
+        if (taskDropBounds[task.id] != next) {
+            taskDropBounds[task.id] = next
+        }
+    }
+
+    fun isHiddenByCollapsedAncestor(task: CalTask): Boolean {
+        var parent = task.parentTaskId
+        val visited = mutableSetOf<String>()
+        while (parent != null && visited.add(parent)) {
+            if (parent in collapsedTaskIds) return true
+            parent = tasks.firstOrNull { it.id == parent }?.parentTaskId
+        }
+        return false
+    }
 
     fun complete(task: CalTask) {
         if (task.done || task.id in pendingCompletionIds || completionUndo.any { it.task.id == task.id }) return
@@ -1016,6 +1243,64 @@ fun TasksSurface(
     val renderTask: (CalTask) -> CalTask = { task ->
         if (isPending(task)) task.copy(done = true) else task
     }
+
+    // The rows are rendered bucket-by-bucket, not in the repository's raw
+    // order. Keep the drag target calculation in that same order so the row
+    // highlighted under a dragged task is also the row that receives the
+    // reparent operation.
+    val dragOrder = remember(tasks, filter, pendingCompletionIds, collapsedTaskIds) {
+        val candidates = when (filter) {
+            TaskFilter.All -> tasks
+            TaskFilter.Active -> openTasks
+            TaskFilter.Completed -> tasks.filter { it.done && it.id !in pendingCompletionIds }
+        }
+        listOf(
+            TaskBucket.OVERDUE,
+            TaskBucket.TODAY,
+            TaskBucket.THIS_WEEK,
+            TaskBucket.LATER,
+            TaskBucket.NO_DATE,
+            TaskBucket.DONE,
+        ).flatMap { bucket ->
+            candidates.filter { task ->
+                !isHiddenByCollapsedAncestor(task) &&
+                    displayBucket(task) == bucket &&
+                    (bucket == TaskBucket.DONE || isOpenForBucket(task))
+            }
+        }
+    }
+    val dropTarget = remember(dragOrder, draggingTaskId, dragDistanceY) {
+        val fromIndex = dragOrder.indexOfFirst { it.id == draggingTaskId }
+        val dragged = dragOrder.getOrNull(fromIndex)
+        val sourceBounds = dragged?.let { taskDropBounds[it.id] }
+        if (fromIndex < 0 || dragged == null || sourceBounds == null) {
+            null
+        } else {
+            val draggedCenter = (sourceBounds.top + sourceBounds.bottom) / 2f + dragDistanceY
+            dragOrder.firstOrNull { target ->
+                val targetBounds = taskDropBounds[target.id]
+                targetBounds != null && draggedCenter >= targetBounds.top &&
+                    draggedCenter <= targetBounds.bottom
+            }?.takeIf { target ->
+                target.id != dragged.id &&
+                    target.parentTaskId != dragged.id &&
+                    taskTree.canAdopt(dragged.id, target.id)
+            }
+        }
+    }
+    val beginTaskDrag: (CalTask) -> Unit = { task -> draggingTaskId = task.id; dragDistanceY = 0f }
+    val moveTaskDrag: (Offset) -> Unit = { amount -> dragDistanceY += amount.y }
+    val finishTaskDrag: () -> Unit = {
+        val dragged = tasks.firstOrNull { it.id == draggingTaskId }
+        // A null target is reserved for an explicit top-level action in the
+        // menu. A drag that misses a valid task (including a cycle-forming
+        // descendant) should simply spring back instead of unexpectedly
+        // promoting the source task.
+        if (dragged != null && dropTarget != null) onTaskDrop(dragged, dropTarget)
+        draggingTaskId = null
+        dragDistanceY = 0f
+    }
+    val cancelTaskDrag: () -> Unit = { draggingTaskId = null; dragDistanceY = 0f }
 
     Column(Modifier.fillMaxSize().background(CalinoColors.Canvas).padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1054,63 +1339,123 @@ fun TasksSurface(
                 ) {
                     TaskBucket(
                         "Overdue",
-                        activeVisible.filter { isOpenForBucket(it) && displayBucket(it) == TaskBucket.OVERDUE },
+                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.OVERDUE },
                         ::complete,
                         { reschedulingTaskId = it.id },
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
                         onTaskClick,
+                        taskTree,
+                        collapsedTaskIds,
+                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
+                        onTaskAction,
+                        dropTarget,
+                        beginTaskDrag,
+                        moveTaskDrag,
+                        finishTaskDrag,
+                        cancelTaskDrag,
+                        recordTaskPosition,
                     )
                     TaskBucket(
                         "Today",
-                        activeVisible.filter { isOpenForBucket(it) && displayBucket(it) == TaskBucket.TODAY },
+                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.TODAY },
                         ::complete,
                         { reschedulingTaskId = it.id },
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
                         onTaskClick,
+                        taskTree,
+                        collapsedTaskIds,
+                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
+                        onTaskAction,
+                        dropTarget,
+                        beginTaskDrag,
+                        moveTaskDrag,
+                        finishTaskDrag,
+                        cancelTaskDrag,
+                        recordTaskPosition,
                     )
                     TaskBucket(
                         "This week",
-                        activeVisible.filter { isOpenForBucket(it) && displayBucket(it) == TaskBucket.THIS_WEEK },
+                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.THIS_WEEK },
                         ::complete,
                         { reschedulingTaskId = it.id },
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
                         onTaskClick,
+                        taskTree,
+                        collapsedTaskIds,
+                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
+                        onTaskAction,
+                        dropTarget,
+                        beginTaskDrag,
+                        moveTaskDrag,
+                        finishTaskDrag,
+                        cancelTaskDrag,
+                        recordTaskPosition,
                     )
                     TaskBucket(
                         "Later",
-                        activeVisible.filter { isOpenForBucket(it) && displayBucket(it) == TaskBucket.LATER },
+                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.LATER },
                         ::complete,
                         { reschedulingTaskId = it.id },
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
                         onTaskClick,
+                        taskTree,
+                        collapsedTaskIds,
+                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
+                        onTaskAction,
+                        dropTarget,
+                        beginTaskDrag,
+                        moveTaskDrag,
+                        finishTaskDrag,
+                        cancelTaskDrag,
+                        recordTaskPosition,
                     )
                     TaskBucket(
                         "No date",
-                        activeVisible.filter { isOpenForBucket(it) && displayBucket(it) == TaskBucket.NO_DATE },
+                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.NO_DATE },
                         ::complete,
                         { reschedulingTaskId = it.id },
                         { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
                         reschedulingTaskId,
                         renderTask,
                         onTaskClick,
+                        taskTree,
+                        collapsedTaskIds,
+                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
+                        onTaskAction,
+                        dropTarget,
+                        beginTaskDrag,
+                        moveTaskDrag,
+                        finishTaskDrag,
+                        cancelTaskDrag,
+                        recordTaskPosition,
                     )
                     TaskBucket(
                         "Completed",
-                        activeVisible.filter { displayBucket(it) == TaskBucket.DONE },
+                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && displayBucket(it) == TaskBucket.DONE },
                         {},
                         {},
                         { _, _ -> },
                         reschedulingTaskId,
                         renderTask,
                         onTaskClick,
+                        taskTree,
+                        collapsedTaskIds,
+                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
+                        onTaskAction,
+                        dropTarget,
+                        beginTaskDrag,
+                        moveTaskDrag,
+                        finishTaskDrag,
+                        cancelTaskDrag,
+                        recordTaskPosition,
                     )
                     if (activeVisible.isEmpty()) {
                         item(key = "tasks-empty:${activeFilter.name}") {
@@ -1231,6 +1576,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     reschedulingTaskId: String?,
     renderTask: (CalTask) -> CalTask,
     onTaskClick: (CalTask) -> Unit,
+    taskTree: TaskTree,
+    collapsedTaskIds: Set<String>,
+    onToggleSubtasks: (CalTask) -> Unit,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit,
+    dropTarget: CalTask?,
+    onDragStart: (CalTask) -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+    onTaskPositioned: (CalTask, LayoutCoordinates) -> Unit,
 ) {
     if (tasks.isNotEmpty()) {
         item(key = "bucket:$name") {
@@ -1255,6 +1610,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                     showReschedule = reschedulingTaskId == task.id,
                     onRescheduleTo = onRescheduleTo,
                     onClick = { onTaskClick(task) },
+                    depth = taskTree.depth(task.id),
+                    hasSubtasks = taskTree.directChildren(task.id).isNotEmpty(),
+                    subtasksCollapsed = task.id in collapsedTaskIds,
+                    onToggleSubtasks = { onToggleSubtasks(task) },
+                    onTaskAction = onTaskAction,
+                    isDropTarget = dropTarget?.id == task.id,
+                    onDragStart = { onDragStart(task) },
+                    onDrag = onDrag,
+                    onDragEnd = onDragEnd,
+                    onDragCancel = onDragCancel,
+                    onPositioned = { coordinates -> onTaskPositioned(task, coordinates) },
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -1262,7 +1628,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun TaskRow(
     task: CalTask,
@@ -1271,10 +1637,22 @@ private fun TaskRow(
     showReschedule: Boolean = false,
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { _, _ -> },
     onClick: (() -> Unit)? = null,
+    depth: Int = 0,
+    hasSubtasks: Boolean = false,
+    subtasksCollapsed: Boolean = false,
+    onToggleSubtasks: () -> Unit = {},
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
+    isDropTarget: Boolean = false,
+    onDragStart: (() -> Unit)? = null,
+    onDrag: ((Offset) -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
+    onDragCancel: (() -> Unit)? = null,
+    onPositioned: ((LayoutCoordinates) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val today = LocalCalinoNow.current.today
     var drag by remember(task.id) { mutableStateOf(0f) }
+    var verticalDrag by remember(task.id) { mutableFloatStateOf(0f) }
     var isDragging by remember(task.id) { mutableStateOf(false) }
     val animatedOffset by animateFloatAsState(
         targetValue = if (isDragging) drag else 0f,
@@ -1289,6 +1667,16 @@ private fun TaskRow(
     val maxDragPx = with(density) { 140.dp.toPx() }
     val color = taskColor(task)
     val rowShape = RoundedCornerShape(16.dp)
+    val rowFill by animateColorAsState(
+        targetValue = if (isDropTarget) CalinoColors.AccentSoft.copy(alpha = .82f) else CalinoColors.Panel,
+        animationSpec = tween(120),
+        label = "task drop fill",
+    )
+    val rowBorder by animateColorAsState(
+        targetValue = if (isDropTarget) CalinoColors.Accent else CalinoColors.Ink.copy(.045f),
+        animationSpec = tween(120),
+        label = "task drop border",
+    )
     val canAct = !task.done
     val description = buildString {
         append(task.title)
@@ -1298,9 +1686,39 @@ private fun TaskRow(
     }
     val actionProgress = (abs(offset) / actionThresholdPx).coerceIn(0f, 1f)
     val titleColor = if (task.done) CalinoColors.Ink3 else CalinoColors.Ink
+    var menuOpen by remember(task.id) { mutableStateOf(false) }
+    val rowInteraction = if (onDrag != null) {
+        Modifier.calinoLongPressDrag(
+            onClick = onClick,
+            onLongPress = { menuOpen = true },
+            onDragStart = { verticalDrag = 0f; onDragStart?.invoke() },
+            onDrag = { amount -> verticalDrag += amount.y; onDrag(amount) },
+            onDragEnd = { _ -> onDragEnd?.invoke(); verticalDrag = 0f },
+            onDragCancel = { onDragCancel?.invoke(); verticalDrag = 0f },
+        )
+    } else {
+        Modifier.combinedClickable(
+            enabled = onClick != null,
+            onClick = { onClick?.invoke() },
+            onLongClick = { menuOpen = true },
+        )
+    }
 
-    Column(modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().clip(rowShape)) {
+    Column(
+        modifier
+            .onGloballyPositioned { coordinates -> onPositioned?.invoke(coordinates) }
+            .fillMaxWidth()
+            .zIndex(if (abs(verticalDrag) > .5f) 1f else 0f),
+    ) {
+        // Move the whole card so the source stays visible while it is held.
+        // Translating only the inner row would make the card disappear as the
+        // parent clip follows its original bounds.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(0, verticalDrag.roundToInt()) }
+                .clip(rowShape),
+        ) {
             if (canAct) {
                 val actionLabel = if (offset < 0f) "Reschedule" else "Complete"
                 val actionColor = if (offset < 0f) CalinoColors.Accent else CalinoColors.Green
@@ -1326,8 +1744,9 @@ private fun TaskRow(
                 Modifier.fillMaxWidth()
                     .offset { IntOffset(offset.roundToInt(), 0) }
                     .clip(rowShape)
-                    .background(CalinoColors.Panel)
-                    .border(BorderStroke(1.dp, CalinoColors.Ink.copy(.045f)), rowShape)
+                    .shadow(if (isDropTarget) 8.dp else 0.dp, rowShape, clip = false)
+                    .background(rowFill)
+                    .border(BorderStroke(if (isDropTarget) 2.dp else 1.dp, rowBorder), rowShape)
                     .semantics { contentDescription = description }
                     .pointerInput(task.id, canAct) {
                         if (canAct) detectHorizontalDragGestures(
@@ -1350,9 +1769,11 @@ private fun TaskRow(
                             },
                         )
                     }
+                    .then(rowInteraction)
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (depth > 0) Spacer(Modifier.width((depth * 18).dp))
                 Box(
                     Modifier
                         .size(44.dp)
@@ -1384,7 +1805,6 @@ private fun TaskRow(
                     Modifier
                         .weight(1f)
                         .heightIn(min = 44.dp)
-                        .clickable(enabled = onClick != null, onClick = { onClick?.invoke() })
                         .semantics {
                             contentDescription = "Open task: ${task.title}"
                         }
@@ -1423,6 +1843,18 @@ private fun TaskRow(
                         }
                     }
                 }
+                AnimatedVisibility(
+                    visible = isDropTarget,
+                    enter = fadeIn(tween(100)),
+                    exit = fadeOut(tween(80)),
+                ) {
+                    Text(
+                        "Make subtask",
+                        color = CalinoColors.Accent,
+                        style = CalinoTypography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
                 if (canAct) {
                     // Completion has one clear 44dp target at the leading edge.
                     // Keep reschedule as the separate trailing action; the
@@ -1441,7 +1873,30 @@ private fun TaskRow(
                         )
                     }
                 }
+                if (hasSubtasks) {
+                    IconButton(
+                        onClick = onToggleSubtasks,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .semantics {
+                                contentDescription = if (subtasksCollapsed) {
+                                    "Expand subtasks of ${task.title}"
+                                } else {
+                                    "Collapse subtasks of ${task.title}"
+                                }
+                            },
+                    ) {
+                        Text(if (subtasksCollapsed) "›" else "⌄", color = CalinoColors.Ink2, fontSize = 20.sp)
+                    }
+                }
             }
+            TaskActionMenu(
+                task = task,
+                expanded = menuOpen,
+                onDismiss = { menuOpen = false },
+                onAction = { onTaskAction(it, task) },
+                hasSubtasks = hasSubtasks && !subtasksCollapsed,
+            )
         }
         AnimatedVisibility(visible = showReschedule, enter = expandVertically(tween(180)) + fadeIn(tween(160)), exit = shrinkVertically(tween(160)) + fadeOut(tween(120))) {
             FlowRow(
@@ -1519,6 +1974,7 @@ fun EventDetail(
     onEventSelected: (CalEvent) -> Unit = {},
     onEditEvent: (CalEvent) -> Unit = { onPrimaryAction() },
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
+    onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
 ) = EventDetailSurface(
     event,
     onBack,
@@ -1528,14 +1984,17 @@ fun EventDetail(
     onEventSelected,
     onEditEvent,
     onDeleteEvent,
+    onEventAction,
 )
 
 @Composable
 fun TaskDetail(
     task: CalTask,
+    tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
     onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
-) = TaskDetailSurface(task, onBack, onSave)
+    onAddSubtask: () -> Unit = {},
+) = TaskDetailSurface(task, tasks, onBack, onSave, onAddSubtask)
 
 /** Task ledger; horizontal drag reveals completion/rescheduling affordances. */
 @Composable
@@ -1547,7 +2006,9 @@ fun Tasks(
     onTaskClick: (CalTask) -> Unit = {},
     onUndoComplete: (CalTask) -> Unit = {},
     onOpenMenu: (() -> Unit)? = null,
-) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onUndoComplete, onOpenMenu)
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
+    onTaskDrop: (CalTask, CalTask?) -> Unit = { _, _ -> },
+) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onUndoComplete, onOpenMenu, onTaskAction, onTaskDrop)
 
 /** Shared animated Event/Task/Journal editor sheet. */
 @Composable

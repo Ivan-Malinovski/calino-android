@@ -44,6 +44,69 @@ continue the UI work.
 - The root Contacts add pill is hidden while a contact detail card is selected,
   so it cannot overlap the detail card's action pill.
 
+### Web-parity interactions — 2026-09-11
+
+- Calendar events and tasks expose long-press action menus shared with their
+  detail surfaces. Events support edit, duplicate, convert-to-task, and delete;
+  tasks support edit, subtask creation, promotion, date shortcuts, completion,
+  duplicate, convert-to-event, and delete. Recurring event moves and unsafe
+  hierarchy edits are rejected with a safe explanation.
+- Tasks carry `parentTaskId` through fixture, CalDAV, overlay, and iCalendar
+  (`RELATED-TO`) paths. Task views render a cycle-safe collapsed hierarchy;
+  full-row long-press dragging supports reparenting with a visible “Make
+  subtask” target state, while promotion remains an explicit menu action, and
+  task detail can add a subtask without leaving the current flow.
+- Calendar and agenda event cards, plus task rows, use one shared gesture:
+  tap opens, a stationary long press opens the action menu, and movement after
+  the short activation delay drags the row under the finger. The old visible
+  drag handles were removed. Live drag translations use z-order and reset on
+  release/cancel; date moves preserve event/task fields and use the repository
+  write path, so connected accounts retain conditional writes and offline
+  queue behavior.
+- Journal entries, event descriptions, and task notes use the shared
+  CommonMark/GFM renderer and editor preview. Markdown remains stored as the
+  original source text.
+- The navigation drawer now starts with the mini month and Today, keeps
+  per-calendar visibility/task filters, rename/color controls, sync controls,
+  and an independently collapsible Upcoming Tasks card. Category chips are
+  hidden like the web sidebar; completed-task visibility, sync status, and
+  footer links remain below the card, with Settings at the bottom.
+  Account creation and destructive calendar management remain in the existing
+  Accounts surface; webcal subscriptions and automatic update polling remain
+  intentionally out of scope.
+
+### In-app feedback toasts — 2026-09-11
+
+- Write errors and undoable changes now use the shared compact `CalinoToast`
+  surface. It follows the web app's transient Sonner placement, stays above
+  the floating add pill, and uses a palette-aware panel with a small accent
+  icon and action instead of a full-width dark banner.
+- Undo and error feedback both expire after five seconds; errors also expose
+  an immediate Dismiss action. Task-menu date changes now produce the same
+  undo feedback as inline rescheduling.
+
+### Event drag reliability — 2026-09-11
+
+- Month event chips now have real input lanes sized from the rendered month
+  geometry. Only visible, non-overflowed events get a lane, and stacked lanes
+  share the painted chip pitch with later lanes on top so the event under the
+  finger remains the event being moved.
+- A held month drag follows the finger in a lifted card drawn outside the
+  individual day-cell clips. Releasing outside the finite visible month clip
+  (including the overlapped rail area) cancels and restores the source; valid
+  drops commit through the existing repository write path. Timed day-rail
+  moves now use the same lifted-card treatment at the rail layer, so the card
+  remains visible after leaving its original bounds in either direction. The
+  source input node stays mounted throughout the hold, and valid releases snap
+  to 15-minute starts while preserving the event's day when the user is only
+  adjusting its time. While the drag is engaged, the card scales up with a
+  stronger accent edge and shadow; a rail-wide snap line and `DROP · <time>`
+  badge show the exact destination before release.
+- Inactive rail and agenda layers now receive null callbacks rather than
+  no-op gesture handlers, so they do not compete with the active scroll or
+  month layer. The shared long-press recognizer keeps early movement available
+  to scrolling and claims only a held drag.
+
 This is a Kotlin + Jetpack Compose Android application. It is a standalone
 repository and does not load the Calino web app, WebView, Capacitor, or webcal.
 
@@ -458,6 +521,10 @@ Today button appears and targets the real date. The full
   layout reports through `onSplitPaneChanged`, and `MainActivity` keeps the add
   pill in the same right-side lane even while that pane is collapsed, so the
   pill does not recenter when the pane is toggled.
+- The root add pill uses that same right-side lane on every add-capable root in
+  tablet landscape (Agenda, Tasks, Journal, and Contacts as well as Month).
+  The host derives this from the shared `shouldSplit(widthDp, heightDp)` rule,
+  while the month callback still covers foldable split layouts.
 - Landscape damage pass on the other roots: Agenda, Tasks, Journal and the
   sidebar were undamaged. Two fixes were needed — `SettingValue` no longer fills
   the row width (it was starving the label into one-character wrapping in the
