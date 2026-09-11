@@ -679,6 +679,7 @@ fun EventDetailSurface(
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
+        surfaceKind = CalinoSurfaceKind.Preview,
         pill = {
             EventDetailPill(
                 event = laneEvent,
@@ -787,7 +788,6 @@ private fun EventDetailContent(
                     )
                 }
                 Box {
-                    IconButtonGlyph("⋮", "More actions", { onMoreOpen(true) })
                     DropdownMenu(expanded = moreOpen, onDismissRequest = { onMoreOpen(false) }) {
                         DropdownMenuItem(
                             text = { Text("Edit event") },
@@ -888,13 +888,8 @@ private fun EventDetailContent(
 }
 
 /**
- * Event detail's lane contents: the shared pill, with the overflow button
- * hanging off its trailing edge.
- *
- * The button is placed against the pill rather than laid out beside it, so the
- * pill itself stays dead centre in the lane -- the spot the root add pill
- * occupies -- and the button is pushed outward as the pill grows into its
- * actions, instead of shifting the pill off the lane to make room.
+ * Event detail's lane contents. Overflow is one segment of the same pill,
+ * rather than a second button competing with the preview header.
  */
 @Composable
 private fun EventDetailPill(
@@ -905,61 +900,22 @@ private fun EventDetailPill(
     onPrimary: () -> Unit,
     onMoreOpen: () -> Unit,
 ) {
-    val lane = LocalCalinoPillLane.current
-    val pill: @Composable () -> Unit = {
-        ModalActionPill(
-            addLabel = (occurrenceDate ?: event.start?.toLocalDate() ?: event.date)?.let { "Add on ${it.format(dateFormat)}" } ?: "Add event",
-            morphFromAddPill = true,
-            inPillLane = true,
-            expanded = expanded,
-            cancelLabel = "Cancel",
-            onCancel = onBack,
-            cancelDescription = "Close event details",
-            primaryLabel = "Edit event",
-            onPrimary = onPrimary,
-            primaryDescription = "Edit event",
-        )
-    }
-    val overflow: @Composable () -> Unit = {
-        OutlinedButton(
-            onClick = onMoreOpen,
-            modifier = Modifier
-                .size(50.dp)
-                .graphicsLayer {
-                    alpha = lane.morphProgress
-                    scaleX = .82f + .18f * lane.morphProgress
-                    scaleY = .82f + .18f * lane.morphProgress
-                },
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, CalinoColors.Ink.copy(.12f)),
-            // The default button padding squeezes the glyph into a 2dp lane
-            // inside a 50dp button, which clipped it to two dots.
-            contentPadding = PaddingValues(0.dp),
-        ) { Text("···", color = CalinoColors.Ink) }
-    }
-    Layout(contents = listOf(pill, overflow)) { (pillMeasurables, overflowMeasurables), constraints ->
-        val natural = Constraints(maxWidth = constraints.maxWidth)
-        val pillPlaceable = pillMeasurables.first().measure(natural)
-        val overflowPlaceable = overflowMeasurables.first().measure(natural)
-        val gap = OverflowGap.roundToPx()
-        // Reported as the pill's own size -- not the pair's, and not the
-        // taller of the two: the lane places this box against where the root
-        // pill sat, so any room taken for the button would push the pill off
-        // that spot. The button is placed relative to the pill and simply
-        // hangs outside these bounds, on the trailing edge and centred on the
-        // pill however tall each of them ends up.
-        layout(pillPlaceable.width, pillPlaceable.height) {
-            pillPlaceable.place(0, 0)
-            overflowPlaceable.place(
-                pillPlaceable.width + gap,
-                (pillPlaceable.height - overflowPlaceable.height) / 2,
-            )
-        }
-    }
+    ModalActionPill(
+        addLabel = (occurrenceDate ?: event.start?.toLocalDate() ?: event.date)?.let { "Add on ${it.format(dateFormat)}" } ?: "Add event",
+        morphFromAddPill = true,
+        inPillLane = true,
+        expanded = expanded,
+        cancelLabel = "Cancel",
+        onCancel = onBack,
+        cancelDescription = "Close event details",
+        secondaryLabel = "Edit",
+        onSecondary = onPrimary,
+        secondaryDescription = "Edit event",
+        primaryLabel = "···",
+        onPrimary = onMoreOpen,
+        primaryDescription = "More event actions",
+    )
 }
-
-/** The room between event detail's pill and the overflow button beside it. */
-private val OverflowGap = 10.dp
 
 /**
  * Fixture-backed task detail/editor. The task body is the primary tap target
@@ -1021,6 +977,7 @@ fun TaskDetailSurface(
         onDismiss = { dismiss(false) },
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 980.dp,
+        surfaceKind = CalinoSurfaceKind.Preview,
         pill = {
             val canSave = title.trim().isNotEmpty()
             ModalActionPill(

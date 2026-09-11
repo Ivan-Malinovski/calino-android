@@ -4,6 +4,15 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Compact event and task previews — 2026-09-11
+
+- Tapping an event or task now uses the dedicated `Preview` surface geometry:
+  a shorter bottom sheet on phones and a centered, 420×560dp-capped window on
+  medium and expanded layouts. Full editors retain their larger geometry.
+- Event detail has one overflow affordance. The header button was removed and
+  More is now the trailing segment inside the shared bottom action pill, after
+  Cancel and Edit.
+
 ### Sidebar polish — 2026-09-11
 
 - The navigation drawer starts with the web-matched Calino diamond and

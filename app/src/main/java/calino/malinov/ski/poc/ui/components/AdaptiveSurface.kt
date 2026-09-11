@@ -116,7 +116,14 @@ fun AdaptiveSurfaceHost(
     // and the lane looks empty for exactly one frame in each direction.
     val lane = LocalCalinoPillLane.current
     if (pill != null) {
-        remember(lane) { lane.claim() }
+        // Keep a non-Unit remembered value: the claim must still happen during
+        // composition (before the root pill is composed), but Compose lint
+        // correctly rejects using remember purely for a Unit side effect.
+        @Suppress("UNUSED_VARIABLE")
+        val laneClaimed = remember(lane) {
+            lane.claim()
+            true
+        }
         DisposableEffect(lane) { onDispose { lane.release() } }
     }
 
@@ -156,7 +163,11 @@ fun AdaptiveSurfaceHost(
         // after it, so the panel tracks the hinge instead of chasing it.
         val sideWidth = minOf(settledSideWidth, foldWidthCap)
         val sideHeight = (maxHeight - 24.dp).coerceAtLeast(1.dp)
-        val bottomHeight = maxHeight * if (maxHeight < 520.dp) .96f else .86f
+        val bottomHeight = when {
+            maxHeight < 520.dp -> maxHeight * .96f
+            kind == CalinoSurfaceKind.Preview -> minOf(maxHeight * .68f, surfaceHeightCap)
+            else -> maxHeight * .86f
+        }
 
         val enter = when (mode) {
             CalinoSurfaceMode.BottomSheet ->

@@ -16,6 +16,7 @@ enum class CalinoSurfaceMode {
 /** Surface content types with deliberately different readable widths. */
 enum class CalinoSurfaceKind(val widthCapDp: Int, val heightCapDp: Int) {
     Day(widthCapDp = 440, heightCapDp = 760),
+    Preview(widthCapDp = 420, heightCapDp = 560),
     Detail(widthCapDp = 520, heightCapDp = 760),
     Editor(widthCapDp = 640, heightCapDp = 820),
     Search(widthCapDp = 720, heightCapDp = 680),
@@ -42,7 +43,11 @@ fun calinoSurfaceModeFor(
 ): CalinoSurfaceMode = when (windowClass) {
     CalinoWindowClass.Compact -> CalinoSurfaceMode.BottomSheet
     CalinoWindowClass.Medium -> CalinoSurfaceMode.FloatingWindow
-    CalinoWindowClass.Expanded -> if (kind == CalinoSurfaceKind.Search || kind == CalinoSurfaceKind.Dialog) {
+    CalinoWindowClass.Expanded -> if (
+        kind == CalinoSurfaceKind.Search ||
+        kind == CalinoSurfaceKind.Dialog ||
+        kind == CalinoSurfaceKind.Preview
+    ) {
         CalinoSurfaceMode.FloatingWindow
     } else {
         CalinoSurfaceMode.EndPanel

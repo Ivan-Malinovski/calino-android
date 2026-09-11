@@ -32,8 +32,9 @@ class AdaptiveWindowRulesTest {
     }
 
     @Test
-    fun `search and dialogs remain centered when expanded`() {
+    fun `compact overlays remain centered when expanded`() {
         assertEquals(CalinoSurfaceMode.FloatingWindow, calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.Search))
         assertEquals(CalinoSurfaceMode.FloatingWindow, calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.Dialog))
+        assertEquals(CalinoSurfaceMode.FloatingWindow, calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.Preview))
     }
 }
