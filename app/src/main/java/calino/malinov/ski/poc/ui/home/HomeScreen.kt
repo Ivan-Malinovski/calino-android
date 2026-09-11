@@ -3374,43 +3374,61 @@ private fun StaticMonthGrid(
                                     (compactDateSizePx + (detailedDateSizePx - compactDateSizePx) * detailProgress) +
                                     dateGapPx + chipPitchPx * lane
                                 val bottom = top + chipHeightPx
-                                val arrow = min((barRight - barLeft) / 3f, chipHeightPx * .42f)
-                                val weeklyPath = if (
-                                    span.continuesFromPreviousWeek || endSpan.continuesToNextWeek
-                                ) {
-                                    Path().apply {
+                                fun weeklyPath(inset: Float = 0f): Path {
+                                    val left = barLeft + inset
+                                    val right = barRight - inset
+                                    val pathTop = top + inset
+                                    val pathBottom = bottom - inset
+                                    val pathHeight = (pathBottom - pathTop).coerceAtLeast(0f)
+                                    val corner = (chipCornerPx - inset).coerceAtLeast(0f)
+                                    val arrow = min((right - left) / 3f, pathHeight * .42f)
+                                    return if (
+                                        span.continuesFromPreviousWeek || endSpan.continuesToNextWeek
+                                    ) Path().apply {
                                         moveTo(
-                                            if (span.continuesFromPreviousWeek) barLeft else barLeft + chipCornerPx,
-                                            if (span.continuesFromPreviousWeek) (top + bottom) / 2f else top,
+                                            if (span.continuesFromPreviousWeek) left else left + corner,
+                                            if (span.continuesFromPreviousWeek) (pathTop + pathBottom) / 2f else pathTop,
                                         )
-                                        if (span.continuesFromPreviousWeek) lineTo(barLeft + arrow, top)
-                                        lineTo(barRight - if (endSpan.continuesToNextWeek) arrow else 0f, top)
-                                        if (endSpan.continuesToNextWeek) lineTo(barRight, (top + bottom) / 2f)
-                                        lineTo(barRight - if (endSpan.continuesToNextWeek) arrow else 0f, bottom)
-                                        if (span.continuesFromPreviousWeek) lineTo(barLeft + arrow, bottom)
-                                        else lineTo(barLeft + chipCornerPx, bottom)
+                                        if (span.continuesFromPreviousWeek) lineTo(left + arrow, pathTop)
+                                        if (endSpan.continuesToNextWeek) {
+                                            lineTo(right - arrow, pathTop)
+                                            lineTo(right, (pathTop + pathBottom) / 2f)
+                                            lineTo(right - arrow, pathBottom)
+                                        } else {
+                                            lineTo(right - corner, pathTop)
+                                            quadraticTo(right, pathTop, right, pathTop + corner)
+                                            lineTo(right, pathBottom - corner)
+                                            quadraticTo(right, pathBottom, right - corner, pathBottom)
+                                        }
+                                        if (span.continuesFromPreviousWeek) {
+                                            lineTo(left + arrow, pathBottom)
+                                        } else {
+                                            lineTo(left + corner, pathBottom)
+                                            quadraticTo(left, pathBottom, left, pathBottom - corner)
+                                            lineTo(left, pathTop + corner)
+                                            quadraticTo(left, pathTop, left + corner, pathTop)
+                                        }
                                         close()
-                                    }
-                                } else {
-                                    Path().apply {
+                                    } else Path().apply {
                                         addRoundRect(
                                             RoundRect(
-                                                Rect(barLeft, top, barRight, bottom),
-                                                cornerRadius = CornerRadius(chipCornerPx),
+                                                Rect(left, pathTop, right, pathBottom),
+                                                cornerRadius = CornerRadius(corner),
                                             ),
                                         )
                                     }
                                 }
                                 val eventColor = colors.forEvent(Color(event.color))
                                 drawPath(
-                                    weeklyPath,
+                                    weeklyPath(),
                                     color = faded(colors.tint(eventColor, .12f, colors.Panel), detailProgress),
                                 )
                                 drawPath(
-                                    weeklyPath,
+                                    weeklyPath(chipBorderPx / 2f),
                                     color = faded(eventColor.copy(alpha = .16f), detailProgress),
                                     style = Stroke(width = chipBorderPx),
                                 )
+                                val arrow = min((barRight - barLeft) / 3f, chipHeightPx * .42f)
                                 val textLeft = barLeft +
                                     if (span.continuesFromPreviousWeek) arrow + chipTextStartPx / 2f else chipTextStartPx
                                 val textRight = barRight -
