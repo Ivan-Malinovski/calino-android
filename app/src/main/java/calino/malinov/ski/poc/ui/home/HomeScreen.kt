@@ -1954,6 +1954,9 @@ private fun WeekDay(
     }
 }
 
+/** Centre of a compact task row's checkbox: its 8dp inset plus half a 36dp box. */
+private val CompactTaskCheckboxCentre = 26.dp
+
 @Composable
 private fun CalendarTaskRow(
     task: CalTask,
@@ -1970,9 +1973,16 @@ private fun CalendarTaskRow(
 
     Column(modifier.fillMaxWidth()) {
         Row(
-            // These rows have no card behind them, so the elbow runs on to the
-            // checkbox rather than stopping at an edge that is not drawn.
-            Modifier.fillMaxWidth().taskNestIndent(depth, nestingLines, elbowInset = 14.dp),
+            // No card behind these rows, so the connector has to join the two
+            // checkboxes itself: down from the parent's, across into the
+            // child's, and up over the gap between the rows.
+            Modifier.fillMaxWidth().taskNestIndent(
+                depth,
+                nestingLines,
+                elbowInset = 14.dp,
+                railOffset = CompactTaskCheckboxCentre,
+                railOverhang = 6.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TaskRow(
