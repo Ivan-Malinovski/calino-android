@@ -12,6 +12,10 @@ continue the UI work.
   events and recurrence instances second, and one-off events last. Repository
   order is preserved within each priority group, and the same ordered list
   drives both painted chips and their input lanes.
+- Timed events whose duration crosses a date boundary appear on every date
+  they occupy (without treating an exact midnight end as occupying the next
+  day). Only the real current date gets the solid today disc; a selected day
+  carried across month paging retains the softer cell selection alone.
 
 ### Timed empty-slot creation — 2026-09-11
 

@@ -16,6 +16,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.YearMonth
 
 /**
@@ -101,6 +103,42 @@ class AgendaViewTest {
                 .getValue(day)
                 .map { it.id },
         )
+    }
+
+    @Test
+    fun expandedMonth_placesTimedSpansOnEveryDateTheyOccupy() {
+        val start = LocalDateTime.of(2026, 5, 12, 18, 0)
+        val event = CalEvent(
+            id = "timed-span",
+            title = "Timed span",
+            color = 0L,
+            start = start,
+            durationMinutes = 31 * 60,
+            calendarId = "test",
+        )
+        val index = monthEventIndex(listOf(event), YearMonth.from(start), CalinoWeekStart.Monday)
+
+        assertTrue(index.getValue(LocalDate.of(2026, 5, 12)).contains(event))
+        assertTrue(index.getValue(LocalDate.of(2026, 5, 13)).contains(event))
+        assertTrue(index.getValue(LocalDate.of(2026, 5, 14)).contains(event))
+        assertFalse(index.containsKey(LocalDate.of(2026, 5, 15)))
+    }
+
+    @Test
+    fun timedSpanEndingAtMidnight_doesNotOccupyTheFollowingDate() {
+        val day = LocalDate.of(2026, 5, 12)
+        val event = CalEvent(
+            id = "until-midnight",
+            title = "Until midnight",
+            color = 0L,
+            start = LocalDateTime.of(day, LocalTime.of(18, 0)),
+            durationMinutes = 6 * 60,
+            calendarId = "test",
+        )
+        val index = monthEventIndex(listOf(event), YearMonth.from(day), CalinoWeekStart.Monday)
+
+        assertTrue(index.getValue(day).contains(event))
+        assertFalse(index.containsKey(day.plusDays(1)))
     }
 
     @Test

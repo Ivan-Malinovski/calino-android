@@ -139,7 +139,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.poc.data.model.CalEvent
-import calino.malinov.ski.poc.data.model.placementDate
+import calino.malinov.ski.poc.data.model.lastCoveredDate
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.occursOn
@@ -2293,7 +2293,7 @@ private fun MorphingMonthGrid(
                     }
 
                     val dateTop = cellTop + dateTopPaddingPx
-                    if (isSelected || isToday) {
+                    if (isToday) {
                         drawCircle(
                             color = faded(
                                 if (isSelected) colors.Accent else colors.Accent.copy(alpha = .78f),
@@ -2303,7 +2303,7 @@ private fun MorphingMonthGrid(
                         )
                     }
                     val dateLayout = dateLayouts[index]
-                    val dateColor = if (isSelected) colors.OnAccent else if (YearMonth.from(date) == month) {
+                    val dateColor = if (isToday) colors.OnAccent else if (YearMonth.from(date) == month) {
                         colors.Ink2
                     } else {
                         colors.Ink3.copy(.5f)
@@ -3167,21 +3167,16 @@ private fun StaticMonthGrid(
                             cornerRadius = CornerRadius(with(density) { 4.dp.toPx() }),
                         )
                     }
-                    if (isSelected || isToday) {
+                    if (isToday) {
                         // The compact selector replaces the ordinary selected
                         // marker, but it must not replace today's identity.
                         // Keep today's accent disc above the shared pill even
                         // when today is also the selected date.
-                        if (isToday || !isSelected || compactProgress < .999f) {
-                            drawCircle(
-                                color = faded(
-                                    colors.Accent,
-                                    if (isSelected && !isToday && zoom <= 1f) 1f - compactProgress else 1f,
-                                ),
-                                radius = dateSizePx / 2f,
-                                center = Offset(cellLeft + cellWidthPx / 2f, dateTop + dateSizePx / 2f),
-                            )
-                        }
+                        drawCircle(
+                            color = faded(colors.Accent),
+                            radius = dateSizePx / 2f,
+                            center = Offset(cellLeft + cellWidthPx / 2f, dateTop + dateSizePx / 2f),
+                        )
                     }
                     val dateLayout = dateLayouts[index]
                     drawText(
@@ -3207,7 +3202,7 @@ private fun StaticMonthGrid(
                                     compactWeekSelectionWeight,
                                 )
                             }
-                        } else if (isSelected) {
+                        } else if (isToday) {
                             colors.OnAccent
                         } else if (inMonthFlags[index]) {
                             colors.Ink2
@@ -3779,9 +3774,8 @@ internal fun monthEventIndex(
 
 /** Stable lane priority for the expanded month: spans, recurrence members, then one-offs. */
 private fun expandedMonthEventPriority(event: CalEvent): Int {
-    val start = event.placementDate()
     return when {
-        start != null && event.endDate?.isAfter(start) == true -> 0
+        event.lastCoveredDate() != null -> 0
         event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null -> 1
         else -> 2
     }

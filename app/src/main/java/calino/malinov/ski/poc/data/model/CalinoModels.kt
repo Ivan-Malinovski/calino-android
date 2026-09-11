@@ -67,8 +67,10 @@ data class CalEvent(
 fun CalEvent.occursOn(day: LocalDate): Boolean {
     val anchor = placementDate() ?: return false
     if (anchor == day) return true
-    // A multi-day all-day span covers every day through its inclusive end.
-    endDate?.let { last ->
+    // Date-only DTEND has already been made inclusive. Timed DTEND is
+    // represented as a duration; an exact midnight belongs to the previous
+    // day, while any later time also occupies its ending date.
+    lastCoveredDate()?.let { last ->
         if (!day.isBefore(anchor) && !day.isAfter(last)) return true
     }
     val fields = recurrence?.uppercase(Locale.US)?.split(';')?.mapNotNull { part ->
@@ -113,6 +115,22 @@ private fun dayOfWeekForCode(code: String): DayOfWeek? = when (code.trim()) {
 }
 
 fun CalEvent.placementDate(): LocalDate? = if (allDay) date else start?.toLocalDate()
+
+/** Inclusive final date occupied by this event, or null when it stays on its start date. */
+fun CalEvent.lastCoveredDate(): LocalDate? {
+    val anchor = placementDate() ?: return null
+    if (allDay) return endDate?.takeIf { it.isAfter(anchor) }
+    val startValue = start ?: return null
+    val endExclusive = durationMinutes?.takeIf { it > 0 }
+        ?.let { startValue.plusMinutes(it.toLong()) }
+        ?: return null
+    val last = if (endExclusive.toLocalTime() == LocalTime.MIDNIGHT) {
+        endExclusive.toLocalDate().minusDays(1)
+    } else {
+        endExclusive.toLocalDate()
+    }
+    return last.takeIf { it.isAfter(anchor) }
+}
 
 data class CalTask(
     val id: String,
