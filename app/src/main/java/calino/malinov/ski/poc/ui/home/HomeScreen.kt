@@ -478,8 +478,8 @@ fun HomeScreen(
         }
     }
 
-    fun consumeUserSettle(pager: PagerState): Boolean =
-        pagerDragOrigins.remove(pager) == currentSelectedEpoch.value
+    fun isUserSettle(pager: PagerState): Boolean =
+        pagerDragOrigins[pager] == currentSelectedEpoch.value
     val selectedWeekdayIndex = selected.weekdayColumn(weekStart)
     // A day swipe across a week boundary pages the strip to the neighboring
     // week while the drag is still live. Aim the pill at the previewed day
@@ -489,6 +489,11 @@ fun HomeScreen(
     val compactSelectorPosition = remember {
         Animatable(selectedWeekdayIndex.toFloat())
     }
+    // Bridges the single frame in which a day pager settle becomes committed
+    // selection. Live drag/fling positions come straight from PagerState; do
+    // not mirror every sample into Animatable, which adds redundant state
+    // writes on the hottest frame path and can still arrive a frame late.
+    var compactSelectorHandoff by remember { mutableStateOf<Float?>(null) }
 
     // Changing the week start moves the selected day to a different column.
     // Springing it across the strip would read as a week change that is not
@@ -499,14 +504,21 @@ fun HomeScreen(
         compactBoundaryDay = null
         blockedBoundaryDay = null
         weekPreviewGeneration += 1
+        compactSelectorHandoff = null
         compactSelectorPosition.snapTo(selected.weekdayColumn(weekStart).toFloat())
     }
 
     LaunchedEffect(selectorWeekdayIndex) {
-        compactSelectorPosition.animateTo(
-            selectorWeekdayIndex.toFloat(),
-            animationSpec = spring(dampingRatio = .82f, stiffness = 520f),
-        )
+        val target = selectorWeekdayIndex.toFloat()
+        if (compactSelectorHandoff == target) {
+            compactSelectorPosition.snapTo(target)
+            compactSelectorHandoff = null
+        } else {
+            compactSelectorPosition.animateTo(
+                target,
+                animationSpec = spring(dampingRatio = .82f, stiffness = 520f),
+            )
+        }
     }
 
     fun cancelMotion() {
@@ -542,12 +554,21 @@ fun HomeScreen(
         snapshotFlow { dayPagerState.isScrollInProgress to dayPagerState.settledPage }
             .distinctUntilChanged()
             .collect { (scrolling, it) ->
-                if (scrolling || !consumeUserSettle(dayPagerState)) return@collect
+                if (scrolling || !isUserSettle(dayPagerState)) return@collect
                 val date = dateForDayPage(it)
                 if (date.toEpochDay() != currentSelectedEpoch.value) {
+                    // Publish the final selector position before changing the
+                    // committed date or releasing pager ownership. This makes
+                    // the drag-to-selection handoff one atomic visual state.
+                    compactSelectorHandoff = date.weekdayColumn(weekStart).toFloat()
                     selectedEpoch = date.toEpochDay()
                     onDateChanged(date)
                 }
+                // Keep ownership through the date commit. Removing it in the
+                // guard made the live selector preview disappear one frame
+                // before [selectedEpoch] reached the settled page, exposing
+                // the date we had just left underneath the strip.
+                pagerDragOrigins.remove(dayPagerState)
             }
     }
 
@@ -558,7 +579,7 @@ fun HomeScreen(
         snapshotFlow { weekPagerState.isScrollInProgress to weekPagerState.settledPage }
             .distinctUntilChanged()
             .collect { (scrolling, it) ->
-                if (scrolling || !consumeUserSettle(weekPagerState)) return@collect
+                if (scrolling || !isUserSettle(weekPagerState)) return@collect
                 val suppression = suppressedWeekPreview
                 if (suppression?.targetPage == it) {
                     val activeGeneration = suppression.generation == weekPreviewGeneration
@@ -590,6 +611,7 @@ fun HomeScreen(
                     selectedEpoch = targetDate.toEpochDay()
                     onDateChanged(targetDate)
                 }
+                pagerDragOrigins.remove(weekPagerState)
             }
     }
 
@@ -611,7 +633,7 @@ fun HomeScreen(
         snapshotFlow { monthPagerState.isScrollInProgress to monthPagerState.settledPage }
             .distinctUntilChanged()
             .collect { (scrolling, it) ->
-                if (scrolling || !consumeUserSettle(monthPagerState)) return@collect
+                if (scrolling || !isUserSettle(monthPagerState)) return@collect
                 val targetMonth = monthForPage(it)
                 val currentDate = LocalDate.ofEpochDay(currentSelectedEpoch.value)
                 if (YearMonth.from(currentDate) != targetMonth) {
@@ -619,6 +641,7 @@ fun HomeScreen(
                     selectedEpoch = date.toEpochDay()
                     onDateChanged(date)
                 }
+                pagerDragOrigins.remove(monthPagerState)
             }
     }
 
@@ -653,7 +676,7 @@ fun HomeScreen(
     }
 
     val selectedDayPage = dayPageFor(selected)
-    val dayPagerTravel by remember(dayPagerState, selectedDayPage) {
+    val dayPagerTravel = remember(dayPagerState, selectedDayPage) {
         derivedStateOf {
             if (pagerDragOrigins[dayPagerState] != selected.toEpochDay()) return@derivedStateOf 0f
             // This API accounts for currentPageOffsetFraction flipping when
@@ -661,36 +684,33 @@ fun HomeScreen(
             // currentPage + fraction manually makes the indicator jump to
             // the opposite day at exactly that boundary.
             val distance = dayPagerState.getOffsetDistanceInPages(selectedDayPage)
-            // A larger distance comes from a calendar-cell click. Let the
-            // selected-date animation handle that rather than treating it as
-            // a one-day preview.
-            if (abs(distance) <= 1.05f) distance.coerceIn(-1f, 1f) else 0f
+            // A fast fling can travel more than one page. Ownership above
+            // already excludes calendar-cell/programmatic motion, so retain
+            // the full live distance instead of freezing the selector once a
+            // fling crosses the old one-page cutoff.
+            distance.coerceIn(-7f, 7f)
         }
     }
     // Null while no same-week day preview is live. The pill follows this
     // directly during the drag; the spring below owns it the rest of the time.
     val compactSelectorPreview = remember(dayPagerTravel, selectedWeekdayIndex) {
         derivedStateOf {
-            val liveOffset = dayPagerTravel.coerceIn(-1f, 1f)
+            val liveOffset = dayPagerTravel.value.coerceIn(-7f, 7f)
             if (abs(liveOffset) <= .001f) return@derivedStateOf null
-            val previewDate = if (liveOffset < 0f) selected.plusDays(1) else selected.minusDays(1)
-            if (previewDate.startOfWeek(weekStart) != selected.startOfWeek(weekStart)) {
+            val liveIndex = selectedWeekdayIndex - liveOffset
+            if (liveIndex !in 0f..6f) {
+                // Cross-week motion is owned by [compactBoundaryDay], which
+                // moves the whole strip and then seeds this selector in the
+                // neighboring week.
                 return@derivedStateOf null
             }
-            (selectedWeekdayIndex - liveOffset).coerceIn(0f, 6f)
+            liveIndex
         }
     }
-    // Keep the spring seeded with the live preview so the handoff at release
-    // continues from where the finger left the pill. Without this the preview
-    // drops out the instant the settle consumes the gesture, the pill falls
-    // back to the spring's stale previous weekday for a frame, and only then
-    // animates to the committed day.
-    LaunchedEffect(compactSelectorPreview) {
-        snapshotFlow { compactSelectorPreview.value }
-            .collect { preview -> preview?.let { compactSelectorPosition.snapTo(it) } }
-    }
-    val compactSelectorIndex by remember(compactSelectorPreview) {
-        derivedStateOf { compactSelectorPreview.value ?: compactSelectorPosition.value }
+    val compactSelectorIndex = remember(compactSelectorPreview) {
+        derivedStateOf {
+            compactSelectorPreview.value ?: compactSelectorHandoff ?: compactSelectorPosition.value
+        }
     }
 
     /**
@@ -1261,8 +1281,7 @@ fun HomeScreen(
                         weekStart = weekStart,
                         events = events,
                         tasksByDueDate = tasksByDueDate,
-                        pagerOffset = dayPagerTravel,
-                        selectorIndex = compactSelectorIndex,
+                        selectorIndex = { compactSelectorIndex.value },
                         gestureModifier = Modifier,
                         interactionEnabled = interactionEnabled,
                             onUserSwipeStart = {
@@ -1359,7 +1378,7 @@ fun HomeScreen(
                         visibleGridHeight = (calendarHeight.value + handleHeight - laneOverlap)
                             .coerceAtLeast(0.dp),
                         compactDay = weekStripDay,
-                        compactSelectorIndex = compactSelectorIndex,
+                        compactSelectorIndex = { compactSelectorIndex.value },
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
                         modifier = Modifier.fillMaxSize(),
                         gestureModifier = Modifier,
@@ -1562,7 +1581,7 @@ private fun SplitHomeLayout(
                     detailedGridHeight = gridHeight,
                     visibleGridHeight = gridHeight,
                     compactDay = selected,
-                    compactSelectorIndex = selected.weekdayColumn(weekStart).toFloat(),
+                    compactSelectorIndex = { selected.weekdayColumn(weekStart).toFloat() },
                     compactBoundaryTransition = false,
                     modifier = Modifier.fillMaxSize(),
                     // No vertical zoom drag in this layout, so the pager is
@@ -1673,8 +1692,7 @@ private fun WeekStrip(
     weekStart: CalinoWeekStart,
     events: List<CalEvent>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
-    pagerOffset: Float,
-    selectorIndex: Float,
+    selectorIndex: () -> Float,
     gestureModifier: Modifier,
     interactionEnabled: Boolean,
     onUserSwipeStart: () -> Unit,
@@ -1733,7 +1751,9 @@ private fun WeekStrip(
         // boundary day in the neighboring week, so the week the strip is
         // displaying always follows it.
         val displayedWeekStart = displayedWeekDay.startOfWeek(weekStart)
-        val indicatorTargetIndex = selectorIndex.coerceIn(0f, 6f)
+        // Deferred so a day-pager sample invalidates this compact subtree,
+        // not the whole HomeScreen composition.
+        val indicatorTargetIndex = selectorIndex().coerceIn(0f, 6f)
         HorizontalPager(
             state = state,
             modifier = Modifier
@@ -1832,6 +1852,7 @@ private fun WeekDay(
     interactionEnabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val isToday = date == LocalCalinoNow.current.today
     val selectedWeight = max(currentSelectionWeight, targetSelectionWeight).coerceIn(0f, 1f)
     val background by animateColorAsState(
         if (drawSelectionBackground) {
@@ -1864,6 +1885,7 @@ private fun WeekDay(
             contentDescription = buildString {
                 append(date.format(FullDateFormatter))
                 if (committedSelected) append(", selected")
+                if (isToday) append(", today")
                 if (tasksDueCount > 0) append(", $tasksDueCount open tasks due")
             }
         }
@@ -1890,10 +1912,21 @@ private fun WeekDay(
         )
         Spacer(Modifier.height(4.dp))
         Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
+            if (isToday) {
+                // Today remains independently identifiable when the moving
+                // selector is on top of it. The month canvas already draws
+                // this accent disc; omitting it from the swipe layer made it
+                // disappear for exactly the duration of a horizontal drag.
+                Box(
+                    Modifier.size(22.dp)
+                        .clip(CircleShape)
+                        .background(CalinoColors.Accent),
+                )
+            }
             Text(
                 date.dayOfMonth.toString(),
                 style = ComposeTextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.Medium),
-                color = dateColor,
+                color = if (isToday) CalinoColors.OnAccent else dateColor,
             )
         }
         Spacer(Modifier.height(1.dp))
@@ -2031,7 +2064,7 @@ private fun MonthPager(
     detailedGridHeight: Dp,
     visibleGridHeight: Dp,
     compactDay: LocalDate,
-    compactSelectorIndex: Float,
+    compactSelectorIndex: () -> Float,
     compactBoundaryTransition: Boolean,
     modifier: Modifier,
     gestureModifier: Modifier,
@@ -2753,7 +2786,7 @@ private fun StaticMonthGrid(
     detailedGridHeight: Dp,
     visibleGridHeight: Dp,
     compactDay: LocalDate,
-    compactSelectorIndex: Float,
+    compactSelectorIndex: () -> Float,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)? = null,
@@ -2882,6 +2915,10 @@ private fun StaticMonthGrid(
         }
         Box(Modifier.fillMaxSize()) {
             Canvas(Modifier.fillMaxSize()) {
+                // Pager motion is draw-only. Reading the deferred value here
+                // invalidates this canvas without recomposing the month grid,
+                // its event hit lanes, or the day rail below it.
+                val compactSelectorIndex = compactSelectorIndex()
                 val drawAlpha = visualAlpha.value.coerceIn(0f, 1f)
                 val zoom = zoomState.value.coerceIn(0f, 2f)
                 val compactProgress = smoothStep(1f - zoom.coerceIn(0f, 1f))
@@ -3126,11 +3163,15 @@ private fun StaticMonthGrid(
                         )
                     }
                     if (isSelected || isToday) {
-                        if (!isSelected || compactProgress < .999f) {
+                        // The compact selector replaces the ordinary selected
+                        // marker, but it must not replace today's identity.
+                        // Keep today's accent disc above the shared pill even
+                        // when today is also the selected date.
+                        if (isToday || !isSelected || compactProgress < .999f) {
                             drawCircle(
                                 color = faded(
-                                    if (isSelected) colors.Accent else colors.Accent.copy(alpha = .78f),
-                                    if (isSelected && zoom <= 1f) 1f - compactProgress else 1f,
+                                    colors.Accent,
+                                    if (isSelected && !isToday && zoom <= 1f) 1f - compactProgress else 1f,
                                 ),
                                 radius = dateSizePx / 2f,
                                 center = Offset(cellLeft + cellWidthPx / 2f, dateTop + dateSizePx / 2f),
@@ -3144,12 +3185,23 @@ private fun StaticMonthGrid(
                             cellLeft + (cellWidthPx - dateLayout.size.width) / 2f,
                             dateTop + (dateSizePx - dateLayout.size.height) / 2f,
                         ),
-                        color = faded(if (compactWeekStyle && compactWeekSelectionWeight > .001f) {
-                            lerpColor(
-                                if (inMonthFlags[index]) colors.Ink2 else colors.Ink3.copy(.5f),
-                                colors.OnSelection,
-                                compactWeekSelectionWeight,
-                            )
+                        color = faded(if (compactWeekStyle) {
+                            if (isToday) {
+                                // Today's accent disc is independent of the
+                                // moving selection, so its legible foreground
+                                // must be independent as well.
+                                colors.OnAccent
+                            } else {
+                                // Include the exact zero-weight endpoint. The
+                                // previous condition fell through to
+                                // [isSelected] for the last pre-commit frame,
+                                // flashing the departed number white once.
+                                lerpColor(
+                                    if (inMonthFlags[index]) colors.Ink2 else colors.Ink3.copy(.5f),
+                                    colors.OnSelection,
+                                    compactWeekSelectionWeight,
+                                )
+                            }
                         } else if (isSelected) {
                             colors.OnAccent
                         } else if (inMonthFlags[index]) {

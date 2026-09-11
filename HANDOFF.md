@@ -6,6 +6,30 @@ continue the UI work.
 
 ## Current state
 
+### Compact day-swipe selector continuity — 2026-09-11
+
+- Compact month/day swipes keep pager ownership until the settled date is
+  committed. This removes the one-frame flash of the date being left without
+  activating the week pager's opaque preview layer: day-swipe animation stays
+  in the single month canvas, preserving its transparency and exact geometry.
+- Live selector travel is read directly from `PagerState`. It is deliberately
+  not copied into an `Animatable` on every frame; a one-shot synchronous
+  handoff value bridges only the settled-page commit, avoiding both the stale
+  old-day frame and redundant animation-state writes during a swipe.
+- The live selector value is a deferred read consumed inside the compact
+  canvas draw pass (and its small week-strip subtree when that pager owns the
+  lane). Pager frames therefore repaint the selector without invalidating the
+  full `HomeScreen`, month event lanes, or day rail composition.
+- Compact-row date text always uses selector weight, including its exact-zero
+  endpoint. It must not fall through to committed-selection styling on the
+  final pre-commit frame, which flashes the departed number once. Today's
+  accent disc and foreground color stay constant whether or not the moving
+  selector currently overlaps them.
+- The selector now follows the full distance of a fast multi-page fling rather
+  than freezing beyond the old one-page cutoff. Today retains its independent
+  accent disc in both the idle month canvas and the active swipe layer, even
+  while the selection pill is on top of it.
+
 ### Durable create identities — 2026-09-11
 
 - Connected CalDAV/CardDAV creates now use UUID-backed local IDs. The prior
