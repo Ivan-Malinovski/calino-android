@@ -140,6 +140,9 @@ import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.state.TaskTree
+import calino.malinov.ski.poc.ui.components.taskNestIndent
+import calino.malinov.ski.poc.ui.components.TaskNestStep
+import calino.malinov.ski.poc.state.nestingLinesFor
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.formatCalinoDuration
 import calino.malinov.ski.poc.design.CalinoSpacing
@@ -1665,17 +1668,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
         // Rails are drawn from the rendered order: a level keeps its rail when a
         // later row still sits at that depth before the list climbs above it.
         val depths = tasks.map { taskTree.depth(it.id) }
-        val lineages = depths.indices.map { index ->
-            List(depths[index]) { level ->
-                var continues = false
-                for (next in index + 1 until depths.size) {
-                    val nextDepth = depths[next]
-                    if (nextDepth < level) break
-                    if (nextDepth == level) { continues = true; break }
-                }
-                continues
-            }
-        }
+        val lineages = nestingLinesFor(depths)
         tasks.forEachIndexed { index, originalTask ->
             val task = renderTask(originalTask)
             // A completion can move a row from its date bucket to Completed.
@@ -1706,35 +1699,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                     modifier = Modifier.animateItem(),
                 )
             }
-        }
-    }
-}
-
-/** Indent applied per nesting level, and the width of one connector rail slot. */
-private const val TaskNestStep = 20
-
-/**
- * Draws the subtask connectors in the gutter left of an indented row: a rail for
- * every ancestor level that still continues below, and an elbow from this row's
- * own level into the card edge.
- */
-private fun DrawScope.drawNestRails(
-    depth: Int,
-    nestingLines: List<Boolean>,
-    color: Color,
-    stepPx: Float,
-    strokePx: Float,
-) {
-    if (depth <= 0) return
-    val centerY = size.height / 2f
-    for (level in 0 until depth) {
-        val x = level * stepPx + stepPx / 2f
-        val continues = nestingLines.getOrElse(level) { false }
-        val own = level == depth - 1
-        val endY = if (own && !continues) centerY else size.height
-        drawLine(color, Offset(x, 0f), Offset(x, endY), strokePx, StrokeCap.Round)
-        if (own) {
-            drawLine(color, Offset(x, centerY), Offset(depth * stepPx, centerY), strokePx, StrokeCap.Round)
         }
     }
 }
@@ -1799,9 +1763,6 @@ private fun TaskRow(
         animationSpec = tween(180),
         label = "subtask chevron",
     )
-    val railColor = CalinoColors.Ink.copy(alpha = .10f)
-    val stepPx = with(density) { TaskNestStep.dp.toPx() }
-    val strokePx = with(density) { 1.dp.toPx() }
     val description = buildString {
         append(task.title)
         task.due?.let { append(", due "); append(it.format(DateTimeFormatter.ofPattern("MMM d", Locale.US))) }
@@ -1841,14 +1802,9 @@ private fun TaskRow(
             Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(liftedDrag.x.roundToInt(), verticalDrag.roundToInt()) }
-                // Drawn before the indent padding so the rails land in the
-                // gutter the card has been pushed out of. A carried row drops
-                // its own rails -- they would otherwise travel with the card
-                // and hide the fact that it has left the parent.
-                .drawBehind {
-                    if (!isLifted) drawNestRails(depth, nestingLines, railColor, stepPx, strokePx)
-                }
-                .padding(start = (depth * TaskNestStep).dp)
+                // A carried row drops its own rails -- they would otherwise
+                // travel with the card and hide that it has left the parent.
+                .taskNestIndent(depth, nestingLines, drawRails = !isLifted)
                 .clip(rowShape),
         ) {
             if (canAct) {

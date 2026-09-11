@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -409,6 +410,11 @@ private fun SidebarExtras(
     var fixtureCalendarNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var fixtureCalendarColors by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
     var upcomingTasksExpanded by remember { mutableStateOf(true) }
+    val upcomingChevronRotation by animateFloatAsState(
+        targetValue = if (upcomingTasksExpanded) 90f else 0f,
+        animationSpec = tween(180),
+        label = "upcoming tasks chevron",
+    )
     val rows = if (accounts.isEmpty()) {
         snapshot.calendars.map { calendar ->
             SidebarCalendarRow(
@@ -467,11 +473,14 @@ private fun SidebarExtras(
                 modifier = Modifier.weight(1f),
             )
             Text("${upcoming.size}", color = CalinoColors.Ink3, fontSize = 12.sp)
-            Text(
-                if (upcomingTasksExpanded) "⌄" else "›",
-                color = CalinoColors.Ink2,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(start = 8.dp),
+            CalinoIcon(
+                CalinoIcon.Forward,
+                tint = CalinoColors.Ink3,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(16.dp)
+                    .graphicsLayer { rotationZ = upcomingChevronRotation },
+                contentDescription = null,
             )
         }
         AnimatedVisibility(

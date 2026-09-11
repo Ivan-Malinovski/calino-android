@@ -66,3 +66,51 @@ class TaskTree(tasks: List<CalTask>) {
     private fun tasks(): List<CalTask> = taskById.values.toList()
 }
 
+
+/** One row of a nested task list: the task, its shown depth, and its rails. */
+data class NestedTask(val task: CalTask, val depth: Int, val nestingLines: List<Boolean>)
+
+/**
+ * For a rendered sequence of depths, reports per row and per ancestor level
+ * whether that level still has a row below it -- the rail a connector keeps
+ * drawing past this row.
+ */
+fun nestingLinesFor(depths: List<Int>): List<List<Boolean>> = depths.indices.map { index ->
+    List(depths[index]) { level ->
+        var continues = false
+        for (next in index + 1 until depths.size) {
+            val nextDepth = depths[next]
+            if (nextDepth < level) break
+            if (nextDepth == level) { continues = true; break }
+        }
+        continues
+    }
+}
+
+/**
+ * Orders one list of tasks -- a single day's, typically -- so every subtask
+ * follows the parent it shares that list with, and reports the depth each row
+ * should show.
+ *
+ * A task whose parent is absent renders as a root: nesting is only drawn where
+ * both ends of the relationship are actually on screen, so a subtask due today
+ * does not hang off nothing in a day view while its parent sits next week.
+ */
+fun nestWithinList(tasks: List<CalTask>): List<NestedTask> {
+    val present = tasks.associateBy { it.id }
+    val childrenOf = tasks.filter { it.parentTaskId in present.keys }.groupBy { it.parentTaskId }
+    val ordered = mutableListOf<CalTask>()
+    val depths = mutableListOf<Int>()
+    val seen = mutableSetOf<String>()
+    fun append(task: CalTask, depth: Int) {
+        if (!seen.add(task.id)) return
+        ordered += task
+        depths += depth
+        childrenOf[task.id].orEmpty().forEach { append(it, depth + 1) }
+    }
+    tasks.filter { it.parentTaskId == null || it.parentTaskId !in present.keys }.forEach { append(it, 0) }
+    // A cycle among present tasks would otherwise drop rows from the list.
+    tasks.filter { it.id !in seen }.forEach { append(it, 0) }
+    val lines = nestingLinesFor(depths)
+    return ordered.indices.map { NestedTask(ordered[it], depths[it], lines[it]) }
+}

@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.ui.components.taskNestIndent
+import calino.malinov.ski.poc.state.nestWithinList
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoShapes
@@ -308,11 +310,12 @@ internal fun AgendaDayBlock(
                         )
                     }
                 }
-                tasks.forEach { task ->
+                nestWithinList(tasks).forEach { (task, depth, nestingLines) ->
                     var menuOpen by remember(task.id) { mutableStateOf(false) }
                     Box {
                         AgendaTaskRow(
                             task = task,
+                            modifier = Modifier.taskNestIndent(depth, nestingLines),
                             // Only a task that carries a real due *time* gets a
                             // clock face. Formatting the due date's midnight gave
                             // every task an identical "12:00 AM" that said nothing.

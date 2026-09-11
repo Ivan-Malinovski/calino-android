@@ -141,6 +141,8 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.lastCoveredDate
 import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.ui.components.taskNestIndent
+import calino.malinov.ski.poc.state.nestWithinList
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
@@ -1959,12 +1961,14 @@ private fun CalendarTaskRow(
     onTaskClick: (() -> Unit)?,
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)? = null,
+    depth: Int = 0,
+    nestingLines: List<Boolean> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember(task.id) { mutableStateOf(false) }
     val baseDate = task.due ?: LocalCalinoNow.current.today
 
-    Column(modifier.fillMaxWidth()) {
+    Column(modifier.fillMaxWidth().taskNestIndent(depth, nestingLines)) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -4757,13 +4761,15 @@ private fun SelectedDayAgendaPage(
                 exit = shrinkVertically(tween(160)) + fadeOut(tween(120)),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                    dayTasks.forEach { task ->
+                    nestWithinList(dayTasks).forEach { (task, depth, nestingLines) ->
                         CalendarTaskRow(
                             task = task,
                             onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
                             onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
                             onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
                             onTaskDrop = onTaskDrop,
+                            depth = depth,
+                            nestingLines = nestingLines,
                         )
                     }
                 }
@@ -4943,13 +4949,15 @@ private fun DayRailPage(
             ) {
                 if (dayTasks.isNotEmpty()) {
                     Text("TASKS DUE", fontSize = 10.sp, letterSpacing = 1.sp, color = CalinoColors.Green)
-                    dayTasks.forEach { task ->
+                    nestWithinList(dayTasks).forEach { (task, depth, nestingLines) ->
                         CalendarTaskRow(
                             task = task,
                             onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
                             onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
                             onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
                             onTaskDrop = onTaskDrop,
+                            depth = depth,
+                            nestingLines = nestingLines,
                             modifier = Modifier.padding(vertical = 1.dp),
                         )
                     }
