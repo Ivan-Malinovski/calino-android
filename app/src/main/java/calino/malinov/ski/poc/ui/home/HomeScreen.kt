@@ -4664,6 +4664,20 @@ private fun DayPagerSurface(
     // could measure them from the outside.
     val cardBounds = remember { mutableStateMapOf<String, TimelineCardBounds>() }
     var dragSession by remember { mutableStateOf<TimelineDragSession?>(null) }
+    var pendingDrop by remember { mutableStateOf<PendingTimelineDrop?>(null) }
+    // Released as soon as the published events carry the new time, so the
+    // optimistic placement is only ever ahead of the data, never instead of it.
+    LaunchedEffect(events, pendingDrop) {
+        val drop = pendingDrop ?: return@LaunchedEffect
+        if (events.firstOrNull { it.id == drop.eventId }?.start == drop.start) pendingDrop = null
+    }
+    // A write that is rejected or never lands must not pin the card to a time
+    // the event does not have. Letting go here snaps it back to the truth.
+    LaunchedEffect(pendingDrop) {
+        if (pendingDrop == null) return@LaunchedEffect
+        delay(PendingDropHoldMillis)
+        pendingDrop = null
+    }
     var createSession by remember { mutableStateOf<TimelineCreateSession?>(null) }
     var activeLaneHeightPx by remember { mutableFloatStateOf(0f) }
     var hostOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -4764,6 +4778,7 @@ private fun DayPagerSurface(
                         val target = dropTargetFor(session)
                         val start = session.card.event.start
                         if (target != null && start != null && target != start) {
+                            pendingDrop = PendingTimelineDrop(session.card.event.id, target)
                             onEventTimeDrop?.invoke(session.card.event, target)
                         }
                     }
@@ -4797,7 +4812,8 @@ private fun DayPagerSurface(
         key = { page -> dateForDayPage(page).toEpochDay() },
     ) { page ->
         val pageDay = dateForDayPage(page)
-        val dayEvents = remember(events, pageDay) { eventsFor(events, pageDay) }
+        val placedEvents = remember(events, pendingDrop) { withPendingDrop(events, pendingDrop) }
+        val dayEvents = remember(placedEvents, pageDay) { eventsFor(placedEvents, pageDay) }
         val dayTasks = tasksByDueDate[pageDay].orEmpty()
         Box(Modifier.fillMaxSize()) {
             // Keep the rail mounted until the agenda has covered it. The
@@ -5393,6 +5409,18 @@ private data class TimelineCardBounds(
 )
 
 /** A lift in flight, owned by the pager host so it can outlive its page. */
+/**
+ * Where a just-dropped card should be drawn until the write comes back.
+ *
+ * Releasing the card ends the drag, but the event behind it still carries its
+ * old time for as long as the round trip takes. Without this the card returned
+ * to the hour it came from and then jumped to the new one a second later.
+ */
+private data class PendingTimelineDrop(
+    val eventId: String,
+    val start: LocalDateTime,
+)
+
 private data class TimelineDragSession(
     val card: TimelineCardBounds,
     val drag: Offset = Offset.Zero,
@@ -5532,6 +5560,18 @@ private data class TimelineEventDragVisual(
     val showMetadata: Boolean,
     val offsetY: Float = 0f,
 )
+
+/** How long a dropped card may sit ahead of its event before giving up. */
+private const val PendingDropHoldMillis = 4_000L
+
+/** The events as drawn, with a just-dropped card already at its new time. */
+private fun withPendingDrop(events: List<CalEvent>, drop: PendingTimelineDrop?): List<CalEvent> {
+    if (drop == null) return events
+    if (events.none { it.id == drop.eventId }) return events
+    return events.map { event ->
+        if (event.id != drop.eventId) event else event.copy(start = drop.start)
+    }
+}
 
 private fun timelineDropMinutes(offsetPx: Float, hourHeightPx: Float): Int {
     if (hourHeightPx <= 0f) return 0
