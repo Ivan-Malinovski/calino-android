@@ -54,9 +54,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
@@ -368,7 +366,6 @@ fun HomeScreen(
     onEventTimeDrop: (CalEvent, LocalDateTime) -> Unit = { _, _ -> },
     onCreateEventAt: ((LocalDateTime) -> Unit)? = null,
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
-    onTaskRescheduleTo: (CalTask, LocalDate?) -> Unit = { _, _ -> },
     onTaskClick: ((CalTask) -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     onTaskDrop: (CalTask, LocalDate) -> Unit = { _, _ -> },
@@ -1487,7 +1484,6 @@ fun HomeScreen(
                         onEventTimeDrop = onEventTimeDrop,
                         onCreateEventAt = onCreateEventAt,
                         onTaskDone = onTaskDone,
-                        onTaskRescheduleTo = onTaskRescheduleTo,
                         onTaskClick = onTaskClick,
                         onTaskAction = onTaskAction,
                         onTaskDrop = onTaskDrop,
@@ -1960,13 +1956,11 @@ private fun WeekDay(
 private fun CalendarTaskRow(
     task: CalTask,
     onTaskDone: ((Boolean) -> Unit)?,
-    onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onTaskClick: (() -> Unit)?,
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var rescheduleOpen by remember(task.id) { mutableStateOf(false) }
     var menuOpen by remember(task.id) { mutableStateOf(false) }
     val baseDate = task.due ?: LocalCalinoNow.current.today
 
@@ -1986,26 +1980,6 @@ private fun CalendarTaskRow(
                 } },
                 compact = true,
             )
-            if (!task.done && onTaskRescheduleTo != null) {
-                IconButton(
-                    onClick = { rescheduleOpen = !rescheduleOpen },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .semantics {
-                            contentDescription = if (rescheduleOpen) {
-                                "Hide reschedule options for ${task.title}"
-                            } else {
-                                "Show reschedule options for ${task.title}"
-                            }
-                        },
-                ) {
-                    Icon(
-                        CalinoIcons.Repeat,
-                        contentDescription = null,
-                        tint = CalinoColors.Ink2,
-                    )
-                }
-            }
         }
         TaskActionMenu(
             task = task,
@@ -2013,52 +1987,6 @@ private fun CalendarTaskRow(
             onDismiss = { menuOpen = false },
             onAction = { action -> onTaskAction?.invoke(action, task) },
         )
-        AnimatedVisibility(
-            visible = rescheduleOpen && !task.done && onTaskRescheduleTo != null,
-            enter = expandVertically(tween(180)) + fadeIn(tween(160)),
-            exit = shrinkVertically(tween(160)) + fadeOut(tween(120)),
-        ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 56.dp, end = 8.dp, bottom = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                listOf(
-                    baseDate.plusDays(1) to "Tomorrow",
-                    baseDate.plusDays(7) to "Next week",
-                ).forEach { (date, label) ->
-                    TextButton(
-                        onClick = {
-                            rescheduleOpen = false
-                            onTaskRescheduleTo?.invoke(task, date)
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 44.dp)
-                            .semantics {
-                                contentDescription = "Reschedule ${task.title} to $label"
-                            },
-                    ) {
-                        Text(label, color = CalinoColors.Ink2, fontSize = 11.sp, maxLines = 1)
-                    }
-                }
-                TextButton(
-                    onClick = {
-                        rescheduleOpen = false
-                        onTaskRescheduleTo?.invoke(task, null)
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 44.dp)
-                        .semantics {
-                            contentDescription = "Remove due date from ${task.title}"
-                        },
-                ) {
-                    Text("No date", color = CalinoColors.Ink2, fontSize = 11.sp, maxLines = 1)
-                }
-            }
-        }
     }
 }
 
@@ -4439,7 +4367,6 @@ private fun DayPagerSurface(
     onEventTimeDrop: ((CalEvent, LocalDateTime) -> Unit)?,
     onCreateEventAt: ((LocalDateTime) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
-    onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onTaskClick: ((CalTask) -> Unit)?,
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
@@ -4638,7 +4565,6 @@ private fun DayPagerSurface(
                         null
                     },
                     onTaskDone = if (dayRailOwnsInput) onTaskDone else null,
-                    onTaskRescheduleTo = if (dayRailOwnsInput) onTaskRescheduleTo else null,
                     onTaskClick = if (dayRailOwnsInput) onTaskClick else null,
                     onTaskAction = if (dayRailOwnsInput) onTaskAction else null,
                     onTaskDrop = if (dayRailOwnsInput) onTaskDrop else null,
@@ -4673,7 +4599,6 @@ private fun DayPagerSurface(
                     onEventAction = if (agendaOwnsInput) onEventAction else null,
                     onEventDrop = if (agendaOwnsInput) onEventDrop else null,
                     onTaskDone = if (agendaOwnsInput) onTaskDone else null,
-                    onTaskRescheduleTo = if (agendaOwnsInput) onTaskRescheduleTo else null,
                     onTaskClick = if (agendaOwnsInput) onTaskClick else null,
                     onTaskAction = if (agendaOwnsInput) onTaskAction else null,
                     onTaskDrop = if (agendaOwnsInput) onTaskDrop else null,
@@ -4755,7 +4680,6 @@ private fun SelectedDayAgendaPage(
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
     onEventDrop: ((CalEvent, LocalDate) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
-    onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onTaskClick: ((CalTask) -> Unit)?,
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
@@ -4837,7 +4761,6 @@ private fun SelectedDayAgendaPage(
                         CalendarTaskRow(
                             task = task,
                             onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
-                            onTaskRescheduleTo = onTaskRescheduleTo,
                             onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
                             onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
                             onTaskDrop = onTaskDrop,
@@ -4887,7 +4810,6 @@ private fun DayRailPage(
     onCardBounds: ((TimelineCardBounds) -> Unit)?,
     onCardGone: ((String) -> Unit)?,
     onTaskDone: ((CalTask, Boolean) -> Unit)?,
-    onTaskRescheduleTo: ((CalTask, LocalDate?) -> Unit)?,
     onTaskClick: ((CalTask) -> Unit)?,
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
@@ -5025,7 +4947,6 @@ private fun DayRailPage(
                         CalendarTaskRow(
                             task = task,
                             onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
-                            onTaskRescheduleTo = onTaskRescheduleTo,
                             onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
                             onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
                             onTaskDrop = onTaskDrop,

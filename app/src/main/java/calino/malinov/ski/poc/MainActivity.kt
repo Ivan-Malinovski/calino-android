@@ -1140,9 +1140,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onTaskDone = { task, done ->
                             launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
                         },
-                        onTaskRescheduleTo = { task, date ->
-                            launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
-                        },
                         onTaskClick = { task ->
                             openTaskDetail(task, PocReturnTarget.Calendar)
                         },
