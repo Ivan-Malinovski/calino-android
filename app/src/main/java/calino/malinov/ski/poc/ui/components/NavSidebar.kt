@@ -44,7 +44,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -84,7 +83,6 @@ import calino.malinov.ski.poc.data.model.CalDavAccount
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
-import calino.malinov.ski.poc.data.repository.SyncState
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
 import calino.malinov.ski.poc.ui.surfaces.TaskActionMenu
@@ -226,11 +224,36 @@ fun NavSidebar(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(
-                            "Calino",
-                            style = CalinoTypography.titleLarge.copy(fontSize = 22.sp),
-                            modifier = Modifier.padding(start = 10.dp, bottom = 10.dp),
-                        )
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 10.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            // Match the web sidebar brand: an 11dp accent diamond
+                            // with a theme-aware accent focus ring.
+                            Box(
+                                Modifier
+                                    .size(19.dp)
+                                    .graphicsLayer { rotationZ = 45f }
+                                    .background(
+                                        CalinoColors.Accent.copy(alpha = if (CalinoColors.isDark) .20f else .14f),
+                                        RoundedCornerShape(5.dp),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(11.dp)
+                                        .background(CalinoColors.Accent, RoundedCornerShape(3.dp)),
+                                )
+                            }
+                            Text(
+                                "Calino",
+                                style = CalinoTypography.titleLarge.copy(fontSize = 22.sp),
+                            )
+                        }
                         SidebarMiniCalendar(
                             selectedDate = selectedDate,
                             onDateChanged = onDateChanged,
@@ -415,14 +438,108 @@ private fun SidebarExtras(
         }
     }
 
-    SidebarSectionLabel("CALENDARS")
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    val taskCardShape = RoundedCornerShape(12.dp)
+    val upcoming = snapshot.tasks
+        .filter { !it.done }
+        .filter { it.parentTaskId == null }
+        .sortedBy { it.due ?: LocalDate.MAX }
+        .take(10)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(taskCardShape)
+            .background(CalinoColors.Panel)
+            .border(1.dp, CalinoColors.Line, taskCardShape)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .clickable { upcomingTasksExpanded = !upcomingTasksExpanded }
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "UPCOMING TASKS",
+                style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
+                modifier = Modifier.weight(1f),
+            )
+            Text("${upcoming.size}", color = CalinoColors.Ink3, fontSize = 12.sp)
+            Text(
+                if (upcomingTasksExpanded) "⌄" else "›",
+                color = CalinoColors.Ink2,
+                fontSize = 20.sp,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        AnimatedVisibility(
+            visible = upcomingTasksExpanded,
+            enter = expandVertically(tween(180)) + fadeIn(tween(140)),
+            exit = shrinkVertically(tween(140)) + fadeOut(tween(100)),
+        ) {
+            Column {
+                upcoming.forEach { task ->
+                    var menuOpen by remember(task.id) { mutableStateOf(false) }
+                    Box(Modifier.fillMaxWidth()) {
+                        TaskRow(
+                            task = task,
+                            compact = true,
+                            onCheckedChange = { onTaskComplete(task, it) },
+                            onClick = { onTaskClick(task) },
+                            onLongClick = { menuOpen = true },
+                        )
+                        TaskActionMenu(
+                            task = task,
+                            expanded = menuOpen,
+                            onDismiss = { menuOpen = false },
+                            onAction = { action -> onTaskAction(action, task) },
+                        )
+                    }
+                }
+                if (upcoming.isEmpty()) {
+                    Text(
+                        "No upcoming tasks",
+                        color = CalinoColors.Ink3,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                    )
+                }
+            }
+        }
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "CALENDARS",
+            style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
+            modifier = Modifier.weight(1f),
+        )
         val visibleCount = rows.count { row ->
             if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
         }
-        Text("$visibleCount of ${rows.size} visible", color = CalinoColors.Ink3, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        TextButton(onClick = onSyncAll, modifier = Modifier.heightIn(min = 44.dp)) { Text("Sync all", color = CalinoColors.Accent) }
+        Text("$visibleCount of ${rows.size} visible", color = CalinoColors.Ink3, fontSize = 12.sp)
+        IconButton(
+            onClick = onSyncAll,
+            modifier = Modifier
+                .size(44.dp)
+                .semantics { contentDescription = "Sync all calendars" },
+        ) {
+            Icon(
+                CalinoIcons.Refresh,
+                contentDescription = null,
+                tint = CalinoColors.Accent,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
+
     rows.forEach { row ->
         val key = "${row.accountId.orEmpty()}:${row.calendar.id}"
         val visible = if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
@@ -521,109 +638,7 @@ private fun SidebarExtras(
             }
         }
     }
-
-    val taskCardShape = RoundedCornerShape(12.dp)
-    val upcoming = snapshot.tasks
-        .filter { !it.done }
-        .filter { it.parentTaskId == null }
-        .sortedBy { it.due ?: LocalDate.MAX }
-        .take(10)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(taskCardShape)
-            .background(CalinoColors.Panel)
-            .border(1.dp, CalinoColors.Line, taskCardShape)
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 44.dp)
-                .clip(RoundedCornerShape(7.dp))
-                .clickable { upcomingTasksExpanded = !upcomingTasksExpanded }
-                .padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "UPCOMING TASKS",
-                style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
-                modifier = Modifier.weight(1f),
-            )
-            Text("${upcoming.size}", color = CalinoColors.Ink3, fontSize = 12.sp)
-            Text(
-                if (upcomingTasksExpanded) "⌄" else "›",
-                color = CalinoColors.Ink2,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-        AnimatedVisibility(
-            visible = upcomingTasksExpanded,
-            enter = expandVertically(tween(180)) + fadeIn(tween(140)),
-            exit = shrinkVertically(tween(140)) + fadeOut(tween(100)),
-        ) {
-            Column {
-                upcoming.forEach { task ->
-                    var menuOpen by remember(task.id) { mutableStateOf(false) }
-                    Box(Modifier.fillMaxWidth()) {
-                        TaskRow(
-                            task = task,
-                            compact = true,
-                            onCheckedChange = { onTaskComplete(task, it) },
-                            onClick = { onTaskClick(task) },
-                            onLongClick = { menuOpen = true },
-                        )
-                        TaskActionMenu(
-                            task = task,
-                            expanded = menuOpen,
-                            onDismiss = { menuOpen = false },
-                            onAction = { action -> onTaskAction(action, task) },
-                        )
-                    }
-                }
-                if (upcoming.isEmpty()) {
-                    Text(
-                        "No upcoming tasks",
-                        color = CalinoColors.Ink3,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
-                    )
-                }
-            }
-        }
-    }
-
-    val preferences = LocalCalinoPreferences.current
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Show completed tasks", color = CalinoColors.Ink2, fontSize = 12.sp, modifier = Modifier.weight(1f))
-        Checkbox(
-            checked = !preferences.hideCompletedTasks,
-            onCheckedChange = { preferences.setHideCompletedTasks(!it) },
-            modifier = Modifier.semantics { contentDescription = "Show completed tasks in views" },
-        )
-    }
-
-    SidebarSectionLabel("SYNC")
-    val syncLabel = when (val state = snapshot.sync) {
-        SyncState.Idle -> "Up to date"
-        is SyncState.Loading -> "Syncing…"
-        is SyncState.Ready -> if (state.partial) "Synced with warnings" else "Up to date"
-        is SyncState.Failed -> "Sync failed"
-    }
-    Text(syncLabel, color = if (snapshot.sync is SyncState.Failed) CalinoColors.Rose else CalinoColors.Ink2, fontSize = 12.sp)
-    HorizontalDivider(Modifier.padding(vertical = 12.dp), color = CalinoColors.Line)
     Text("Privacy", color = CalinoColors.Ink3, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-    Text("Calino on GitHub", color = CalinoColors.Ink3, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-}
-
-@Composable
-private fun SidebarSectionLabel(text: String) {
-    Text(
-        text,
-        style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
-        modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 4.dp),
-    )
 }
 
 /**

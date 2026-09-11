@@ -4,6 +4,14 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Sidebar polish — 2026-09-11
+
+- The navigation drawer starts with the web-matched Calino diamond and
+  wordmark. Upcoming Tasks now appears before the calendar list.
+- The calendar section presents `CALENDARS`, the visible-count label, and an
+  accessible refresh button on one line. The old GitHub footer link, completed
+  task toggle, and sidebar sync-status copy were removed.
+
 ## Current state
 
 ### Full-month vertical gesture ownership — 2026-09-11
