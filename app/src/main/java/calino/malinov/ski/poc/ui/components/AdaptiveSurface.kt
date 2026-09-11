@@ -74,6 +74,9 @@ import calino.malinov.ski.poc.state.CalinoSurfaceKind
 import calino.malinov.ski.poc.state.LocalHingeOpenness
 import calino.malinov.ski.poc.state.foldSplitProgress
 import calino.malinov.ski.poc.state.CalinoSurfaceMode
+import calino.malinov.ski.poc.state.EndLaneWidthDp
+import calino.malinov.ski.poc.state.calinoEndLaneActive
+import calino.malinov.ski.poc.state.calinoFloatsInEndLane
 import calino.malinov.ski.poc.state.calinoSurfaceModeFor
 import calino.malinov.ski.poc.state.calinoWindowClassFor
 import kotlin.math.abs
@@ -129,7 +132,12 @@ fun AdaptiveSurfaceHost(
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val windowClass = calinoWindowClassFor(maxWidth.value.roundToInt())
-        val mode = calinoSurfaceModeFor(windowClass, kind)
+        val endLane = calinoEndLaneActive(maxWidth.value.roundToInt(), maxHeight.value.roundToInt())
+        val mode = calinoSurfaceModeFor(windowClass, kind, endLane)
+        // A floating card that keeps its own size but sits under the pill
+        // instead of in the middle of the window.
+        val inLane = endLane && calinoFloatsInEndLane(kind)
+        val laneWidth = minOf(EndLaneWidthDp.dp, maxWidth)
         val scrimProgress by animateFloatAsState(
             targetValue = if (mounted && visible) scrimAlpha else 0f,
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
@@ -152,7 +160,10 @@ fun AdaptiveSurfaceHost(
             ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp),
             splitProgress,
         )
-        val floatingWidthTarget = minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap, foldWidthCap)
+        val laneInnerWidth = (laneWidth - 32.dp).coerceAtLeast(1.dp)
+        val laneWidthCap = if (inLane) laneInnerWidth else maxWidth
+        val floatingWidthTarget =
+            minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap, foldWidthCap, laneWidthCap)
         val floatingHeightTarget = minOf((maxHeight - 32.dp).coerceAtLeast(1.dp), surfaceHeightCap)
         val floatingWidth by animateDpAsState(
             targetValue = floatingWidthTarget,
@@ -164,8 +175,10 @@ fun AdaptiveSurfaceHost(
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
             label = "adaptive floating height",
         )
+        // Capped to the lane as well, so the panel and the pill riding above it
+        // share one centre line instead of being a gutter's width apart.
         val settledSideWidth by animateDpAsState(
-            targetValue = minOf((maxWidth * .46f).coerceAtLeast(1.dp), surfaceWidthCap),
+            targetValue = minOf((maxWidth * .46f).coerceAtLeast(1.dp), surfaceWidthCap, laneInnerWidth),
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
             label = "adaptive side panel width",
         )
@@ -208,11 +221,18 @@ fun AdaptiveSurfaceHost(
                     .padding(vertical = 8.dp)
                     .fillMaxWidth()
                     .height(bottomHeight)
-            CalinoSurfaceMode.FloatingWindow ->
+            CalinoSurfaceMode.FloatingWindow -> if (inLane) {
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = ((laneWidth - floatingWidth) / 2f).coerceAtLeast(16.dp))
+                    .width(floatingWidth)
+                    .height(floatingHeight)
+            } else {
                 Modifier
                     .align(Alignment.Center)
                     .width(floatingWidth)
                     .height(floatingHeight)
+            }
             CalinoSurfaceMode.EndPanel ->
                 Modifier
                     .align(Alignment.CenterEnd)

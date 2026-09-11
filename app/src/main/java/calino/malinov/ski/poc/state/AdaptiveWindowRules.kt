@@ -34,27 +34,43 @@ fun calinoWindowClassFor(widthDp: Int): CalinoWindowClass = when {
 }
 
 /**
- * Search is a command surface, so it remains a centered window even on an
- * expanded display. The calendar/detail/editor surfaces use the logical end
- * edge once there is enough room to leave useful context visible behind them.
+ * Whether this window has an end lane -- the right-hand column the floating
+ * pill rides in. It opens with the landscape split, which happens at a
+ * narrower window than [CalinoWindowClass.Expanded] begins, and it is the one
+ * answer both the pill and the transient surfaces read: anything that
+ * continues out of the pill has to be placed where the pill actually is.
+ */
+fun calinoEndLaneActive(widthDp: Int, heightDp: Int): Boolean = shouldSplit(widthDp, heightDp)
+
+/**
+ * Search is a command surface, so it remains a centered window even with an
+ * end lane. The calendar/detail/editor surfaces use the logical end edge once
+ * there is a lane to sit in, which leaves useful context visible behind them.
  */
 fun calinoSurfaceModeFor(
     windowClass: CalinoWindowClass,
     kind: CalinoSurfaceKind,
-): CalinoSurfaceMode = when (windowClass) {
-    CalinoWindowClass.Compact -> CalinoSurfaceMode.BottomSheet
-    CalinoWindowClass.Medium -> CalinoSurfaceMode.FloatingWindow
-    CalinoWindowClass.Expanded -> if (
-        kind == CalinoSurfaceKind.Search ||
+    endLane: Boolean = windowClass == CalinoWindowClass.Expanded,
+): CalinoSurfaceMode = when {
+    windowClass == CalinoWindowClass.Compact -> CalinoSurfaceMode.BottomSheet
+    !endLane -> CalinoSurfaceMode.FloatingWindow
+    // The previews are deliberately short; stretching one down a full-height
+    // panel would be a lot of card around very little content. They stay
+    // floating windows and are placed in the lane instead.
+    kind == CalinoSurfaceKind.Search ||
         kind == CalinoSurfaceKind.Dialog ||
         kind == CalinoSurfaceKind.CompactPreview ||
-        kind == CalinoSurfaceKind.Preview
-    ) {
-        CalinoSurfaceMode.FloatingWindow
-    } else {
-        CalinoSurfaceMode.EndPanel
-    }
+        kind == CalinoSurfaceKind.Preview -> CalinoSurfaceMode.FloatingWindow
+    else -> CalinoSurfaceMode.EndPanel
 }
+
+/**
+ * Whether a floating surface should be centred on the end lane rather than on
+ * the window. Search and the dialogs are window-level commands and stay in the
+ * middle; everything else carries a lane pill and belongs under it.
+ */
+fun calinoFloatsInEndLane(kind: CalinoSurfaceKind): Boolean =
+    kind != CalinoSurfaceKind.Search && kind != CalinoSurfaceKind.Dialog
 
 /**
  * Narrowest window that splits into two panes *because of a hinge*. A half-open

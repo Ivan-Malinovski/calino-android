@@ -22,6 +22,12 @@ const val SplitPaneMinWidthDp = 720
 
 /** The day pane's own width once the window is wide enough to show it. */
 const val SplitPaneWidthDp = 360
+
+/**
+ * The end lane: the day pane's column plus the gutter around it. The floating
+ * pill and anything that continues out of it are centred on this lane.
+ */
+const val EndLaneWidthDp = SplitPaneWidthDp + 44
 const val ContactsListPaneWidthDp = 360
 
 enum class ContactsPaneMode { Sheet, FloatingWindow, EndPanel, Split }

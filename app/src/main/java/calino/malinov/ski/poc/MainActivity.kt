@@ -174,7 +174,7 @@ import calino.malinov.ski.poc.state.rememberCalinoNow
 import calino.malinov.ski.poc.state.FeatureAvailability
 import calino.malinov.ski.poc.state.featureAvailabilityAfter
 import calino.malinov.ski.poc.design.CalinoTypography
-import calino.malinov.ski.poc.state.SplitPaneWidthDp
+import calino.malinov.ski.poc.state.EndLaneWidthDp
 import calino.malinov.ski.poc.state.shouldSplit
 import calino.malinov.ski.poc.state.PocReturnTarget
 import calino.malinov.ski.poc.ui.components.AddPill
@@ -1567,7 +1567,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             // lane. Keep that lane even when the day pane is collapsed, so
             // toggling the pane does not recenter the pill.
             val pillLaneWidth by animateDpAsState(
-                targetValue = if (splitMonthLayoutVisible || tabletLandscape) (SplitPaneWidthDp + 44).dp else 0.dp,
+                targetValue = if (splitMonthLayoutVisible || tabletLandscape) EndLaneWidthDp.dp else 0.dp,
                 animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
                 label = "add pill lane",
             )

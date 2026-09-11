@@ -5,9 +5,13 @@ import calino.malinov.ski.poc.state.CalinoSurfaceMode
 import calino.malinov.ski.poc.state.CalinoWindowClass
 import calino.malinov.ski.poc.state.CompactWindowMaxWidthDp
 import calino.malinov.ski.poc.state.MediumWindowMaxWidthDp
+import calino.malinov.ski.poc.state.calinoEndLaneActive
+import calino.malinov.ski.poc.state.calinoFloatsInEndLane
 import calino.malinov.ski.poc.state.calinoSurfaceModeFor
 import calino.malinov.ski.poc.state.calinoWindowClassFor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AdaptiveWindowRulesTest {
@@ -37,5 +41,37 @@ class AdaptiveWindowRulesTest {
         assertEquals(CalinoSurfaceMode.FloatingWindow, calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.Dialog))
         assertEquals(CalinoSurfaceMode.FloatingWindow, calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.CompactPreview))
         assertEquals(CalinoSurfaceMode.FloatingWindow, calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.Preview))
+    }
+
+    @Test
+    fun `the landscape split opens the end lane before expanded does`() {
+        assertTrue(calinoEndLaneActive(800, 600))
+        assertEquals(CalinoWindowClass.Medium, calinoWindowClassFor(800))
+        assertEquals(
+            CalinoSurfaceMode.EndPanel,
+            calinoSurfaceModeFor(CalinoWindowClass.Medium, CalinoSurfaceKind.Editor, endLane = true),
+        )
+    }
+
+    @Test
+    fun `a wide portrait window has no lane to anchor to`() {
+        assertFalse(calinoEndLaneActive(900, 1400))
+        assertEquals(
+            CalinoSurfaceMode.FloatingWindow,
+            calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.Day, endLane = false),
+        )
+    }
+
+    @Test
+    fun `previews follow the pill into the lane, search stays centered`() {
+        assertTrue(calinoFloatsInEndLane(CalinoSurfaceKind.Preview))
+        assertTrue(calinoFloatsInEndLane(CalinoSurfaceKind.CompactPreview))
+        assertFalse(calinoFloatsInEndLane(CalinoSurfaceKind.Search))
+        assertFalse(calinoFloatsInEndLane(CalinoSurfaceKind.Dialog))
+    }
+
+    @Test
+    fun `a landscape phone is still too narrow for a lane`() {
+        assertFalse(calinoEndLaneActive(640, 360))
     }
 }
