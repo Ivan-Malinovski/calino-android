@@ -123,10 +123,6 @@ private val SettingsNavLaneHeight = 44.dp
 private val SettingsRailWidth = 232.dp
 private val SettingsNavPillHeight = 28.dp
 private val SettingsRowVerticalPadding = 6.dp
-// Keep enough room for a readable label beside any trailing preference value.
-// The foldable's outer display can report a wider dp width than the visible
-// content area, so use a generous phone breakpoint.
-private val SettingsInlineRowMinWidth = 440.dp
 
 private enum class SettingRowControlLayout {
     Inline,
@@ -187,29 +183,17 @@ fun SettingsSurface(
     BoxWithConstraints(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         val sideRail = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt())
 
+        // The burger sits beside the title, as on Journal and Contacts, so the
+        // header costs one line rather than a third of a phone screen.
         val header: @Composable (Modifier) -> Unit = { headerModifier ->
-            Column(headerModifier) {
+            Row(headerModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 onOpenMenu?.let {
-                    MenuButton(onClick = it, modifier = Modifier.padding(bottom = 2.dp))
+                    MenuButton(onClick = it, modifier = Modifier.padding(end = 6.dp))
                 }
                 Text(
                     "Settings",
                     style = if (sideRail) CalinoTypography.headlineLarge else CalinoTypography.displayLarge,
                 )
-                Text(
-                    "Shape Calino around the way you think.",
-                    style = CalinoTypography.bodyMedium,
-                    color = CalinoColors.Ink2,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-                if (!sideRail) {
-                    Text(
-                        "Everything here is live and remembered. Rows marked PLANNED have no behaviour behind them yet.",
-                        style = CalinoTypography.bodySmall,
-                        color = CalinoColors.Ink3,
-                        modifier = Modifier.padding(top = 5.dp),
-                    )
-                }
             }
         }
 
@@ -743,7 +727,7 @@ private fun SettingRow(
     controlLayout: SettingRowControlLayout = SettingRowControlLayout.Inline,
     control: @Composable () -> Unit,
 ) {
-    BoxWithConstraints(
+    Box(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = SettingsRowVerticalPadding)
@@ -753,10 +737,10 @@ private fun SettingRow(
             // a switch that could not move.
             .semantics { if (!enabled) disabled() },
     ) {
-        // On phone-sized settings cards every control gets its own line. This
-        // prevents both segmented controls and ordinary values/switches from
-        // starving the label into one-character wrapping.
-        val stacked = controlLayout == SettingRowControlLayout.AdaptiveSegmented || maxWidth < SettingsInlineRowMinWidth
+        // Only a segmented control takes a line of its own; it needs the full
+        // width to stay legible. Switches, value pills and tags stay inline on
+        // the right, where the label's weight keeps them from starving it.
+        val stacked = controlLayout == SettingRowControlLayout.AdaptiveSegmented
         if (stacked) {
             Column(
                 Modifier.fillMaxWidth(),
