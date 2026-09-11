@@ -98,6 +98,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.TransformOrigin
@@ -124,6 +125,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -148,6 +150,7 @@ import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoPalette
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
@@ -1702,6 +1705,208 @@ private fun MonthHeading(
     subtitle = if (showWeekNumber) "Week ${day.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)}" else null,
 )
 
+/**
+ * The compact week row is drawn in exactly one place, by [drawCompactWeekRow],
+ * and both the week pager and the month canvas go through it. They used to
+ * paint the same row from two independent trees that agreed only by
+ * convention, and the conventions had drifted: the numbers landed on
+ * different subpixels, days outside the displayed month kept their full ink
+ * in one and not the other, and the markers came out in a different order.
+ * Every one of those differences showed up as a flinch the moment a
+ * horizontal drag handed the row from one renderer to the other.
+ */
+private val CompactWeekDateStyle =
+    ComposeTextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+
+private val CompactWeekWeekdayStyle = ComposeTextStyle(fontSize = 10.sp)
+
+/** Everything [drawCompactWeekRow] needs, measured once per week. */
+private class CompactWeekRowVisual(
+    val dates: List<LocalDate>,
+    val weekdayLayouts: List<TextLayoutResult>,
+    val dateLayouts: List<TextLayoutResult>,
+    val markers: List<List<CalEvent>>,
+    val inMonth: List<Boolean>,
+    val today: LocalDate,
+)
+
+/**
+ * [anchorDay] decides which month the row belongs to, and so which of its days
+ * are drawn as spill-over from a neighbouring month. The month canvas anchors
+ * on the day it is showing compactly; the week pager anchors on the day its
+ * page carries, which is the same day.
+ */
+@Composable
+private fun rememberCompactWeekRowVisual(
+    firstDay: LocalDate,
+    weekStart: CalinoWeekStart,
+    events: List<CalEvent>,
+    anchorDay: LocalDate,
+): CompactWeekRowVisual {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val today = LocalCalinoNow.current.today
+    val eventDensity = LocalCalinoPreferences.current.eventDensity
+    return remember(firstDay, weekStart, events, anchorDay, today, eventDensity, density, measurer) {
+        val dates = List(7) { firstDay.plusDays(it.toLong()) }
+        val anchorMonth = YearMonth.from(anchorDay)
+        CompactWeekRowVisual(
+            dates = dates,
+            weekdayLayouts = weekdayLetters(weekStart).map {
+                measurer.measure(it, CompactWeekWeekdayStyle)
+            },
+            dateLayouts = dates.map {
+                measurer.measure(it.dayOfMonth.toString(), CompactWeekDateStyle)
+            },
+            markers = dates.map { date ->
+                // Same lane priority the expanded month uses, so a day's dots
+                // do not reshuffle on the way between the two surfaces.
+                eventsFor(events, date)
+                    .sortedBy(::expandedMonthEventPriority)
+                    .take(monthCellMarkerCap(eventDensity, 4))
+            },
+            inMonth = dates.map { YearMonth.from(it) == anchorMonth },
+            today = today,
+        )
+    }
+}
+
+/**
+ * Paints one week into the band between [bandTop] and [bandTop] + [bandHeight],
+ * with the selection pill sitting at [selectorIndex] -- a fractional column, so
+ * the pill travels with a drag instead of jumping between days.
+ */
+private fun DrawScope.drawCompactWeekRow(
+    visual: CompactWeekRowVisual,
+    colors: CalinoPalette,
+    selectorIndex: Float,
+    bandTop: Float,
+    bandHeight: Float,
+    alpha: Float = 1f,
+) {
+    if (alpha <= .001f) return
+    val selector = selectorIndex.coerceIn(0f, 6f)
+    val insetPx = CompactWeekMetrics.HorizontalPadding.toPx()
+    val cellWidthPx = ((size.width - insetPx * 2f) / 7f).coerceAtLeast(0f)
+    val weekdayHeightPx = visual.weekdayLayouts.maxOf { it.size.height }.toFloat()
+    val weekdayGapPx = 4.dp.toPx()
+    val dateSizePx = 22.dp.toPx()
+    val dateGapPx = 1.dp.toPx()
+    val markerGapPx = 3.dp.toPx()
+    val markerBandPx = 7.dp.toPx()
+    val contentHeightPx =
+        weekdayHeightPx + weekdayGapPx + dateSizePx + dateGapPx + markerBandPx
+    val contentTop = bandTop + (bandHeight - contentHeightPx) / 2f
+    val dateTop = contentTop + weekdayHeightPx + weekdayGapPx
+    val markerAreaTop = dateTop + dateSizePx + dateGapPx
+
+    fun faded(color: Color, factor: Float = 1f) =
+        color.copy(alpha = color.alpha * alpha * factor)
+
+    fun selectionWeight(column: Int) =
+        (1f - abs(selector - column.toFloat())).coerceIn(0f, 1f)
+
+    // One pill for the whole row: its position is what makes Monday to Tuesday
+    // a physical move rather than two cells swapping backgrounds.
+    val pillHeightPx = min(CompactWeekMetrics.PillHeight.toPx(), bandHeight)
+    val pillTopLeft = Offset(
+        insetPx + cellWidthPx * selector,
+        bandTop + (bandHeight - pillHeightPx) / 2f,
+    )
+    val pillSize = Size(cellWidthPx, pillHeightPx)
+    val pillCorner = CornerRadius(CompactWeekMetrics.PillRadius.toPx())
+    drawRoundRect(
+        color = faded(colors.SelectionFill.copy(alpha = colors.SelectionFill.alpha * .95f)),
+        topLeft = pillTopLeft,
+        size = pillSize,
+        cornerRadius = pillCorner,
+    )
+    if (colors.SelectionBorder.alpha > 0f) {
+        // Inset by half the stroke so the edge lands inside the pill rather
+        // than straddling its bounds and reading a pixel wider than the fill.
+        val strokePx = 1.dp.toPx()
+        drawRoundRect(
+            color = faded(colors.SelectionBorder),
+            topLeft = pillTopLeft + Offset(strokePx / 2f, strokePx / 2f),
+            size = Size(pillSize.width - strokePx, pillSize.height - strokePx),
+            cornerRadius = pillCorner,
+            style = Stroke(width = strokePx),
+        )
+    }
+
+    repeat(7) { column ->
+        val date = visual.dates[column]
+        val cellLeft = insetPx + cellWidthPx * column
+        val weight = selectionWeight(column)
+        val isToday = date == visual.today
+        if (isToday) {
+            // Today keeps its own identity under the moving selector.
+            drawCircle(
+                color = faded(colors.Accent),
+                radius = dateSizePx / 2f,
+                center = Offset(cellLeft + cellWidthPx / 2f, dateTop + dateSizePx / 2f),
+            )
+        }
+        val dateLayout = visual.dateLayouts[column]
+        drawText(
+            dateLayout,
+            topLeft = Offset(
+                cellLeft + (cellWidthPx - dateLayout.size.width) / 2f,
+                dateTop + (dateSizePx - dateLayout.size.height) / 2f,
+            ),
+            color = faded(
+                if (isToday) {
+                    colors.OnAccent
+                } else {
+                    lerpColor(
+                        if (visual.inMonth[column]) colors.Ink2 else colors.Ink3.copy(.5f),
+                        colors.OnSelection,
+                        weight,
+                    )
+                },
+            ),
+        )
+
+        val dayMarkers = visual.markers[column]
+        val widths = FloatArray(dayMarkers.size) {
+            if (dayMarkers[it].allDay) 18.dp.toPx() else 5.dp.toPx()
+        }
+        val totalGapPx = markerGapPx * (widths.size - 1).coerceAtLeast(0)
+        var rawTotal = totalGapPx
+        widths.forEach { width -> rawTotal += width }
+        val markerScale = if (rawTotal > 0f) {
+            min(1f, (cellWidthPx - totalGapPx).coerceAtLeast(1f) / rawTotal)
+        } else {
+            1f
+        }
+        var markerLeft = cellLeft + (cellWidthPx - rawTotal * markerScale) / 2f
+        dayMarkers.forEachIndexed { index, event ->
+            val markerWidth = widths[index] * markerScale
+            val markerHeight = if (event.allDay) 3.dp.toPx() else 5.dp.toPx()
+            drawRoundRect(
+                color = faded(colors.forEvent(Color(event.color))),
+                topLeft = Offset(markerLeft, markerAreaTop + (markerBandPx - markerHeight) / 2f),
+                size = Size(markerWidth, markerHeight),
+                cornerRadius = CornerRadius(2.dp.toPx()),
+            )
+            markerLeft += markerWidth + markerGapPx
+        }
+    }
+
+    // Headings last, so a selected column's letter reads over its pill.
+    repeat(7) { column ->
+        val layout = visual.weekdayLayouts[column]
+        drawText(
+            layout,
+            topLeft = Offset(
+                insetPx + cellWidthPx * column + (cellWidthPx - layout.size.width) / 2f,
+                contentTop,
+            ),
+            color = faded(lerpColor(colors.Ink3, colors.OnSelection, selectionWeight(column))),
+        )
+    }
+}
+
 @Composable
 private fun WeekStrip(
     state: PagerState,
@@ -1774,12 +1979,10 @@ private fun WeekStrip(
         val indicatorTargetIndex = selectorIndex().coerceIn(0f, 6f)
         HorizontalPager(
             state = state,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    horizontal = CompactWeekMetrics.HorizontalPadding,
-                    vertical = CompactWeekMetrics.VerticalPadding,
-                ),
+            // No padding here: the shared row insets itself exactly as the
+            // month canvas does, and a page narrower than the screen would
+            // travel a different distance per week than the month pager.
+            modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 0,
             userScrollEnabled = interactionEnabled,
             key = { page -> page },
@@ -1818,146 +2021,46 @@ private fun WeekStripPage(
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val cellWidth = maxWidth / 7
-        val selectedIndex = selected.weekdayColumn(weekStart)
-        val indicatorIndex = indicatorIndex.coerceIn(0f, 6f)
-
-        Box(Modifier.fillMaxSize()) {
-            // This is one indicator shared by the whole strip. Its animated
-            // position makes Monday -> Tuesday a physical move, not two
-            // independent cells fading their backgrounds.
-            Box(
-                Modifier.offset(x = cellWidth * indicatorIndex)
-                    .width(cellWidth)
-                    .height(CompactWeekMetrics.PillHeight)
-                    .align(Alignment.CenterStart)
-                    .clip(RoundedCornerShape(CompactWeekMetrics.PillRadius))
-                    .background(CalinoColors.Ink.copy(alpha = .95f)),
+    val visual = rememberCompactWeekRowVisual(firstDay, weekStart, events, selected)
+    val colors = CalinoColors
+    val today = LocalCalinoNow.current.today
+    Box(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawCompactWeekRow(
+                visual = visual,
+                colors = colors,
+                selectorIndex = indicatorIndex,
+                bandTop = 0f,
+                bandHeight = size.height,
             )
-            Row(Modifier.fillMaxSize()) {
-                (0..6).forEach { dayDelta ->
-                    val date = firstDay.plusDays(dayDelta.toLong())
-                    val distance = abs(indicatorIndex - dayDelta.toFloat()).coerceIn(0f, 1f)
-                    WeekDay(
-                        date = date,
-                        events = events,
-                        tasksDueCount = openTasksDueOn(tasksByDueDate[date].orEmpty(), date).size,
-                        currentSelectionWeight = 1f - distance,
-                        targetSelectionWeight = 0f,
-                        committedSelected = date == selected,
-                        drawSelectionBackground = false,
-                        modifier = Modifier.weight(1f),
-                        interactionEnabled = interactionEnabled,
-                        onClick = { onDay(date) },
-                    )
-                }
-            }
         }
-    }
-}
-
-@Composable
-private fun WeekDay(
-    date: LocalDate,
-    events: List<CalEvent>,
-    tasksDueCount: Int = 0,
-    currentSelectionWeight: Float,
-    targetSelectionWeight: Float,
-    committedSelected: Boolean,
-    drawSelectionBackground: Boolean = true,
-    modifier: Modifier,
-    interactionEnabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val isToday = date == LocalCalinoNow.current.today
-    val selectedWeight = max(currentSelectionWeight, targetSelectionWeight).coerceIn(0f, 1f)
-    val background by animateColorAsState(
-        if (drawSelectionBackground) {
-            CalinoColors.SelectionFill.copy(alpha = CalinoColors.SelectionFill.alpha * selectedWeight)
-        } else {
-            Color.Transparent
-        },
-        label = "week selection",
-    )
-    // Fades in with the fill rather than being switched on, so the edge and
-    // the block it outlines arrive together instead of the border snapping.
-    val selectionBorder by animateColorAsState(
-        if (drawSelectionBackground) {
-            CalinoColors.SelectionBorder.copy(alpha = CalinoColors.SelectionBorder.alpha * selectedWeight)
-        } else {
-            Color.Transparent
-        },
-        label = "week selection edge",
-    )
-    val eventDensity = LocalCalinoPreferences.current.eventDensity
-    val weekdayColor = lerpColor(CalinoColors.Ink3, CalinoColors.OnSelection.copy(.65f), selectedWeight)
-    val dateColor = lerpColor(CalinoColors.Ink2, CalinoColors.OnSelection, selectedWeight)
-    val interactionModifier = if (interactionEnabled) {
-        Modifier.clickable(onClick = onClick)
-    } else {
-        Modifier
-    }
-    val semanticsModifier = if (interactionEnabled) {
-        Modifier.semantics(mergeDescendants = true) {
-            contentDescription = buildString {
-                append(date.format(FullDateFormatter))
-                if (committedSelected) append(", selected")
-                if (isToday) append(", today")
-                if (tasksDueCount > 0) append(", $tasksDueCount open tasks due")
-            }
-        }
-    } else {
-        Modifier.clearAndSetSemantics { }
-    }
-    Column(
-        modifier = modifier
-            .fillMaxHeight()
-            .padding(horizontal = 2.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(background)
-            .border(1.dp, selectionBorder, RoundedCornerShape(14.dp))
-            .then(interactionModifier)
-            .then(semanticsModifier)
-            .padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
-            style = ComposeTextStyle(fontSize = 10.sp),
-            color = weekdayColor,
-        )
-        Spacer(Modifier.height(4.dp))
-        Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
-            if (isToday) {
-                // Today remains independently identifiable when the moving
-                // selector is on top of it. The month canvas already draws
-                // this accent disc; omitting it from the swipe layer made it
-                // disappear for exactly the duration of a horizontal drag.
+        // The row itself is painted; these lanes exist only to be touched and
+        // to be read out. Keeping them free of any drawing is what stops a
+        // second version of the row from growing back.
+        Row(Modifier.fillMaxSize()) {
+            visual.dates.forEach { date ->
+                val tasksDueCount = openTasksDueOn(tasksByDueDate[date].orEmpty(), date).size
                 Box(
-                    Modifier.size(22.dp)
-                        .clip(CircleShape)
-                        .background(CalinoColors.Accent),
+                    Modifier.weight(1f)
+                        .fillMaxHeight()
+                        .then(
+                            if (interactionEnabled) {
+                                Modifier.clickable { onDay(date) }
+                                    .semantics(mergeDescendants = true) {
+                                        contentDescription = buildString {
+                                            append(date.format(FullDateFormatter))
+                                            if (date == selected) append(", selected")
+                                            if (date == today) append(", today")
+                                            if (tasksDueCount > 0) {
+                                                append(", $tasksDueCount open tasks due")
+                                            }
+                                        }
+                                    }
+                            } else {
+                                Modifier.clearAndSetSemantics { }
+                            },
+                        ),
                 )
-            }
-            Text(
-                date.dayOfMonth.toString(),
-                style = ComposeTextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.Medium),
-                color = if (isToday) CalinoColors.OnAccent else dateColor,
-            )
-        }
-        Spacer(Modifier.height(1.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.height(7.dp),
-        ) {
-            eventsFor(events, date).take(monthCellMarkerCap(eventDensity, 4)).forEach { event ->
-                Box(Modifier.size(
-                    width = if (event.allDay) 18.dp else 5.dp,
-                    height = if (event.allDay) 3.dp else 5.dp,
-                ).clip(RoundedCornerShape(2.dp)).background(CalinoColors.forEvent(Color(event.color))))
             }
         }
     }
@@ -2871,12 +2974,10 @@ private fun StaticMonthGrid(
     val monthJournalDates = remember(journals, geometry) { monthJournalDates(journals, month, weekStart) }
     val textMeasurer = rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val dateStyle = remember {
-        ComposeTextStyle(fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
-    }
-    val weekdayStyle = remember {
-        ComposeTextStyle(fontSize = 10.sp)
-    }
+    // The same styles the shared compact row measures with, so the morph
+    // leaves the endpoint without the numbers changing size.
+    val dateStyle = CompactWeekDateStyle
+    val weekdayStyle = CompactWeekWeekdayStyle
     val eventStyle = remember {
         ComposeTextStyle(fontSize = 10.5.sp, lineHeight = 12.sp)
     }
@@ -2948,6 +3049,15 @@ private fun StaticMonthGrid(
         val inMonthFlags = remember(geometry) {
             cellDates.map { date -> YearMonth.from(date) == month }
         }
+        // The compact endpoint is drawn by the same routine the week pager
+        // uses. Below it the month morph owns the row again, and the two agree
+        // at the endpoint because the endpoint is literally the same code.
+        val compactRowVisual = rememberCompactWeekRowVisual(
+            firstDay = compactDay.startOfWeek(weekStart),
+            weekStart = weekStart,
+            events = events,
+            anchorDay = compactDay,
+        )
         val compactMarkerWidths = remember(geometry, events, density, eventDensity) {
             cellEvents.map { dayEvents ->
                 FloatArray(dayEvents.size.coerceAtMost(monthCellMarkerCap(eventDensity, 4))) { index ->
@@ -2988,6 +3098,10 @@ private fun StaticMonthGrid(
                 val drawAlpha = visualAlpha.value.coerceIn(0f, 1f)
                 val zoom = zoomState.value.coerceIn(0f, 2f)
                 val compactProgress = smoothStep(1f - zoom.coerceIn(0f, 1f))
+                // Exactly at rest, not merely close to it: the shared row is
+                // the endpoint geometry, and anything past zero is already
+                // morphing.
+                val sharedCompactRow = zoom <= .001f
                 val detailProgress = smoothStep((zoom - 1f).coerceIn(0f, 1f))
                 val compactWeekStart = compactDay.startOfWeek(weekStart)
                 val compactWeekRow = ((compactWeekStart.toEpochDay() - start.toEpochDay()) / 7L)
@@ -3145,7 +3259,7 @@ private fun StaticMonthGrid(
                         )
                     }
                 }
-                if (zoom < 1f && compactProgress > .001f) {
+                if (!sharedCompactRow && zoom < 1f && compactProgress > .001f) {
                     val pillHeight = min(
                         with(density) { CompactWeekMetrics.PillHeight.toPx() },
                         naturalWeekHeight.coerceAtLeast(1f),
@@ -3183,6 +3297,7 @@ private fun StaticMonthGrid(
                     val cellTop = rowTopFor(row)
                     val cellRowHeight = rowHeightFor(row)
                     val compactWeekStyle = zoom < 1f && row == compactWeekRow
+                    if (sharedCompactRow && row == compactWeekRow) return@repeat
                     val cellLeft = horizontalPaddingPx + cellWidthPx * column
                     contentFade = if (zoom <= 1f && row != compactWeekRow) 1f - compactProgress else 1f
                     clipRect(
@@ -3556,7 +3671,18 @@ private fun StaticMonthGrid(
                 }
             }
                 contentFade = 1f
-                drawWeekdayHeadings()
+                if (sharedCompactRow) {
+                    drawCompactWeekRow(
+                        visual = compactRowVisual,
+                        colors = colors,
+                        selectorIndex = compactSelectorIndex,
+                        bandTop = 0f,
+                        bandHeight = compactStartHeightPx,
+                        alpha = drawAlpha,
+                    )
+                } else {
+                    drawWeekdayHeadings()
+                }
             }
             MonthGridHitTargets(
                 selected = selected,
