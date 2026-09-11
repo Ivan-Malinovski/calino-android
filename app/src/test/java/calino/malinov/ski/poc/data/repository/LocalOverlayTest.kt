@@ -7,10 +7,28 @@ import calino.malinov.ski.poc.data.model.ContactLang
 import calino.malinov.ski.poc.data.model.ContactRelated
 import calino.malinov.ski.poc.data.model.ContactRelatedType
 import calino.malinov.ski.poc.data.model.NewContact
+import calino.malinov.ski.poc.data.model.NewEvent
+import java.time.LocalDate
+import java.time.LocalTime
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LocalOverlayTest {
+
+    @Test
+    fun `new event ids do not repeat when the process overlay is recreated`() {
+        val input = NewEvent(
+            title = "Across launches",
+            date = LocalDate.of(2026, 9, 11),
+            startTime = LocalTime.of(10, 0),
+        )
+
+        val firstLaunchId = LocalOverlay().newEvent(input).id
+        val secondLaunchId = LocalOverlay().newEvent(input).id
+
+        assertNotEquals(firstLaunchId, secondLaunchId)
+    }
 
     @Test
     fun `editing the reduced contact form preserves fields it does not expose`() {

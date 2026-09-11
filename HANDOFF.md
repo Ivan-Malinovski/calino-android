@@ -6,6 +6,14 @@ continue the UI work.
 
 ## Current state
 
+### Durable create identities — 2026-09-11
+
+- Connected CalDAV/CardDAV creates now use UUID-backed local IDs. The prior
+  process-local counter restarted at `local-event-1` (and equivalent task,
+  journal, and contact IDs), so a resource left on the server from an earlier
+  app launch caused the next launch's first create to fail with a false-looking
+  “already exists” message.
+
 ### Native AI photo import — 2026-09-10
 
 - Android now has the sister app's opt-in BYOK image-to-event flow. Settings →

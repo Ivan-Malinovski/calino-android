@@ -8,6 +8,7 @@ import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.NewJournal
 import calino.malinov.ski.poc.data.model.NewTask
+import java.util.UUID
 
 /**
  * Local edits layered over server data until the next authoritative answer
@@ -25,8 +26,6 @@ internal class LocalOverlay {
     private val deletedJournals = mutableSetOf<String>()
     private val contacts = LinkedHashMap<String, Contact>()
     private val deletedContacts = mutableSetOf<String>()
-
-    private var nextId = 1
 
     fun clear() {
         events.clear()
@@ -86,7 +85,7 @@ internal class LocalOverlay {
     }
 
     fun newEvent(input: NewEvent): CalEvent =
-        eventFrom("local-event-${nextId++}", input)
+        eventFrom(newId("event"), input)
 
     fun addEvent(input: NewEvent): CalEvent = newEvent(input).also(::putEvent)
 
@@ -100,7 +99,7 @@ internal class LocalOverlay {
     }
 
     fun newTask(input: NewTask): CalTask =
-        taskFrom("local-task-${nextId++}", input, done = false)
+        taskFrom(newId("task"), input, done = false)
 
     fun addTask(input: NewTask): CalTask = newTask(input).also(::putTask)
 
@@ -132,7 +131,7 @@ internal class LocalOverlay {
     }
 
     fun newJournal(input: NewJournal): JournalEntry = JournalEntry(
-            id = "local-journal-${nextId++}",
+            id = newId("journal"),
             date = input.date,
             title = input.title,
             body = input.body,
@@ -156,8 +155,15 @@ internal class LocalOverlay {
         deletedJournals += id
     }
 
-    fun addContact(input: NewContact): Contact = contactFrom("local-contact-${nextId++}", input)
+    fun addContact(input: NewContact): Contact = contactFrom(newId("contact"), input)
         .also { contacts[it.id] = it }
+
+    /**
+     * These IDs become CalDAV/CardDAV UIDs and resource names. They therefore
+     * have to remain unique across process restarts, not merely within one
+     * in-memory overlay.
+     */
+    private fun newId(kind: String): String = "local-$kind-${UUID.randomUUID()}"
 
     fun putContact(contact: Contact): Contact = contact.also {
         contacts[it.id] = it
