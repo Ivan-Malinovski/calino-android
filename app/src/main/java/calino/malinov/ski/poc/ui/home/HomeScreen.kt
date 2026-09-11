@@ -1968,9 +1968,11 @@ private fun CalendarTaskRow(
     var menuOpen by remember(task.id) { mutableStateOf(false) }
     val baseDate = task.due ?: LocalCalinoNow.current.today
 
-    Column(modifier.fillMaxWidth().taskNestIndent(depth, nestingLines)) {
+    Column(modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth(),
+            // These rows have no card behind them, so the elbow runs on to the
+            // checkbox rather than stopping at an edge that is not drawn.
+            Modifier.fillMaxWidth().taskNestIndent(depth, nestingLines, elbowInset = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TaskRow(
