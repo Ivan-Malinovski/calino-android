@@ -759,7 +759,15 @@ private fun TaskCheckbox(checked: Boolean, color: Color, modifier: Modifier, cir
             .border(1.5.dp, stroke, shape),
         contentAlignment = Alignment.Center,
     ) {
-        if (checked) CalinoIcon(CalinoIcon.Check, tint = CalinoColors.OnAccent, modifier = Modifier.fillMaxSize().padding(2.dp), contentDescription = null)
+        // The tick rides the same timing as the fill behind it. Popping it in
+        // whole read as two events: the box colouring, then a mark landing.
+        AnimatedVisibility(
+            visible = checked,
+            enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + scaleIn(tween(CalinoMotion.ContentEnterMillis), initialScale = .7f),
+            exit = fadeOut(tween(CalinoMotion.FadeThroughMillis)) + scaleOut(tween(CalinoMotion.FadeThroughMillis), targetScale = .7f),
+        ) {
+            CalinoIcon(CalinoIcon.Check, tint = CalinoColors.OnAccent, modifier = Modifier.fillMaxSize().padding(2.dp), contentDescription = null)
+        }
     }
 }
 
@@ -846,9 +854,16 @@ fun AgendaRow(
         Spacer(Modifier.width(10.dp))
         AgendaRowTime(time)
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            // The checkbox beside this fades over ContentEnterMillis; a title
+            // that snapped to grey on the same tap read as a separate change.
+            val titleColor by animateColorAsState(
+                targetValue = if (struck) CalinoColors.Ink3 else CalinoColors.Ink,
+                animationSpec = tween(CalinoMotion.ContentEnterMillis),
+                label = "agenda row title",
+            )
             Text(
                 title,
-                color = if (struck) CalinoColors.Ink3 else CalinoColors.Ink,
+                color = titleColor,
                 fontSize = 14.5.sp,
                 lineHeight = 21.75.sp,
                 fontWeight = FontWeight.Medium,

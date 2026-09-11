@@ -1,5 +1,7 @@
 package calino.malinov.ski.poc.ui.surfaces
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.DragInteraction
@@ -47,6 +49,7 @@ import calino.malinov.ski.poc.ui.components.taskNestIndent
 import calino.malinov.ski.poc.state.nestWithinList
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
@@ -232,7 +235,10 @@ private fun AgendaMonthPage(
                 day = day,
                 events = eventsByDay[day].orEmpty(),
                 tasks = tasksByDay[day].orEmpty(),
-                modifier = Modifier.padding(bottom = 10.dp),
+                // A day block changes height whenever something is dropped
+                // onto it or off it, and every later day moves with it. Let
+                // the list carry that rather than snapping the month.
+                modifier = Modifier.animateItem().padding(bottom = 10.dp),
                 onEventClick = onEventClick,
                 onEventAction = onEventAction,
                 onEventDrop = onEventDrop,
@@ -272,7 +278,9 @@ internal fun AgendaDayBlock(
             compareBy<CalEvent> { !it.allDay }.thenBy { it.start?.toLocalTime() }.thenBy { it.id },
         )
     }
-    Column(modifier) {
+    Column(
+        modifier.animateContentSize(tween(CalinoMotion.ContentEnterMillis)),
+    ) {
         AgendaDayHeader(day = day, onAdd = onAdd)
         if (dayEvents.isEmpty() && tasks.isEmpty()) {
             Text(

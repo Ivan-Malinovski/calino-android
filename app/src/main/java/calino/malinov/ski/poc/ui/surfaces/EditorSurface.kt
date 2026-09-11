@@ -1,6 +1,11 @@
 package calino.malinov.ski.poc.ui.surfaces
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -163,8 +168,6 @@ fun EditorSurface(
 
     val dismiss: () -> Unit = { closeAfterAnimation(onDismiss) }
 
-    val isEvent = draft.kind == PocQuickAddKind.Event
-    val isTask = draft.kind == PocQuickAddKind.Task
 
     val pickStartDate = rememberDatePicker({ draft.date }) {
         draft = draft.copy(date = it, touched = draft.touched + EditorField.Date)
@@ -236,8 +239,24 @@ fun EditorSurface(
                     }
                     EditorDivider()
 
+                    // Picking a different kind replaces every field below the
+                    // title. Fading through keeps it one form changing rather
+                    // than one form being swapped for another; the size follows
+                    // so the pill clearance below does not jump with it.
+                    AnimatedContent(
+                        targetState = draft.kind,
+                        transitionSpec = {
+                            (fadeIn(tween(CalinoMotion.ContentEnterMillis)) togetherWith
+                                fadeOut(tween(CalinoMotion.FadeThroughMillis)))
+                                .using(SizeTransform(clip = false))
+                        },
+                        label = "editor kind",
+                    ) { kind ->
+                        // The field composables emit a run of sibling rows and
+                        // expect a column to stack them; the slot here is a box.
+                        Column(Modifier.fillMaxWidth()) {
                     when {
-                        isEvent -> EventEditorFields(
+                        kind == PocQuickAddKind.Event -> EventEditorFields(
                             draft = draft,
                             calendars = calendars,
                             categories = categories,
@@ -259,7 +278,7 @@ fun EditorSurface(
                             pickEndTime = pickEndTime,
                             pickUntil = pickUntil,
                         )
-                        isTask -> TaskEditorFields(
+                        kind == PocQuickAddKind.Task -> TaskEditorFields(
                             draft = draft,
                             categories = categories,
                             descriptionOpen = descriptionOpen,
@@ -271,6 +290,8 @@ fun EditorSurface(
                             pickStartTime = pickStartTime,
                         )
                         else -> JournalEditorFields(draft) { body -> draft = draft.copy(body = body) }
+                    }
+                        }
                     }
 
                     // The action pill floats above this reserved tail, matching
@@ -476,7 +497,10 @@ private fun EventEditorFields(
     EditorReveal(recurrenceOpen) {
         EditorChoiceBlock { RecurrenceEditor(draft, onDraft, pickUntil) }
     }
-    if (draft.isEditing && (draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null)) {
+    // Turning repeat on while editing conjures this whole block. It is the
+    // same kind of optional detail as the reveals above it, so it arrives the
+    // same way rather than displacing the rows below in one frame.
+    EditorReveal(draft.isEditing && (draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null)) {
         RecurrenceScopeSelector(draft, onDraft)
     }
     EditorDivider()
