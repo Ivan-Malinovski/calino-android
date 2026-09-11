@@ -22,6 +22,9 @@ fun BottomDetailCard(
     resetKey: Any? = null,
     canStartDismiss: () -> Boolean = { true },
     surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
+    // The card's action pill, hosted in the pill lane rather than in the card,
+    // so it can change shape in place instead of leaving with the card.
+    pill: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     AdaptiveSurfaceHost(
@@ -30,6 +33,7 @@ fun BottomDetailCard(
         onDismiss = onDismiss,
         modifier = modifier,
         contentDescription = "Dismiss detail card",
+        pill = pill,
     ) { overlayModifier ->
         val mode = LocalCalinoSurfaceMode.current
         Box(overlayModifier.padding(horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp)) {
@@ -53,6 +57,7 @@ fun BottomDetailOverlay(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
+    pill: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     AdaptiveSurfaceHost(
@@ -61,6 +66,7 @@ fun BottomDetailOverlay(
         onDismiss = onDismiss,
         modifier = modifier,
         contentDescription = "Dismiss detail card",
+        pill = pill,
         content = content,
     )
 }

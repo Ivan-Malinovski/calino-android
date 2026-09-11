@@ -214,21 +214,45 @@ fun ContactsSurface(
                 modifier = Modifier.fillMaxSize(),
             )
             if (selected != null) {
+                // The card used to vanish outright, which took its pill with
+                // it. It animates out instead, which is the window the pill
+                // needs to morph back into the root add shape.
+                var detailShown by remember(selected.id) { mutableStateOf(true) }
+                var detailCloseAction by remember(selected.id) { mutableStateOf<(() -> Unit)?>(null) }
+                fun closeDetail(action: () -> Unit) {
+                    if (detailShown) { detailCloseAction = action; detailShown = false }
+                }
+                LaunchedEffect(detailShown) {
+                    if (!detailShown) {
+                        kotlinx.coroutines.delay(220)
+                        detailCloseAction?.invoke()
+                    }
+                }
                 BottomDetailCard(
-                    visible = true,
-                    onDismiss = { onSelectedContactChanged(null) },
+                    visible = detailShown,
+                    onDismiss = { closeDetail { onSelectedContactChanged(null) } },
                     surfaceKind = CalinoSurfaceKind.Detail,
+                    pill = {
+                        ContactDetailPill(
+                            expanded = detailShown,
+                            inPillLane = true,
+                            onBack = { closeDetail { onSelectedContactChanged(null) } },
+                            onEdit = { closeDetail { editingId = selected.id } },
+                            onDelete = { closeDetail { onDelete(selected); onSelectedContactChanged(null) } },
+                        )
+                    },
                     content = { modifier ->
                         ContactDetailPane(
                             contact = selected,
                             events = events,
                             today = now.today,
-                            onBack = { onSelectedContactChanged(null) },
-                            onEdit = { editingId = selected.id },
-                            onDelete = { onDelete(selected); onSelectedContactChanged(null) },
-                            onTag = { tagFilter = it; onSelectedContactChanged(null) },
+                            onBack = { closeDetail { onSelectedContactChanged(null) } },
+                            onEdit = { closeDetail { editingId = selected.id } },
+                            onDelete = { closeDetail { onDelete(selected); onSelectedContactChanged(null) } },
+                            onTag = { tag -> closeDetail { tagFilter = tag; onSelectedContactChanged(null) } },
                             onAddDate = { date, anniversary -> onAddBirthday(selected, date, anniversary) },
                             modifier = modifier,
+                            pillInLane = true,
                         )
                     },
                 )
@@ -442,6 +466,7 @@ private fun ContactDetailPane(
     onTag: (String) -> Unit,
     onAddDate: (LocalDate, Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    pillInLane: Boolean = false,
 ) {
     val context = LocalContext.current
     fun openContactLink(action: String, value: String) {
@@ -507,21 +532,50 @@ private fun ContactDetailPane(
             }
             if (contact.note.isNotBlank()) item(key = "notes") { DetailRow(CalinoIcon.Note, "Notes", contact.note) }
         }
-        ModalActionPill(
-            addLabel = "New contact",
-            morphFromAddPill = true,
-            cancelLabel = "Cancel",
-            onCancel = onBack,
-            cancelDescription = "Close contact details",
-            primaryLabel = "Edit",
-            onPrimary = onEdit,
-            primaryDescription = "Edit contact",
-            secondaryLabel = "Delete",
-            onSecondary = onDelete,
-            secondaryDescription = "Delete contact",
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
-        )
+        if (pillInLane) {
+            // The pill stands in the lane outside this card; hold its room.
+            Spacer(Modifier.height(CalinoSpacing.PillClearance))
+        } else {
+            // The split layout has no card and no lane: the pane keeps its
+            // own pill in flow, where it has always been.
+            ContactDetailPill(
+                expanded = true,
+                inPillLane = false,
+                onBack = onBack,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
+            )
+        }
     }
+}
+
+/** Contact detail's actions, in the pill lane or in the pane's own flow. */
+@Composable
+private fun ContactDetailPill(
+    expanded: Boolean,
+    inPillLane: Boolean,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ModalActionPill(
+        addLabel = "New contact",
+        morphFromAddPill = true,
+        inPillLane = inPillLane,
+        expanded = expanded,
+        cancelLabel = "Cancel",
+        onCancel = onBack,
+        cancelDescription = "Close contact details",
+        primaryLabel = "Edit",
+        onPrimary = onEdit,
+        primaryDescription = "Edit contact",
+        secondaryLabel = "Delete",
+        onSecondary = onDelete,
+        secondaryDescription = "Delete contact",
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -601,6 +655,24 @@ private fun ContactEditor(
         onDismiss = ::dismiss,
         surfaceKind = CalinoSurfaceKind.Editor,
         resetKey = showDiscard,
+        pill = {
+            ModalActionPill(
+                addLabel = if (isNew) "New contact" else "Edit contact",
+                morphFromAddPill = true,
+                inPillLane = true,
+                expanded = shown,
+                cancelLabel = "Cancel",
+                onCancel = ::dismiss,
+                cancelDescription = "Cancel contact editing",
+                secondaryLabel = onDelete?.let { "Delete" },
+                onSecondary = onDelete?.let { { showDelete = !showDelete } },
+                secondaryDescription = "Delete contact",
+                primaryLabel = "Save",
+                onPrimary = ::saveContact,
+                primaryEnabled = canSave,
+                primaryDescription = "Save contact",
+            )
+        },
         content = { modifier ->
             Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
                 Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -635,21 +707,9 @@ private fun ContactEditor(
                         }
                     }
                 }
-                ModalActionPill(
-                    addLabel = if (isNew) "New contact" else "Edit contact",
-                    morphFromAddPill = true,
-                    cancelLabel = "Cancel",
-                    onCancel = ::dismiss,
-                    cancelDescription = "Cancel contact editing",
-                    secondaryLabel = onDelete?.let { "Delete" },
-                    onSecondary = onDelete?.let { { showDelete = !showDelete } },
-                    secondaryDescription = "Delete contact",
-                    primaryLabel = "Save",
-                    onPrimary = ::saveContact,
-                    primaryEnabled = canSave,
-                    primaryDescription = "Save contact",
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
-                )
+                // Room for the pill, which stands in the pill lane outside
+                // this card so it can change shape there instead of leaving.
+                Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
         },
     )

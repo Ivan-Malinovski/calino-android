@@ -367,6 +367,24 @@ private fun JournalEditor(
         // leaving the editor. Changing this key asks the gesture surface to
         // spring back underneath that prompt.
         resetKey = showDiscard,
+        pill = {
+            ModalActionPill(
+                addLabel = if (focusTitle) "New entry" else "Edit entry",
+                morphFromAddPill = true,
+                inPillLane = true,
+                expanded = shown,
+                cancelLabel = "Cancel",
+                onCancel = ::dismissEditor,
+                cancelDescription = "Cancel journal editing",
+                primaryLabel = "Save",
+                onPrimary = { closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) } },
+                primaryEnabled = canSave,
+                primaryDescription = "Save journal entry",
+                secondaryLabel = "Delete",
+                onSecondary = { confirmDelete = !confirmDelete },
+                secondaryDescription = "Delete journal entry",
+            )
+        },
     ) { editorModifier ->
         Column(
             editorModifier.fillMaxSize().background(CalinoColors.Canvas),
@@ -506,21 +524,9 @@ private fun JournalEditor(
             }
         }
 
-        ModalActionPill(
-            addLabel = if (focusTitle) "New entry" else "Edit entry",
-            morphFromAddPill = true,
-            cancelLabel = "Cancel",
-            onCancel = ::dismissEditor,
-            cancelDescription = "Cancel journal editing",
-            primaryLabel = "Save",
-            onPrimary = { closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) } },
-            primaryEnabled = canSave,
-            primaryDescription = "Save journal entry",
-            secondaryLabel = "Delete",
-            onSecondary = { confirmDelete = !confirmDelete },
-            secondaryDescription = "Delete journal entry",
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
-        )
+        // The pill itself lives in the pill lane, outside this card; this
+        // reserves the room it occupies over the card's tail.
+        Spacer(Modifier.height(CalinoSpacing.PillClearance))
         }
     }
 }

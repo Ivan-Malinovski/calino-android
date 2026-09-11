@@ -44,6 +44,90 @@ continue the UI work.
 - The root Contacts add pill is hidden while a contact detail card is selected,
   so it cannot overlap the detail card's action pill.
 
+### The pill lane — 2026-09-11
+
+- The root add pill and a modal's action pill are one object, not two. The
+  editor, task detail, journal editor, and contact editor hand their pill to
+  `BottomDetailCard(pill = ...)`, which hosts it in `AdaptiveSurfaceHost`
+  outside the card's visibility transition and outside its dismissal drag. The
+  pill therefore stays in the lane -- the same spot, to the pixel, the root add
+  pill occupies -- while the card slides in and out behind it.
+- `CalinoPillLane` (`ui/components/PillMorph.kt`, provided once in
+  `MainActivity`) is what makes the two read as one. It carries the root pill's
+  measured **bounds in root**, so a modal pill is placed against where that
+  pill actually laid out; a claim count, so the root pill leaves and returns
+  with `EnterTransition.None`/`ExitTransition.None` instead of sliding under
+  its own replacement; and `dismissDrag`, written by `SwipeDownDismiss`, so a
+  drag toward dismissal returns the pill to its add shape as the finger moves
+  and re-expands it when the card springs back.
+- Nothing about the shape or the spot is declared. The lane anchors the pill to
+  `addPillBounds` (a zero-sized box at that pill's bottom centre, with the pill
+  aligned against the point), which is why it lands correctly in the right-hand
+  lane of a wide screen without this code knowing such a lane exists.
+  `ModalActionPill` is a `Layout` over both forms: in the lane the add shape is
+  the root pill's own `addPillLabel` at the size that label measured
+  (`addPillBounds`, trusted only while `addPillBoundsLabel` still matches --
+  otherwise the label is measured here), the expanded shape comes from the
+  actions' `maxIntrinsicWidth` (equal weights, so that is the widest action
+  three times over) floored at that width, and the pill interpolates between
+  the two. A modal must not name its own add label for the lane: event detail
+  used to put the *event's* date there, so the shape that handed the lane back
+  said a different day, and a different width, than the pill that took it --
+  which is what the blink at the end of the morph actually was. Per-action-count widths used to stand in for
+  this, and they were wrong for any label, density or window they had not been
+  chosen against.
+- Two frame-ordering traps, both of which show as the pill blinking:
+  `AdaptiveSurfaceHost` claims the lane at the **top of the function**, not
+  where the pill is composed -- everything below it is inside a
+  `BoxWithConstraints`, which subcomposes during layout, a phase too late for
+  the root pill that frame. And the root pill's *visibility* must depend only
+  on `pillVisible`, never on the claim: `pillVisible` is already false for
+  every lane-hosting surface and flips with the route, while the claim is
+  released a frame later at disposal. Gate visibility on the claim as well and
+  there is one frame with no pill in the lane at either end of the morph.
+- A pill hosted in the lane must pass `inPillLane = true`; that flag, not
+  `morphFromAddPill`, is what claims the lane, couples the pill to the
+  dismissal drag, and gives it the root pill's frosted material. Every modal
+  pill is now in the lane, event detail and contact detail included.
+- The lane's placement converts out of root coordinates **during placement**,
+  from the anchoring layout's own `coordinates` (`RootAnchoredPill`), never
+  from an origin recorded by an `onGloballyPositioned` in an earlier frame: the
+  recorded origin is still zero the first time the pill is placed, so the pill
+  spent that frame a status-bar inset (128px on the test device) below the root
+  pill it is continuing from. That was the second pill flashing under the first
+  as a modal opened. Draw-time reads of a recorded origin -- the blur's -- are
+  fine, because the layout pass writes them before anything draws.
+- `ModalActionPill` latches `morphFromAddPill` in a `remember`: it is a fact
+  about where the pill came from, not live state. Read live, it flips as a host
+  tears its modal down -- `dismissQuickAdd` clears `quickAddMorphFromAddPill`
+  while the sheet is still composed -- and a pill with no add shape snaps to
+  its expanded form, which is the flash back to the modal shape at the end of
+  the dismissal.
+- Releasing a committed dismissal drag is a handoff between two things that
+  disagree for one frame: `dismissDrag` resets the moment the card is let go,
+  while the morph animation has not started and still reads 1. So
+  `ModalActionPill` clamps: once `expanded` is false the shape may only
+  continue toward the add pill, never back (`lastShown`), and the morph-back
+  snaps to what the finger left on screen and takes proportionally less time
+  for the rest. Without the clamp there is one frame of the modal shape in the
+  middle of a dismissal the person has already watched most of.
+- A lane box must report the *pill's* size and nothing else. Event detail's
+  `Layout` reports the pill's width and height and lets the overflow button
+  hang outside those bounds; reporting the taller of the two shifted the pill
+  a couple of pixels off the anchor at the handoff.
+- Event detail's overflow button is placed *against* the pill by a `Layout`
+  that reports the pill's own width and places the button past it: the pill
+  keeps the lane's anchor point and the button rides off its trailing edge,
+  fading in with `lane.morphProgress`. A plain row would push the pill off the
+  anchor to make room for the button.
+- Contact detail's card now animates out (`detailShown`) instead of vanishing.
+  Without that window there is nothing for the pill to morph back into.
+- `MainActivity` decides the root pill's silent exit from the **route**
+  (`laneOwningSurface`), not from the lane claim: the claim lands a frame after
+  the route changes, and by then the exit transition has already been chosen.
+  Add any new lane-hosting surface to that `when`, or its opening will slide
+  the root pill away underneath the morph.
+
 ### Web-parity interactions — 2026-09-11
 
 - Calendar events and tasks expose long-press action menus shared with their

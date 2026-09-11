@@ -45,6 +45,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -146,6 +149,7 @@ import calino.malinov.ski.poc.ui.components.BottomDetailOverlay
 import calino.malinov.ski.poc.ui.components.AdaptiveDetailCard
 import calino.malinov.ski.poc.ui.components.AdaptiveSurfaceHost
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
+import calino.malinov.ski.poc.ui.components.LocalCalinoPillLane
 import calino.malinov.ski.poc.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoChip
@@ -668,9 +672,23 @@ fun EventDetailSurface(
             events.getOrNull(page)?.let(currentSelectionCallback)
         }
     }
+    // The pill lane shows one pill for the whole pager, so the overflow it
+    // opens belongs to whichever event is settled under it.
+    val laneEvent = events.getOrNull(pager.currentPage) ?: event
+    var moreOpen by remember(laneEvent.id) { mutableStateOf(false) }
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
+        pill = {
+            EventDetailPill(
+                event = laneEvent,
+                occurrenceDate = occurrenceDate,
+                expanded = shown,
+                onBack = { closeAfterAnimation(onBack) },
+                onPrimary = { if (!pager.isScrollInProgress) onEditEvent(laneEvent) },
+                onMoreOpen = { moreOpen = true },
+            )
+        },
     ) { overlayModifier ->
         HorizontalPager(
             state = pager,
@@ -696,6 +714,8 @@ fun EventDetailSurface(
                             closeAfterAnimation { onDeleteEvent(target, scope) }
                         },
                         onEventAction = onEventAction,
+                        moreOpen = moreOpen && pageEvent.id == laneEvent.id,
+                        onMoreOpen = { moreOpen = it },
                     )
                 }
             }
@@ -712,9 +732,12 @@ private fun EventDetailContent(
     onPrimary: () -> Unit,
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
     onEventAction: (EventMenuAction, CalEvent) -> Unit,
+    // The overflow menu is opened from the pill lane, which is outside this
+    // card, so its state is owned by the host rather than by the page.
+    moreOpen: Boolean = false,
+    onMoreOpen: (Boolean) -> Unit = {},
 ) {
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
-    var moreOpen by remember(event.id) { mutableStateOf(false) }
     var confirmDelete by remember(event.id) { mutableStateOf(false) }
     var deleteScope by remember(event.id, event.recurrenceId, event.recurrenceDate) {
         mutableStateOf(
@@ -764,25 +787,25 @@ private fun EventDetailContent(
                     )
                 }
                 Box {
-                    IconButtonGlyph("⋮", "More actions", { moreOpen = true })
-                    DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                    IconButtonGlyph("⋮", "More actions", { onMoreOpen(true) })
+                    DropdownMenu(expanded = moreOpen, onDismissRequest = { onMoreOpen(false) }) {
                         DropdownMenuItem(
                             text = { Text("Edit event") },
-                            onClick = { moreOpen = false; onEventAction(EventMenuAction.Edit, event) },
+                            onClick = { onMoreOpen(false); onEventAction(EventMenuAction.Edit, event) },
                         )
                         DropdownMenuItem(
                             text = { Text("Duplicate") },
-                            onClick = { moreOpen = false; onEventAction(EventMenuAction.Duplicate, event) },
+                            onClick = { onMoreOpen(false); onEventAction(EventMenuAction.Duplicate, event) },
                         )
                         DropdownMenuItem(
                             text = { Text("Convert to task") },
                             enabled = !recurring,
-                            onClick = { moreOpen = false; onEventAction(EventMenuAction.ConvertToTask, event) },
+                            onClick = { onMoreOpen(false); onEventAction(EventMenuAction.ConvertToTask, event) },
                         )
                         DropdownMenuItem(
                             text = { Text(if (recurring) "Delete occurrence" else "Delete event") },
                             onClick = {
-                                moreOpen = false
+                                onMoreOpen(false)
                                 confirmDelete = true
                             },
                         )
@@ -859,31 +882,84 @@ private fun EventDetailContent(
                 }
             }
         }
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp, 10.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ModalActionPill(
-                addLabel = (occurrenceDate ?: event.start?.toLocalDate() ?: event.date)?.let { "Add on ${it.format(dateFormat)}" } ?: "Add event",
-                morphFromAddPill = true,
-                cancelLabel = "Cancel",
-                onCancel = onBack,
-                cancelDescription = "Close event details",
-                primaryLabel = "Edit event",
-                onPrimary = onPrimary,
-                primaryDescription = "Edit event",
+        // Room for the pill, which stands in the pill lane outside this card.
+        Spacer(Modifier.height(CalinoSpacing.PillClearance))
+    }
+}
+
+/**
+ * Event detail's lane contents: the shared pill, with the overflow button
+ * hanging off its trailing edge.
+ *
+ * The button is placed against the pill rather than laid out beside it, so the
+ * pill itself stays dead centre in the lane -- the spot the root add pill
+ * occupies -- and the button is pushed outward as the pill grows into its
+ * actions, instead of shifting the pill off the lane to make room.
+ */
+@Composable
+private fun EventDetailPill(
+    event: CalEvent,
+    occurrenceDate: LocalDate?,
+    expanded: Boolean,
+    onBack: () -> Unit,
+    onPrimary: () -> Unit,
+    onMoreOpen: () -> Unit,
+) {
+    val lane = LocalCalinoPillLane.current
+    val pill: @Composable () -> Unit = {
+        ModalActionPill(
+            addLabel = (occurrenceDate ?: event.start?.toLocalDate() ?: event.date)?.let { "Add on ${it.format(dateFormat)}" } ?: "Add event",
+            morphFromAddPill = true,
+            inPillLane = true,
+            expanded = expanded,
+            cancelLabel = "Cancel",
+            onCancel = onBack,
+            cancelDescription = "Close event details",
+            primaryLabel = "Edit event",
+            onPrimary = onPrimary,
+            primaryDescription = "Edit event",
+        )
+    }
+    val overflow: @Composable () -> Unit = {
+        OutlinedButton(
+            onClick = onMoreOpen,
+            modifier = Modifier
+                .size(50.dp)
+                .graphicsLayer {
+                    alpha = lane.morphProgress
+                    scaleX = .82f + .18f * lane.morphProgress
+                    scaleY = .82f + .18f * lane.morphProgress
+                },
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, CalinoColors.Ink.copy(.12f)),
+            // The default button padding squeezes the glyph into a 2dp lane
+            // inside a 50dp button, which clipped it to two dots.
+            contentPadding = PaddingValues(0.dp),
+        ) { Text("···", color = CalinoColors.Ink) }
+    }
+    Layout(contents = listOf(pill, overflow)) { (pillMeasurables, overflowMeasurables), constraints ->
+        val natural = Constraints(maxWidth = constraints.maxWidth)
+        val pillPlaceable = pillMeasurables.first().measure(natural)
+        val overflowPlaceable = overflowMeasurables.first().measure(natural)
+        val gap = OverflowGap.roundToPx()
+        // Reported as the pill's own size -- not the pair's, and not the
+        // taller of the two: the lane places this box against where the root
+        // pill sat, so any room taken for the button would push the pill off
+        // that spot. The button is placed relative to the pill and simply
+        // hangs outside these bounds, on the trailing edge and centred on the
+        // pill however tall each of them ends up.
+        layout(pillPlaceable.width, pillPlaceable.height) {
+            pillPlaceable.place(0, 0)
+            overflowPlaceable.place(
+                pillPlaceable.width + gap,
+                (pillPlaceable.height - overflowPlaceable.height) / 2,
             )
-            Spacer(Modifier.width(10.dp))
-            OutlinedButton(
-                onClick = { moreOpen = true },
-                modifier = Modifier.size(50.dp),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, CalinoColors.Ink.copy(.12f)),
-            ) { Text("···", color = CalinoColors.Ink) }
         }
     }
 }
+
+/** The room between event detail's pill and the overflow button beside it. */
+private val OverflowGap = 10.dp
 
 /**
  * Fixture-backed task detail/editor. The task body is the primary tap target
@@ -945,6 +1021,29 @@ fun TaskDetailSurface(
         onDismiss = { dismiss(false) },
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 980.dp,
+        pill = {
+            val canSave = title.trim().isNotEmpty()
+            ModalActionPill(
+                addLabel = "New task",
+                morphFromAddPill = true,
+                inPillLane = true,
+                expanded = shown,
+                cancelLabel = "Cancel",
+                onCancel = { dismiss(false) },
+                cancelDescription = "Cancel task editing",
+                primaryLabel = "Save",
+                onPrimary = { dismiss(true) },
+                primaryEnabled = canSave,
+                primaryDescription = "Save task",
+                secondaryLabel = if (done) "Mark as open" else "Mark as done",
+                onSecondary = {
+                    done = !done
+                    dismiss(true)
+                },
+                secondaryEnabled = canSave,
+                secondaryDescription = if (done) "Mark task as open" else "Mark task as done",
+            )
+        },
     ) { detailModifier ->
         Column(
             detailModifier
@@ -1071,26 +1170,9 @@ fun TaskDetailSurface(
                     }
                 }
             }
-            val canSave = title.trim().isNotEmpty()
-            ModalActionPill(
-                addLabel = "New task",
-                morphFromAddPill = true,
-                cancelLabel = "Cancel",
-                onCancel = { dismiss(false) },
-                cancelDescription = "Cancel task editing",
-                primaryLabel = "Save",
-                onPrimary = { dismiss(true) },
-                primaryEnabled = canSave,
-                primaryDescription = "Save task",
-                secondaryLabel = if (done) "Mark as open" else "Mark as done",
-                onSecondary = {
-                    done = !done
-                    dismiss(true)
-                },
-                secondaryEnabled = canSave,
-                secondaryDescription = if (done) "Mark task as open" else "Mark task as done",
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp, bottom = 20.dp),
-            )
+            // The pill stands in the pill lane rather than in this card, so
+            // it can change shape in place; this holds its room open.
+            Spacer(Modifier.height(CalinoSpacing.PillClearance))
         }
     }
 }

@@ -17,6 +17,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -79,6 +81,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -175,6 +178,8 @@ import calino.malinov.ski.poc.state.SplitPaneWidthDp
 import calino.malinov.ski.poc.state.shouldSplit
 import calino.malinov.ski.poc.state.PocReturnTarget
 import calino.malinov.ski.poc.ui.components.AddPill
+import calino.malinov.ski.poc.ui.components.CalinoPillLane
+import calino.malinov.ski.poc.ui.components.LocalCalinoPillLane
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoToast
 import calino.malinov.ski.poc.ui.components.NavSidebar
@@ -481,6 +486,9 @@ fun CalinoApp() {
             LocalCalinoPreferences provides preferences,
             LocalFoldPosture provides rememberFoldPosture(),
             LocalHingeOpenness provides rememberHingeOpenness(),
+            // One pill lane for the whole app: the root add pill and every
+            // modal's action pill are the same object changing shape in it.
+            LocalCalinoPillLane provides remember { CalinoPillLane() },
         ) {
             CalinoAppContent(pocViewModel)
         }
@@ -1484,6 +1492,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
         // The add affordance floats over the surfaces instead of taking
         // layout space; every scrollable root reserves PillClearance for it.
+        val pillLane = LocalCalinoPillLane.current
+        // The silent handback lasts only until this pill is back on screen.
+        LaunchedEffect(pillLane.handingBack) {
+            if (pillLane.handingBack) {
+                withFrameNanos {}
+                withFrameNanos {}
+                pillLane.handingBack = false
+            }
+        }
         val pillVisible = when (rootRoute) {
             PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
             PockRoute.Agenda -> route == PockRoute.Agenda
@@ -1492,10 +1509,31 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Contacts -> route == PockRoute.Contacts && selectedContactId == null
             else -> false
         }
+        // A modal's pill takes this lane over and morphs out of this pill's
+        // shape, so the handoff in both directions has to be silent: sliding
+        // this one away under the modal's, or back in under its returning
+        // shape, would show two pills where the whole point is one.
+        // The claim decides how this pill leaves and returns, never whether:
+        // `pillVisible` is already false for every surface that hosts a lane
+        // pill, and it flips in the same composition as the route, while the
+        // claim is released a frame later, at disposal. Gating visibility on
+        // the claim as well left one frame with no pill in the lane at all,
+        // which is the blink at the end of the morph.
+        // What the root pill says, published whether or not it is on screen:
+        // a modal pill morphs back into this exact label, and it can change
+        // (the selected day moves) while a modal holds the lane.
+        val addPillLabel = when (rootRoute) {
+            PockRoute.Tasks -> "New task"
+            PockRoute.Journal -> "New entry"
+            PockRoute.Contacts -> "New contact"
+            else -> "Add on ${selectedDate.format(DateLabel)}"
+        }
+        androidx.compose.runtime.SideEffect { pillLane.addPillLabel = addPillLabel }
+        val laneHandoff = pillLane.claimedByModal || pillLane.handingBack
         androidx.compose.animation.AnimatedVisibility(
             visible = pillVisible && !sidebarVisible && !searchVisible,
-            enter = slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
-            exit = slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
+            enter = if (laneHandoff) EnterTransition.None else slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
+            exit = if (laneHandoff) ExitTransition.None else slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
             modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 20.dp),
             label = "add pill visibility",
         ) {
@@ -1535,12 +1573,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     searchOriginRoute = rootRoute
                     searchVisible = true
                 },
-                label = when (rootRoute) {
-                    PockRoute.Tasks -> "New task"
-                    PockRoute.Journal -> "New entry"
-                    PockRoute.Contacts -> "New contact"
-                    else -> "Add on ${selectedDate.format(DateLabel)}"
-                },
+                label = addPillLabel,
                 onClick = {
                     when (rootRoute) {
                         PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)

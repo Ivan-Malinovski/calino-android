@@ -25,12 +25,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -43,10 +47,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
@@ -90,11 +102,23 @@ fun AdaptiveSurfaceHost(
     modifier: Modifier = Modifier,
     scrimAlpha: Float = .28f,
     contentDescription: String = "Dismiss surface",
+    pill: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     BackHandler(enabled = visible, onBack = onDismiss)
     var mounted by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { mounted = true }
+
+    // Claimed here, at the top of the host, and not down where the pill is
+    // actually composed: everything below is inside a BoxWithConstraints,
+    // which subcomposes its content during the layout pass. A claim from in
+    // there lands after the root pill has already composed for that frame,
+    // and the lane looks empty for exactly one frame in each direction.
+    val lane = LocalCalinoPillLane.current
+    if (pill != null) {
+        remember(lane) { lane.claim() }
+        DisposableEffect(lane) { onDispose { lane.release() } }
+    }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val windowClass = calinoWindowClassFor(maxWidth.value.roundToInt())
@@ -134,14 +158,6 @@ fun AdaptiveSurfaceHost(
         val sideHeight = (maxHeight - 24.dp).coerceAtLeast(1.dp)
         val bottomHeight = maxHeight * if (maxHeight < 520.dp) .96f else .86f
 
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(CalinoColors.scrim(scrimProgress))
-                .clickable(enabled = visible, onClick = onDismiss)
-                .semantics { this.contentDescription = contentDescription },
-        )
-
         val enter = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
                 slideInVertically(tween(240)) { it } + fadeIn(tween(180))
@@ -178,6 +194,28 @@ fun AdaptiveSurfaceHost(
                     .height(sideHeight)
         }
 
+        // Everything the pill floats over is recorded here so the pill can
+        // blur its own patch of it. The pill is drawn as a sibling of this
+        // box, never inside it, so the layer cannot recurse.
+        val backdropLayer = rememberGraphicsLayer()
+        var backdropOrigin by remember { mutableStateOf(Offset.Zero) }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
+                .drawWithContent {
+                    backdropLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(backdropLayer)
+                },
+        ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(CalinoColors.scrim(scrimProgress))
+                .clickable(enabled = visible, onClick = onDismiss)
+                .semantics { this.contentDescription = contentDescription },
+        )
+
         AnimatedVisibility(
             visible = mounted && visible,
             enter = enter,
@@ -199,8 +237,78 @@ fun AdaptiveSurfaceHost(
                 }
             }
         }
+        }
+
+        if (pill != null) {
+            DisposableEffect(lane, backdropLayer, backdropOrigin) {
+                lane.setBackdrop(backdropLayer, backdropOrigin)
+                onDispose { lane.setBackdrop(null, Offset.Zero) }
+            }
+        }
+
+        // The action pill is deliberately outside the visibility transition
+        // and outside the card's drag: it belongs to the pill lane, not to
+        // the card, and it stays there while the card arrives and leaves.
+        // Anything else would slide the pill off screen and then bring the
+        // root add pill back, which is two objects where there is one.
+        if (pill != null) {
+            val anchor = lane.addPillBounds
+            val laneContent: @Composable () -> Unit = {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalCalinoSurfaceMode provides mode,
+                    content = pill,
+                )
+            }
+            if (anchor != null) {
+                RootAnchoredPill(anchor, laneContent)
+            } else {
+                // No root pill has been on screen this session (a modal
+                // restored straight into view); fall back to the card's own
+                // bottom edge.
+                Box(
+                    when (mode) {
+                        CalinoSurfaceMode.BottomSheet ->
+                            Modifier.align(Alignment.BottomCenter).padding(bottom = PillLaneInset)
+                        else -> panelModifier.padding(bottom = PillLaneInset)
+                    },
+                    contentAlignment = Alignment.BottomCenter,
+                ) { laneContent() }
+            }
+        }
     }
 }
+
+/**
+ * Places [content] with its bottom centre on the root pill's bottom centre --
+ * centred in portrait, in the right-hand lane on a wide screen -- so a modal's
+ * pill continues from that exact spot without this host having to know which
+ * of those it is.
+ *
+ * The conversion out of root coordinates is done during placement, from this
+ * layout's own coordinates, rather than from a position recorded by an
+ * `onGloballyPositioned` in a previous frame. A recorded origin is not yet
+ * known the first time the pill is placed, and the pill spent that frame an
+ * inset away from the root pill it is supposed to be continuing from -- which
+ * is the second pill that flashed as a modal opened.
+ */
+@Composable
+private fun RootAnchoredPill(anchor: Rect, content: @Composable () -> Unit) {
+    Layout(content, Modifier.fillMaxSize()) { measurables, constraints ->
+        // Unbounded: the pill is placed against a point, so the lane it sits
+        // in must never be what decides how wide it may grow.
+        val pill = measurables.first().measure(Constraints())
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            val origin = coordinates?.positionInRoot() ?: Offset.Zero
+            pill.place(
+                (anchor.center.x - origin.x - pill.width / 2f).roundToInt(),
+                (anchor.bottom - origin.y - pill.height).roundToInt(),
+            )
+        }
+    }
+}
+
+/** The pill's distance from the bottom of its lane, shared with the root pill. */
+private val PillLaneInset = 20.dp
 
 /**
  * A horizontal counterpart to [SwipeDownDismiss] for end-anchored panels.

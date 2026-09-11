@@ -6,6 +6,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -61,7 +63,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,7 +92,9 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
@@ -104,8 +110,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.poc.data.model.CalEvent
@@ -113,6 +122,7 @@ import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoShapes
+import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
@@ -341,6 +351,14 @@ fun SwipeDownDismiss(
     }
 
     val progress = (dragY / dismissDistancePx).coerceIn(0f, 1f)
+    // The card carries no pill of its own any more: the pill stands in the
+    // lane, and this is how it learns the card is on its way out.
+    val lane = LocalCalinoPillLane.current
+    val pillRelease = (dragY / dismissThresholdPx).coerceIn(0f, 1f)
+    if (lane.claimedByModal) {
+        SideEffect { lane.dismissDrag = pillRelease }
+    }
+    DisposableEffect(lane) { onDispose { lane.dismissDrag = 0f } }
     val gestureModifier = Modifier.pointerInput(visible, dismissing) {
         if (visible && !dismissing) {
             // Observe in Initial so a downward dismissal can begin over a
@@ -1362,6 +1380,43 @@ fun SectionLabel(text: String, count: Int? = null, modifier: Modifier = Modifier
 }
 
 /**
+ * The floating pill's own material: a blurred patch of whatever was recorded
+ * behind it, then the ink at just under full opacity. Both the root add pill
+ * and a modal's action pill draw themselves with this, because they are meant
+ * to be the same object -- a pill that turned opaque on entering a card would
+ * announce itself as a different one.
+ *
+ * The caller records [backdrop]; the pill must be a sibling of that recording,
+ * never a child, or the layer would recurse into itself.
+ */
+@Composable
+private fun Modifier.floatingPillSurface(
+    backdrop: GraphicsLayer?,
+    backdropOrigin: () -> Offset,
+): Modifier {
+    val blurred = rememberGraphicsLayer()
+    val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    // Hoisted: a draw scope cannot read the palette's composition local.
+    val fill = CalinoColors.FloatFill
+    return this
+        .onGloballyPositioned { origin = it.positionInRoot() }
+        .drawBehind {
+            if (backdrop != null && canBlur) {
+                blurred.renderEffect = BlurEffect(24f, 24f, TileMode.Clamp)
+                val offset = origin - backdropOrigin()
+                blurred.record {
+                    translate(-offset.x, -offset.y) { drawLayer(backdrop) }
+                }
+                drawLayer(blurred)
+                drawRect(fill.copy(alpha = .86f))
+            } else {
+                drawRect(fill)
+            }
+        }
+}
+
+/**
  * The floating add affordance. A horizontal drag on the pill moves between the
  * main views, so the destination can be changed without opening the sidebar;
  * [canSwipe] lets the host refuse a direction at the ends of the row, where the
@@ -1394,11 +1449,9 @@ fun AddPill(
     val currentOnClick by rememberUpdatedState(onClick)
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
-    // Frosted glass over the surface behind it: a blurred patch of the
-    // recorded backdrop, then the ink at just under full opacity.
-    val blurred = rememberGraphicsLayer()
-    val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    var pillOrigin by remember { mutableStateOf(Offset.Zero) }
+    // A modal pill takes over this lane and has to start from the shape the
+    // person just tapped, which only the real pill can measure.
+    val lane = LocalCalinoPillLane.current
     val commitPx = with(density) { 56.dp.toPx() }
     // A refused direction still moves, but only enough to read as a limit.
     val maxTravelPx = with(density) { 88.dp.toPx() }
@@ -1445,8 +1498,6 @@ fun AddPill(
                     .offset { IntOffset((-dragX * .3f).roundToInt(), 0) },
             )
         }
-        // Hoisted: a draw scope cannot read the palette's composition local.
-        val pillFill = CalinoColors.FloatFill
         Row(
             Modifier
                 .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
@@ -1456,20 +1507,9 @@ fun AddPill(
                 // canvas to do it alone. Transparent in light, which needs no
                 // edge and never drew one.
                 .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill))
-                .onGloballyPositioned { pillOrigin = it.positionInRoot() }
-                .drawBehind {
-                    if (backdrop != null && canBlur) {
-                        blurred.renderEffect = BlurEffect(24f, 24f, TileMode.Clamp)
-                        val offset = pillOrigin - backdropOrigin()
-                        blurred.record {
-                            translate(-offset.x, -offset.y) { drawLayer(backdrop) }
-                        }
-                        drawLayer(blurred)
-                        drawRect(pillFill.copy(alpha = .86f))
-                    } else {
-                        drawRect(pillFill)
-                    }
-                }
+                // Where a modal's pill has to appear to continue from.
+                .onGloballyPositioned { lane.setAddPill(it.boundsInRoot(), label) }
+                .floatingPillSurface(backdrop, backdropOrigin)
                 // A route swipe can recompose the pill before clickable emits
                 // its release. Without this guard the release is interpreted
                 // as a tap on the newly arrived route (for example, opening a
@@ -1551,8 +1591,20 @@ private data class ModalPillAction(
 
 /**
  * The action pill shared by the root add affordance and every modal card.
- * When [morphFromAddPill] is set, it begins as the source add pill and then
- * resolves into the modal actions, exactly like the event editor.
+ *
+ * A modal does not get a pill of its own: it takes over the lane the root
+ * [AddPill] occupies and changes shape there -- [inPillLane] says this pill is
+ * hosted in that lane rather than inside the card, which is what lets it stay
+ * put while the card arrives and leaves. [morphFromAddPill] says it is that
+ * same object arriving, so it starts as the add pill and grows into the
+ * modal's actions; dropping [expanded] runs the same move backwards, which is
+ * how a modal hands the lane back.
+ *
+ * Both shapes are measured, never declared: the pill is as wide as the add
+ * label at one end and as wide as its own actions at the other, and it
+ * interpolates between what those two actually measure. Fixed widths per
+ * action count used to stand in for this, and they were wrong for any label
+ * or density they were not chosen against.
  *
  * Actions are ordered Cancel, secondary, primary. This lets each modal keep
  * its cancellation affordance while retaining a destructive or state-changing
@@ -1569,6 +1621,8 @@ fun ModalActionPill(
     onCancel: (() -> Unit)? = null,
     addLabel: String? = null,
     morphFromAddPill: Boolean = false,
+    inPillLane: Boolean = false,
+    expanded: Boolean = true,
     primaryEnabled: Boolean = true,
     secondaryEnabled: Boolean = true,
     primaryDescription: String = primaryLabel,
@@ -1577,100 +1631,183 @@ fun ModalActionPill(
 ) {
     val hasCancel = cancelLabel != null && onCancel != null
     val hasSecondary = secondaryLabel != null && onSecondary != null
-    val actionCount = (if (hasCancel) 1 else 0) + (if (hasSecondary) 1 else 0) + 1
-    val shouldMorph = morphFromAddPill && !addLabel.isNullOrBlank()
-    var showingAddPill by remember(shouldMorph, addLabel) { mutableStateOf(shouldMorph) }
-    LaunchedEffect(shouldMorph, addLabel) {
-        showingAddPill = shouldMorph
-        if (shouldMorph) {
-            kotlinx.coroutines.delay((CalinoMotion.ContentEnterMillis / 3).toLong())
-            showingAddPill = false
+
+    // The lane itself is claimed by the surface hosting this pill, which can
+    // do it early enough in the frame to matter; this reads the lane for the
+    // things only the pill needs -- its backdrop and the dismissal drag.
+    val lane = LocalCalinoPillLane.current
+    // In the lane, the add shape is the root pill's, not a description of it:
+    // its live label, and the size that label actually measured. A modal that
+    // names its own add label there hands the lane back to a pill that says
+    // something else and is a different width, which reads as a blink.
+    val addText = (if (inPillLane) lane.addPillLabel else null) ?: addLabel
+    // Latched: whether this pill grew out of the add pill is a fact about
+    // where it came from, and cannot change while it is alive. Read live, a
+    // host that clears its "came from the pill" flag as part of tearing the
+    // modal down -- before the pill has finished morphing back -- flips this
+    // to a pill with no add shape, and the effect below snaps it to its
+    // expanded form for the frames it has left.
+    val morphSource = remember { morphFromAddPill }
+    val canMorph = morphSource && !addText.isNullOrBlank()
+    val anchor = if (inPillLane && lane.addPillBoundsLabel == addText) lane.addPillBounds else null
+
+    val morph = remember { Animatable(if (canMorph) 0f else 1f) }
+    // A drag toward dismissal returns the pill to its add shape as it goes,
+    // and re-expands it if the card springs back, so the shape always states
+    // where releasing now would leave things.
+    val dragged = if (canMorph && inPillLane) minOf(morph.value, 1f - lane.dismissDrag) else morph.value
+    // What the pill last showed. Releasing a committed drag hands the shape
+    // from the finger back to the animation, and those two do not agree for a
+    // frame: the drag is reset the moment the card is let go, while the morph
+    // has not started and still reads 1. Taken at face value that is one frame
+    // of the modal shape in the middle of a dismissal the person has already
+    // watched most of. Once the card is on its way out the shape may only
+    // continue toward the add pill, never back.
+    var lastShown by remember { mutableFloatStateOf(dragged) }
+    val progress = if (expanded) dragged else minOf(dragged, lastShown)
+    SideEffect { lastShown = progress }
+    LaunchedEffect(canMorph, expanded) {
+        val target = if (!canMorph || expanded) 1f else 0f
+        if (!canMorph) {
+            morph.snapTo(target)
+        } else {
+            // Continue from whatever the finger left on screen rather than
+            // from the animation's own stale value, and take proportionally
+            // less time for the part that is left, so the shape keeps the
+            // speed the gesture had.
+            val from = if (target == 0f) minOf(morph.value, lastShown) else morph.value
+            if (from != morph.value) morph.snapTo(from)
+            val full = if (target == 1f) CalinoMotion.PillMorphMillis else CalinoMotion.PillUnmorphMillis
+            val remaining = abs(target - morph.value)
+            morph.animateTo(
+                target,
+                tween(
+                    durationMillis = (full * remaining).roundToInt().coerceAtLeast(1),
+                    easing = FastOutSlowInEasing,
+                ),
+            )
         }
     }
-    val pillWidth by animateDpAsState(
-        targetValue = if (showingAddPill) {
-            218.dp
-        } else {
-            when (actionCount) {
-                1 -> 178.dp
-                2 -> 242.dp
-                else -> 320.dp
-            }
-        },
-        animationSpec = tween(CalinoMotion.ContentEnterMillis + CalinoMotion.FadeThroughMillis),
-        label = "modal action pill width",
-    )
+    if (inPillLane) {
+        SideEffect { lane.morphProgress = progress }
+    }
+    // Each form owns its own half of the move, with a short overlap: the add
+    // label is gone before the actions are readable, so the pill reads as one
+    // shape stretching rather than two labels sharing it.
+    val anchorWidth = anchor?.width?.roundToInt() ?: 0
+    val anchorHeight = anchor?.height?.roundToInt() ?: 0
+    val addAlpha = ((.55f - progress) / .55f).coerceIn(0f, 1f)
+    val actionsAlpha = ((progress - .45f) / .55f).coerceIn(0f, 1f)
+    val actionsLive = progress > .5f
 
-    Box(
-        modifier
-            .width(pillWidth)
-            .height(56.dp)
-            .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
-            .clip(RoundedCornerShape(CalinoShapes.Pill))
-            .background(CalinoColors.FloatFill)
-            .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill)),
-        contentAlignment = Alignment.Center,
-    ) {
-        AnimatedContent(
-            targetState = showingAddPill,
-            modifier = Modifier.fillMaxSize(),
-            transitionSpec = {
-                (fadeIn(tween(CalinoMotion.FadeThroughMillis)) + scaleIn(initialScale = .94f)) togetherWith
-                    (fadeOut(tween(CalinoMotion.FadeThroughMillis)) + scaleOut(targetScale = .94f))
-            },
-            label = "add pill to modal actions",
-        ) { addMode ->
-            if (addMode) {
-                Row(
-                    Modifier
-                        .fillMaxSize()
-                        .semantics { contentDescription = addLabel ?: "Add" }
-                        .padding(start = 16.dp, end = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    val addForm: @Composable () -> Unit = {
+        Row(
+            Modifier
+                .graphicsLayer { alpha = addAlpha }
+                .semantics { contentDescription = addText ?: "Add" }
+                // The same metrics the root add pill wraps its label in, so
+                // the two measure identically for the same text.
+                .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
+            Text(
+                addText.orEmpty(),
+                color = CalinoColors.OnFloat,
+                fontSize = 15.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
+    val actionsForm: @Composable () -> Unit = {
+        val actions = buildList {
+            if (hasCancel) add(ModalPillAction(cancelLabel!!, onCancel!!, true, cancelDescription))
+            if (hasSecondary) add(ModalPillAction(secondaryLabel!!, onSecondary!!, secondaryEnabled, secondaryDescription))
+            add(ModalPillAction(primaryLabel, onPrimary, primaryEnabled, primaryDescription))
+        }
+        Row(
+            Modifier
+                .graphicsLayer { alpha = actionsAlpha }
+                .heightIn(min = CalinoSpacing.ActionPillHeight),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            actions.forEachIndexed { index, action ->
+                if (index > 0) {
+                    Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .28f)))
+                }
+                TextButton(
+                    // A half-faded action is still on its way in or out.
+                    // Taking a tap there would fire an action the person
+                    // cannot yet read.
+                    enabled = action.enabled && actionsLive,
+                    onClick = action.onClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .semantics { contentDescription = action.description },
+                    contentPadding = PaddingValues(horizontal = 10.dp),
                 ) {
-                    CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
                     Text(
-                        addLabel.orEmpty(),
-                        color = CalinoColors.OnFloat,
-                        fontSize = 15.sp,
-                        lineHeight = 20.sp,
-                        fontWeight = FontWeight.Medium,
+                        action.label,
+                        color = CalinoColors.OnFloat.copy(alpha = if (action.enabled) 1f else .45f),
+                        style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-            } else {
-                val actions = buildList {
-                    if (hasCancel) add(ModalPillAction(cancelLabel!!, onCancel!!, true, cancelDescription))
-                    if (hasSecondary) add(ModalPillAction(secondaryLabel!!, onSecondary!!, secondaryEnabled, secondaryDescription))
-                    add(ModalPillAction(primaryLabel, onPrimary, primaryEnabled, primaryDescription))
-                }
-                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                    actions.forEachIndexed { index, action ->
-                        if (index > 0) {
-                            Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .28f)))
-                        }
-                        TextButton(
-                            enabled = action.enabled,
-                            onClick = action.onClick,
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 48.dp)
-                                .semantics { contentDescription = action.description },
-                            contentPadding = PaddingValues(horizontal = 4.dp),
-                        ) {
-                            Text(
-                                action.label,
-                                color = CalinoColors.OnFloat.copy(alpha = if (action.enabled) 1f else .45f),
-                                style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
             }
+        }
+    }
+
+    Layout(
+        contents = listOf(addForm, actionsForm),
+        modifier = modifier
+            .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
+            .clip(RoundedCornerShape(CalinoShapes.Pill))
+            // The same glass the root pill is made of. The lane records the
+            // card behind it, so the pill stays translucent over a modal
+            // exactly as it is over a root surface.
+            .floatingPillSurface(
+                backdrop = if (inPillLane) lane.backdrop else null,
+                backdropOrigin = { lane.backdropOrigin },
+            )
+            .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill)),
+    ) { (addMeasurables, actionMeasurables), constraints ->
+        // The add shape is whatever its label measures -- the same label in
+        // the same metrics the root pill wraps, so the two agree by
+        // construction rather than by a number kept in step by hand.
+        val add = addMeasurables.first().measure(Constraints(maxWidth = constraints.maxWidth))
+        val actionsRow = actionMeasurables.first()
+        val settledHeight = CalinoSpacing.ActionPillHeight.roundToPx()
+        // The actions' own idea of how much room they need: with equal
+        // weights that is the widest action, three times over, so the columns
+        // stay even without anyone declaring a width per action count.
+        val actionsNatural = actionsRow.maxIntrinsicWidth(settledHeight)
+        // The collapsed end of the move is the root pill's own measurement
+        // whenever it is showing the same label, so the two shapes agree to
+        // the pixel instead of agreeing to within a rounding. Only when the
+        // lane has never held a pill, or is showing other text, does this
+        // fall back to measuring the label here.
+        val collapsedWidth = if (anchorWidth > 0) anchorWidth else add.width
+        val collapsedHeight = if (anchorHeight > 0) anchorHeight else add.height
+        // And never narrower than the shape it grew out of. A pill that
+        // shrank while gaining actions would read as a different control.
+        val expanded = maxOf(actionsNatural, collapsedWidth)
+        val width = androidx.compose.ui.util.lerp(collapsedWidth, expanded, progress)
+            .coerceIn(constraints.minWidth, constraints.maxWidth)
+        // Measured at the pill's current width, so the actions spread with it
+        // rather than sitting in a clump while the shape grows around them.
+        val actions = actionsRow.measure(Constraints(minWidth = width, maxWidth = width))
+        val height = androidx.compose.ui.util.lerp(collapsedHeight, actions.height, progress)
+            .coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(width, height) {
+            add.place((width - add.width) / 2, (height - add.height) / 2)
+            actions.place((width - actions.width) / 2, (height - actions.height) / 2)
         }
     }
 }

@@ -291,6 +291,9 @@ object CalinoSpacing {
      * floating add pill never covers the last row.
      */
     val PillClearance = 96.dp
+
+    /** The action pill's settled height, once it has grown out of the add shape. */
+    val ActionPillHeight = 56.dp
 }
 
 object CalinoShapes {
@@ -340,6 +343,14 @@ object CalinoMotion {
     const val ContentEnterMillis = 180
     const val ContentExitMillis = 160
     const val SurfaceFadeMillis = 220
+
+    /**
+     * The add pill changing shape into a modal's actions, and back. It has to
+     * finish inside [SurfaceFadeMillis] on the way out, so the pill has
+     * settled into its add form by the time the card it belonged to is gone.
+     */
+    const val PillMorphMillis = 260
+    const val PillUnmorphMillis = 200
 
     /**
      * Unfolding is a bigger move than any in-app transition, so it gets the

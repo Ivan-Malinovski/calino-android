@@ -184,6 +184,24 @@ fun EditorSurface(
         modifier = Modifier.fillMaxSize(),
         canStartDismiss = { editorScrollState.value == 0 },
         surfaceKind = CalinoSurfaceKind.Editor,
+        pill = {
+            ModalActionPill(
+                addLabel = addLabelFor(draft),
+                morphFromAddPill = morphFromAddPill,
+                // The same flag that widened the add pill on the way in runs
+                // the move backwards here, so closing returns the pill to the
+                // shape it came from instead of taking it away with the card.
+                inPillLane = true,
+                expanded = shown,
+                cancelLabel = "Cancel",
+                onCancel = dismiss,
+                primaryLabel = "Save",
+                onPrimary = { val saved = draft; closeAfterAnimation { onSave(saved) } },
+                primaryEnabled = draft.canSave(),
+                primaryDescription = "Save editor",
+                cancelDescription = "Cancel editor",
+            )
+        },
     ) { detailModifier ->
         Column(detailModifier.fillMaxSize().background(CalinoColors.Canvas)) {
             EditorHeader(draft, dismiss, onPhoto)
@@ -247,19 +265,6 @@ fun EditorSurface(
                     // the main add pill without hiding the final form row.
                     Spacer(Modifier.height(CalinoSpacing.PillClearance))
                 }
-
-                ModalActionPill(
-                    addLabel = addLabelFor(draft),
-                    morphFromAddPill = morphFromAddPill,
-                    cancelLabel = "Cancel",
-                    onCancel = dismiss,
-                    primaryLabel = "Save",
-                    onPrimary = { val saved = draft; closeAfterAnimation { onSave(saved) } },
-                    primaryEnabled = draft.canSave(),
-                    primaryDescription = "Save editor",
-                    cancelDescription = "Cancel editor",
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
-                )
             }
         }
     }
