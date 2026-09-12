@@ -667,6 +667,7 @@ fun HomeScreen(
                 val currentDate = LocalDate.ofEpochDay(currentSelectedEpoch.value)
                 if (YearMonth.from(currentDate) != targetMonth) {
                     val date = targetMonth.atDay(currentDate.dayOfMonth.coerceAtMost(targetMonth.lengthOfMonth()))
+                    dayPagerState.requestScrollToPage(dayPageFor(date))
                     selectedEpoch = date.toEpochDay()
                     onDateChanged(date)
                 }
@@ -1530,12 +1531,31 @@ fun HomeScreen(
                         }
                         .clipToBounds(),
                 ) {
+                    val selectedMonthPage = monthPageFor(YearMonth.from(selected))
+                    val monthPreviewPage by remember(monthPagerState, selectedMonthPage) {
+                        derivedStateOf {
+                            val distance = monthPagerState.getOffsetDistanceInPages(selectedMonthPage)
+                            when {
+                                distance < -.001f -> selectedMonthPage + 1
+                                distance > .001f -> selectedMonthPage - 1
+                                else -> selectedMonthPage
+                            }.coerceIn(0, MonthPagerPageCount - 1)
+                        }
+                    }
+                    val monthAgendaPreview = headingUsesMonthPager && agendaOwnsInputNow &&
+                        monthPagerState.isScrollInProgress && isUserSettle(monthPagerState) &&
+                        monthPreviewPage != selectedMonthPage
                     DayPagerSurface(
                         state = dayPagerState,
                         events = events,
                         tasksByDueDate = tasksByDueDate,
                         scrollState = railScroll,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            if (monthAgendaPreview) {
+                                translationX = monthPagerState
+                                    .getOffsetDistanceInPages(selectedMonthPage) * size.width
+                            }
+                        },
                         interactionEnabled = interactionEnabled,
                         zoomState = currentZoom,
                         timelineScale = timelineScale.floatValue,
@@ -1554,6 +1574,33 @@ fun HomeScreen(
                         onTaskDrop = onTaskDrop,
                         onOpenDay = splitOpenDay,
                     )
+                    if (monthAgendaPreview) {
+                        val previewMonth = monthForPage(monthPreviewPage)
+                        val previewDay = previewMonth.atDay(
+                            selected.dayOfMonth.coerceAtMost(previewMonth.lengthOfMonth()),
+                        )
+                        Box(
+                            Modifier.fillMaxSize().graphicsLayer {
+                                translationX = monthPagerState
+                                    .getOffsetDistanceInPages(monthPreviewPage) * size.width
+                            }.background(CalinoColors.Canvas).padding(top = laneOverlap),
+                        ) {
+                            SelectedDayAgendaPage(
+                                day = previewDay,
+                                dayEvents = remember(events, previewDay) { eventsFor(events, previewDay) },
+                                dayTasks = tasksByDueDate[previewDay].orEmpty(),
+                                active = false,
+                                onEvent = null,
+                                onEventAction = null,
+                                onEventDrop = null,
+                                onTaskDone = null,
+                                onTaskClick = null,
+                                onTaskAction = null,
+                                onTaskDrop = null,
+                                onOpenDay = null,
+                            )
+                        }
+                    }
                 }
             }
         }

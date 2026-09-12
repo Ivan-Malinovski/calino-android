@@ -17,6 +17,12 @@ continue the UI work.
 - At the compact Calendar endpoint the heading follows the day or week pager
   that actually owns the gesture; at the full-month endpoint it follows the
   month pager's exact fractional offset.
+- Month-title opacity follows its distance from the center, fading outgoing
+  and incoming labels instead of leaving both solid.
+- At the split month/agenda endpoint, a month swipe previews only the incoming
+  lightweight agenda page at the month pager's offset. It deliberately does
+  not duplicate `DayPagerSurface` (and its timeline, hit testing, and gesture
+  state); the real day pager is handed to the preview date on settlement.
 
 ### Legacy-style event preview — 2026-09-12
 

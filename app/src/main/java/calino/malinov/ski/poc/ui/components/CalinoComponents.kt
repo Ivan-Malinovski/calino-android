@@ -1192,7 +1192,9 @@ fun CalinoMonthHeading(
                         MonthHeadingLabel(
                             month = monthForPage(page),
                             modifier = Modifier.fillMaxWidth().graphicsLayer {
-                                translationX = monthPagerState.getOffsetDistanceInPages(page) * size.width
+                                val distance = monthPagerState.getOffsetDistanceInPages(page)
+                                translationX = distance * size.width
+                                alpha = (1f - kotlin.math.abs(distance)).coerceIn(0f, 1f)
                             },
                         )
                     }
