@@ -25,6 +25,7 @@ import calino.malinov.ski.poc.notify.ReminderSchedulerBridge
 import calino.malinov.ski.poc.notify.Reminders
 import calino.malinov.ski.poc.state.CalinoPreferenceStore
 import calino.malinov.ski.poc.state.SharedPreferencesPreferenceStore
+import calino.malinov.ski.poc.widget.CalinoWidgetBridge
 import java.io.File
 import java.time.ZoneId
 import java.util.concurrent.CopyOnWriteArrayList
@@ -113,15 +114,24 @@ class CalinoContainer private constructor(context: Context) {
     private var connected = false
 
     @Volatile
+    private var cacheRestored = false
+
+    @Volatile
     private var draining = false
 
     @Volatile
     private var scheduling = false
 
+    @Volatile
+    private var widgetUpdating = false
+
     /**
      * Keeps the durable reminder schedule level with whatever the repository
      * is currently publishing.
      */
+    /** Keeps the home screen widget level with the repository. */
+    val widgetBridge = CalinoWidgetBridge(application)
+
     val reminderBridge = ReminderSchedulerBridge(
         preferences = preferenceStore,
         store = Reminders.scheduleStore(application),
@@ -148,7 +158,27 @@ class CalinoContainer private constructor(context: Context) {
     fun ensureConnected() {
         if (connected) return
         connected = true
+        cacheRestored = true
         connections.restore()
+        updateActiveRepository()
+    }
+
+    /**
+     * Publish the disk cache, and stop there.
+     *
+     * For the home screen widget, which the launcher can ask to redraw in a
+     * process with no Activity and no reason to be on the network. The raw
+     * iCalendar cache is already the thing a cold launch renders from, so the
+     * widget reads the same data through the same repository rather than
+     * keeping a second copy of the agenda on disk.
+     *
+     * Deliberately not folded into [ensureConnected]'s flag: a widget render
+     * must not stop a later foreground from actually syncing.
+     */
+    fun ensureCachedData() {
+        if (cacheRestored || connected) return
+        cacheRestored = true
+        connections.restoreFromCache()
         updateActiveRepository()
     }
 
@@ -211,6 +241,20 @@ class CalinoContainer private constructor(context: Context) {
             }
             delay(ActionDrainIntervalMillis)
         }
+    }
+
+    /**
+     * Begin redrawing the home screen widget when the repository publishes.
+     *
+     * Started by the UI only, for the same reason reminder scheduling is: a
+     * process woken purely to render the widget already reads the snapshot it
+     * needs, and attaching an observer there would be a bridge listening to a
+     * publish that its own render caused.
+     */
+    fun startWidgetUpdates() {
+        if (widgetUpdating) return
+        widgetUpdating = true
+        observeRepository { repository -> widgetBridge.attach(repository, scope) }
     }
 
     /** Start the periodic queue drain. Only the UI process needs this. */

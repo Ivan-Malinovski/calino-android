@@ -126,6 +126,35 @@ old mock advertised was removed rather than built.
 - Respect calendar visibility and the Journal/Contacts availability flags.
 - Update on sync and on date change without a background poll loop.
 
+**Status 2026-09-12 — [x] done.** A resizable Glance agenda under `widget/`:
+today plus the next days at larger sizes, events and tasks, empty days skipped.
+`WidgetAgenda.kt` is the Android-free core (the `ReminderPlan.kt` precedent) and
+borrows `EventDateIndex`, `tasksDueOn` and the agenda's ordering rather than
+restating them, so the widget cannot drift from the grid behind it.
+
+It never touches the network: `CalDavConnectionManager.restore()` was split so
+`CalinoContainer.ensureCachedData()` publishes the disk cache alone. Updates
+come from a `CalinoWidgetBridge` on the repository (the `ReminderSchedulerBridge`
+shape, conflated the same way), plus `DATE_CHANGED`/`TIME_SET`/`TIMEZONE_CHANGED`
+on the receiver; `updatePeriodMillis` is 0, so there is no poll loop. Record
+rows reuse the reminder deep link unchanged; day headers use a new
+`AgendaDeepLinks` beside it.
+
+Validated on the API 36 emulator against a local Radicale with a real account:
+reboot re-render with no Activity in the process; an identical render with the
+server **stopped**, which is what proves the cache path; cold taps into an
+event, a task and a day header; a server delete and an in-app completion both
+arriving through the bridge; calendar visibility off and back on; a framework
+time-set moving "today"; the no-account prompt; light and dark. 521 unit tests,
+none failing.
+
+Two Glance traps are written up in `HANDOFF.md` — both make the widget render
+once and then silently never change. Read that section before editing it.
+
+Calendar visibility and `showTasksInViews` are honoured. The Journal/Contacts
+flags are read into `WidgetAgendaOptions` but gate nothing, because the widget
+shows neither; that is recorded rather than claimed as met.
+
 ## 4. 3-day and 7-day range views
 
 `CalinoDefaultView` currently has Month, Week, and Day only.

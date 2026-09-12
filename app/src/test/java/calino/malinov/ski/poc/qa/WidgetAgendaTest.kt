@@ -1,0 +1,264 @@
+package calino.malinov.ski.poc.qa
+
+import calino.malinov.ski.poc.data.model.CalEvent
+import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.data.repository.CalinoCalendar
+import calino.malinov.ski.poc.data.repository.CalinoSnapshot
+import calino.malinov.ski.poc.util.CalinoTimeFormat
+import calino.malinov.ski.poc.widget.WidgetAgendaBuilder
+import calino.malinov.ski.poc.widget.WidgetAgendaOptions
+import calino.malinov.ski.poc.widget.WidgetRowKind
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * What the home screen widget shows.
+ *
+ * Fixed in time for the same reason the reminder planner's tests are: a widget
+ * that depends on the wall clock is a test that fails once a year. The rules
+ * being pinned here are mostly rules the calendar surfaces already have, and
+ * that is the point -- the widget disagreeing with the grid behind it is the
+ * failure this file exists to catch.
+ */
+class WidgetAgendaTest {
+
+    /** Monday 14 September 2026. */
+    private val today: LocalDate = LocalDate.of(2026, 9, 14)
+
+    private val calendars = listOf(
+        CalinoCalendar(id = "work", name = "Work", color = 0xFF5B7FB5),
+        CalinoCalendar(id = "personal", name = "Personal", color = 0xFFC2697F),
+    )
+
+    @Test
+    fun `events come before tasks on the same day, all-day before timed`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "timed", start = today.atTime(14, 0)),
+                event(id = "allday", allDay = true, date = today),
+            ),
+            tasks = listOf(task(id = "chore", due = today)),
+        )
+
+        val rows = agenda.days.single { it.date == today }.rows
+        assertEquals(listOf("allday", "timed", "chore"), rows.map { it.recordId })
+        assertEquals(
+            listOf(WidgetRowKind.Event, WidgetRowKind.Event, WidgetRowKind.Task),
+            rows.map { it.kind },
+        )
+    }
+
+    @Test
+    fun `an invisible calendar contributes neither events nor tasks`() {
+        val agenda = build(
+            calendars = listOf(
+                CalinoCalendar(id = "work", name = "Work", color = 0L, visible = false),
+                CalinoCalendar(id = "personal", name = "Personal", color = 0L),
+            ),
+            events = listOf(event(id = "hidden", start = today.atTime(9, 0), calendarId = "work")),
+            tasks = listOf(task(id = "hidden-task", due = today, calendarId = "work")),
+        )
+
+        assertTrue(agenda.empty)
+        assertTrue(agenda.days.single().rows.isEmpty())
+    }
+
+    @Test
+    fun `showTasksInViews off drops the tasks but keeps the events`() {
+        val agenda = build(
+            calendars = listOf(
+                CalinoCalendar(id = "work", name = "Work", color = 0L, showTasksInViews = false),
+            ),
+            events = listOf(event(id = "meeting", start = today.atTime(9, 0), calendarId = "work")),
+            tasks = listOf(task(id = "chore", due = today, calendarId = "work")),
+        )
+
+        assertEquals(listOf("meeting"), agenda.days.single().rows.map { it.recordId })
+    }
+
+    @Test
+    fun `a weekly recurrence lands on its own weekday across the window`() {
+        val agenda = build(
+            events = listOf(
+                event(
+                    id = "standup",
+                    start = today.atTime(9, 30),
+                    recurrence = "FREQ=WEEKLY;BYDAY=MO",
+                ),
+            ),
+            options = options(dayCount = 8),
+        )
+
+        val withRows = agenda.days.filter { it.rows.isNotEmpty() }.map { it.date }
+        assertEquals(listOf(today, today.plusDays(7)), withRows)
+    }
+
+    @Test
+    fun `a multi-day event appears on every day it covers, timed only on the first`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "offsite", allDay = true, date = today, endDate = today.plusDays(2)),
+            ),
+            options = options(dayCount = 4),
+        )
+
+        val days = agenda.days.filter { it.rows.isNotEmpty() }.map { it.date }
+        assertEquals((0L..2L).map(today::plusDays), days)
+        assertTrue(agenda.days.flatMap { it.rows }.all { it.allDay })
+    }
+
+    @Test
+    fun `a timed event spanning midnight reads as all-day on its second day`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "night", start = today.atTime(22, 0), durationMinutes = 300),
+            ),
+            options = options(dayCount = 2),
+        )
+
+        val first = agenda.days.first().rows.single()
+        val second = agenda.days.last().rows.single()
+        assertFalse(first.allDay)
+        assertEquals("10:00 PM", first.timeLabel)
+        assertTrue(second.allDay)
+        assertNull(second.timeLabel)
+    }
+
+    @Test
+    fun `completed tasks drop out only when the preference says so`() {
+        val tasks = listOf(task(id = "done", due = today, done = true))
+
+        assertEquals(listOf("done"), build(tasks = tasks).days.single().rows.map { it.recordId })
+        assertTrue(
+            build(tasks = tasks, options = options(hideCompletedTasks = true))
+                .days.single().rows.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `the row budget truncates across days rather than overflowing`() {
+        val agenda = build(
+            events = (1..5).map { event(id = "e$it", start = today.atTime(8 + it, 0)) },
+            tasks = listOf(task(id = "tomorrow", due = today.plusDays(1))),
+            options = options(dayCount = 3, maxRows = 3),
+        )
+
+        assertEquals(3, agenda.days.sumOf { it.rows.size })
+        // The window stops where the budget runs out; a day nobody has room for
+        // is not carried as an empty heading.
+        assertEquals(listOf(today), agenda.days.map { it.date })
+        assertFalse(agenda.empty)
+    }
+
+    @Test
+    fun `an empty window is flagged once, with the days still present`() {
+        val agenda = build(options = options(dayCount = 3))
+
+        assertTrue(agenda.empty)
+        assertEquals(3, agenda.days.size)
+        assertTrue(agenda.days.all { it.rows.isEmpty() })
+    }
+
+    @Test
+    fun `the time label follows the clock preference`() {
+        val events = listOf(event(id = "e", start = today.atTime(14, 30)))
+
+        assertEquals("2:30 PM", build(events = events).days.single().rows.single().timeLabel)
+        assertEquals(
+            "14:30",
+            build(
+                events = events,
+                options = options(timeFormat = CalinoTimeFormat.TwentyFourHour),
+            ).days.single().rows.single().timeLabel,
+        )
+    }
+
+    @Test
+    fun `locations are carried only when the preference allows them`() {
+        val events = listOf(event(id = "e", start = today.atTime(9, 0)))
+
+        assertEquals("Studio", build(events = events).days.single().rows.single().location)
+        assertNull(
+            build(events = events, options = options(showLocations = false))
+                .days.single().rows.single().location,
+        )
+    }
+
+    private fun build(
+        calendars: List<CalinoCalendar> = this.calendars,
+        events: List<CalEvent> = emptyList(),
+        tasks: List<CalTask> = emptyList(),
+        options: WidgetAgendaOptions = options(),
+    ) = WidgetAgendaBuilder.build(
+        snapshot = CalinoSnapshot(
+            events = events,
+            tasks = tasks,
+            journals = emptyList(),
+            calendars = calendars,
+        ),
+        today = today,
+        options = options,
+    )
+
+    private fun options(
+        dayCount: Int = 1,
+        maxRows: Int = 12,
+        hideCompletedTasks: Boolean = false,
+        showLocations: Boolean = true,
+        timeFormat: CalinoTimeFormat = CalinoTimeFormat.TwelveHour,
+    ) = WidgetAgendaOptions(
+        dayCount = dayCount,
+        maxRows = maxRows,
+        hideCompletedTasks = hideCompletedTasks,
+        showLocations = showLocations,
+        timeFormat = timeFormat,
+    )
+
+    private fun event(
+        id: String,
+        start: LocalDateTime? = null,
+        durationMinutes: Int? = 60,
+        allDay: Boolean = false,
+        date: LocalDate? = null,
+        endDate: LocalDate? = null,
+        recurrence: String? = null,
+        calendarId: String = "work",
+    ) = CalEvent(
+        id = id,
+        title = "Design review",
+        color = 0xFF5B7FB5,
+        start = start,
+        durationMinutes = if (allDay) null else durationMinutes,
+        allDay = allDay,
+        date = date,
+        endDate = endDate,
+        recurrence = recurrence,
+        location = "Studio",
+        calendarId = calendarId,
+        uid = id,
+    )
+
+    private fun task(
+        id: String,
+        due: LocalDate?,
+        dueTime: LocalTime? = null,
+        done: Boolean = false,
+        calendarId: String = "personal",
+    ) = CalTask(
+        id = id,
+        title = "Buy flowers",
+        color = 0xFFC2697F,
+        due = due,
+        done = done,
+        category = "Personal",
+        dueTime = dueTime,
+        uid = id,
+        calendarId = calendarId,
+    )
+}

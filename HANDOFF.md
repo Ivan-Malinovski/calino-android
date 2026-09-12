@@ -4,6 +4,102 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Home screen widget — 2026-09-12
+
+TODO item 3. A resizable Glance agenda widget, under `widget/`.
+
+- `widget/WidgetAgenda.kt` is the pure core, and exists for the same reason
+  `notify/ReminderPlan.kt` does: a Glance composable is unreachable from the
+  plain-JUnit suite, and this code runs in whatever process the launcher wakes.
+  A snapshot and a date in, a list of rows out. It borrows every rule rather
+  than restating one -- `EventDateIndex` for recurrence and multi-day spans,
+  `tasksDueOn` for due tasks, `AgendaScreen`'s ordering, and its
+  "Nothing scheduled" string. A widget that disagreed with the grid behind it
+  would be worse than no widget.
+- **The widget never touches the network.** `CalDavConnectionManager.restore()`
+  was two things in one: seed the sources from the stored collection list so the
+  repository publishes its disk cache, *then* rediscover against the server.
+  The first half is now `restoreFromCache()`, reached through the new
+  `CalinoContainer.ensureCachedData()`. Its flag is deliberately separate from
+  `connected`, so a widget render cannot stop a later foreground from syncing.
+- Publishing is asynchronous and `observe` calls back immediately with the
+  *current* snapshot, which on a cold start is the empty one. So
+  `awaitCachedSnapshot` waits for a publish that actually carries records, with
+  a 2-second ceiling: an account whose cache is genuinely empty must still draw
+  something, and the timeout is the honest answer there.
+- `widget/CalinoWidgetBridge.kt` is `ReminderSchedulerBridge` again, and for the
+  same two reasons: `CalDavRepository.publish()` is the single funnel every
+  change passes through, so observing it *is* "update on sync"; and one reload
+  publishes several times, so emissions are conflated or each would be a full
+  render. It no-ops when no widget is bound. Started from the UI only, beside
+  `startReminderScheduling()`.
+- **No poll loop.** `updatePeriodMillis` is 0. "Today" moves because the
+  receiver also accepts `DATE_CHANGED`, `TIME_SET` and `TIMEZONE_CHANGED` --
+  all on the exemption list that still lets an implicit broadcast be declared in
+  a manifest. `ReminderActionReceiver` additionally pokes the widget after a
+  shade action, because that runs in a process with no Activity and therefore no
+  bridge; without it the widget would keep showing a task the user just
+  completed.
+- Record rows reuse the reminder deep link unchanged, so they inherit its
+  id -> uid + day -> next-occurrence degradation and need no new navigation
+  code. Day headers needed a target that is not a record, so `AgendaDeepLinks`
+  (host `agenda`, `?day=<epochDay>`) sits beside it in the same file -- the
+  scheme stays written down once, and both parsers are `java.net.URI`-based and
+  therefore testable.
+- With no account the widget shows "No calendar connected" rather than the
+  fixture agenda: the fixtures live around May 2026, so a real "today" against
+  them is permanently empty and reads as broken. Reminders decline fixture mode
+  for the same reason.
+- `visibleCalendarIds` / `taskCalendarIds` were extracted next to
+  `CalinoCalendar` and the planner now calls the first. The two Compose call
+  sites still inline theirs because they also subtract the fixture-only
+  in-memory hidden sets, which are not durable and so cannot be part of a rule a
+  receiver or widget applies.
+
+**Two Glance traps this cost a round of debugging each**, both with the same
+symptom -- the widget renders correctly once and then silently never changes,
+which reads as a broken bridge rather than what it is:
+
+- `provideGlance` runs once per **session**, not once per update. A snapshot
+  captured before `provideContent` is frozen for the life of that session. The
+  data has to be read *inside* the composition; `currentSnapshot` does it.
+- Recomposition only re-runs the scopes an update **invalidated**. `LocalDate.now()`
+  in a composable reads nothing observable, so the scope is skipped and the
+  widget keeps yesterday's heading however many updates arrive. Hence
+  `widget/WidgetClock.kt`, which makes the date real state.
+
+Two more things to know before touching it:
+
+- **Only RemoteViews' whitelisted view classes may appear in the static
+  layouts.** `res/layout/calino_widget_preview.xml` used a plain `<View>` for
+  its colour bars and the picker rendered "Can't load widget" with only a
+  `failNotAllowed` in logcat. They are `ImageView`s now.
+- **`adb shell am force-stop` is not a cold-start test for a widget.** It puts
+  the package into Android's stopped state and the framework masks widget
+  updates until the app is launched again ("Updating package stopped masked
+  state ... isStopped true" in logcat). Reboot instead. `APPWIDGET_UPDATE` also
+  cannot be broadcast from the shell -- it is a protected broadcast.
+
+Glance 1.1.1 brings WorkManager in transitively; that is where the
+`androidx.work` receivers in a `dumpsys package` listing come from.
+
+**Journal/Contacts availability, honestly:** the widget honours calendar
+visibility and `showTasksInViews`. The Journal and Contacts flags are read into
+`WidgetAgendaOptions` from `CalinoPreferenceStore`, and currently gate nothing,
+because the widget shows events and tasks and neither of those. They are wired
+rather than removed so there is one place to reach for if it ever shows more --
+not because the requirement is met.
+
+Validated on the API 36 emulator against a local Radicale with a real connected
+account, driving real records rather than the fixture: placement and picker
+preview; an `adb reboot` re-render with zero `MainActivity` records in the
+process; an identical render with Radicale **stopped**, which is what proves the
+disk-cache path; taps from a cold process into an event, a task, and a day
+header; a server-side delete and an in-app "mark done" both reaching the widget
+through the bridge with no manual refresh; a calendar hidden and re-shown; a
+framework time-set moving "today" and emptying the day; the no-account prompt
+after removing the account; and light and dark.
+
 ### A local CalDAV server for live tests — 2026-09-12
 
 `scripts/live-caldav/radicale.sh` runs Radicale on the developer's machine for

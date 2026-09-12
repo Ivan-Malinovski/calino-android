@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    updatePeriodMillis is 0 on purpose. The widget is redrawn by the repository
+    bridge when a sync changes something and by the date/time broadcasts the
+    receiver accepts; a periodic wake-up would be a background poll loop that
+    mostly rendered an unchanged list.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/calino_widget_loading"
+    android:previewLayout="@layout/calino_widget_preview"
+    android:description="@string/calino_widget_description"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

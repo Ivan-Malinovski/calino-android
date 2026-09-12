@@ -6,6 +6,7 @@ import calino.malinov.ski.poc.data.model.lastCoveredDate
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
+import calino.malinov.ski.poc.data.repository.visibleCalendarIds
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -87,7 +88,7 @@ object ReminderPlanner {
     ): List<ReminderFiring> = plan(
         events = snapshot.events,
         tasks = snapshot.tasks,
-        visibleCalendarIds = snapshot.calendars.filter { it.visible }.map { it.id }.toSet(),
+        visibleCalendarIds = visibleCalendarIds(snapshot.calendars),
         now = now,
         zone = zone,
         options = options,

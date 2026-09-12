@@ -82,6 +82,11 @@ dependencies {
         exclude(group = "com.fasterxml.jackson.core", module = "jackson-databind")
         exclude(group = "com.fasterxml.jackson.core", module = "jackson-annotations")
     }
+    // The home screen widget. Glance is not part of the Compose BOM and has to
+    // carry its own version. glance-material3 is deliberately not taken: the
+    // widget maps the existing CalinoPalette tokens directly, rather than
+    // routing them through a second Material colour scheme.
+    implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     baselineProfile(project(":benchmark"))
     debugImplementation("androidx.compose.ui:ui-tooling")

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import calino.malinov.ski.poc.data.CalinoContainer
 import calino.malinov.ski.poc.data.repository.WriteResult
+import calino.malinov.ski.poc.widget.CalinoWidgets
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -70,6 +71,11 @@ class ReminderActionReceiver : BroadcastReceiver() {
                 store.markDelivered(key, now)
                 notifier.postConfirmation(firing, message)
                 Reminders.scheduler(app).syncNextAlarm(Instant.now())
+                // This runs in a process that may have no Activity, and so no
+                // widget bridge attached to the repository. Without this poke
+                // the widget would keep showing a task the user just completed
+                // from the shade.
+                CalinoWidgets.update(app)
             } finally {
                 pending.finish()
             }

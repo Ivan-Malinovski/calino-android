@@ -4,4 +4,11 @@
     <!-- Adaptive launcher icon background; fixed so the mark stays consistent
          when the phone switches between light and dark app themes. -->
     <color name="launcher_background">#4A423A</color>
+    <!-- The widget draws in the launcher's process and cannot read the app's
+         Compose palette, so its static loading/preview layouts restate the two
+         tokens they need. CalinoThemes.PaperLight. -->
+    <color name="widget_canvas">#FAF8F3</color>
+    <color name="widget_ink">#2C2823</color>
+    <color name="widget_ink2">#6F6A62</color>
+    <color name="widget_ink3">#A39D93</color>
 </resources>

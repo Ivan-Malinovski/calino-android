@@ -46,6 +46,23 @@ data class CalinoCalendar(
     val showTasksInViews: Boolean = true,
 )
 
+/**
+ * The ids whose records a calendar surface may show.
+ *
+ * Written out identically in four places before this existed -- the calendar
+ * root, the agenda, the reminder planner and the widget -- and the two that are
+ * off by a rule are exactly the kind of divergence that makes a reminder fire
+ * for something the grid does not draw. The Compose call sites additionally
+ * subtract the fixture-only in-memory hidden sets, which are not durable and so
+ * cannot be part of a rule a receiver or a widget also has to apply.
+ */
+fun visibleCalendarIds(calendars: List<CalinoCalendar>): Set<String> =
+    calendars.asSequence().filter { it.visible }.map { it.id }.toSet()
+
+/** As [visibleCalendarIds], further restricted to collections that show tasks. */
+fun taskCalendarIds(calendars: List<CalinoCalendar>): Set<String> =
+    calendars.asSequence().filter { it.visible && it.showTasksInViews }.map { it.id }.toSet()
+
 /** Whether this collection will accept a component of [component]. */
 fun CalinoCalendar.accepts(component: String): Boolean =
     components.isEmpty() || component.uppercase() in components

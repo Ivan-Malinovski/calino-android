@@ -82,5 +82,27 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!--
+            The home screen agenda. Exported because APPWIDGET_UPDATE is a
+            system broadcast; the three date/time actions beside it are what
+            move the widget to a new "today" without a periodic poll, and are on
+            the exemption list that lets an implicit broadcast still be declared
+            in a manifest. Everything else is ignored.
+        -->
+        <receiver
+            android:name=".widget.CalinoWidgetReceiver"
+            android:label="Calino agenda"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/calino_agenda_widget_info" />
+        </receiver>
     </application>
 </manifest>

@@ -134,6 +134,7 @@ import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.data.CalinoContainer
 import calino.malinov.ski.poc.notify.LocalNotificationPermission
 import calino.malinov.ski.poc.notify.ReminderChannels
+import calino.malinov.ski.poc.notify.AgendaDeepLinks
 import calino.malinov.ski.poc.notify.ReminderDeepLink
 import calino.malinov.ski.poc.notify.ReminderDeepLinks
 import calino.malinov.ski.poc.notify.ReminderKind
@@ -322,6 +323,17 @@ class MainActivity : ComponentActivity() {
     var pendingReminderLink by mutableStateOf<ReminderDeepLink?>(null)
         private set
 
+    /**
+     * A widget tap on a day header: "show me the calendar on this date".
+     *
+     * Separate from [pendingReminderLink] because it needs no snapshot to
+     * resolve -- a date is a date -- but it is still held rather than applied,
+     * because the composition that owns the selected date does not exist yet
+     * when a cold start parses the intent.
+     */
+    var pendingAgendaDate by mutableStateOf<LocalDate?>(null)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ReminderChannels.ensure(this)
@@ -342,9 +354,13 @@ class MainActivity : ComponentActivity() {
 
     fun consumeReminderLink() { pendingReminderLink = null }
 
+    fun consumeAgendaDate() { pendingAgendaDate = null }
+
     private fun consumeReminderIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
-        ReminderDeepLinks.parse(intent.data?.toString())?.let { pendingReminderLink = it }
+        val raw = intent.data?.toString()
+        ReminderDeepLinks.parse(raw)?.let { pendingReminderLink = it }
+        AgendaDeepLinks.parse(raw)?.let { pendingAgendaDate = it }
     }
 
     private fun consumeAiIntent(intent: Intent?) {
@@ -407,6 +423,7 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         container.ensureConnected()
         container.startWriteQueueDrain()
         container.startReminderScheduling()
+        container.startWidgetUpdates()
         syncState()
     }
 
@@ -947,6 +964,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 }
             }
         }
+    }
+
+    /**
+     * A widget tap on a day header, landed.
+     *
+     * Needs no snapshot, so it applies immediately -- but it must not fight the
+     * reminder link above for the route when an intent somehow carries both.
+     */
+    LaunchedEffect(activity.pendingAgendaDate) {
+        val date = activity.pendingAgendaDate ?: return@LaunchedEffect
+        if (activity.pendingReminderLink != null) return@LaunchedEffect
+        selectedDate = date
+        route = PockRoute.Day
+        activity.consumeAgendaDate()
     }
 
     fun handleTaskAction(action: TaskMenuAction, task: CalTask) {

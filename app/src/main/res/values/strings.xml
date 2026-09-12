@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The first string resource in the app. Every other user-facing string is
+    still hardcoded in Kotlin; extracting them is TODO item 17, and this file
+    exists only because android:description on an appwidget-provider has to be
+    a resource. Do not read it as the start of that migration.
+-->
+<resources>
+    <string name="calino_widget_description">Today\'s events and tasks</string>
+</resources>

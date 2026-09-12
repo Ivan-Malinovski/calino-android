@@ -1,4 +1,9 @@
 <resources>
     <!-- CalinoThemes.PaperDark.Canvas -->
     <color name="launch_canvas">#1A1816</color>
+    <!-- CalinoThemes.PaperDark. -->
+    <color name="widget_canvas">#1A1816</color>
+    <color name="widget_ink">#F0ECE6</color>
+    <color name="widget_ink2">#A8A29A</color>
+    <color name="widget_ink3">#989086</color>
 </resources>

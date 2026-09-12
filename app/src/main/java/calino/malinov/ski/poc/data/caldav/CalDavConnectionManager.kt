@@ -90,8 +90,23 @@ class CalDavConnectionManager(
      * deleted on the server is picked up when it returns.
      */
     fun restore() {
+        val accounts = restoreFromCache()
+        scope.launch { accounts.forEach { rediscover(it) } }
+    }
+
+    /**
+     * The first half of [restore], and nothing else: seed the sources from the
+     * stored collection list so the repository publishes its disk cache, with
+     * no network traffic at all.
+     *
+     * Split out for the home screen widget, which is rendered in whatever
+     * process the launcher wakes and must not put that process on the network
+     * to draw a list it already has on disk. Returns the accounts it seeded so
+     * [restore] can then go and check them against the server.
+     */
+    fun restoreFromCache(): List<CalDavAccount> {
         val accounts = accountStore.accounts()
-        if (accounts.isEmpty()) return
+        if (accounts.isEmpty()) return emptyList()
         accounts.forEach { account ->
             discovered[account.id] = account.calendars.map { calendar ->
                 DiscoveredCalendar(
@@ -119,7 +134,7 @@ class CalDavConnectionManager(
             }
         }
         applySources()
-        scope.launch { accounts.forEach { rediscover(it) } }
+        return accounts
     }
 
     private suspend fun rediscover(account: CalDavAccount) {

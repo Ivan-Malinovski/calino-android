@@ -4,6 +4,7 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.placementDate
 import java.net.URI
+import java.time.LocalDate
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -126,4 +127,36 @@ object ReminderDeepLinks {
 
     private fun decode(value: String): String =
         URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+}
+
+/**
+ * "Open the calendar on this date."
+ *
+ * The widget's day headers and its background need a target that is not a
+ * record. It lives beside the reminder link rather than in the widget package
+ * so the app's URI scheme stays written down in exactly one file, and it is
+ * built on `java.net.URI` for the same reason its neighbour is: both halves are
+ * then testable in the plain-JUnit suite.
+ */
+object AgendaDeepLinks {
+
+    const val Host = "agenda"
+
+    fun uri(day: LocalDate): String =
+        "${ReminderDeepLinks.Scheme}://$Host?day=${day.toEpochDay()}"
+
+    /** The date this link meant, or null for anything that is not one of ours. */
+    fun parse(raw: String?): LocalDate? {
+        if (raw.isNullOrBlank()) return null
+        val uri = runCatching { URI(raw) }.getOrNull() ?: return null
+        if (!ReminderDeepLinks.Scheme.equals(uri.scheme, ignoreCase = true)) return null
+        if (!Host.equals(uri.host, ignoreCase = true)) return null
+        val day = uri.rawQuery
+            ?.split('&')
+            ?.firstOrNull { it.startsWith("day=") }
+            ?.removePrefix("day=")
+            ?.toLongOrNull()
+            ?: return null
+        return runCatching { LocalDate.ofEpochDay(day) }.getOrNull()
+    }
 }

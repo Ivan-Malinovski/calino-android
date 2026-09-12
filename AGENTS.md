@@ -155,6 +155,7 @@ app/src/main/java/calino/malinov/ski/poc/
   ui/home/HomeScreen.kt            calendar, pagers, zoom, and agenda
   ui/surfaces/                     Tasks, Journal, Settings, calendar accounts, and modals
   notify/                          reminder planning, scheduling, and delivery
+  widget/                          the Glance home screen agenda widget
   data/CalinoContainer.kt          the process-wide data layer
   util/                            formatting and recurrence helpers
 ```
