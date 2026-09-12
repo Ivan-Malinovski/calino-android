@@ -49,14 +49,21 @@ Calino "does not model" and only preserves on patch.
 Done when a reminder set in Calino is visible in another CalDAV client and
 survives a round trip in both directions. Local delivery is item 2.
 
-**Status 2026-09-12 — implemented, not yet signed off.** The mapping, writing,
-patching and rebase work is in (`data/caldav/ICalAlarms.kt` plus the three iCal
-files) with unit coverage for the ownership predicate, the round trip, foreign
-alarm preservation and the stale-ETag rebase; `test lintDebug assembleDebug` is
-green and the APK installs and launches clean on the API 36 emulator. What is
-**not** done is the live check this item is actually measured by: a reminder
-written to a real server, edited in Thunderbird, and read back. That needs
-account credentials and is the only thing between this item and `[x]`.
+**Status 2026-09-12 — [x] done.** Mapping, writing, patching and the rebase are
+in (`data/caldav/ICalAlarms.kt` plus the three iCal files), with unit coverage
+for the ownership predicate, the round trip, foreign-alarm preservation and the
+stale-ETag rebase.
+
+Validated live against Radicale by `CalDavAlarmLiveTest`, which plants a
+resource shaped the way another client emits one -- a `DISPLAY` alarm Calino can
+own beside an `EMAIL`/`RELATED=END`/`REPEAT` alarm it cannot -- and drives real
+edits through the server. Both directions hold: the foreign alarm, `ORGANIZER`,
+`X-` properties and the origin `PRODID` all survive, our own alarm is not
+rebuilt when its lead time is unchanged, and clearing removes only ours. Note
+this is a synthetic foreign resource, not Thunderbird itself; the interop
+property is what is proven, not that specific client.
+
+Local delivery is item 2: a reminder now syncs and still notifies nobody.
 
 ## 2. Local notification delivery
 

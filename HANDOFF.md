@@ -34,10 +34,16 @@ reached the server. They now map to and from `VALARM` in both directions.
   `ICalWriterTest`, and the load-bearing ones in `ICalPatcherTest` -- an alarm
   Calino did not author survives an edit, a new reminder lands beside it, a
   clear removes only ours, and the rebase keeps whichever side actually changed.
-- Validation: `./gradlew test lintDebug assembleDebug` green; clean install and
-  launch on the API 36 emulator. **Not** validated: the live round trip against
-  a real server and Thunderbird, which needs account credentials this session
-  did not have. That step is still outstanding for item 1's "done" bar.
+- Validation: `./gradlew test lintDebug assembleDebug` green (466 tests, none
+  skipped); clean install and launch on the API 36 emulator; and the live round
+  trip against Radicale via `CalDavAlarmLiveTest`. That test works inside a
+  throwaway collection it creates and removes, so it never writes to a real
+  calendar -- copy its shape rather than pointing a new live test at real data.
+- The live test earned its keep twice while being written. Seeding the cache
+  empty made the writer fall back to rebuilding the resource from the model,
+  which silently dropped `ORGANIZER`, the `X-` property and the foreign alarm:
+  the writer patches from the **raw cache**, so a live test that fetches around
+  the cache measures the fallback instead of the patch.
 - Local delivery is still absent -- a reminder now syncs but nothing notifies.
   That is TODO item 2.
 
@@ -1633,8 +1639,7 @@ to be complete:
 14. Reminders now round-trip as `VALARM`, but nothing delivers them locally:
     there is no `POST_NOTIFICATIONS`, no channel, and no `AlarmManager`
     scheduling, so a reminder syncs and then does nothing on the device. TODO
-    item 2. The `VALARM` round trip itself has not yet been validated against a
-    live server or Thunderbird -- unit coverage only.
+    item 2.
 15. `Reminder` models a lead time and nothing else. Absolute triggers,
     `RELATED=END`, `REPEAT`/`DURATION` and non-display actions are preserved on
     the resource but are invisible in the editor, so a person cannot see or
