@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -42,7 +40,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
@@ -88,6 +85,9 @@ import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
 import calino.malinov.ski.poc.ui.surfaces.TaskActionMenu
 import calino.malinov.ski.poc.ui.surfaces.TaskMenuAction
+import calino.malinov.ski.poc.util.CalinoWeekStart
+import calino.malinov.ski.poc.util.leadingCells
+import calino.malinov.ski.poc.util.weekdayLetters
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -221,14 +221,14 @@ fun NavSidebar(
                             .clip(RoundedCornerShape(CalinoShapes.Card))
                             .background(CalinoColors.Panel)
                             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
-                            .padding(horizontal = 12.dp, vertical = 18.dp)
+                            .padding(horizontal = 12.dp, vertical = 14.dp)
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(start = 10.dp, bottom = 10.dp),
+                                .padding(start = 8.dp, bottom = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
@@ -259,10 +259,20 @@ fun NavSidebar(
                             selectedDate = selectedDate,
                             onDateChanged = onDateChanged,
                         )
-                        calendarItems.forEach { item ->
-                            NavRow(item, selected = selectedRoute == item.route) {
-                                onRoute(item.route)
-                                onDismiss()
+                        SidebarSectionLabel("VIEWS")
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(CalinoColors.Side)
+                                .padding(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            calendarItems.forEach { item ->
+                                NavRow(item, selected = selectedRoute == item.route) {
+                                    onRoute(item.route)
+                                    onDismiss()
+                                }
                             }
                         }
                         Box(
@@ -272,6 +282,7 @@ fun NavSidebar(
                                 .height(1.dp)
                                 .background(CalinoColors.Line),
                         )
+                        SidebarSectionLabel("ORGANIZE")
                         mainItems.forEach { item ->
                             NavRow(item, selected = selectedRoute == item.route) {
                                 onRoute(item.route)
@@ -296,9 +307,17 @@ fun NavSidebar(
                             onTaskAction = onTaskAction,
                         )
                         Spacer(Modifier.height(8.dp))
-                        NavRow(settingsItem, selected = selectedRoute == settingsItem.route) {
-                            onRoute(settingsItem.route)
-                            onDismiss()
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(CalinoColors.Side)
+                                .padding(4.dp),
+                        ) {
+                            NavRow(settingsItem, selected = selectedRoute == settingsItem.route) {
+                                onRoute(settingsItem.route)
+                                onDismiss()
+                            }
                         }
                         Spacer(Modifier.height(2.dp))
                     }
@@ -314,25 +333,36 @@ private data class SidebarCalendarRow(
     val enabled: Boolean = true,
 )
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+internal fun sidebarMonthCells(
+    month: YearMonth,
+    weekStart: CalinoWeekStart,
+): List<LocalDate?> {
+    val leading = month.leadingCells(weekStart)
+    val cells = List<LocalDate?>(leading) { null } +
+        (1..month.lengthOfMonth()).map(month::atDay)
+    return cells + List((7 - cells.size % 7) % 7) { null }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SidebarMiniCalendar(
     selectedDate: LocalDate,
     onDateChanged: (LocalDate) -> Unit,
 ) {
+    val weekStart = LocalCalinoPreferences.current.weekStart
     var miniMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     val cardShape = RoundedCornerShape(12.dp)
     Column(
         Modifier
             .fillMaxWidth()
-            .shadow(3.dp, cardShape)
+            .shadow(2.dp * CalinoColors.elevationAlpha, cardShape)
             .clip(cardShape)
             .background(CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, cardShape)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { miniMonth = miniMonth.minusMonths(1) }, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = { miniMonth = miniMonth.minusMonths(1) }, modifier = Modifier.size(32.dp)) {
                 Text("‹", fontSize = 22.sp, color = CalinoColors.Ink2)
             }
             Text(
@@ -340,53 +370,70 @@ private fun SidebarMiniCalendar(
                 style = CalinoTypography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { miniMonth = miniMonth.plusMonths(1) }, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = { miniMonth = miniMonth.plusMonths(1) }, modifier = Modifier.size(32.dp)) {
                 Text("›", fontSize = 22.sp, color = CalinoColors.Ink2)
             }
         }
-        val first = miniMonth.atDay(1)
-        val leading = (first.dayOfWeek.value - 1).coerceIn(0, 6)
-        Row(Modifier.fillMaxWidth().padding(horizontal = 3.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            listOf("M", "T", "W", "T", "F", "S", "S").forEach {
-                Text(it, color = CalinoColors.Ink3, fontSize = 10.sp)
+        Row(Modifier.fillMaxWidth()) {
+            weekdayLetters(weekStart).forEach {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(it, color = CalinoColors.Ink3, fontSize = 10.sp)
+                }
             }
         }
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-            maxItemsInEachRow = 7,
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            repeat(leading) { Spacer(Modifier.size(32.dp)) }
-            (1..miniMonth.lengthOfMonth()).forEach { dayOfMonth ->
-                val date = miniMonth.atDay(dayOfMonth)
-                val selected = date == selectedDate
-                val today = date == LocalDate.now()
-                TextButton(
-                    onClick = { onDateChanged(date) },
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) CalinoColors.Accent else Color.Transparent),
-                    contentPadding = PaddingValues(0.dp),
-                ) {
-                    Text(
-                        dayOfMonth.toString(),
-                        color = if (selected) CalinoColors.OnAccent else if (today) CalinoColors.Accent else CalinoColors.Ink2,
-                        fontSize = 11.sp,
-                    )
+        Column(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+            sidebarMonthCells(miniMonth, weekStart).chunked(7).forEach { week ->
+                Row(Modifier.fillMaxWidth()) {
+                    week.forEach { date ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(32.dp)
+                                .then(
+                                    if (date != null) {
+                                        Modifier
+                                            .clip(CircleShape)
+                                            .calinoPressable { onDateChanged(date) }
+                                            .semantics {
+                                                contentDescription = date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.US))
+                                                this.selected = date == selectedDate
+                                            }
+                                    } else Modifier
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (date != null) {
+                                val selected = date == selectedDate
+                                val today = date == LocalDate.now()
+                                Box(
+                                    Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(if (selected) CalinoColors.Accent else Color.Transparent),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        date.dayOfMonth.toString(),
+                                        color = if (selected) CalinoColors.OnAccent else if (today) CalinoColors.Accent else CalinoColors.Ink2,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
         TextButton(
             onClick = { onDateChanged(LocalDate.now()); miniMonth = YearMonth.now() },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 36.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 34.dp),
         ) {
             Text("Today", color = CalinoColors.Accent)
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SidebarExtras(
     snapshot: CalinoSnapshot,
@@ -409,7 +456,7 @@ private fun SidebarExtras(
     var editedCalendarName by remember { mutableStateOf("") }
     var fixtureCalendarNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var fixtureCalendarColors by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
-    var upcomingTasksExpanded by remember { mutableStateOf(true) }
+    var upcomingTasksExpanded by remember { mutableStateOf(false) }
     val upcomingChevronRotation by animateFloatAsState(
         targetValue = if (upcomingTasksExpanded) 90f else 0f,
         animationSpec = tween(180),
@@ -549,22 +596,56 @@ private fun SidebarExtras(
         }
     }
 
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(CalinoColors.Side)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
     rows.forEach { row ->
         val key = "${row.accountId.orEmpty()}:${row.calendar.id}"
         val visible = if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
         val tasksVisible = if (row.accountId == null) row.calendar.id !in fixtureHiddenTaskCalendarIds else row.calendar.showTasksInViews
         var menuOpen by remember(key) { mutableStateOf(false) }
         Column(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = visible,
-                    onCheckedChange = { value ->
-                        if (row.accountId == null) onToggleFixtureCalendar(row.calendar.id, value)
-                        else onToggleCalendar(row.accountId, row.calendar.id, value)
-                    },
-                    modifier = Modifier.semantics { contentDescription = "Show ${row.calendar.name}" },
-                )
-                Box(Modifier.size(9.dp).clip(CircleShape).background(Color(row.calendar.color)))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 46.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (visible) CalinoColors.Panel.copy(alpha = .72f) else Color.Transparent),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .calinoPressable {
+                            if (row.accountId == null) onToggleFixtureCalendar(row.calendar.id, !visible)
+                            else onToggleCalendar(row.accountId, row.calendar.id, !visible)
+                        }
+                        .semantics {
+                            contentDescription = "Show ${row.calendar.name}"
+                            stateDescription = if (visible) "Visible" else "Hidden"
+                            role = Role.Checkbox
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (visible) Color(row.calendar.color) else Color.Transparent)
+                            .border(1.dp, Color(row.calendar.color), RoundedCornerShape(6.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (visible) {
+                            Icon(CalinoIcons.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
                 if (editingCalendarKey == key) {
                     TextField(
                         value = editedCalendarName,
@@ -592,7 +673,7 @@ private fun SidebarExtras(
                         color = if (visible) CalinoColors.Ink else CalinoColors.Ink3,
                         modifier = Modifier
                             .weight(1f)
-                            .padding(start = 8.dp)
+                            .padding(start = 2.dp)
                             .combinedClickable(
                                 onClick = {},
                                 onDoubleClick = {
@@ -603,7 +684,9 @@ private fun SidebarExtras(
                         maxLines = 1,
                     )
                 }
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(44.dp)) { Text("⋮", fontSize = 20.sp, color = CalinoColors.Ink2) }
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(CalinoIcons.More, contentDescription = "More options for ${row.calendar.name}", tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp))
+                }
                 if (row.accountId != null) {
                     IconButton(onClick = { onSyncCalendar(row.accountId, row.calendar.id) }, modifier = Modifier.size(44.dp)) { Text("↻", fontSize = 17.sp, color = CalinoColors.Ink2) }
                 }
@@ -647,7 +730,7 @@ private fun SidebarExtras(
             }
         }
     }
-    Text("Privacy", color = CalinoColors.Ink3, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+    }
 }
 
 /**
@@ -676,17 +759,30 @@ private data class NavItem(
 )
 
 @Composable
+private fun SidebarSectionLabel(label: String) {
+    Text(
+        label,
+        style = CalinoTypography.labelSmall.copy(
+            fontSize = 9.sp,
+            letterSpacing = 1.2.sp,
+            color = CalinoColors.Ink3,
+        ),
+        modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 2.dp),
+    )
+}
+
+@Composable
 private fun NavRow(item: NavItem, selected: Boolean, onClick: () -> Unit) {
     val foreground by animateColorAsState(if (selected) CalinoColors.Accent else CalinoColors.Ink2, tween(180), label = "nav row tint")
     val background by animateColorAsState(
-        if (selected) CalinoColors.AccentSoft else CalinoColors.Panel,
+        if (selected) CalinoColors.AccentSoft else Color.Transparent,
         tween(180),
         label = "nav row background",
     )
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(CalinoShapes.Row))
+            .clip(RoundedCornerShape(9.dp))
             .background(background)
             .calinoPressable(onClick = onClick)
             .semantics(mergeDescendants = true) {
@@ -695,11 +791,19 @@ private fun NavRow(item: NavItem, selected: Boolean, onClick: () -> Unit) {
                 role = Role.Tab
                 this.selected = selected
             }
-            .padding(horizontal = 12.dp, vertical = 13.dp),
+            .heightIn(min = 44.dp)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Icon(item.icon, contentDescription = null, tint = foreground, modifier = Modifier.size(19.dp))
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(20.dp)
+                .clip(CircleShape)
+                .background(if (selected) CalinoColors.Accent else Color.Transparent),
+        )
+        Icon(item.icon, contentDescription = null, tint = foreground, modifier = Modifier.size(18.dp))
         Text(item.label, style = CalinoTypography.bodyLarge, color = foreground)
     }
 }

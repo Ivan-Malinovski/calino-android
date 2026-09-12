@@ -4,6 +4,22 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Sidebar hierarchy and mini-calendar — 2026-09-12
+
+- The sidebar now groups its primary calendar destinations in a quiet `VIEWS`
+  panel with a physical accent rail for the selected route, while secondary
+  destinations sit under `ORGANIZE`. Upcoming Tasks starts collapsed so dense
+  task content no longer pushes the calendar list out of the initial viewport.
+- Calendar visibility controls are grouped into a secondary management panel
+  with calendar-coloured check controls and compact overflow actions. The
+  orphaned Privacy label was removed, and Settings now has the same contained
+  footer treatment as the other navigation groups.
+- The mini-calendar uses seven fixed columns for both weekday headings and
+  dates. Incomplete final weeks therefore retain their weekday alignment, and
+  the headings/grid follow the configured Monday or Sunday week start. The
+  selected date paints a compact inner disc while its larger invisible lane
+  remains available for input.
+
 ### Journal detail and editor — 2026-09-12
 
 - Saved journal entries now open in a traditional read-only detail surface.
