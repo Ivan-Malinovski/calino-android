@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -230,6 +231,7 @@ fun SettingsSurface(
                             SettingsNavChip(
                                 section = entry,
                                 selected = entry == section,
+                                pagerState = sectionPagerState,
                                 modifier = Modifier.fillMaxWidth(),
                                 useFullTitle = true,
                             ) { sectionName = entry.name }
@@ -282,7 +284,7 @@ fun SettingsSurface(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         items(SettingsSection.entries, key = { it.name }) { entry ->
-                            SettingsNavChip(entry, selected = entry == section) { sectionName = entry.name }
+                            SettingsNavChip(entry, selected = entry == section, pagerState = sectionPagerState) { sectionName = entry.name }
                         }
                     }
                 }
@@ -299,26 +301,18 @@ fun SettingsSurface(
 private fun SettingsNavChip(
     section: SettingsSection,
     selected: Boolean,
+    pagerState: PagerState,
     modifier: Modifier = Modifier,
     /** The side rail has room for the real section name; the top rail does not. */
     useFullTitle: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val background by animateColorAsState(
-        if (selected) CalinoColors.AccentSoft else CalinoColors.Panel,
-        tween(160),
-        label = "settings nav background",
-    )
-    val foreground by animateColorAsState(
-        if (selected) CalinoColors.Accent else CalinoColors.Ink2,
-        tween(160),
-        label = "settings nav foreground",
-    )
-    val outline by animateColorAsState(
-        if (selected) CalinoColors.Accent.copy(.16f) else CalinoColors.Line,
-        tween(180),
-        label = "settings nav outline",
-    )
+    val selectionFraction = (1f - kotlin.math.abs(
+        pagerState.getOffsetDistanceInPages(section.ordinal),
+    )).coerceIn(0f, 1f)
+    val background = androidx.compose.ui.graphics.lerp(CalinoColors.Panel, CalinoColors.AccentSoft, selectionFraction)
+    val foreground = androidx.compose.ui.graphics.lerp(CalinoColors.Ink2, CalinoColors.Accent, selectionFraction)
+    val outline = androidx.compose.ui.graphics.lerp(CalinoColors.Line, CalinoColors.Accent.copy(.16f), selectionFraction)
     Box(
         modifier
             // Keep the tab's touch target comfortable while the pill itself

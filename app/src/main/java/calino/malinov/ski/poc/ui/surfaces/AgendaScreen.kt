@@ -166,6 +166,8 @@ fun AgendaScreen(
             },
             showToday = selected != today,
             subtitle = null,
+            monthPagerState = pagerState,
+            monthForPage = ::monthForPage,
         )
         HorizontalPager(
             state = pagerState,

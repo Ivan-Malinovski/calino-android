@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -76,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -1170,6 +1172,8 @@ fun CalinoMonthHeading(
     onToday: () -> Unit,
     showToday: Boolean,
     subtitle: String? = null,
+    monthPagerState: PagerState? = null,
+    monthForPage: ((Int) -> YearMonth)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
@@ -1181,22 +1185,28 @@ fun CalinoMonthHeading(
             modifier = Modifier.semantics { contentDescription = "Previous month" },
         ) { Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink2) }
         Column(Modifier.weight(1f).padding(horizontal = 2.dp)) {
-            AnimatedContent(
-                targetState = YearMonth.from(day),
-                transitionSpec = {
-                    val direction = if (targetState.isAfter(initialState)) 1 else -1
-                    slideInHorizontally(tween(190)) { direction * it / 4 } + fadeIn(tween(150)) togetherWith
-                        slideOutHorizontally(tween(150)) { -direction * it / 4 } + fadeOut(tween(110))
-                },
-                label = "month heading",
-            ) { month ->
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).replaceFirstChar { it.uppercase() },
-                        style = CalinoTypography.titleLarge.copy(fontSize = 27.sp, lineHeight = 30.sp),
-                    )
-                    Text(month.year.toString(), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 7.dp, bottom = 2.dp))
+            if (monthPagerState != null && monthForPage != null) {
+                val centerPage = monthPagerState.currentPage
+                Box(Modifier.fillMaxWidth().height(30.dp).clipToBounds()) {
+                    ((centerPage - 1).coerceAtLeast(0)..(centerPage + 1).coerceAtMost(monthPagerState.pageCount - 1)).forEach { page ->
+                        MonthHeadingLabel(
+                            month = monthForPage(page),
+                            modifier = Modifier.fillMaxWidth().graphicsLayer {
+                                translationX = monthPagerState.getOffsetDistanceInPages(page) * size.width
+                            },
+                        )
+                    }
                 }
+            } else {
+                AnimatedContent(
+                    targetState = YearMonth.from(day),
+                    transitionSpec = {
+                        val direction = if (targetState.isAfter(initialState)) 1 else -1
+                        slideInHorizontally(tween(190)) { direction * it / 4 } + fadeIn(tween(150)) togetherWith
+                            slideOutHorizontally(tween(150)) { -direction * it / 4 } + fadeOut(tween(110))
+                    },
+                    label = "month heading",
+                ) { month -> MonthHeadingLabel(month) }
             }
             if (subtitle != null) {
                 AnimatedContent(
@@ -1223,6 +1233,22 @@ fun CalinoMonthHeading(
         Modifier.fillMaxWidth().height(2.dp).padding(horizontal = 16.dp)
             .background(CalinoColors.Accent.copy(alpha = .22f)),
     )
+}
+
+@Composable
+private fun MonthHeadingLabel(month: YearMonth, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.Bottom) {
+        Text(
+            month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).replaceFirstChar { it.uppercase() },
+            style = CalinoTypography.titleLarge.copy(fontSize = 27.sp, lineHeight = 30.sp),
+        )
+        Text(
+            month.year.toString(),
+            style = CalinoTypography.bodyMedium,
+            color = CalinoColors.Ink3,
+            modifier = Modifier.padding(start = 7.dp, bottom = 2.dp),
+        )
+    }
 }
 
 @Composable

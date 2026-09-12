@@ -4,6 +4,17 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Pager-linked headers and settings navigation — 2026-09-12
+
+- Calendar and Agenda month headings now read the same live `PagerState` as
+  the content below them. Neighboring month labels translate at the pager's
+  exact fractional offset, rather than starting a separate transition only
+  after the selected date commits.
+- Settings category pills likewise derive their visual selection fraction
+  from the section pager. The outgoing and incoming pills crossfade with the
+  page under the finger; semantic/committed selection still changes only
+  after settling.
+
 ### Legacy-style event preview — 2026-09-12
 
 - Event taps now open a tinted, rounded adaptive preview inspired by the

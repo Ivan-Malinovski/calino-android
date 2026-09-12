@@ -1128,6 +1128,7 @@ fun HomeScreen(
     Column(foldMorph.fillMaxSize()) {
         MonthHeading(
             day = selected,
+            monthPagerState = monthPagerState,
             onOpenMenu = onOpenMenu,
             onPreviousMonth = {
                 scope.launch {
@@ -1615,6 +1616,7 @@ private fun SplitHomeLayout(
         ) {
             MonthHeading(
                 day = selected,
+                monthPagerState = monthPagerState,
                 onOpenMenu = onOpenMenu,
                 onPreviousMonth = onPreviousMonth,
                 onNextMonth = onNextMonth,
@@ -1721,6 +1723,7 @@ private fun daySurfaceBlend(zoom: Float): Float = smoothStep(
 @Composable
 private fun MonthHeading(
     day: LocalDate,
+    monthPagerState: PagerState,
     onOpenMenu: (() -> Unit)?,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -1735,6 +1738,8 @@ private fun MonthHeading(
     // The grid's own selection pill says which day is selected and the week
     // rail down its left edge says which week, so the heading needs neither.
     subtitle = null,
+    monthPagerState = monthPagerState,
+    monthForPage = ::monthForPage,
 )
 
 /**
