@@ -124,6 +124,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
@@ -173,6 +175,7 @@ import calino.malinov.ski.poc.state.SplitPaneWidthDp
 import calino.malinov.ski.poc.state.calinoLayoutSpec
 import calino.malinov.ski.poc.state.openTasksDueOn
 import calino.malinov.ski.poc.state.tasksDueOn
+import calino.malinov.ski.poc.util.EventDateIndex
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.MenuButton
@@ -416,9 +419,12 @@ fun HomeScreen(
 
     val selected = LocalDate.ofEpochDay(selectedEpoch)
     val today = LocalCalinoNow.current.today
-    val events = sourceEvents.filter { event ->
-        !filterCalendarVisibility || event.calendarId in visibleCalendarIds
+    val events = remember(sourceEvents, filterCalendarVisibility, visibleCalendarIds) {
+        sourceEvents.filter { event ->
+            !filterCalendarVisibility || event.calendarId in visibleCalendarIds
+        }
     }
+    val eventDateIndex = remember(events) { EventDateIndex.build(events) }
     val hideCompletedTasks = LocalCalinoPreferences.current.hideCompletedTasks
     val tasksByDueDate = remember(tasks, hideCompletedTasks) {
         tasks.filter { it.due != null && !(hideCompletedTasks && it.done) }
@@ -988,7 +994,11 @@ fun HomeScreen(
     // The zoom the compact layout was left at, so folding back does not dump
     // the calendar at the split layout's pinned endpoint.
     var zoomBeforeSplit by rememberSaveable { mutableFloatStateOf(initialZoom) }
-    BoxWithConstraints(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+    BoxWithConstraints(
+        modifier.fillMaxSize().background(CalinoColors.Canvas)
+            .testTag("calendar-home")
+            .semantics { testTagsAsResourceId = true },
+    ) {
     val layoutSpec = calinoLayoutSpec(
         widthDp = maxWidth.value.toInt(),
         heightDp = maxHeight.value.toInt(),
@@ -1111,6 +1121,7 @@ fun HomeScreen(
             selected = selected,
             weekStart = weekStart,
             events = events,
+            eventDateIndex = eventDateIndex,
             journals = journals,
             tasksByDueDate = tasksByDueDate,
             monthPagerState = monthPagerState,
@@ -1378,6 +1389,7 @@ fun HomeScreen(
                         displayedWeekDay = weekStripDay,
                         weekStart = weekStart,
                         events = events,
+                        eventDateIndex = eventDateIndex,
                         tasksByDueDate = tasksByDueDate,
                         selectorIndex = { compactSelectorIndex.value },
                         gestureModifier = Modifier,
@@ -1461,6 +1473,7 @@ fun HomeScreen(
                         selected = selected,
                         weekStart = weekStart,
                         events = events,
+                        eventDateIndex = eventDateIndex,
                         journals = journals,
                         tasksByDueDate = tasksByDueDate,
                         zoomState = currentZoom,
@@ -1578,6 +1591,7 @@ fun HomeScreen(
                     DayPagerSurface(
                         state = dayPagerState,
                         events = events,
+                        eventDateIndex = eventDateIndex,
                         tasksByDueDate = tasksByDueDate,
                         scrollState = railScroll,
                         modifier = Modifier.fillMaxSize().graphicsLayer {
@@ -1617,7 +1631,7 @@ fun HomeScreen(
                         ) {
                             SelectedDayAgendaPage(
                                 day = previewDay,
-                                dayEvents = remember(events, previewDay) { eventsFor(events, previewDay) },
+                                dayEvents = remember(eventDateIndex, previewDay) { eventDateIndex.eventsOn(previewDay) },
                                 dayTasks = tasksByDueDate[previewDay].orEmpty(),
                                 active = false,
                                 onEvent = null,
@@ -1656,6 +1670,7 @@ private fun SplitHomeLayout(
     selected: LocalDate,
     weekStart: CalinoWeekStart,
     events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
     journals: List<JournalEntry>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     monthPagerState: PagerState,
@@ -1694,9 +1709,7 @@ private fun SplitHomeLayout(
     // Half open, the crease is a real edge: put the rule in the band so
     // neither pane straddles it.
     val hingeSplit = hingeStartDp != null && hingeStartDp > 0f && !dayPaneCollapsed
-    val dayEvents = remember(events, selected) {
-        events.filter { it.occursOn(selected) }
-    }
+    val dayEvents = remember(eventDateIndex, selected) { eventDateIndex.eventsOn(selected) }
     val dayTasks = tasksByDueDate[selected].orEmpty()
 
     Row(modifier.fillMaxSize()) {
@@ -1722,6 +1735,7 @@ private fun SplitHomeLayout(
                     selected = selected,
                     weekStart = weekStart,
                     events = events,
+                    eventDateIndex = eventDateIndex,
                     journals = journals,
                     tasksByDueDate = tasksByDueDate,
                     zoomState = pinnedZoom,
@@ -1872,13 +1886,14 @@ private fun rememberCompactWeekRowVisual(
     firstDay: LocalDate,
     weekStart: CalinoWeekStart,
     events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
     anchorDay: LocalDate,
 ): CompactWeekRowVisual {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val today = LocalCalinoNow.current.today
     val eventDensity = LocalCalinoPreferences.current.eventDensity
-    return remember(firstDay, weekStart, events, anchorDay, today, eventDensity, density, measurer) {
+    return remember(firstDay, weekStart, events, eventDateIndex, anchorDay, today, eventDensity, density, measurer) {
         val dates = List(7) { firstDay.plusDays(it.toLong()) }
         val anchorMonth = YearMonth.from(anchorDay)
         CompactWeekRowVisual(
@@ -1892,7 +1907,7 @@ private fun rememberCompactWeekRowVisual(
             markers = dates.map { date ->
                 // Same lane priority the expanded month uses, so a day's dots
                 // do not reshuffle on the way between the two surfaces.
-                eventsFor(events, date)
+                eventDateIndex.eventsOn(date)
                     .sortedBy(::expandedMonthEventPriority)
                     .take(monthCellMarkerCap(eventDensity, 4))
             },
@@ -2052,6 +2067,7 @@ private fun WeekStrip(
     displayedWeekDay: LocalDate,
     weekStart: CalinoWeekStart,
     events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     selectorIndex: () -> Float,
     gestureModifier: Modifier,
@@ -2120,7 +2136,7 @@ private fun WeekStrip(
             // No padding here: the shared row insets itself exactly as the
             // month canvas does, and a page narrower than the screen would
             // travel a different distance per week than the month pager.
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().testTag("week-pager"),
             beyondViewportPageCount = 0,
             userScrollEnabled = interactionEnabled,
             key = { page -> page },
@@ -2140,6 +2156,7 @@ private fun WeekStrip(
                 selected = pageDay,
                 indicatorIndex = if (pageWeekStart == displayedWeekStart) indicatorTargetIndex else settledIndex.toFloat(),
                 events = events,
+                eventDateIndex = eventDateIndex,
                 tasksByDueDate = tasksByDueDate,
                 interactionEnabled = interactionEnabled,
                 onDay = onDay,
@@ -2155,11 +2172,12 @@ private fun WeekStripPage(
     selected: LocalDate,
     indicatorIndex: Float,
     events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
 ) {
-    val visual = rememberCompactWeekRowVisual(firstDay, weekStart, events, selected)
+    val visual = rememberCompactWeekRowVisual(firstDay, weekStart, events, eventDateIndex, selected)
     val colors = CalinoColors
     val today = LocalCalinoNow.current.today
     Box(Modifier.fillMaxSize()) {
@@ -2346,6 +2364,7 @@ private fun MonthPager(
     selected: LocalDate,
     weekStart: CalinoWeekStart,
     events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
     journals: List<JournalEntry>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     zoomState: androidx.compose.runtime.State<Float>,
@@ -2391,7 +2410,7 @@ private fun MonthPager(
 
         HorizontalPager(
             state = state,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().testTag("month-pager"),
             // The in-viewport neighbour is still composed during a swipe.
             // Keeping two extra full day surfaces mounted made every zoom
             // frame measure five rail/agenda trees unnecessarily.
@@ -2423,6 +2442,7 @@ private fun MonthPager(
                         month = pageMonth,
                         weekStart = weekStart,
                         events = events,
+                        eventDateIndex = eventDateIndex,
                         journals = journals,
                         tasksByDueDate = tasksByDueDate,
                         visualAlpha = monthVisualAlpha,
@@ -3092,6 +3112,7 @@ private fun StaticMonthGrid(
     month: YearMonth,
     weekStart: CalinoWeekStart,
     events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
     journals: List<JournalEntry>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     visualAlpha: androidx.compose.runtime.State<Float>,
@@ -3117,7 +3138,7 @@ private fun StaticMonthGrid(
     val geometry = remember(month, weekStart) { monthGridGeometry(month, weekStart) }
     val start = geometry.start
     val rows = geometry.rows
-    val monthEvents = remember(events, geometry) { monthEventIndex(events, month, weekStart) }
+    val monthEvents = remember(eventDateIndex, geometry) { monthEventIndex(eventDateIndex, month, weekStart) }
     val monthJournalDates = remember(journals, geometry) { monthJournalDates(journals, month, weekStart) }
     val textMeasurer = rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -3219,6 +3240,7 @@ private fun StaticMonthGrid(
             firstDay = compactDay.startOfWeek(weekStart),
             weekStart = weekStart,
             events = events,
+            eventDateIndex = eventDateIndex,
             anchorDay = compactDay,
         )
         val compactMarkerWidths = remember(geometry, events, density, eventDensity) {
@@ -4388,13 +4410,19 @@ internal fun monthEventIndex(
     events: List<CalEvent>,
     month: YearMonth,
     weekStart: CalinoWeekStart,
+): Map<LocalDate, List<CalEvent>> = monthEventIndex(EventDateIndex.build(events), month, weekStart)
+
+internal fun monthEventIndex(
+    eventDateIndex: EventDateIndex,
+    month: YearMonth,
+    weekStart: CalinoWeekStart,
 ): Map<LocalDate, List<CalEvent>> {
     val start = month.gridStart(weekStart)
     val cellCount = monthGridRows(month, weekStart) * 7
     return buildMap {
         repeat(cellCount) { index ->
             val date = start.plusDays(index.toLong())
-            val dayEvents = eventsFor(events, date).sortedBy(::expandedMonthEventPriority)
+            val dayEvents = eventDateIndex.eventsOn(date).sortedBy(::expandedMonthEventPriority)
             if (dayEvents.isNotEmpty()) put(date, dayEvents)
         }
     }
@@ -4904,6 +4932,7 @@ private fun EventChip(
 private fun DayPagerSurface(
     state: PagerState,
     events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
     scrollState: androidx.compose.foundation.ScrollState,
     modifier: Modifier,
@@ -5090,7 +5119,7 @@ private fun DayPagerSurface(
     ) {
     HorizontalPager(
         state = state,
-        modifier = Modifier.fillMaxSize().clipToBounds(),
+        modifier = Modifier.fillMaxSize().clipToBounds().testTag("day-pager"),
             // The pager itself keeps the adjacent page that is entering the
             // viewport. Extra eagerly composed month grids are expensive while
             // zoom continuously changes every cell's measured height.
@@ -5100,7 +5129,10 @@ private fun DayPagerSurface(
     ) { page ->
         val pageDay = dateForDayPage(page)
         val placedEvents = remember(events, pendingDrop) { withPendingDrop(events, pendingDrop) }
-        val dayEvents = remember(placedEvents, pageDay) { eventsFor(placedEvents, pageDay) }
+        val placedEventIndex = remember(placedEvents, eventDateIndex) {
+            if (placedEvents === events) eventDateIndex else EventDateIndex.build(placedEvents)
+        }
+        val dayEvents = remember(placedEventIndex, pageDay) { placedEventIndex.eventsOn(pageDay) }
         val dayTasks = tasksByDueDate[pageDay].orEmpty()
         Box(Modifier.fillMaxSize()) {
             // Keep the rail mounted until the agenda has covered it. The

@@ -4,6 +4,45 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Performance foundation and calendar date index — 2026-09-12
+
+- `:benchmark` is a Macrobenchmark/Baseline Profile producer targeting the real
+  app. Its shared journey covers fixture launch, bidirectional day paging,
+  zoom and month paging, timeline scrolling, and event-preview open/dismiss.
+  Resource-visible Compose tags at the calendar and pager boundaries make
+  readiness deterministic without changing user-facing semantics.
+- Generate profiles on one explicitly selected device with
+  `ANDROID_SERIAL=<serial> ./gradlew :app:generateBaselineProfile
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile`.
+  Generated release inputs live in
+  `app/src/release/generated/baselineProfiles/`. Run metrics with
+  `ANDROID_SERIAL=<serial> ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark`.
+  An emulator diagnostic additionally needs
+  `-Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR`.
+- The first post-index API 36 emulator diagnostic (`sdk_gphone64_x86_64`,
+  Android 16/API 36, 1080x2400 at 420 dpi, `benchmarkRelease`, Baseline Profile
+  required) measured cold TTID min/median/max 1193.8/1286.4/1335.4 ms. The
+  combined calendar journey measured CPU frame duration P50/P90/P95/P99
+  24.2/29.0/33.0/35.9 ms and frame overrun 7.7/12.7/24.7/27.4 ms. These are
+  smoke-test figures only. A same-device physical before/after run is pending
+  explicit authorization; there is no trustworthy pre-change physical result.
+- Release uses optimized R8 and resource shrinking and builds without broad
+  app keep rules. Compose compiler reports are emitted under
+  `app/build/compose_compiler`; the calendar root, month pager/grid, week strip,
+  and day pager are reported skippable, so no blanket stability annotations
+  were added.
+- `EventDateIndex` is remembered once per visible event-list revision. Direct
+  and detached events (including multi-day spans) map to dates; unbounded
+  recurrence masters use frequency-specific candidate buckets and the existing
+  `occursOn` rule for final verification. Day, week, active month, split-pane,
+  agenda-preview, and timeline pages reuse it. Repository order,
+  expanded-month priority, midnight-end handling, and DAV contracts stay the
+  same. A pending timeline move gets a temporary index only while previewed.
+- Remaining work is physical-device before/after capture and trace review. Do
+  not restructure snapshot publication or add stability annotations unless
+  those measurements identify a material path.
+
 ### Pill morph visual continuity — 2026-09-12
 
 - Once a modal claims the shared pill lane, the outgoing root add pill remains
