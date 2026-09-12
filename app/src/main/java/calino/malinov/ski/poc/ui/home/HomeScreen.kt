@@ -1125,10 +1125,26 @@ fun HomeScreen(
         )
         return@BoxWithConstraints
     }
+    val compactHeadingDay by remember(dayPagerState, weekPagerState, selected, weekStart) {
+        derivedStateOf {
+            when {
+                dayPagerState.isScrollInProgress && isUserSettle(dayPagerState) ->
+                    dateForDayPage(dayPagerState.targetPage)
+                weekPagerState.isScrollInProgress && isUserSettle(weekPagerState) -> {
+                    val targetWeek = weekStartForPage(weekPagerState.targetPage, weekStart)
+                    targetWeek.plusDays(selected.weekdayColumn(weekStart).toLong())
+                }
+                else -> selected
+            }
+        }
+    }
+    val headingUsesMonthPager by remember(zoomState) {
+        derivedStateOf { zoomState.value >= MonthEndpointBlendEnd }
+    }
     Column(foldMorph.fillMaxSize()) {
         MonthHeading(
-            day = selected,
-            monthPagerState = monthPagerState,
+            day = compactHeadingDay,
+            monthPagerState = monthPagerState.takeIf { headingUsesMonthPager },
             onOpenMenu = onOpenMenu,
             onPreviousMonth = {
                 scope.launch {
@@ -1723,7 +1739,7 @@ private fun daySurfaceBlend(zoom: Float): Float = smoothStep(
 @Composable
 private fun MonthHeading(
     day: LocalDate,
-    monthPagerState: PagerState,
+    monthPagerState: PagerState?,
     onOpenMenu: (() -> Unit)?,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,

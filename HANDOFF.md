@@ -10,10 +10,13 @@ continue the UI work.
   the content below them. Neighboring month labels translate at the pager's
   exact fractional offset, rather than starting a separate transition only
   after the selected date commits.
-- Settings category pills likewise derive their visual selection fraction
-  from the section pager. The outgoing and incoming pills crossfade with the
-  page under the finger; semantic/committed selection still changes only
-  after settling.
+- Settings category pills derive their visible selection from the pager's
+  `currentPage`, so emphasis changes at the pager's own page handoff instead
+  of after settling. The persisted/committed section still changes only after
+  settling.
+- At the compact Calendar endpoint the heading follows the day or week pager
+  that actually owns the gesture; at the full-month endpoint it follows the
+  month pager's exact fractional offset.
 
 ### Legacy-style event preview — 2026-09-12
 
