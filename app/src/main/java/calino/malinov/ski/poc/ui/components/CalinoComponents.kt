@@ -1220,12 +1220,24 @@ fun CalinoMonthHeading(
                 }
             }
         }
-        if (showToday) {
-            TextButton(
-                onClick = onToday,
-                modifier = Modifier.semantics { contentDescription = "Go to today" },
-            ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
-        }
+        val todayAlpha by animateFloatAsState(
+            targetValue = if (showToday) 1f else 0f,
+            animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+            label = "today shortcut opacity",
+        )
+        TextButton(
+            onClick = onToday,
+            enabled = showToday,
+            modifier = Modifier
+                .graphicsLayer { alpha = todayAlpha }
+                .then(
+                    if (showToday) {
+                        Modifier.semantics { contentDescription = "Go to today" }
+                    } else {
+                        Modifier.clearAndSetSemantics { }
+                    },
+                ),
+        ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
         IconButton(
             onClick = onNextMonth,
             modifier = Modifier.semantics { contentDescription = "Next month" },

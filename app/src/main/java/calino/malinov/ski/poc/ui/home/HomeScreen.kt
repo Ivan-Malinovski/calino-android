@@ -207,6 +207,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -308,6 +309,7 @@ private data class BoundaryPagerSnapshot(
     val blockedBoundaryDay: LocalDate?,
     val committedEpochDay: Long,
     val dayInProgress: Boolean,
+    val dayCurrentPage: Int,
     val dayTargetPage: Int,
     val daySettledPage: Int,
     val monthInProgress: Boolean,
@@ -542,6 +544,20 @@ fun HomeScreen(
         if (compactSelectorHandoff == target) {
             compactSelectorPosition.snapTo(target)
             compactSelectorHandoff = null
+        } else if (compactSelectorPosition.value - target > 3f) {
+            // End of one week to start of the next: leave through the right
+            // edge, then enter from just beyond the left edge. Numerically
+            // animating 6 -> 0 makes the selector walk backwards across every
+            // unrelated day in the row.
+            compactSelectorPosition.animateTo(7f, animationSpec = tween(110))
+            compactSelectorPosition.snapTo(-1f)
+            compactSelectorPosition.animateTo(target, animationSpec = tween(110))
+        } else if (target - compactSelectorPosition.value > 3f) {
+            // Mirror the wrap when moving from the first days of a week into
+            // the end of the previous one.
+            compactSelectorPosition.animateTo(-1f, animationSpec = tween(110))
+            compactSelectorPosition.snapTo(7f)
+            compactSelectorPosition.animateTo(target, animationSpec = tween(110))
         } else {
             compactSelectorPosition.animateTo(
                 target,
@@ -765,6 +781,7 @@ fun HomeScreen(
                 committedEpochDay = currentSelectedEpoch.value,
                 dayInProgress = dayPagerState.isScrollInProgress &&
                     pagerDragOrigins[dayPagerState] == currentSelectedEpoch.value,
+                dayCurrentPage = dayPagerState.currentPage,
                 dayTargetPage = dayPagerState.targetPage,
                 daySettledPage = dayPagerState.settledPage,
                 monthInProgress = monthPagerState.isScrollInProgress,
@@ -772,7 +789,17 @@ fun HomeScreen(
             )
         }.collect { snapshot ->
             val committed = LocalDate.ofEpochDay(snapshot.committedEpochDay)
-            val target = dateForDayPage(snapshot.dayTargetPage)
+            val predictedDistance = snapshot.dayTargetPage - snapshot.dayCurrentPage
+            // targetPage is a fling prediction and may leap several days
+            // before those pages have crossed the viewport. Preview at most
+            // the adjacent page in that direction; as currentPage advances,
+            // subsequent snapshots carry the selector forward naturally.
+            val previewPage = when {
+                predictedDistance > 1 -> snapshot.dayCurrentPage + 1
+                predictedDistance < -1 -> snapshot.dayCurrentPage - 1
+                else -> snapshot.dayTargetPage
+            }
+            val target = dateForDayPage(previewPage)
             val targetIsBoundary = target.startOfWeek(weekStart) != committed.startOfWeek(weekStart)
 
             if (snapshot.dayInProgress && targetIsBoundary && target != snapshot.blockedBoundaryDay) {
@@ -1452,6 +1479,9 @@ fun HomeScreen(
                         },
                         compactDay = weekStripDay,
                         compactSelectorIndex = { compactSelectorIndex.value },
+                        compactDayPagerTravel = {
+                            dayPagerTravel.value.takeIf { abs(it) > .001f }
+                        },
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
                         compactLaneOwnedByWeek = weekPreviewActive,
                         modifier = Modifier.fillMaxSize(),
@@ -1700,6 +1730,7 @@ private fun SplitHomeLayout(
                     visibleGridHeight = { gridHeight },
                     compactDay = selected,
                     compactSelectorIndex = { selected.weekdayColumn(weekStart).toFloat() },
+                    compactDayPagerTravel = { null },
                     compactBoundaryTransition = false,
                     compactLaneOwnedByWeek = remember { mutableStateOf(false) },
                     modifier = Modifier.fillMaxSize(),
@@ -1886,7 +1917,10 @@ private fun DrawScope.drawCompactWeekRow(
     gutterPx: Float = 0f,
 ) {
     if (alpha <= .001f) return
-    val selector = selectorIndex.coerceIn(0f, 6f)
+    // Values just outside 0..6 are intentional during a week-boundary wrap:
+    // clipping at the row edge lets the pill exit and re-enter instead of
+    // traversing every intervening day.
+    val selector = selectorIndex.coerceIn(-1f, 7f)
     val paddingPx = CompactWeekMetrics.HorizontalPadding.toPx()
     // The week-number rail is carved out of the content width, so the row's
     // right edge stays put whether or not the numbers are showing.
@@ -2080,7 +2114,7 @@ private fun WeekStrip(
         val displayedWeekStart = displayedWeekDay.startOfWeek(weekStart)
         // Deferred so a day-pager sample invalidates this compact subtree,
         // not the whole HomeScreen composition.
-        val indicatorTargetIndex = selectorIndex().coerceIn(0f, 6f)
+        val indicatorTargetIndex = selectorIndex().coerceIn(-1f, 7f)
         HorizontalPager(
             state = state,
             // No padding here: the shared row insets itself exactly as the
@@ -2320,6 +2354,7 @@ private fun MonthPager(
     visibleGridHeight: () -> Dp,
     compactDay: LocalDate,
     compactSelectorIndex: () -> Float,
+    compactDayPagerTravel: () -> Float?,
     compactBoundaryTransition: Boolean,
     compactLaneOwnedByWeek: androidx.compose.runtime.State<Boolean>,
     modifier: Modifier,
@@ -2397,6 +2432,7 @@ private fun MonthPager(
                         visibleGridHeight = visibleGridHeight,
                         compactDay = compactDay,
                         compactSelectorIndex = compactSelectorIndex,
+                        compactDayPagerTravel = compactDayPagerTravel,
                         interactionEnabled = monthInteractive,
                         onDay = onDay,
                         onEventClick = onEventClick,
@@ -3065,6 +3101,7 @@ private fun StaticMonthGrid(
     visibleGridHeight: () -> Dp,
     compactDay: LocalDate,
     compactSelectorIndex: () -> Float,
+    compactDayPagerTravel: () -> Float?,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)? = null,
@@ -3221,6 +3258,7 @@ private fun StaticMonthGrid(
                 // invalidates this canvas without recomposing the month grid,
                 // its event hit lanes, or the day rail below it.
                 val compactSelectorIndex = compactSelectorIndex()
+                val liveDayTravel = compactDayPagerTravel()
                 val drawAlpha = visualAlpha.value.coerceIn(0f, 1f)
                 val zoom = zoomState.value.coerceIn(0f, 2f)
                 val compactProgress = smoothStep(1f - zoom.coerceIn(0f, 1f))
@@ -3233,6 +3271,56 @@ private fun StaticMonthGrid(
                 val compactWeekRow = ((compactWeekStart.toEpochDay() - start.toEpochDay()) / 7L)
                     .toInt()
                     .coerceIn(0, rows - 1)
+                // During a boundary wrap [compactDay] already belongs to the
+                // destination week, but the selector must finish leaving the
+                // source row before that row handoff becomes visible. Once it
+                // is outside the grid (7 -> -1 forward, or -1 -> 7 backward),
+                // the destination row can take ownership invisibly.
+                val compactTargetColumn = compactDay.weekdayColumn(weekStart)
+                val fallbackSelectorWeekRow = when {
+                    compactTargetColumn == 0 && compactSelectorIndex > 3f -> compactWeekRow - 1
+                    compactTargetColumn == 6 && compactSelectorIndex < 3f -> compactWeekRow + 1
+                    else -> compactWeekRow
+                }.coerceIn(0, rows - 1)
+                // An active day drag owns the selector geometry directly.
+                // Split a Sunday/Monday crossing into an exit half and an
+                // entrance half, switching rows only while the marker is
+                // fully outside the grid. This is based on actual fractional
+                // pager travel, never its potentially unstable fling target.
+                var liveSelectorRow = fallbackSelectorWeekRow
+                var liveSelectorColumn = compactSelectorIndex
+                if (liveDayTravel != null) {
+                    val continuousCell = selected.toEpochDay().toFloat() -
+                        start.toEpochDay().toFloat() - liveDayTravel
+                    val lowerCell = floor(continuousCell).toInt()
+                    val fraction = continuousCell - floor(continuousCell)
+                    val lowerRow = Math.floorDiv(lowerCell, 7)
+                    val lowerColumn = Math.floorMod(lowerCell, 7)
+                    if (lowerColumn == 6 && fraction > .001f) {
+                        if (liveDayTravel < 0f) {
+                            if (fraction < .5f) {
+                                liveSelectorRow = lowerRow
+                                liveSelectorColumn = 6f + fraction * 2f
+                            } else {
+                                liveSelectorRow = lowerRow + 1
+                                liveSelectorColumn = -1f + (fraction - .5f) * 2f
+                            }
+                        } else {
+                            val reverseProgress = 1f - fraction
+                            if (reverseProgress < .5f) {
+                                liveSelectorRow = lowerRow + 1
+                                liveSelectorColumn = -reverseProgress * 2f
+                            } else {
+                                liveSelectorRow = lowerRow
+                                liveSelectorColumn = 7f - (reverseProgress - .5f) * 2f
+                            }
+                        }
+                    } else {
+                        liveSelectorRow = lowerRow
+                        liveSelectorColumn = lowerColumn + fraction
+                    }
+                    liveSelectorRow = liveSelectorRow.coerceIn(0, rows - 1)
+                }
                 val contentHeaderHeightPx = headerHeightPx * (1f - compactProgress)
                 val compactStartHeightPx = with(density) { CompactWeekMetrics.Height.toPx() }
                 val compactVisibleHeightPx = compactStartHeightPx +
@@ -3434,7 +3522,7 @@ private fun StaticMonthGrid(
                         naturalWeekHeight.coerceAtLeast(1f),
                     )
                     val pillTopLeft = Offset(
-                        compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(0f, 6f),
+                        compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(-1f, 7f),
                         compactWeekCenter - pillHeight / 2f,
                     )
                     val pillSize = Size(compactWeekCellWidthPx, pillHeight)
@@ -3455,6 +3543,40 @@ private fun StaticMonthGrid(
                             topLeft = pillTopLeft + Offset(strokePx / 2f, strokePx / 2f),
                             size = Size(pillSize.width - strokePx, pillSize.height - strokePx),
                             cornerRadius = pillCorner,
+                            style = Stroke(width = strokePx),
+                        )
+                    }
+                }
+                // The day pager remains the gesture owner while the grid is
+                // open. Read its selector position directly here so the
+                // month marker follows the finger instead of waiting for the
+                // settled page to commit [selected]. The compact week pill
+                // hands into this date-sized marker over the zoom morph.
+                val monthSelectionProgress = 1f - compactProgress
+                if (monthSelectionProgress > .001f) {
+                    val selectorColumn = liveSelectorColumn.coerceIn(-1f, 7f)
+                    val selectorDateTop = dateTopFor(
+                        liveSelectorRow,
+                        selectorColumn.roundToInt().coerceIn(0, 6),
+                    )
+                    val selectorCenter = Offset(
+                        gridLeftPx + cellWidthPx * (selectorColumn + .5f),
+                        selectorDateTop + (compactDateSizePx +
+                            (detailedDateSizePx - compactDateSizePx) * detailProgress) / 2f,
+                    )
+                    val selectorRadius = (compactDateSizePx +
+                        (detailedDateSizePx - compactDateSizePx) * detailProgress) / 2f
+                    drawCircle(
+                        color = faded(colors.SelectionFill, monthSelectionProgress),
+                        radius = selectorRadius,
+                        center = selectorCenter,
+                    )
+                    if (colors.SelectionBorder.alpha > 0f) {
+                        val strokePx = with(density) { 1.dp.toPx() }
+                        drawCircle(
+                            color = faded(colors.SelectionBorder, monthSelectionProgress),
+                            radius = (selectorRadius - strokePx / 2f).coerceAtLeast(0f),
+                            center = selectorCenter,
                             style = Stroke(width = strokePx),
                         )
                     }
@@ -3480,8 +3602,18 @@ private fun StaticMonthGrid(
                     val dateSizePx = compactDateSizePx +
                         (detailedDateSizePx - compactDateSizePx) * detailProgress
                     val compactWeekSelectionWeight = if (compactWeekStyle) {
-                        (1f - abs(compactSelectorIndex.coerceIn(0f, 6f) - column.toFloat()))
+                        (1f - abs(compactSelectorIndex.coerceIn(-1f, 7f) - column.toFloat()))
                             .coerceIn(0f, 1f) * compactProgress
+                    } else {
+                        0f
+                    }
+                    // As the compact week pill gives the grid back its full
+                    // geometry, resolve it into a date-sized selector. This
+                    // remains visible at both the half-month and expanded
+                    // month endpoints instead of leaving only today's marker.
+                    val monthSelectionWeight = if (row == liveSelectorRow && !isToday) {
+                        (1f - abs(liveSelectorColumn.coerceIn(-1f, 7f) - column.toFloat()))
+                            .coerceIn(0f, 1f) * (1f - compactProgress)
                     } else {
                         0f
                     }
@@ -3540,11 +3672,17 @@ private fun StaticMonthGrid(
                                 lerpColor(
                                     if (inMonthFlags[index]) colors.Ink2 else colors.Ink3.copy(.5f),
                                     colors.OnSelection,
-                                    compactWeekSelectionWeight,
+                                    max(compactWeekSelectionWeight, monthSelectionWeight),
                                 )
                             }
                         } else if (isToday) {
                             colors.OnAccent
+                        } else if (monthSelectionWeight > .001f) {
+                            lerpColor(
+                                if (inMonthFlags[index]) colors.Ink2 else colors.Ink3.copy(.5f),
+                                colors.OnSelection,
+                                monthSelectionWeight,
+                            )
                         } else if (inMonthFlags[index]) {
                             colors.Ink2
                         } else {

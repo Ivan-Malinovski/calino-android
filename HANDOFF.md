@@ -4,6 +4,28 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Month selection continuity — 2026-09-12
+
+- The compact week-strip selection pill now dissolves into a date-sized dark
+  selector as the half-month grid opens. That selector remains visible in both
+  the half-month and fully expanded month views; today's amber marker remains
+  independent when a different date is selected. While the day surface is
+  swiped, the open-month selector reads the day pager's live fractional offset
+  and follows the finger instead of waiting for the destination to commit. At
+  a week boundary it exits through the adjacent edge and re-enters from the
+  opposite edge; it never walks backwards across the full row from 6 to 0.
+  The destination week row does not take ownership until the selector is off
+  screen, preventing an intermediate jump to the same weekday in that row.
+  Fast flings preview only the adjacent page in their current direction rather
+  than adopting `PagerState.targetPage` several days early; the visible week
+  therefore advances with pager travel and cannot flash a predicted week. The
+  open-month marker itself is derived from the day pager's fractional page
+  distance, including a two-stage edge crossing, so target-page changes during
+  a fast settle cannot move it to a speculative row.
+- The header reserves the Today shortcut's width at all times and fades its
+  paint and semantics in or out. Returning to today therefore no longer pops
+  the label away or shifts the month/year heading.
+
 ### Pager-linked headers and settings navigation — 2026-09-12
 
 - Calendar and Agenda month headings now read the same live `PagerState` as
