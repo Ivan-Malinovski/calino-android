@@ -4,6 +4,34 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Journal detail and editor — 2026-09-12
+
+- Saved journal entries now open in a traditional read-only detail surface.
+  The former Write / Read segmented control is gone; the shared bottom pill
+  presents Cancel, Edit, and Delete while reading, then Cancel, Save, and
+  Delete while editing. New-entry drafts still open directly in edit mode.
+- Journal titles use the same fixed, tinted icon header as the event and task
+  editors. Read and edit modes share one title field with identical geometry,
+  so the title stays aligned with the note icon instead of shifting when it
+  becomes editable. The date, word count, and Markdown body remain a quieter
+  detail hierarchy, and editing turns the body into a simple bordered writing
+  page rather than a separate Material form.
+  Cancelling a changed edit retains the discard confirmation and returns a
+  saved entry to its read view after discard.
+
+### Editor title header — 2026-09-12
+
+- The full event/task editor now keeps its editable title in the fixed sheet
+  header, matching the web app's phone modal. The redundant `Edit event/task`
+  heading was removed, so the title is the first content at the top and stays
+  visible while the form scrolls.
+- The task detail/editor uses the same hierarchy: its editable title and close
+  treatment replaces the old Back / `Task details` / fixture-copy header. Its
+  tint includes the sheet's drag-handle band and the redundant close icon is
+  omitted. Category, notes, subtasks, and due-date choices are compact icon-led
+  rows below it; due dates offer the quick presets plus the platform date
+  picker. The existing Cancel, completion, and Save pill behavior is unchanged.
+
 ### Month selection continuity — 2026-09-12
 
 - The compact week-strip selection pill now dissolves into a date-sized dark

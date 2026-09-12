@@ -145,6 +145,7 @@ import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.state.TaskTree
 import calino.malinov.ski.poc.ui.components.taskNestIndent
+import calino.malinov.ski.poc.ui.components.rememberDatePicker
 import calino.malinov.ski.poc.ui.components.TaskNestStep
 import calino.malinov.ski.poc.state.nestingLinesFor
 import calino.malinov.ski.poc.util.CalinoTimeFormat
@@ -1123,6 +1124,8 @@ fun TaskDetailSurface(
     var done by remember(task.id) { mutableStateOf(task.done) }
     var shown by remember(task.id) { mutableStateOf(true) }
     var pendingSave by remember(task.id) { mutableStateOf(false) }
+    val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
+    val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
 
     LaunchedEffect(shown) {
         if (!shown) {
@@ -1163,6 +1166,7 @@ fun TaskDetailSurface(
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 980.dp,
         surfaceKind = CalinoSurfaceKind.Preview,
+        handleColor = headerTint,
         pill = {
             val canSave = title.trim().isNotEmpty()
             ModalActionPill(
@@ -1192,69 +1196,53 @@ fun TaskDetailSurface(
                 .fillMaxSize()
                 .background(CalinoColors.Canvas),
         ) {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 16.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButtonGlyph("‹", "Back", { dismiss(false) })
-                Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                    Text("Task details", style = CalinoTypography.titleLarge)
-                    Text("Local fixture task", color = CalinoColors.Ink3, fontSize = 11.sp)
+            Box(Modifier.fillMaxWidth().heightIn(min = 70.dp).background(headerTint)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CalinoIcon(
+                        CalinoIcon.Check,
+                        tint = taskColor(task),
+                        modifier = Modifier.size(23.dp),
+                        contentDescription = null,
+                    )
+                    BasicTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 70.dp)
+                            .padding(horizontal = 14.dp, vertical = 18.dp)
+                            .semantics { contentDescription = "Task title" },
+                        textStyle = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink),
+                        singleLine = true,
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (title.isBlank()) {
+                                    Text("Add task title", style = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink3))
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
                 }
-                Box(
-                    Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(taskColor(task))
-                        .semantics { contentDescription = "Task category color" },
-                )
             }
             Column(
                 Modifier
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .padding(horizontal = 20.dp),
             ) {
-                label("Task")
-                TextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Title") },
-                    singleLine = false,
-                    minLines = 2,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = CalinoColors.Panel,
-                        unfocusedContainerColor = CalinoColors.Panel,
-                        focusedIndicatorColor = CalinoColors.Accent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                )
-                TextField(
-                    value = category,
-                    onValueChange = { category = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Category") },
-                    singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = CalinoColors.Panel,
-                        unfocusedContainerColor = CalinoColors.Panel,
-                        focusedIndicatorColor = CalinoColors.Accent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                )
-                CalinoMarkdownEditor(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = "Notes",
-                    placeholder = "Add task notes",
-                )
+                PreviewEditRow(CalinoIcon.Filter, "Category", category, "Add category") { category = it }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                PreviewEditRow(CalinoIcon.Note, "Notes", notes, "Add task notes") { notes = it }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                 val subtasks = tasks.filter { it.parentTaskId == task.id }
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        label("Subtasks", Modifier.weight(1f))
+                        CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                        label("Subtasks", Modifier.weight(1f).padding(start = 16.dp))
                         TextButton(onClick = onAddSubtask, modifier = Modifier.heightIn(min = 44.dp)) {
                             Text("Add", color = CalinoColors.Accent)
                         }
@@ -1272,8 +1260,12 @@ fun TaskDetailSurface(
                         }
                     }
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    label("Due date")
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CalinoIcon(CalinoIcon.Calendar, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                        label("Due date", Modifier.padding(start = 16.dp))
+                    }
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1301,6 +1293,17 @@ fun TaskDetailSurface(
                                 Text(text, fontSize = 10.sp, color = if (selected) CalinoColors.Accent else CalinoColors.Ink2, maxLines = 1)
                             }
                         }
+                    }
+                    TextButton(
+                        onClick = pickDueDate,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(CalinoColors.Panel)
+                            .semantics { contentDescription = "Choose a custom due date" },
+                    ) {
+                        Text("Choose date…", color = CalinoColors.Accent)
                     }
                     due?.let { selectedDue ->
                         Text(

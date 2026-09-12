@@ -218,7 +218,14 @@ fun EditorSurface(
         },
     ) { detailModifier ->
         Column(detailModifier.fillMaxSize().background(CalinoColors.Canvas)) {
-            EditorHeader(draft, dismiss, onPhoto)
+            EditorHeader(
+                draft = draft,
+                onInput = { input ->
+                    draft = draft.applyInput(input, baseDate, defaultDurationMinutes)
+                },
+                onDismiss = dismiss,
+                onPhoto = onPhoto,
+            )
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 Column(
@@ -233,9 +240,6 @@ fun EditorSurface(
                         }
                     }
 
-                    EditorTitleField(draft) { input ->
-                        draft = draft.applyInput(input, baseDate, defaultDurationMinutes)
-                    }
                     EditorDivider()
 
                     // Picking a different kind replaces every field below the
@@ -313,20 +317,17 @@ private fun addLabelFor(draft: EditorDraft): String = when (draft.kind) {
 }
 
 @Composable
-private fun EditorHeader(draft: EditorDraft, onDismiss: () -> Unit, onPhoto: (() -> Unit)?) {
+private fun EditorHeader(
+    draft: EditorDraft,
+    onInput: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onPhoto: (() -> Unit)?,
+) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 20.dp, top = 2.dp, end = 20.dp, bottom = 2.dp),
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            if (draft.isEditing) "Edit ${draft.kind.name.lowercase(Locale.US)}" else "New ${draft.kind.name.lowercase(Locale.US)}",
-            modifier = Modifier.weight(1f),
-            style = CalinoTypography.titleSmall.copy(
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Bold,
-                color = CalinoColors.Accent,
-            ),
-        )
+        EditorTitleField(draft, onInput, Modifier.weight(1f))
         if (onPhoto != null && !draft.isEditing && draft.kind == PocQuickAddKind.Event) {
             Box(
                 Modifier
@@ -351,9 +352,13 @@ private fun EditorHeader(draft: EditorDraft, onDismiss: () -> Unit, onPhoto: (()
 }
 
 @Composable
-private fun EditorTitleField(draft: EditorDraft, onInput: (String) -> Unit) {
+private fun EditorTitleField(
+    draft: EditorDraft,
+    onInput: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 70.dp).padding(vertical = 10.dp),
+        modifier.heightIn(min = 70.dp).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CalinoIcon(draft.kind.editorIcon(), tint = CalinoColors.Accent, modifier = Modifier.size(23.dp), contentDescription = null)

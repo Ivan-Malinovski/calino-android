@@ -22,6 +22,7 @@ fun BottomDetailCard(
     resetKey: Any? = null,
     canStartDismiss: () -> Boolean = { true },
     surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
+    handleColor: Color = CalinoColors.Canvas,
     // The card's action pill, hosted in the pill lane rather than in the card,
     // so it can change shape in place instead of leaving with the card.
     pill: (@Composable () -> Unit)? = null,
@@ -44,6 +45,7 @@ fun BottomDetailCard(
                 dismissDistance = dismissDistance,
                 resetKey = resetKey,
                 canStartDismiss = canStartDismiss,
+                handleColor = handleColor,
                 content = content,
             )
         }

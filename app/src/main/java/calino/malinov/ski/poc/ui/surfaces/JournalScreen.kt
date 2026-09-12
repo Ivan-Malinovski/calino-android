@@ -3,7 +3,6 @@ package calino.malinov.ski.poc.ui.surfaces
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -33,12 +32,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,7 +61,7 @@ import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CalinoMarkdown
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
-import calino.malinov.ski.poc.ui.components.CalinoIcons
+import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.components.BottomDetailCard
 import calino.malinov.ski.poc.ui.components.ModalActionPill
@@ -79,7 +75,6 @@ private val JournalDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale
 private val JournalMonthFormat = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
 
 private enum class JournalMode { All, Month }
-private enum class JournalEditorMode { Write, Read }
 
 /** A calm journal surface; fixture entries are local, DAV entries sync through the repository. */
 @Composable
@@ -320,22 +315,16 @@ private fun JournalEditor(
 ) {
     var title by rememberSaveable(entry.id) { mutableStateOf(entry.title) }
     var body by rememberSaveable(entry.id) { mutableStateOf(entry.body) }
-    var editorModeName by rememberSaveable(entry.id) { mutableStateOf(JournalEditorMode.Write.name) }
+    val isNewEntry = entry.id.startsWith("draft-journal-")
+    var isEditing by rememberSaveable(entry.id) { mutableStateOf(isNewEntry) }
     var confirmDelete by rememberSaveable(entry.id) { mutableStateOf(false) }
     var showDiscard by rememberSaveable(entry.id) { mutableStateOf(false) }
-    val editorMode = remember(editorModeName) {
-        runCatching { JournalEditorMode.valueOf(editorModeName) }.getOrDefault(JournalEditorMode.Write)
-    }
     val dirty = title != entry.title || body != entry.body
     val canSave = title.isNotBlank() || body.isNotBlank()
-    val focusTitle = entry.title.isBlank() && entry.body.isBlank()
+    val focusTitle = isNewEntry
     val titleFocusRequester = remember { FocusRequester() }
     val wordCount = remember(body) { body.trim().let { if (it.isEmpty()) 0 else it.split(WordBoundaryPattern).size } }
-    val statusColor by animateColorAsState(
-        targetValue = if (dirty) CalinoColors.Rose else CalinoColors.Accent,
-        animationSpec = tween(180),
-        label = "journal save status color",
-    )
+    val headerTint = CalinoColors.AccentSoft.copy(alpha = .42f)
 
     var shown by remember(entry.id) { mutableStateOf(true) }
     var closeAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -346,8 +335,16 @@ private fun JournalEditor(
         if (!shown) { kotlinx.coroutines.delay(220); closeAction?.invoke() }
     }
 
+    fun cancelEditing() {
+        when {
+            dirty -> showDiscard = true
+            isNewEntry -> closeAnimated(onDismiss)
+            else -> isEditing = false
+        }
+    }
+
     fun dismissEditor() {
-        if (dirty) showDiscard = true else closeAnimated(onDismiss)
+        if (isEditing && dirty) showDiscard = true else closeAnimated(onDismiss)
     }
 
     BackHandler {
@@ -366,6 +363,7 @@ private fun JournalEditor(
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 720.dp,
         surfaceKind = CalinoSurfaceKind.Editor,
+        handleColor = headerTint,
         // A dirty-editor dismissal opens the confirmation bar instead of
         // leaving the editor. Changing this key asks the gesture surface to
         // spring back underneath that prompt.
@@ -377,12 +375,15 @@ private fun JournalEditor(
                 inPillLane = true,
                 expanded = shown,
                 cancelLabel = "Cancel",
-                onCancel = ::dismissEditor,
-                cancelDescription = "Cancel journal editing",
-                primaryLabel = "Save",
-                onPrimary = { closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) } },
-                primaryEnabled = canSave,
-                primaryDescription = "Save journal entry",
+                onCancel = if (isEditing) ::cancelEditing else ::dismissEditor,
+                cancelDescription = if (isEditing) "Cancel journal editing" else "Close journal entry",
+                primaryLabel = if (isEditing) "Save" else "Edit",
+                onPrimary = {
+                    if (isEditing) closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) }
+                    else isEditing = true
+                },
+                primaryEnabled = !isEditing || canSave,
+                primaryDescription = if (isEditing) "Save journal entry" else "Edit journal entry",
                 secondaryLabel = "Delete",
                 onSecondary = { confirmDelete = !confirmDelete },
                 secondaryDescription = "Delete journal entry",
@@ -393,79 +394,72 @@ private fun JournalEditor(
             editorModifier.fillMaxSize().background(CalinoColors.Canvas),
         ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+            Modifier.fillMaxWidth().heightIn(min = 78.dp).background(headerTint).padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(
-                onClick = ::dismissEditor,
-                modifier = Modifier.size(48.dp).semantics { contentDescription = "Back to journal" },
-            ) {
-                Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink)
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
-                Text("Journal entry", style = CalinoTypography.titleMedium)
-                Text(
-                    entry.date.format(JournalDateFormat),
-                    style = CalinoTypography.bodySmall,
-                    color = CalinoColors.Ink3,
-                )
-            }
+            CalinoIcon(CalinoIcon.Note, tint = CalinoColors.Accent, modifier = Modifier.size(23.dp), contentDescription = null)
+            BasicTextField(
+                value = title,
+                onValueChange = { if (isEditing) title = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 14.dp)
+                    .then(if (focusTitle) Modifier.focusRequester(titleFocusRequester) else Modifier)
+                    .semantics { contentDescription = "Journal title" },
+                readOnly = !isEditing,
+                textStyle = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink),
+                maxLines = 2,
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (title.isBlank()) {
+                            Text(
+                                if (isEditing) "Add note title" else "Untitled note",
+                                style = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink3),
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+            )
         }
 
-        Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-
-        CompactSegmentedControl(
-            options = JournalEditorMode.entries.map { it.name },
-            selectedIndex = JournalEditorMode.entries.indexOf(editorMode),
-            onSelected = { editorModeName = JournalEditorMode.entries[it].name },
-            modifier = Modifier
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-                .width(200.dp),
-            semanticLabel = "Journal editor mode",
-        )
-
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            CalinoIcon(CalinoIcon.Calendar, tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp), contentDescription = null)
+            Text(
+                entry.date.format(JournalDateFormat),
+                modifier = Modifier.padding(start = 8.dp),
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink2,
+            )
+            Spacer(Modifier.weight(1f))
             Text(
                 "$wordCount ${if (wordCount == 1) "word" else "words"}",
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(CalinoColors.Panel).padding(horizontal = 9.dp, vertical = 4.dp),
                 style = CalinoTypography.labelSmall,
                 color = CalinoColors.Ink3,
             )
-            Spacer(Modifier.weight(1f))
-            AnimatedContent(
-                targetState = dirty,
-                transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(110)) },
-                label = "journal save status",
-            ) { hasChanges ->
-                Text(
-                    if (hasChanges) "Unsaved changes" else "Saved locally",
-                    style = CalinoTypography.labelSmall,
-                    color = statusColor,
-                )
-            }
         }
 
         AnimatedContent(
-            targetState = editorMode,
+            targetState = isEditing,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             transitionSpec = {
-                val direction = if (targetState == JournalEditorMode.Read) 1 else -1
+                val direction = if (targetState) 1 else -1
                 (slideInHorizontally(tween(220)) { direction * it / 3 } + fadeIn(tween(170))) togetherWith
                     (slideOutHorizontally(tween(180)) { -direction * it / 3 } + fadeOut(tween(130)))
             },
-            label = "journal write read transition",
-        ) { currentMode ->
-            when (currentMode) {
-                JournalEditorMode.Write -> JournalWritePane(
-                    title = title,
+            label = "journal view edit transition",
+        ) { editing ->
+            if (editing) {
+                JournalEditPane(
                     body = body,
-                    onTitleChange = { title = it },
                     onBodyChange = { body = it },
-                    titleFocusRequester = titleFocusRequester,
                 )
-                JournalEditorMode.Read -> JournalReadPane(title = title, body = body)
+            } else {
+                JournalReadPane(body = body)
             }
         }
 
@@ -499,7 +493,15 @@ private fun JournalEditor(
             ) {
                 Text("Discard your changes?", style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
                 TextButton(onClick = { showDiscard = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Keep editing", color = CalinoColors.Panel) }
-                TextButton(onClick = { closeAnimated(onDismiss) }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" }) { Text("Discard", color = CalinoColors.AccentSoft) }
+                TextButton(
+                    onClick = {
+                        title = entry.title
+                        body = entry.body
+                        showDiscard = false
+                        if (isNewEntry) closeAnimated(onDismiss) else isEditing = false
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" },
+                ) { Text("Discard", color = CalinoColors.AccentSoft) }
             }
         }
 
@@ -511,81 +513,53 @@ private fun JournalEditor(
 }
 
 @Composable
-private fun JournalWritePane(
-    title: String,
+private fun JournalEditPane(
     body: String,
-    onTitleChange: (String) -> Unit,
     onBodyChange: (String) -> Unit,
-    titleFocusRequester: FocusRequester? = null,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item(key = "editor-intro") {
-            Column {
-                Text("A quiet place for the details", style = CalinoTypography.labelSmall, color = CalinoColors.Accent)
-                Text("Write freely. You can always shape it later.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 4.dp))
-            }
-        }
-        item(key = "editor-title") {
-            TextField(
-                value = title,
-                onValueChange = onTitleChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(titleFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-                    .semantics { contentDescription = "Journal title" },
-                textStyle = CalinoTypography.headlineMedium,
-                label = { Text("Title") },
-                placeholder = { Text("Untitled note", color = CalinoColors.Ink3) },
-                singleLine = false,
-                maxLines = 3,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = CalinoColors.Panel,
-                    unfocusedContainerColor = CalinoColors.Panel,
-                    focusedIndicatorColor = CalinoColors.Accent,
-                    unfocusedIndicatorColor = CalinoColors.Line,
-                    cursorColor = CalinoColors.Accent,
-                ),
-            )
-        }
         item(key = "editor-body") {
-            TextField(
+            BasicTextField(
                 value = body,
                 onValueChange = onBodyChange,
-                modifier = Modifier.fillMaxWidth().height(260.dp).semantics { contentDescription = "Journal body" },
-                textStyle = CalinoTypography.bodyLarge.copy(lineHeight = 25.sp),
-                label = { Text("Note") },
-                placeholder = { Text("What is on your mind?", color = CalinoColors.Ink3) },
-                minLines = 8,
-                maxLines = 14,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = CalinoColors.Panel,
-                    unfocusedContainerColor = CalinoColors.Panel,
-                    focusedIndicatorColor = CalinoColors.Accent,
-                    unfocusedIndicatorColor = CalinoColors.Line,
-                    cursorColor = CalinoColors.Accent,
-                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 260.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Card))
+                    .background(CalinoColors.Panel)
+                    .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
+                    .padding(18.dp)
+                    .semantics { contentDescription = "Journal body" },
+                textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink, lineHeight = 25.sp),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (body.isBlank()) Text("What is on your mind?", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                        innerTextField()
+                    }
+                },
             )
         }
     }
 }
 
 @Composable
-private fun JournalReadPane(title: String, body: String) {
+private fun JournalReadPane(body: String) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item(key = "read-preview") {
             Column {
-                Text("READ MODE", style = CalinoTypography.labelSmall, color = CalinoColors.Accent)
-                Text(title.ifBlank { "Untitled note" }, style = CalinoTypography.displaySmall, modifier = Modifier.padding(top = 7.dp))
-                Box(Modifier.padding(top = 14.dp).fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-                CalinoMarkdown(body, modifier = Modifier.padding(top = 18.dp))
+                if (body.isBlank()) {
+                    Text("No note text", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                } else {
+                    CalinoMarkdown(body)
+                }
             }
         }
     }
