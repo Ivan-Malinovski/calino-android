@@ -88,6 +88,19 @@ Known limitation, deliberate: a timezone change can only re-arm the stored
 instants, because a receiver has no repository to re-plan with. The next
 foreground re-plans in the new zone.
 
+Validated live against a local Radicale (`scripts/live-caldav/`) on the API 36
+emulator, driving a real connected account rather than the fixture. A `VALARM`
+planted on the server synced, planned, armed exactly
+(`exactAllowReason=permission`) and fired one millisecond after its armed time.
+An `adb reboot` re-armed it from the stored schedule alone, with no Activity
+running -- which is the whole reason the schedule is a file. On the task side,
+all three actions were pressed in the shade of a process with no Activity:
+**Mark done** wrote `STATUS:COMPLETED` / `PERCENT-COMPLETE:100` to the server,
+**Tomorrow** moved `DUE` by a day and the new date came back through sync into
+the next plan, and **Snooze** cancelled the notification, recorded a snooze five
+minutes out and re-armed for exactly that instant. Each replaced the reminder in
+place with what happened rather than leaving the user guessing.
+
 ### Reminders round-trip as VALARM — 2026-09-12
 
 TODO item 1. Reminders used to be a model-and-UI-only concept: the editor

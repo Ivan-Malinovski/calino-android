@@ -84,24 +84,40 @@ surface and is not wired to Android.
 - Document the vendor battery-killer caveat the way the web README already does
   (dontkillmyapp.com), somewhere the user will see it.
 
-**Status 2026-09-12 — implemented, validation incomplete.** All of the above is
-in, under `notify/`, plus the shade actions (Snooze 5 min, Mark done, Tomorrow)
-the user asked for. `SCHEDULE_EXACT_ALARM` is declared rather than
-`USE_EXACT_ALARM`, with an honest inexact fallback surfaced in the UI; the
-reasoning is in `HANDOFF.md`. The data layer became process-scoped
-(`data/CalinoContainer.kt`) because a shade action writes from a receiver with
-no Activity -- that is the part of this change to review hardest.
+**Status 2026-09-12 — [x] done.** Everything above is in, under `notify/`,
+plus the shade actions (Snooze 5 min, Mark done, Tomorrow) the user asked for.
+`SCHEDULE_EXACT_ALARM` is declared rather than `USE_EXACT_ALARM`, with an honest
+inexact fallback surfaced in the UI; the reasoning is in `HANDOFF.md`. The data
+layer became process-scoped (`data/CalinoContainer.kt`) because a shade action
+writes from a receiver with no Activity -- that is the part of this change to
+review hardest.
 
-Emulator (API 36) confirmed: both channels created at launch, permissions and
-the three receivers registered, the deep link resolves an event end to end, the
-Notifications surface renders real state, and granting exact alarms flips the
-"Exact timing is off" notice on the next resume.
+Validated live on the API 36 emulator against a local Radicale
+(`scripts/live-caldav/`), driving a real account rather than the fixture:
 
-**Not yet validated, and why:** reminders are only scheduled with an account
-connected (fixture mode is frozen May 2026 data and must not arm real alarms),
-and there are no CalDAV credentials in this environment. So a reminder actually
-firing, the boot re-arm, and the Mark done / Tomorrow writes have not been seen
-end to end. Do not mark this item `[x]` until they have been.
+- A `VALARM` planted on the server synced, planned, and wrote a durable
+  schedule; the alarm armed as `RTC_WAKEUP` with `exactAllowReason=permission`.
+- The reminder fired at 21:10:48.001Z against an armed time of 21:10:48 -- one
+  millisecond late -- on `calino.reminders.events`, importance 4, one action.
+- **Reboot re-arm**: after `adb reboot`, with no Activity running, the alarm was
+  re-armed from the stored schedule alone, still exact.
+- A `VTODO` reminder posted on `calino.reminders.tasks` with all three actions.
+  **Mark done** from the shade, in a process with no Activity, wrote through to
+  the server: `STATUS:COMPLETED`, `PERCENT-COMPLETE:100`. **Tomorrow** moved
+  `DUE` from 20260912 to 20260913, and the new date came back through sync into
+  the next plan. **Snooze** cancelled the notification, wrote a snooze five
+  minutes out, and re-armed for exactly that instant.
+- Each action replaced the reminder in place with what happened ("Moved to
+  tomorrow"), rather than vanishing.
+- Deep link resolves an event and opens its detail; both channels are created at
+  launch; granting exact alarms flips the "Exact timing is off" notice on the
+  next resume.
+
+Known limitations, deliberate and recorded in `HANDOFF.md`: a timezone change
+re-arms stored instants only and the anchors are corrected on the next
+foreground; the planner uses `CalEvent.occursOn` for unexpanded recurrence
+masters and so inherits item 5's missing `INTERVAL`; and the "Daily brief" the
+old mock advertised was removed rather than built.
 
 ## 3. Home screen widget
 
