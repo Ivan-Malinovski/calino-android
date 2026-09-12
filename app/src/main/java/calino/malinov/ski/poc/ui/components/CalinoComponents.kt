@@ -110,6 +110,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
@@ -1365,6 +1366,13 @@ fun CompactSegmentedControl(
                         .clip(segmentShape)
                         .selectable(
                             selected = active,
+                            // No ripple, as everywhere else in the app: the
+                            // indicator sliding under the finger is the
+                            // feedback, and a grey slab flashing over the
+                            // whole segment lane on the way there reads as a
+                            // second, louder control answering the tap.
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
                             role = Role.RadioButton,
                             onClick = { onSelected(index) },
                         )
@@ -1656,6 +1664,12 @@ fun ModalActionPill(
     morphFromAddPill: Boolean = false,
     inPillLane: Boolean = false,
     expanded: Boolean = true,
+    // The least room the settled pill should give its actions. It moves the
+    // expanded end of the morph and nothing else: a width asked for with a
+    // modifier instead raises this layout's own minimum constraint and clamps
+    // the shape in flight, which is a morph that covers part of its distance
+    // and finds the rest in one frame when the pill is swapped out.
+    minExpandedWidth: Dp = Dp.Unspecified,
     primaryEnabled: Boolean = true,
     secondaryEnabled: Boolean = true,
     primaryDescription: String = primaryLabel,
@@ -1836,14 +1850,22 @@ fun ModalActionPill(
         val collapsedHeight = if (anchorHeight > 0) anchorHeight else add.height
         // And never narrower than the shape it grew out of. A pill that
         // shrank while gaining actions would read as a different control.
-        val expanded = maxOf(actionsNatural, collapsedWidth)
+        // Anything asked for from outside -- the parameter, or a width a
+        // caller imposed with a modifier -- belongs to this end of the move
+        // too. Folded in here it widens the settled pill; left on the
+        // interpolation it would stop the shape partway.
+        val requested = if (minExpandedWidth != Dp.Unspecified) minExpandedWidth.roundToPx() else 0
+        val expanded = maxOf(actionsNatural, collapsedWidth, requested, constraints.minWidth)
+        // Only the ceiling is a real limit here: reporting a size under the
+        // incoming minimum is allowed, and it is what lets the shape reach
+        // the add pill's own width rather than stopping short of it.
         val width = androidx.compose.ui.util.lerp(collapsedWidth, expanded, progress)
-            .coerceIn(constraints.minWidth, constraints.maxWidth)
+            .coerceIn(0, constraints.maxWidth)
         // Measured at the pill's current width, so the actions spread with it
         // rather than sitting in a clump while the shape grows around them.
         val actions = actionsRow.measure(Constraints(minWidth = width, maxWidth = width))
         val height = androidx.compose.ui.util.lerp(collapsedHeight, actions.height, progress)
-            .coerceIn(constraints.minHeight, constraints.maxHeight)
+            .coerceIn(0, constraints.maxHeight)
         layout(width, height) {
             add.place((width - add.width) / 2, (height - add.height) / 2)
             actions.place((width - actions.width) / 2, (height - actions.height) / 2)

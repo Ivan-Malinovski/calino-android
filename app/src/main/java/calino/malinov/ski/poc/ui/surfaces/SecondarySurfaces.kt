@@ -710,7 +710,7 @@ fun EventDetailSurface(
         pill = {
             val state = pillState
             ModalActionPill(
-                    modifier = Modifier.widthIn(min = 300.dp),
+                    minExpandedWidth = 300.dp,
                     addLabel = "Add event",
                     morphFromAddPill = true,
                     inPillLane = true,
