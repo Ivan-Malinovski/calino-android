@@ -92,6 +92,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -1558,6 +1559,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         // The add affordance floats over the surfaces instead of taking
         // layout space; every scrollable root reserves PillClearance for it.
         val pillLane = LocalCalinoPillLane.current
+        // Keep the root glass source in the lane before any modal exists. A
+        // modal can then draw its first collapsed frame from the same source;
+        // its own recorded card backdrop replaces this on the next effect.
+        androidx.compose.runtime.SideEffect {
+            pillLane.setRootBackdrop(surfaceLayer, surfaceOrigin)
+        }
         // The silent handback lasts only until this pill is back on screen.
         LaunchedEffect(pillLane.handingBack) {
             if (pillLane.handingBack) {
@@ -1628,6 +1635,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 contentAlignment = Alignment.Center,
             ) {
             AddPill(
+                // AnimatedVisibility can retain its outgoing content for one
+                // draw after a modal has claimed the lane. The modal pill is
+                // already drawing at the same coordinates on that frame, so
+                // stacking the two translucent surfaces doubles both the
+                // shadow and the glass fill. Keep the root pill measured for
+                // its handoff anchor, but let only the lane owner paint.
+                modifier = Modifier.graphicsLayer {
+                    alpha = if (pillLane.claimedByModal) 0f else 1f
+                },
                 backdrop = surfaceLayer,
                 backdropOrigin = { surfaceOrigin },
                 canSwipe = { direction -> pillIndex >= 0 && (pillIndex + direction) in pillRoutes.indices },

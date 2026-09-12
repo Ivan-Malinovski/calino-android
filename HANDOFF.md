@@ -4,6 +4,16 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Pill morph visual continuity — 2026-09-12
+
+- Once a modal claims the shared pill lane, the outgoing root add pill remains
+  measured as the handoff anchor but no longer paints. This prevents the two
+  translucent pill surfaces from overlapping for a retained transition frame,
+  which briefly doubled the light-theme shadow and made the glass fill look
+  more opaque during shape morphs. The lane retains the root pill's backdrop
+  until the modal records its own, so the incoming pill has matching glass on
+  its first frame instead of briefly falling back to an opaque fill.
+
 ### Sidebar hierarchy and mini-calendar — 2026-09-12
 
 - The sidebar now groups its primary calendar destinations in a quiet `VIEWS`

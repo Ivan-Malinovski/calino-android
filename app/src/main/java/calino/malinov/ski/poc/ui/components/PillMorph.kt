@@ -114,6 +114,18 @@ class CalinoPillLane {
         backdropOrigin = origin
     }
 
+    /**
+     * Publishes the root surface behind the add pill while the root owns the
+     * lane. A modal reads this retained layer on its very first draw, before
+     * its own card backdrop effect has run, so the pill never falls back to
+     * an opaque fill during the ownership handoff.
+     */
+    internal fun setRootBackdrop(layer: GraphicsLayer, origin: Offset) {
+        if (claimedByModal) return
+        backdrop = layer
+        backdropOrigin = origin
+    }
+
     internal fun claim() {
         claims += 1
         handingBack = false
