@@ -4,6 +4,13 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Calendar connection early-stage warning — 2026-09-12
+
+- The first step of the add-calendar-account sheet now begins with a prominent
+  warning that Calino is early-stage and not thoroughly tested. It advises
+  keeping a reliable calendar backup and not relying on Calino for the only
+  copy of a primary calendar yet.
+
 ### Performance foundation and calendar date index — 2026-09-12
 
 - `:benchmark` is a Macrobenchmark/Baseline Profile producer targeting the real

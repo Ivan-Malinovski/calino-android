@@ -614,6 +614,35 @@ private fun CredentialsStep(
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        item {
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(CalinoShapes.Card))
+                    .background(CalinoColors.Rose.copy(.10f))
+                    .border(1.dp, CalinoColors.Rose.copy(.32f), RoundedCornerShape(CalinoShapes.Card))
+                    .padding(16.dp)
+                    .semantics {
+                        contentDescription =
+                            "Early-stage warning. Calino is still in a very early stage and has not been " +
+                                "thoroughly tested. Keep a reliable backup of your calendar data. We do " +
+                                "not recommend entrusting your only copy of a primary calendar to Calino yet."
+                    },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "Early-stage warning",
+                    style = CalinoTypography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = CalinoColors.Rose,
+                )
+                Text(
+                    "Calino is still in a very early stage and has not been thoroughly tested. Keep a " +
+                        "reliable backup of your calendar data. We do not recommend entrusting your only " +
+                        "copy of a primary calendar to Calino yet.",
+                    style = CalinoTypography.bodyLarge,
+                    color = CalinoColors.Ink,
+                )
+            }
+        }
         failure?.let { message ->
             item {
                 Box(
