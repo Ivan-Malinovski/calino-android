@@ -14,6 +14,11 @@ Read [`HANDOFF.md`](HANDOFF.md) before making substantial changes. It contains
 the current feature inventory, known gaps, architecture notes, and the review
 plan for the next model.
 
+[`TODO.md`](TODO.md) is the agreed, priority-ordered product backlog. Unless the
+user asks for something specific, take the next unfinished item from the top of
+that list rather than choosing your own. Work one item at a time and mark it
+done only after the review protocol below has been followed.
+
 ## Scope
 
 - The product is a UI and interaction prototype that now reads and writes real
@@ -23,6 +28,11 @@ plan for the next model.
   it. `FixtureRepository` is unchanged and is still the no-account default.
 - Do not add other remote functionality (webcal, telemetry, or any other host)
   beyond the CalDAV and CardDAV read/write paths described below.
+- As of 2026-09-12 the user has explicitly approved the platform work in
+  [`TODO.md`](TODO.md) items 1–3 and 9: `VALARM` round-tripping, local
+  notification delivery and alarm scheduling, a home screen widget, and `.ics`
+  and intent integration. Those are the only sanctioned exceptions to the bullet
+  above; webcal, telemetry, and other remote hosts remain out of scope.
 
 ## CalDAV scope
 
