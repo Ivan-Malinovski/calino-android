@@ -3,6 +3,7 @@ package calino.malinov.ski.poc.qa
 import calino.malinov.ski.poc.data.caldav.ICalMapper
 import calino.malinov.ski.poc.data.caldav.ICalPatcher
 import calino.malinov.ski.poc.data.caldav.ICalWriter
+import calino.malinov.ski.poc.data.model.Reminder
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -258,5 +259,146 @@ class ICalPatcherTest {
         assertTrue(rebased.contains("ORGANIZER;CN=New boss:mailto:boss@example.com"))
         assertTrue(rebased.contains("X-CUSTOM-THING;X-PARAM=7:remote-only update"))
         assertTrue(rebased.contains("BEGIN:VALARM"))
+    }
+
+    // --- VALARM ---------------------------------------------------------------
+
+    /**
+     * The same resource, but with an alarm Calino genuinely cannot author.
+     *
+     * `foreignResource`'s own alarm is a plain `DISPLAY` / `-PT15M`, which is
+     * exactly the shape Calino now owns -- so it no longer proves anything
+     * about passthrough. An EMAIL alarm with a repeat does.
+     */
+    private val alienAlarmResource = ics(
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Foreign Client//EN",
+        "BEGIN:VEVENT",
+        "UID:ours",
+        "DTSTAMP:20260101T000000Z",
+        "DTSTART:20260305T090000Z",
+        "DTEND:20260305T100000Z",
+        "SUMMARY:Original",
+        "BEGIN:VALARM",
+        "ACTION:EMAIL",
+        "TRIGGER;RELATED=END:-PT45M",
+        "DESCRIPTION:body",
+        "SUMMARY:subject",
+        "ATTENDEE:mailto:ada@example.com",
+        "REPEAT:2",
+        "DURATION:PT5M",
+        "END:VALARM",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    )
+
+    @Test
+    fun `an edit leaves an alarm Calino did not author alone`() {
+        val event = eventFrom(alienAlarmResource, "ours")
+        assertTrue(event.reminders.isEmpty())
+
+        val patched = patcher.patchEvents(alienAlarmResource, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("SUMMARY:Edited"))
+        assertTrue(patched, patched.contains("ACTION:EMAIL"))
+        assertTrue(patched, patched.contains("TRIGGER;RELATED=END:-PT45M"))
+        assertTrue(patched, patched.contains("ATTENDEE:mailto:ada@example.com"))
+        assertTrue(patched, patched.contains("REPEAT:2"))
+    }
+
+    @Test
+    fun `a new reminder is added beside a foreign alarm, not instead of it`() {
+        val event = eventFrom(alienAlarmResource, "ours")
+        val patched = patcher.patchEvents(
+            alienAlarmResource,
+            listOf(event.copy(reminders = listOf(Reminder(10)))),
+            now,
+        )!!
+
+        assertEquals(2, patched.split("BEGIN:VALARM").size - 1)
+        assertTrue(patched, patched.contains("ACTION:EMAIL"))
+        assertTrue(patched, patched.contains("TRIGGER:-PT10M"))
+        assertEquals(listOf(Reminder(10)), eventFrom(patched, "ours").reminders)
+    }
+
+    @Test
+    fun `clearing the reminders removes only Calino's alarm`() {
+        val seeded = patcher.patchEvents(
+            alienAlarmResource,
+            listOf(eventFrom(alienAlarmResource, "ours").copy(reminders = listOf(Reminder(10)))),
+            now,
+        )!!
+
+        val cleared = patcher.patchEvents(
+            seeded,
+            listOf(eventFrom(seeded, "ours").copy(reminders = emptyList())),
+            now,
+        )!!
+
+        assertEquals(1, cleared.split("BEGIN:VALARM").size - 1)
+        assertTrue(cleared, cleared.contains("ACTION:EMAIL"))
+        assertFalse(cleared, cleared.contains("TRIGGER:-PT10M"))
+        assertTrue(eventFrom(cleared, "ours").reminders.isEmpty())
+    }
+
+    @Test
+    fun `a rebase keeps a reminder the local edit set`() {
+        val baseEvent = eventFrom(foreignResource, "ours")
+        val local = patcher.patchEvents(
+            foreignResource,
+            listOf(baseEvent.copy(reminders = listOf(Reminder(45)))),
+            now,
+        )!!
+        // The server moved the summary in the meantime, but not the alarm.
+        val current = foreignResource.replace("SUMMARY:Original", "SUMMARY:Remote title")
+
+        val rebased = patcher.rebaseResource(
+            currentIcs = current,
+            localIcs = local,
+            baseIcs = foreignResource,
+            component = "VEVENT",
+            uids = setOf("ours"),
+        )!!
+
+        assertEquals(listOf(Reminder(45)), eventFrom(rebased, "ours").reminders)
+        assertFalse(rebased, rebased.contains("TRIGGER:-PT15M"))
+    }
+
+    @Test
+    fun `a rebase keeps the server's alarm when the local edit left it alone`() {
+        val baseEvent = eventFrom(foreignResource, "ours")
+        val local = patcher.patchEvents(
+            foreignResource,
+            listOf(baseEvent.copy(title = "Local title")),
+            now,
+        )!!
+        val current = foreignResource.replace("TRIGGER:-PT15M", "TRIGGER:-PT90M")
+
+        val rebased = patcher.rebaseResource(
+            currentIcs = current,
+            localIcs = local,
+            baseIcs = foreignResource,
+            component = "VEVENT",
+            uids = setOf("ours"),
+        )!!
+
+        assertTrue(rebased, rebased.contains("SUMMARY:Local title"))
+        assertEquals(listOf(Reminder(90)), eventFrom(rebased, "ours").reminders)
+    }
+
+    @Test
+    fun `an edit that does not touch the reminders leaves our own alarm untouched`() {
+        // foreignResource's alarm is Calino-shaped, so Calino now owns it. That
+        // does not license rewriting it: an unrelated edit must leave its
+        // DESCRIPTION -- and anything else on it -- exactly where it was.
+        val event = eventFrom(foreignResource, "ours")
+        assertEquals(listOf(Reminder(15)), event.reminders)
+
+        val patched = patcher.patchEvents(foreignResource, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("TRIGGER:-PT15M"))
+        assertTrue(patched, patched.contains("DESCRIPTION:soon"))
+        assertEquals(1, patched.split("BEGIN:VALARM").size - 1)
     }
 }

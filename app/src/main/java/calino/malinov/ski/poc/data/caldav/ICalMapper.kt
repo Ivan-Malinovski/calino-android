@@ -27,6 +27,12 @@ import java.util.TimeZone
  *
  * The traps handled here were all found the hard way in the Calino web app;
  * each one is called out at its site rather than left to be rediscovered.
+ *
+ * Alarms are read, but only the ones [Reminder] can state exactly -- see
+ * `ICalAlarms.kt`. An absolute trigger, a `RELATED=END` trigger, a `REPEAT` or
+ * `DURATION`, and any `ACTION` this app cannot present are deliberately *not*
+ * modelled: they stay on the resource untouched rather than arriving in the
+ * editor as a lead time they are not.
  */
 class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
@@ -366,6 +372,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 notes = vevent.description?.value?.trim()?.takeIf(String::isNotEmpty),
                 attendees = mapAttendees(vevent),
                 categories = readCategories(vevent),
+                reminders = vevent.readReminders(),
                 uid = uid,
                 href = href,
                 etag = etag,
@@ -399,6 +406,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 } else {
                     Availability.Busy
                 },
+                reminders = vevent.readReminders(),
                 uid = uid,
                 href = href,
                 etag = etag,
@@ -472,6 +480,9 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             done = done,
             category = readCategories(vtodo).firstOrNull(),
             notes = vtodo.description?.value?.trim()?.takeIf(String::isNotEmpty),
+            // The model holds one task reminder, so the longest lead time wins
+            // and any further alarm stays foreign passthrough.
+            reminder = vtodo.readReminders().firstOrNull(),
             uid = uid,
             href = href,
             etag = etag,

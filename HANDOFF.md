@@ -4,6 +4,43 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Reminders round-trip as VALARM — 2026-09-12
+
+TODO item 1. Reminders used to be a model-and-UI-only concept: the editor
+collected them, `LocalOverlay` and `FixtureRepository` carried them, and nothing
+reached the server. They now map to and from `VALARM` in both directions.
+
+- `data/caldav/ICalAlarms.kt` is the single definition of which alarms belong to
+  Calino, asked by the reader, the writer and the patcher alike. An alarm is
+  ours only when `ACTION` is `DISPLAY` or `AUDIO`, `TRIGGER` is a relative
+  duration anchored to the start, that duration is prior-or-zero and a whole
+  number of minutes, and there is no `REPEAT`/`DURATION`.
+- Everything else is **foreign**: never read into the model, never rewritten,
+  never removed. An absolute trigger, a `RELATED=END` trigger, an `EMAIL` alarm
+  and a repeating alarm all stay on the resource untouched. `Reminder` is still
+  just `minutesBefore`, and deliberately so -- see the decisions in the plan.
+- Writes are *idempotent*, which matters more than it looks. An alarm whose lead
+  time did not change is left exactly as it is rather than deleted and rebuilt,
+  so an unrelated edit does not churn its `DESCRIPTION` or another client's
+  parameters -- and does not make the rebase below believe the reminders moved.
+- `CalTask` keeps a single nullable `reminder`; the longest lead time wins on
+  read and any further alarm is foreign passthrough.
+- `ICalPatcher.mergeComponent` diffed by property class only, so sub-components
+  were invisible to the three-way rebase after a 412 and a local alarm edit was
+  silently replaced by the server's. It now merges `VALARM` as a set as well.
+  Scoped to `VALARM` on purpose: a `VTIMEZONE` is shared scaffolding, the same
+  reason `removeComponent` works off the typed accessors.
+- Tests: ownership predicate cases in `ICalMapperTest`, write/read round trips in
+  `ICalWriterTest`, and the load-bearing ones in `ICalPatcherTest` -- an alarm
+  Calino did not author survives an edit, a new reminder lands beside it, a
+  clear removes only ours, and the rebase keeps whichever side actually changed.
+- Validation: `./gradlew test lintDebug assembleDebug` green; clean install and
+  launch on the API 36 emulator. **Not** validated: the live round trip against
+  a real server and Thunderbird, which needs account credentials this session
+  did not have. That step is still outstanding for item 1's "done" bar.
+- Local delivery is still absent -- a reminder now syncs but nothing notifies.
+  That is TODO item 2.
+
 ### Calendar connection early-stage warning — 2026-09-12
 
 - The first step of the add-calendar-account sheet now begins with a prominent
@@ -1593,6 +1630,16 @@ to be complete:
     in the snapshot/accounts surface. The calendar surfaces themselves still
     do not show a global sync banner; a failed refresh is reported under
     Calendars while the last data remains visible.
+14. Reminders now round-trip as `VALARM`, but nothing delivers them locally:
+    there is no `POST_NOTIFICATIONS`, no channel, and no `AlarmManager`
+    scheduling, so a reminder syncs and then does nothing on the device. TODO
+    item 2. The `VALARM` round trip itself has not yet been validated against a
+    live server or Thunderbird -- unit coverage only.
+15. `Reminder` models a lead time and nothing else. Absolute triggers,
+    `RELATED=END`, `REPEAT`/`DURATION` and non-display actions are preserved on
+    the resource but are invisible in the editor, so a person cannot see or
+    clear an alarm another client set. Deliberate, and recorded here because
+    "the reminder row looks empty" is otherwise a bug report waiting to happen.
 
 ## What the next model should review first
 

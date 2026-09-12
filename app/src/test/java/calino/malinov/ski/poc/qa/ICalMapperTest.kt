@@ -6,6 +6,7 @@ import calino.malinov.ski.poc.data.caldav.ICalMapper
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
+import calino.malinov.ski.poc.data.model.Reminder
 import calino.malinov.ski.poc.data.model.occursOn
 import java.time.DayOfWeek
 import java.time.Instant
@@ -310,6 +311,119 @@ class ICalMapperTest {
         }
         val rendered = events().toString()
         assertFalse("no password may ever reach a model", rendered.contains("s3cret-not-a-real-password"))
+    }
+
+
+    // --- VALARM ---------------------------------------------------------------
+
+    /** One timed event carrying whatever alarm lines the case is about. */
+    private fun withAlarm(vararg alarmLines: String): CalEvent =
+        mapper.parse(
+            (
+                listOf(
+                    "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT",
+                    "UID:alarmed", "DTSTART:20260518T060000Z", "DTEND:20260518T070000Z",
+                    "SUMMARY:Work",
+                ) + alarmLines.toList() + listOf("END:VEVENT", "END:VCALENDAR")
+                ).joinToString("\n"),
+            "cal", 0L, "href", null,
+        ).events.single()
+
+    @Test
+    fun `a relative display alarm becomes a reminder`() {
+        val event = withAlarm("BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M", "DESCRIPTION:soon", "END:VALARM")
+        assertEquals(listOf(Reminder(15)), event.reminders)
+    }
+
+    @Test
+    fun `an hour-long trigger is read in minutes`() {
+        val event = withAlarm("BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT1H", "DESCRIPTION:soon", "END:VALARM")
+        assertEquals(listOf(Reminder(60)), event.reminders)
+    }
+
+    @Test
+    fun `an audio alarm is Calino's too`() {
+        val event = withAlarm("BEGIN:VALARM", "ACTION:AUDIO", "TRIGGER:-PT5M", "END:VALARM")
+        assertEquals(listOf(Reminder(5)), event.reminders)
+    }
+
+    @Test
+    fun `several alarms are read longest lead first`() {
+        val event = withAlarm(
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT10M", "DESCRIPTION:a", "END:VALARM",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT1H", "DESCRIPTION:b", "END:VALARM",
+        )
+        assertEquals(listOf(Reminder(60), Reminder(10)), event.reminders)
+    }
+
+    // Each of these is an alarm the model cannot state. It must not arrive in
+    // the editor as a lead time it is not -- it is left on the resource instead.
+
+    @Test
+    fun `an absolute trigger is not a reminder`() {
+        val event = withAlarm(
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER;VALUE=DATE-TIME:20260518T050000Z",
+            "DESCRIPTION:soon", "END:VALARM",
+        )
+        assertTrue(event.reminders.isEmpty())
+    }
+
+    @Test
+    fun `a trigger anchored to the end is not a reminder`() {
+        val event = withAlarm(
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER;RELATED=END:-PT15M",
+            "DESCRIPTION:soon", "END:VALARM",
+        )
+        assertTrue(event.reminders.isEmpty())
+    }
+
+    @Test
+    fun `an email alarm is not a reminder`() {
+        val event = withAlarm(
+            "BEGIN:VALARM", "ACTION:EMAIL", "TRIGGER:-PT15M", "DESCRIPTION:body",
+            "SUMMARY:subject", "ATTENDEE:mailto:ada@example.com", "END:VALARM",
+        )
+        assertTrue(event.reminders.isEmpty())
+    }
+
+    @Test
+    fun `a repeating alarm is not a reminder`() {
+        val event = withAlarm(
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M", "DESCRIPTION:soon",
+            "REPEAT:3", "DURATION:PT5M", "END:VALARM",
+        )
+        assertTrue(event.reminders.isEmpty())
+    }
+
+    @Test
+    fun `an alarm after the start is not a reminder`() {
+        val event = withAlarm("BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:PT15M", "DESCRIPTION:late", "END:VALARM")
+        assertTrue(event.reminders.isEmpty())
+    }
+
+    @Test
+    fun `a foreign alarm does not hide a reminder beside it`() {
+        val event = withAlarm(
+            "BEGIN:VALARM", "ACTION:EMAIL", "TRIGGER:-PT30M", "DESCRIPTION:body",
+            "SUMMARY:subject", "ATTENDEE:mailto:ada@example.com", "END:VALARM",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT10M", "DESCRIPTION:a", "END:VALARM",
+        )
+        assertEquals(listOf(Reminder(10)), event.reminders)
+    }
+
+    @Test
+    fun `a task alarm becomes the task reminder`() {
+        val task = mapper.parse(
+            listOf(
+                "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:task-alarmed", "DUE:20260518T060000Z", "SUMMARY:File taxes",
+                "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT1H", "DESCRIPTION:soon", "END:VALARM",
+                "END:VTODO", "END:VCALENDAR",
+            ).joinToString("\n"),
+            "cal", 0L, "href", null,
+        ).tasks.single()
+
+        assertEquals(Reminder(60), task.reminder)
     }
 
     // --- helpers --------------------------------------------------------------

@@ -49,6 +49,14 @@ Calino "does not model" and only preserves on patch.
 Done when a reminder set in Calino is visible in another CalDAV client and
 survives a round trip in both directions. Local delivery is item 2.
 
+**Status 2026-09-12 — implemented, not yet signed off.** The mapping, writing,
+patching and rebase work is in (`data/caldav/ICalAlarms.kt` plus the three iCal
+files) with unit coverage for the ownership predicate, the round trip, foreign
+alarm preservation and the stale-ETag rebase; `test lintDebug assembleDebug` is
+green and the APK installs and launches clean on the API 36 emulator. What is
+**not** done is the live check this item is actually measured by: a reminder
+written to a real server, edited in Thunderbird, and read back. That needs
+account credentials and is the only thing between this item and `[x]`.
 
 ## 2. Local notification delivery
 

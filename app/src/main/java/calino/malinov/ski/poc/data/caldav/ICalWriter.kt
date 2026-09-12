@@ -48,8 +48,11 @@ import biweekly.property.Attendee as ICalAttendee
  *
  * 1. **It writes into an existing component when given one.** [ICalPatcher]
  *    hands over the component parsed from the server's own bytes, so anything
- *    Calino does not model -- `ORGANIZER`, `CLASS`, `VALARM`, `X-` properties,
- *    another client's parameters -- survives an edit untouched.
+ *    Calino does not model -- `ORGANIZER`, `CLASS`, `X-` properties, another
+ *    client's parameters -- survives an edit untouched. Alarms are the one
+ *    place that needs a rule rather than an omission, because Calino now owns
+ *    some of them: `ICalAlarms.kt` partitions a component's `VALARM`s into
+ *    ours, which are rewritten, and foreign, which are left alone.
  * 2. **Every field Calino owns is written *or explicitly removed*.** Clearing a
  *    location in the editor has to delete `LOCATION` from the resource; leaving
  *    the old property in place would make the clear silently fail to save.
@@ -90,6 +93,7 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         vevent.replaceOrRemove(event.notes?.trim()?.takeIf(String::isNotEmpty)) { Description(it) }
         vevent.replaceOrRemove(event.url?.trim()?.takeIf(String::isNotEmpty)) { Url(it) }
         vevent.writeCategories(event.categories)
+        vevent.writeReminders(event.reminders, event.title)
 
         vevent.removeProperties(RecurrenceId::class.java)
         event.recurrenceDate?.let { date ->
@@ -145,6 +149,7 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         task.parentTaskId?.trim()?.takeIf(String::isNotEmpty)?.let { parentId ->
             vtodo.addRelatedTo(RelatedTo(parentId))
         }
+        vtodo.writeReminders(listOfNotNull(task.reminder), task.title)
         vtodo.writeCompletion(task.done, now)
         vtodo.stamp(now)
         return vtodo

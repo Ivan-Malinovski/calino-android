@@ -3,6 +3,7 @@ package calino.malinov.ski.poc.data.caldav
 import biweekly.Biweekly
 import biweekly.ICalendar
 import biweekly.component.ICalComponent
+import biweekly.component.VAlarm
 import biweekly.component.VEvent
 import biweekly.component.VJournal
 import biweekly.component.VTodo
@@ -124,6 +125,11 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
      * the local edit stay exactly as the server now has them, while properties
      * changed locally win. Components newly added or removed by the local
      * operation are handled by UID plus RECURRENCE-ID identity.
+     *
+     * `VALARM` is merged too, as a set rather than by class, because alarms are
+     * sub-components and a property-only diff cannot see them at all -- which
+     * would quietly hand every rebase the server's alarms and discard the
+     * reminder the person had just set.
      *
      * Components outside [component] and UIDs outside [uids] are never
      * touched. That is important for shared resources containing another
@@ -291,8 +297,33 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                     localValues.forEach { merged.addProperty(it.copy()) }
                 }
             }
+            mergeAlarms(base, local, merged)
             return merged
         }
+
+        /**
+         * Applies the local edit's alarm set, or leaves the server's alone.
+         *
+         * Deliberately scoped to VALARM rather than to sub-components in
+         * general: a VTIMEZONE is shared scaffolding that the remaining
+         * components' times depend on, the same reason `removeComponent` works
+         * off the typed accessors instead of the raw component multimap.
+         *
+         * The comparison key is the component's rendered form. It is never
+         * persisted or parsed -- it only has to answer "did the local edit
+         * touch the alarms", and an over-sensitive key merely makes the local
+         * set win a rebase it would have won anyway.
+         */
+        fun mergeAlarms(base: ICalComponent, local: ICalComponent, merged: ICalComponent) {
+            val baseAlarms = base.alarmKeys()
+            val localAlarms = local.alarmKeys()
+            if (baseAlarms == localAlarms) return
+            merged.getComponents(VAlarm::class.java).toList().forEach(merged::removeComponent)
+            local.getComponents(VAlarm::class.java).forEach { merged.addComponent(it.copy()) }
+        }
+
+        fun ICalComponent.alarmKeys(): List<String> =
+            getComponents(VAlarm::class.java).map { it.toString() }.sorted()
 
         fun ICalComponent.identityKey(): String? {
             val uid = uidValue() ?: return null

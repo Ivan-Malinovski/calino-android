@@ -7,6 +7,7 @@ import calino.malinov.ski.poc.data.model.Availability
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
+import calino.malinov.ski.poc.data.model.Reminder
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -297,5 +298,71 @@ class ICalWriterTest {
         assertEquals("Monday", back.title)
         assertEquals("First line\n\nSecond line", back.body)
         assertEquals(LocalDate.of(2026, 3, 5), back.date)
+    }
+
+    // --- VALARM ---------------------------------------------------------------
+
+    private fun timedEvent(reminders: List<Reminder>) = CalEvent(
+        id = "uid-alarm",
+        title = "Review",
+        color = 1L,
+        start = LocalDateTime.of(2026, 3, 5, 9, 30),
+        durationMinutes = 30,
+        calendarId = "cal",
+        uid = "uid-alarm",
+        reminders = reminders,
+    )
+
+    @Test
+    fun `reminders are written as relative display alarms`() {
+        val ics = serialize(writer.writeEvent(timedEvent(listOf(Reminder(30))), now = now))
+
+        assertTrue(ics, ics.contains("BEGIN:VALARM"))
+        assertTrue(ics, ics.contains("ACTION:DISPLAY"))
+        assertTrue(ics, ics.contains("TRIGGER:-PT30M"))
+        assertEquals(listOf(Reminder(30)), reparse(ics).events.single().reminders)
+    }
+
+    @Test
+    fun `an event with no reminders writes no alarm`() {
+        val ics = serialize(writer.writeEvent(timedEvent(emptyList()), now = now))
+
+        assertFalse(ics, ics.contains("BEGIN:VALARM"))
+        assertTrue(reparse(ics).events.single().reminders.isEmpty())
+    }
+
+    @Test
+    fun `an at-start reminder survives a write and read`() {
+        val ics = serialize(writer.writeEvent(timedEvent(listOf(Reminder(0))), now = now))
+
+        // A zero-length prior duration. biweekly renders it "-PT0M", which is a
+        // well-formed dur-value; what matters is that it reads back as at-start.
+        assertTrue(ics, ics.contains("TRIGGER:-PT0M"))
+        assertEquals(listOf(Reminder(0)), reparse(ics).events.single().reminders)
+    }
+
+    @Test
+    fun `several reminders survive a write and read in lead-time order`() {
+        val event = timedEvent(listOf(Reminder(10), Reminder(1440), Reminder(60)))
+        val back = reparse(serialize(writer.writeEvent(event, now = now))).events.single()
+
+        assertEquals(listOf(Reminder(1440), Reminder(60), Reminder(10)), back.reminders)
+    }
+
+    @Test
+    fun `a task reminder survives a write and read`() {
+        val task = CalTask(
+            id = "task-alarm",
+            title = "File taxes",
+            color = 1L,
+            due = LocalDate.of(2026, 3, 5),
+            dueTime = LocalTime.of(9, 0),
+            calendarId = "cal",
+            uid = "task-alarm",
+            reminder = Reminder(60),
+        )
+        val back = reparse(serialize(writer.writeTask(task, now = now))).tasks.single()
+
+        assertEquals(Reminder(60), back.reminder)
     }
 }
