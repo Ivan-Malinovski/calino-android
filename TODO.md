@@ -84,6 +84,25 @@ surface and is not wired to Android.
 - Document the vendor battery-killer caveat the way the web README already does
   (dontkillmyapp.com), somewhere the user will see it.
 
+**Status 2026-09-12 — implemented, validation incomplete.** All of the above is
+in, under `notify/`, plus the shade actions (Snooze 5 min, Mark done, Tomorrow)
+the user asked for. `SCHEDULE_EXACT_ALARM` is declared rather than
+`USE_EXACT_ALARM`, with an honest inexact fallback surfaced in the UI; the
+reasoning is in `HANDOFF.md`. The data layer became process-scoped
+(`data/CalinoContainer.kt`) because a shade action writes from a receiver with
+no Activity -- that is the part of this change to review hardest.
+
+Emulator (API 36) confirmed: both channels created at launch, permissions and
+the three receivers registered, the deep link resolves an event end to end, the
+Notifications surface renders real state, and granting exact alarms flips the
+"Exact timing is off" notice on the next resume.
+
+**Not yet validated, and why:** reminders are only scheduled with an account
+connected (fixture mode is frozen May 2026 data and must not arm real alarms),
+and there are no CalDAV credentials in this environment. So a reminder actually
+firing, the boot re-arm, and the Mark done / Tomorrow writes have not been seen
+end to end. Do not mark this item `[x]` until they have been.
+
 ## 3. Home screen widget
 
 - A Glance widget showing the agenda for today and the near future.

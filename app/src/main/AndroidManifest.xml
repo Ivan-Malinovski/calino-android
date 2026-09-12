@@ -8,6 +8,20 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+        Local reminder delivery. Reminders are computed on the device from the
+        user's own calendar data and posted by the app itself; nothing about a
+        reminder leaves the device beyond the VALARM that already syncs.
+
+        SCHEDULE_EXACT_ALARM rather than USE_EXACT_ALARM on purpose: the latter
+        is auto-granted and cannot be revoked, and a reminder is not worth
+        taking that choice away from the user. Delivery falls back to inexact
+        when it is not granted, and the Notifications screen says so.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
@@ -43,5 +57,30 @@
                 <data android:scheme="calino.malinov.ski.poc" />
             </intent-filter>
         </activity>
+        <!-- The armed reminder alarm fires here. Explicitly targeted; never broadcast to. -->
+        <receiver
+            android:name=".notify.ReminderAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Snooze / Mark done / Tomorrow from the notification shade. -->
+        <receiver
+            android:name=".notify.ReminderActionReceiver"
+            android:exported="false" />
+
+        <!--
+            Exported because system broadcasts require it. The receiver accepts
+            only the actions below and ignores anything else it is sent.
+        -->
+        <receiver
+            android:name=".notify.ReminderSystemReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

@@ -15,6 +15,23 @@ WebView or Capacitor dependency.
   edits/deletes support THIS, FUTURE, and ALL scopes.
 - The APK can be installed alongside the existing Calino Capacitor APK.
 - The primary surfaces are reached from the animated bottom dock.
+- Reminders are delivered locally: a reminder set on an event or a task is
+  scheduled with `AlarmManager` and posted to one of two notification channels.
+
+## If a reminder never arrives
+
+Calino schedules reminders with an exact alarm, but several manufacturers --
+Samsung, Xiaomi, Huawei, OnePlus and others -- shut background apps down
+aggressively to save battery, and an app that has been shut down does not get
+its alarm. If reminders stop arriving, exempt Calino from battery
+optimisation; <https://dontkillmyapp.com> has the exact steps per manufacturer.
+
+Two other things can hold a reminder back, and both are reported on the
+Notifications screen inside the app:
+
+- Android's notification permission has not been granted, so nothing is shown.
+- Exact alarms are not permitted, so delivery falls back to an inexact alarm
+  and can be up to about fifteen minutes late, and later during Doze.
 
 ## Build and install
 

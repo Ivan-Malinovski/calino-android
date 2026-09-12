@@ -131,6 +131,13 @@ import calino.malinov.ski.poc.data.repository.CalDavAccountStore
 import calino.malinov.ski.poc.data.repository.CalDavClient
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.data.repository.CalinoSnapshot
+import calino.malinov.ski.poc.data.CalinoContainer
+import calino.malinov.ski.poc.notify.LocalNotificationPermission
+import calino.malinov.ski.poc.notify.ReminderChannels
+import calino.malinov.ski.poc.notify.ReminderDeepLink
+import calino.malinov.ski.poc.notify.ReminderDeepLinks
+import calino.malinov.ski.poc.notify.ReminderKind
+import calino.malinov.ski.poc.notify.rememberNotificationPermission
 import calino.malinov.ski.poc.data.repository.FixtureRepository
 import calino.malinov.ski.poc.data.repository.UndoableChange
 import calino.malinov.ski.poc.data.repository.WriteResult
@@ -193,7 +200,8 @@ import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.surfaces.DayModalSurface
 import calino.malinov.ski.poc.ui.surfaces.EventDetail
 import calino.malinov.ski.poc.ui.surfaces.TaskDetail
-import calino.malinov.ski.poc.ui.surfaces.NotificationPreview
+import calino.malinov.ski.poc.ui.surfaces.NotificationsSurface
+import calino.malinov.ski.poc.ui.surfaces.rememberNotificationSurfaceState
 import calino.malinov.ski.poc.ui.surfaces.AgendaScreen
 import calino.malinov.ski.poc.ui.surfaces.CalendarAccountsSurface
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
@@ -305,9 +313,20 @@ class MainActivity : ComponentActivity() {
     var aiShortcutRequest by mutableIntStateOf(0)
         private set
 
+    /**
+     * A notification tap, waiting for a snapshot that can resolve it.
+     *
+     * Held rather than acted on: a cold start arrives here before the calendar
+     * data does, and the record the link names may not exist yet.
+     */
+    var pendingReminderLink by mutableStateOf<ReminderDeepLink?>(null)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ReminderChannels.ensure(this)
         consumeAiIntent(intent)
+        consumeReminderIntent(intent)
         enableEdgeToEdge()
         setContent { CalinoApp() }
     }
@@ -316,9 +335,17 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         consumeAiIntent(intent)
+        consumeReminderIntent(intent)
     }
 
     fun consumeIncomingImage() { incomingImage = null }
+
+    fun consumeReminderLink() { pendingReminderLink = null }
+
+    private fun consumeReminderIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        ReminderDeepLinks.parse(intent.data?.toString())?.let { pendingReminderLink = it }
+    }
 
     private fun consumeAiIntent(intent: Intent?) {
         if (intent == null) return
@@ -335,134 +362,122 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Holds the data layer across configuration changes.
+ * Compose-state facade over the process-wide [CalinoContainer].
  *
  * Two repositories exist and one is active at a time. With no account
  * connected the fixture repository serves the frozen May 2026 sample data, so
  * the app is never an empty shell; connecting an account switches to the
  * CalDAV-backed one. [activeRepository] is Compose state, so the swap
  * recomposes and the observer bridge re-subscribes on its own.
+ *
+ * The data layer itself no longer lives here. A notification action arrives in
+ * a receiver with no Activity and must write through the same repository and
+ * the same durable queue, so construction moved to [CalinoContainer] and this
+ * class kept only the job Compose actually needs: mirroring that state into
+ * the composition. See the comment on the container for the full reasoning.
  */
 class PocRepositoryViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val fixtureRepository = FixtureRepository()
+    private val container = CalinoContainer.get(application)
 
-    private val credentialStore: CredentialStore = KeystoreCredentialStore(application)
-
-    val accountStore = CalDavAccountStore(SharedPreferencesAccountPersistence(application))
+    val accountStore get() = container.accountStore
 
     /** Display preferences (clock, and whatever joins it), persisted. */
-    val preferenceStore = SharedPreferencesPreferenceStore(application)
+    val preferenceStore get() = container.preferenceStore
 
     /** Real discovery. This is the seam `FixtureCalDavClient` used to fill. */
-    val calDavClient: CalDavClient = CalDavDiscovery(sharedHttp)
+    val calDavClient: CalDavClient get() = container.calDavClient
 
-    private val calendarCache = FileCalendarCache(File(application.filesDir, "caldav-cache"))
-    private val pendingChangeStore = calino.malinov.ski.poc.data.repository.FilePendingChangeStore(
-        File(application.filesDir, "caldav-write-queue.json"),
-    )
-
-    private val calDavRepository = CalDavRepository(
-        fetcher = CalDavFetcher(sharedHttp),
-        scope = viewModelScope,
-        cache = calendarCache,
-        writer = CalDavWriter(sharedHttp, calendarCache),
-        cardWriter = CardDavWriter(sharedHttp, calendarCache),
-        pendingStore = pendingChangeStore,
-    )
-
-    private val connections = CalDavConnectionManager(
-        accountStore = accountStore,
-        credentialStore = credentialStore,
-        repository = calDavRepository,
-        discovery = CalDavDiscovery(sharedHttp),
-        scope = viewModelScope,
-    )
-
-    private val repositoryState = mutableStateOf<CalinoRepository>(fixtureRepository)
+    private val repositoryState = mutableStateOf(container.activeRepository)
     val activeRepository: CalinoRepository get() = repositoryState.value
 
-    private val hasAccountsState = mutableStateOf(accountStore.accounts().isNotEmpty())
+    private val hasAccountsState = mutableStateOf(container.hasAccounts)
 
     /** Whether any CalDAV account is connected. Drives the calendar's anchor date. */
     val hasAccounts: Boolean get() = hasAccountsState.value
 
+    private val repositorySubscription = container.observeRepository { repository ->
+        repositoryState.value = repository
+        hasAccountsState.value = container.hasAccounts
+    }
+
     init {
         // A persisted account restores and refetches without asking for the
         // password again; the credential store still holds it.
-        connections.restore()
-        updateActiveRepository()
-        viewModelScope.launch {
-            while (isActive) {
-                calDavRepository.drainPendingWrites()
-                delay(60_000)
-            }
-        }
+        container.ensureConnected()
+        container.startWriteQueueDrain()
+        container.startReminderScheduling()
+        syncState()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        repositorySubscription.close()
     }
 
     fun onAccountConnected(form: CalDavForm, calendars: List<CalDavCalendar>) {
-        val account = accountStore.addAccount(form, calendars)
-        connections.onAccountConnected(account, form.password)
-        updateActiveRepository()
+        container.onAccountConnected(form, calendars)
+        syncState()
     }
 
     fun onCalendarEnabled(accountId: String, calendarId: String, enabled: Boolean) {
-        accountStore.setCalendarEnabled(accountId, calendarId, enabled)
-        connections.onCalendarsToggled()
+        container.accountStore.setCalendarEnabled(accountId, calendarId, enabled)
+        container.onCalendarsToggled()
     }
 
     fun onCalendarVisibilityChanged(accountId: String, calendarId: String, visible: Boolean) {
-        accountStore.updateCalendarPresentation(accountId, calendarId, visible = visible)
-        connections.onCalendarsToggled()
+        container.accountStore.updateCalendarPresentation(accountId, calendarId, visible = visible)
+        container.onCalendarsToggled()
     }
 
     fun onCalendarTasksChanged(accountId: String, calendarId: String, show: Boolean) {
-        accountStore.updateCalendarPresentation(accountId, calendarId, showTasksInViews = show)
-        connections.onCalendarsToggled()
+        container.accountStore.updateCalendarPresentation(accountId, calendarId, showTasksInViews = show)
+        container.onCalendarsToggled()
     }
 
     fun onCalendarRenamed(accountId: String, calendarId: String, name: String) {
-        accountStore.updateCalendarPresentation(accountId, calendarId, name = name)
-        connections.onCalendarsToggled()
+        container.accountStore.updateCalendarPresentation(accountId, calendarId, name = name)
+        container.onCalendarsToggled()
     }
 
     fun onCalendarColorChanged(accountId: String, calendarId: String, color: Long) {
-        accountStore.updateCalendarPresentation(accountId, calendarId, color = color)
-        connections.onCalendarsToggled()
+        container.accountStore.updateCalendarPresentation(accountId, calendarId, color = color)
+        container.onCalendarsToggled()
     }
 
     fun onAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
-        accountStore.setAddressBookEnabled(accountId, addressBookId, enabled)
-        connections.onCalendarsToggled()
+        container.accountStore.setAddressBookEnabled(accountId, addressBookId, enabled)
+        container.onCalendarsToggled()
     }
 
     fun onAccountRemoved(accountId: String) {
-        accountStore.removeAccount(accountId)
-        connections.onAccountRemoved(accountId)
-        updateActiveRepository()
+        container.onAccountRemoved(accountId)
+        syncState()
     }
 
-    fun refresh() = calDavRepository.refresh()
+    fun refresh() = container.calDavRepository.refresh()
 
-    fun drainPendingWrites() = calDavRepository.drainPendingWrites()
+    fun drainPendingWrites() = container.calDavRepository.drainPendingWrites()
 
-    fun pendingChanges(): List<PendingChange> = calDavRepository.pendingChanges()
+    fun pendingChanges(): List<PendingChange> = container.calDavRepository.pendingChanges()
 
-    fun retryPendingChange(id: String): Boolean = calDavRepository.retryPendingChange(id)
+    fun retryPendingChange(id: String): Boolean = container.calDavRepository.retryPendingChange(id)
 
-    fun discardPendingChange(id: String): Boolean = calDavRepository.discardPendingChange(id)
+    fun discardPendingChange(id: String): Boolean = container.calDavRepository.discardPendingChange(id)
 
-    fun setEventWindowMonths(months: Long) = calDavRepository.setWindowMonths(months)
+    fun setEventWindowMonths(months: Long) = container.calDavRepository.setWindowMonths(months)
 
-    private fun updateActiveRepository() {
-        val connected = accountStore.accounts().isNotEmpty()
-        hasAccountsState.value = connected
-        repositoryState.value = if (connected) calDavRepository else fixtureRepository
-    }
+    /** Re-plan the reminder schedule from the latest snapshot. */
+    fun replanReminders() = container.reminderBridge.refresh()
 
-    private companion object {
-        /** One OkHttp instance so discovery and fetching share the pool. */
-        val sharedHttp = DavHttp()
+    /**
+     * The container notifies only when the repository actually swaps, which is
+     * the point of the listener; `hasAccounts` can change without a swap (a
+     * second account on an already-connected app), so it is re-read here too.
+     */
+    private fun syncState() {
+        repositoryState.value = container.activeRepository
+        hasAccountsState.value = container.hasAccounts
     }
 }
 
@@ -475,7 +490,13 @@ fun CalinoApp() {
     val now by rememberCalinoNow(live = pocViewModel.hasAccounts)
     // Read before the theme, not inside it: the palette is a function of a
     // preference, so the preference has to exist first.
-    val preferences = rememberCalinoPreferences(pocViewModel.preferenceStore)
+    val preferences = rememberCalinoPreferences(
+        store = pocViewModel.preferenceStore,
+        // A reminder switched off must stop arriving now, not after the next
+        // sync happens to publish something.
+        onRemindersChanged = { pocViewModel.replanReminders() },
+    )
+    val notificationPermission = rememberNotificationPermission(pocViewModel.preferenceStore)
     LaunchedEffect(preferences.eventSyncRange) {
         pocViewModel.setEventWindowMonths(preferences.eventSyncRange.months)
     }
@@ -489,6 +510,7 @@ fun CalinoApp() {
         CompositionLocalProvider(
             LocalCalinoNow provides now,
             LocalCalinoPreferences provides preferences,
+            LocalNotificationPermission provides notificationPermission,
             LocalFoldPosture provides rememberFoldPosture(),
             LocalHingeOpenness provides rememberHingeOpenness(),
             // One pill lane for the whole app: the root add pill and every
@@ -886,6 +908,45 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         selectedTaskId = task.id
         taskDetailOrigin = origin
         route = PockRoute.TaskDetail
+    }
+
+    /**
+     * A notification tap, landed.
+     *
+     * Keyed on the snapshot revision as well as the link: a cold start opens
+     * before the calendar data arrives, so the first attempt usually fails and
+     * the second, once a snapshot exists, succeeds. An unresolvable link still
+     * moves the calendar to the day it named -- a stale notification should
+     * take you to roughly the right place rather than nowhere.
+     */
+    LaunchedEffect(activity.pendingReminderLink, snapshot.revision) {
+        val link = activity.pendingReminderLink ?: return@LaunchedEffect
+        when (link.kind) {
+            ReminderKind.Event -> {
+                val event = ReminderDeepLinks.resolveEvent(link, snapshot.events)
+                if (event != null) {
+                    selectedEventId = event.id
+                    selectedEventOccurrenceDay = link.occurrenceDay ?: event.placementDate()?.toEpochDay()
+                    detailOrigin = PocReturnTarget.Calendar
+                    route = PockRoute.Detail
+                    activity.consumeReminderLink()
+                } else if (snapshot.events.isNotEmpty()) {
+                    link.occurrenceDay?.let { selectedDate = LocalDate.ofEpochDay(it) }
+                    route = PockRoute.Day
+                    activity.consumeReminderLink()
+                }
+            }
+            ReminderKind.Task -> {
+                val task = ReminderDeepLinks.resolveTask(link, snapshot.tasks)
+                if (task != null) {
+                    openTaskDetail(task, PocReturnTarget.Tasks)
+                    activity.consumeReminderLink()
+                } else if (snapshot.tasks.isNotEmpty()) {
+                    route = PockRoute.Tasks
+                    activity.consumeReminderLink()
+                }
+            }
+        }
     }
 
     fun handleTaskAction(action: TaskMenuAction, task: CalTask) {
@@ -1321,11 +1382,29 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onFocusAccountConsumed = { accountsFocusId = null },
                     )
                     PockRoute.Detail, PockRoute.TaskDetail -> Unit
-                    PockRoute.Notifications -> NotificationPreview(
-                        data = calino.malinov.ski.poc.ui.surfaces.NotificationPreviewData(
-                            "Design review", "10:00 AM · Studio · with 2 others",
-                        ),
-                        onAction = { notificationOrigin = PocReturnTarget.Settings; route = PockRoute.Settings },
+                    PockRoute.Notifications -> NotificationsSurface(
+                        state = rememberNotificationSurfaceState(),
+                        onOpenFiring = { firing ->
+                            // The surface lists what is scheduled, so a row is
+                            // a way into the record just as the notification is.
+                            val link = ReminderDeepLink(
+                                kind = firing.kind,
+                                recordId = firing.recordId,
+                                uid = firing.uid,
+                                occurrenceDay = firing.occurrenceDay,
+                            )
+                            when (firing.kind) {
+                                ReminderKind.Event -> ReminderDeepLinks.resolveEvent(link, snapshot.events)?.let { event ->
+                                    selectedEventId = event.id
+                                    selectedEventOccurrenceDay = firing.occurrenceDay ?: event.placementDate()?.toEpochDay()
+                                    detailOrigin = PocReturnTarget.Settings
+                                    route = PockRoute.Detail
+                                }
+                                ReminderKind.Task -> ReminderDeepLinks.resolveTask(link, snapshot.tasks)?.let { task ->
+                                    openTaskDetail(task, PocReturnTarget.Settings)
+                                }
+                            }
+                        },
                     )
                     PockRoute.QuickAdd -> Unit
                 }

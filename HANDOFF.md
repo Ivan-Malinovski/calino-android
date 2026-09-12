@@ -4,6 +4,70 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Local notification delivery — 2026-09-12
+
+TODO item 2. A reminder used to sync and then notify nobody. It now fires.
+
+- `notify/ReminderPlan.kt` is the pure core: a snapshot plus a clock in, a
+  deterministic sorted list of firings out. No Android in it, so it is covered
+  by the plain-JUnit suite, and -- more importantly -- so the same decision can
+  be made from a boot receiver where there is no Activity and no repository.
+  Expanded occurrences are used as they arrive from `ICalMapper`; only an
+  unexpanded master is day-walked, through `CalEvent.occursOn`, so a
+  notification cannot land on a day the grid does not show. It inherits that
+  engine's gaps, which is TODO item 5's to fix in one place.
+- All-day records anchor at 09:00, never midnight. A "0 minutes before"
+  reminder on an all-day event otherwise arrives in the middle of the night.
+- `notify/ReminderScheduleStore.kt` is the durable plan, written with the
+  atomic temp-file-and-rename idiom the CalDAV write queue established
+  (extracted as `notify/AtomicJsonFile.kt`; `FilePendingChangeStore` keeps its
+  own older copy on purpose). It holds the firings plus the two things a
+  planner cannot know because they are history: what was delivered, and what
+  was snoozed. Receivers read only this file.
+- **One chained alarm, not one per reminder.** The next firing is armed; when
+  it lands, everything `due` within a two-hour grace window is posted and the
+  next one armed. A per-reminder scheme would have to diff every new plan
+  against the last, and an orphaned `PendingIntent` cannot be cancelled without
+  a second bookkeeping file to remember it by.
+- `SCHEDULE_EXACT_ALARM`, not `USE_EXACT_ALARM`. A calendar qualifies for the
+  latter, but it cannot be revoked by the user, and this app is not on Play.
+  `canScheduleExactAlarms()` is asked on every arm and delivery degrades to
+  `setAndAllowWhileIdle`, which the Notifications screen says out loud rather
+  than letting a late reminder look like a bug.
+- **The data layer became process-scoped.** `data/CalinoContainer.kt` now owns
+  what `PocRepositoryViewModel` used to construct, and the ViewModel is a
+  Compose-state facade over it. This was forced by the shade actions: "Mark
+  done" arrives in a receiver with no Activity and must write through the same
+  repository and the same durable queue, and two instances of either would race
+  over one file. Nothing touches the network on construction --
+  `ensureConnected()` is the opt-in, and a process woken only to re-arm reads a
+  JSON file and goes back to sleep.
+- Actions: Snooze 5 min is local and moves the firing in the store; Mark done
+  and Tomorrow are real CalDAV writes through `setTaskDone` / `rescheduleTask`,
+  and park in `notify/ReminderActionQueue.kt` when the record cannot be
+  resolved inside the receiver's time budget. Every path replaces the
+  notification with a line saying what happened, including "will sync" when the
+  write was queued offline. The mock's "Directions" action was dropped: there
+  is no maps integration to hand it to.
+- Permission is requested on the **second resume** of the process, once ever,
+  behind a persisted flag -- not on the first frame of a first launch, where
+  there is nothing yet to say yes to. The Notifications screen is the fallback
+  and also shows the permanent-denial route into Android's settings.
+- The Notifications surface is no longer a mock. Status, the next five
+  scheduled reminders, real channel state read from `NotificationManagerCompat`,
+  and the dontkillmyapp caveat; the illustrative cards remain under a heading
+  that admits what they are. "Daily brief" was removed from Settings rather
+  than left as a switch that promises a summary nobody built.
+- Deep links are `calino.malinov.ski.poc://reminder/{event,task}?id=&uid=&day=`
+  on the existing scheme. Resolution degrades from exact id, to uid plus
+  occurrence day, to the next occurrence at or after that day, and finally to
+  the calendar on that date -- a notification tapped days later must still land
+  somewhere sensible.
+
+Known limitation, deliberate: a timezone change can only re-arm the stored
+instants, because a receiver has no repository to re-plan with. The next
+foreground re-plans in the new zone.
+
 ### Reminders round-trip as VALARM — 2026-09-12
 
 TODO item 1. Reminders used to be a model-and-UI-only concept: the editor
@@ -1636,10 +1700,12 @@ to be complete:
     in the snapshot/accounts surface. The calendar surfaces themselves still
     do not show a global sync banner; a failed refresh is reported under
     Calendars while the last data remains visible.
-14. Reminders now round-trip as `VALARM`, but nothing delivers them locally:
-    there is no `POST_NOTIFICATIONS`, no channel, and no `AlarmManager`
-    scheduling, so a reminder syncs and then does nothing on the device. TODO
-    item 2.
+14. Reminders are delivered locally as of TODO item 2. What remains: a
+    timezone change re-arms stored instants only and the anchors are corrected
+    on the next foreground; the planner uses `CalEvent.occursOn` for
+    unexpanded recurrence masters and inherits gap #5's missing `INTERVAL`;
+    and the "Daily brief" summary the Notifications mock used to advertise was
+    removed rather than built.
 15. `Reminder` models a lead time and nothing else. Absolute triggers,
     `RELATED=END`, `REPEAT`/`DURATION` and non-display actions are preserved on
     the resource but are invisible in the editor, so a person cannot see or

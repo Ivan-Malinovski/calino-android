@@ -154,8 +154,16 @@ app/src/main/java/calino/malinov/ski/poc/
   ui/components/                   shared Compose components and gestures
   ui/home/HomeScreen.kt            calendar, pagers, zoom, and agenda
   ui/surfaces/                     Tasks, Journal, Settings, calendar accounts, and modals
+  notify/                          reminder planning, scheduling, and delivery
+  data/CalinoContainer.kt          the process-wide data layer
   util/                            formatting and recurrence helpers
 ```
+
+`CalinoContainer` owns the repositories, caches, stores and queues.
+`PocRepositoryViewModel` is a Compose-state facade over it and constructs
+nothing. That split exists because a notification action runs in a
+`BroadcastReceiver` with no Activity and must write through the same durable
+queue; do not reintroduce a second instance of any store.
 
 `FixtureRepository` is intentionally process-local. It implements the small
 `CalinoRepository` interface and supports the local event, task, and journal

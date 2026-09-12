@@ -48,6 +48,10 @@ composeCompiler {
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))
     implementation("androidx.activity:activity-compose:1.11.0")
+    // NotificationCompat, the channel helpers and the permission check. Already
+    // on the classpath transitively; declared because this app now uses it
+    // directly and a transitive version is not a contract.
+    implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")

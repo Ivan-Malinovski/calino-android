@@ -69,6 +69,11 @@ data class CalinoPreferences(
     val setJournalEnabled: (Boolean) -> Unit = {},
     val contactsEnabled: Boolean = false,
     val setContactsEnabled: (Boolean) -> Unit = {},
+    /** Whether a reminder on an event is delivered to the device at all. */
+    val eventRemindersEnabled: Boolean = true,
+    val setEventRemindersEnabled: (Boolean) -> Unit = {},
+    val taskRemindersEnabled: Boolean = true,
+    val setTaskRemindersEnabled: (Boolean) -> Unit = {},
 )
 
 val LocalCalinoPreferences = staticCompositionLocalOf { CalinoPreferences() }
@@ -112,6 +117,19 @@ interface CalinoPreferenceStore {
     fun saveJournalEnabled(enabled: Boolean)
     fun loadContactsEnabled(): Boolean
     fun saveContactsEnabled(enabled: Boolean)
+    fun loadEventRemindersEnabled(): Boolean
+    fun saveEventRemindersEnabled(enabled: Boolean)
+    fun loadTaskRemindersEnabled(): Boolean
+    fun saveTaskRemindersEnabled(enabled: Boolean)
+    /**
+     * Whether the notification permission has already been asked for once.
+     *
+     * Read by the app shell, not by a settings row: the request is made on a
+     * resume after the update rather than on the very first frame of a first
+     * launch, and this is what keeps it to exactly one asking.
+     */
+    fun loadNotificationPromptShown(): Boolean
+    fun saveNotificationPromptShown(shown: Boolean)
 
     object InMemory : CalinoPreferenceStore {
         private var themeChoice = CalinoThemeChoice.Default
@@ -160,6 +178,15 @@ interface CalinoPreferenceStore {
         override fun saveJournalEnabled(enabled: Boolean) { journal = enabled }
         override fun loadContactsEnabled() = contacts
         override fun saveContactsEnabled(enabled: Boolean) { contacts = enabled }
+        private var eventReminders = true
+        private var taskReminders = true
+        private var notificationPrompt = false
+        override fun loadEventRemindersEnabled() = eventReminders
+        override fun saveEventRemindersEnabled(enabled: Boolean) { eventReminders = enabled }
+        override fun loadTaskRemindersEnabled() = taskReminders
+        override fun saveTaskRemindersEnabled(enabled: Boolean) { taskReminders = enabled }
+        override fun loadNotificationPromptShown() = notificationPrompt
+        override fun saveNotificationPromptShown(shown: Boolean) { notificationPrompt = shown }
     }
 }
 
@@ -221,6 +248,12 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveJournalEnabled(enabled: Boolean) = putBoolean(JournalEnabledKey, enabled)
     override fun loadContactsEnabled(): Boolean = prefs.getBoolean(ContactsEnabledKey, false)
     override fun saveContactsEnabled(enabled: Boolean) = putBoolean(ContactsEnabledKey, enabled)
+    override fun loadEventRemindersEnabled(): Boolean = prefs.getBoolean(EventRemindersKey, true)
+    override fun saveEventRemindersEnabled(enabled: Boolean) = putBoolean(EventRemindersKey, enabled)
+    override fun loadTaskRemindersEnabled(): Boolean = prefs.getBoolean(TaskRemindersKey, true)
+    override fun saveTaskRemindersEnabled(enabled: Boolean) = putBoolean(TaskRemindersKey, enabled)
+    override fun loadNotificationPromptShown(): Boolean = prefs.getBoolean(NotificationPromptKey, false)
+    override fun saveNotificationPromptShown(shown: Boolean) = putBoolean(NotificationPromptKey, shown)
 
     private companion object {
         const val ThemeChoiceKey = "theme_choice"
@@ -238,6 +271,9 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val EventSyncRangeKey = "event_sync_range"
         const val JournalEnabledKey = "journal_enabled"
         const val ContactsEnabledKey = "contacts_enabled"
+        const val EventRemindersKey = "event_reminders_enabled"
+        const val TaskRemindersKey = "task_reminders_enabled"
+        const val NotificationPromptKey = "notification_prompt_shown"
     }
 }
 
@@ -246,7 +282,11 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
  * back, so a choice survives both recomposition and a restart.
  */
 @Composable
-fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
+fun rememberCalinoPreferences(
+    store: CalinoPreferenceStore,
+    /** Called when a reminder preference changes, so the schedule is re-planned. */
+    onRemindersChanged: () -> Unit = {},
+): CalinoPreferences {
     var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
     var timeFormat by remember(store) { mutableStateOf(store.loadTimeFormat()) }
     var showZoomHandle by remember(store) { mutableStateOf(store.loadShowZoomHandle()) }
@@ -262,6 +302,8 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
     var eventSyncRange by remember(store) { mutableStateOf(store.loadEventSyncRange()) }
     var journalEnabled by remember(store) { mutableStateOf(store.loadJournalEnabled()) }
     var contactsEnabled by remember(store) { mutableStateOf(store.loadContactsEnabled()) }
+    var eventRemindersEnabled by remember(store) { mutableStateOf(store.loadEventRemindersEnabled()) }
+    var taskRemindersEnabled by remember(store) { mutableStateOf(store.loadTaskRemindersEnabled()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
         setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
@@ -293,5 +335,17 @@ fun rememberCalinoPreferences(store: CalinoPreferenceStore): CalinoPreferences {
         setJournalEnabled = { value -> journalEnabled = value; store.saveJournalEnabled(value) },
         contactsEnabled = contactsEnabled,
         setContactsEnabled = { value -> contactsEnabled = value; store.saveContactsEnabled(value) },
+        eventRemindersEnabled = eventRemindersEnabled,
+        setEventRemindersEnabled = { value ->
+            eventRemindersEnabled = value
+            store.saveEventRemindersEnabled(value)
+            onRemindersChanged()
+        },
+        taskRemindersEnabled = taskRemindersEnabled,
+        setTaskRemindersEnabled = { value ->
+            taskRemindersEnabled = value
+            store.saveTaskRemindersEnabled(value)
+            onRemindersChanged()
+        },
     )
 }

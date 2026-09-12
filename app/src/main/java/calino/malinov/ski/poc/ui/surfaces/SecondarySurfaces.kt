@@ -2187,12 +2187,6 @@ private fun TaskRow(
     }
 }
 
-/** Notification handoff preview, including the three channel choices and two-action ceiling. */
-@Composable
-fun NotificationPreviewSurface(data: NotificationPreviewData = NotificationPreviewData("Design review", "10:00 AM · Studio · with 2 others"), onAction: (String) -> Unit = {}) { val cards = listOf(data.title to data.text, "Buy flowers" to "Due today · Personal"); Column(Modifier.fillMaxSize().background(CalinoColors.Canvas).padding(20.dp)) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("Notifications", modifier = Modifier.weight(1f), style = CalinoTypography.displayLarge); Text("Calino · 2 more", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }; Text("PREVIEW", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(top = 6.dp)); cards.forEachIndexed { index, card -> NotificationCard(card.first, card.second, index == 0, onAction) }; Spacer(Modifier.height(20.dp)); label("Channels"); listOf("Events reminders" to "Default · no sound", "Tasks due" to "Default", "Daily brief" to "Low importance").forEach { (name, setting) -> Row(Modifier.fillMaxWidth().padding(vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(9.dp).clip(CircleShape).background(CalinoColors.Accent)); Column(Modifier.padding(start = 12.dp)) { Text(name, style = CalinoTypography.bodyLarge); Text(setting, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) } } } } }
-@Composable private fun NotificationCard(title: String, body: String, event: Boolean, onAction: (String) -> Unit) { Card(Modifier.fillMaxWidth().padding(top = 12.dp), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(CalinoColors.Panel), border = androidx.compose.foundation.BorderStroke(1.dp, CalinoColors.Ink.copy(.07f))) { Row(Modifier.padding(15.dp), verticalAlignment = Alignment.Top) { Box(Modifier.size(5.dp, 58.dp).clip(RoundedCornerShape(4.dp)).background(if (event) CalinoColors.Blue else CalinoColors.Rose)); Column(Modifier.padding(start = 13.dp).weight(1f)) { label("Calino · now"); Text(title, style = CalinoTypography.titleMedium, modifier = Modifier.padding(top = 3.dp)); Text(body, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 2.dp)); Row(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) { TextButton(onClick = { onAction(if (event) "snooze" else "done") }) { Text(if (event) "Snooze 5 min" else "Mark done") }; TextButton(onClick = { onAction(if (event) "directions" else "tomorrow") }) { Text(if (event) "Directions" else "Tomorrow") } } } } }
-}
-
 private fun fixtureEvents() = listOf(CalEvent("evt-design", "Design review", 0xFF5B7FB5, May18.atTime(10, 0), 60, recurrence = "FREQ=WEEKLY;BYDAY=MO;UNTIL=20260630T235959Z", location = "Studio", attendees = listOf(Attendee("Maya", "maya@example.com"), Attendee("Ivo", "ivo@example.com")), calendarId = "work"), CalEvent("evt-lunch", "Lunch with Maya", 0xFFC2697F, May18.atTime(12, 30), 90, location = "Café Lumen", calendarId = "personal"), CalEvent("evt-flight", "Flight to Berlin", 0xFFBF944E, null, null, allDay = true, calendarId = "travel"))
 private fun fixtureTasks() = listOf(CalTask("task-inbox", "Review calendar notes", 0xFF5D9A78, May18, category = "Work"), CalTask("task-overdue", "Send itinerary", 0xFFBF944E, May18.minusDays(2), category = "Travel"), CalTask("task-buy", "Buy flowers", 0xFFC2697F, null, category = "Personal"), CalTask("task-done", "Book accommodation", 0xFF5B7FB5, May18.minusDays(1), true, "Travel"))
 
@@ -2209,8 +2203,6 @@ data class QuickAddSheetState(
     val draft: EditorDraft = blankEditorDraft(kind.toParserKind(), date),
     val morphFromAddPill: Boolean = false,
 )
-data class NotificationPreviewData(val title: String, val text: String, val kind: NotificationKind = NotificationKind.Event)
-enum class NotificationKind { Event, Task }
 
 /** Day agenda sheet over a dimmed calendar fixture. */
 @Composable
@@ -2312,6 +2304,3 @@ fun QuickAddSheet(
     }
 }
 
-/** In-app representation of the v2 notification cards (two actions maximum). */
-@Composable
-fun NotificationPreview(data: NotificationPreviewData = NotificationPreviewData("Design review", "10:00 AM · Studio · with 2 others"), onAction: (String) -> Unit = {}) = NotificationPreviewSurface(data, onAction)

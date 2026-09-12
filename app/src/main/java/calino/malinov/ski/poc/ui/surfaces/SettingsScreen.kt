@@ -92,6 +92,9 @@ import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
+import androidx.compose.ui.platform.LocalContext
+import calino.malinov.ski.poc.notify.LocalNotificationPermission
+import calino.malinov.ski.poc.notify.systemSettingsIntent
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.shouldSplit
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
@@ -613,17 +616,70 @@ private fun CategoryRow(category: String, index: Int, colors: List<Color>) {
 
 @Composable
 private fun NotificationSettings(onOpenPreview: () -> Unit) {
+    val preferences = LocalCalinoPreferences.current
+    val permission = LocalNotificationPermission.current
+    val context = LocalContext.current
     SettingsPage("Notifications") {
+        if (!permission.granted) {
+            SettingsGroup("Permission") {
+                SettingActionRow(
+                    title = "Notifications are off",
+                    description = "Calino cannot deliver a reminder until Android allows it",
+                    action = if (permission.requestable) "Allow" else "Settings",
+                    enabled = true,
+                    onClick = {
+                        if (permission.requestable) permission.request() else permission.openSystemSettings()
+                    },
+                )
+            }
+        }
         SettingsGroup("Events") {
-            PlannedToggleRow("Event reminders", "A quiet nudge before an event begins", checked = true)
-            PlannedRow("Default reminder", "Used for newly created events", value = "10 minutes before")
+            SettingToggleRow(
+                "Event reminders",
+                "A quiet nudge before an event begins",
+                preferences.eventRemindersEnabled,
+                preferences.setEventRemindersEnabled,
+            )
         }
         SettingsGroup("Tasks") {
-            PlannedToggleRow("Tasks due", "Remind me when a task reaches its date", checked = true)
-            PlannedToggleRow("Daily brief", "A calm summary at the start of the day", checked = false)
+            SettingToggleRow(
+                "Tasks due",
+                "Remind me when a task reaches its date",
+                preferences.taskRemindersEnabled,
+                preferences.setTaskRemindersEnabled,
+            )
         }
-        SettingsGroup("Preview") {
-            SettingActionRow("Notification preview", "See how Calino keeps notification actions focused", "Open", enabled = true, onClick = onOpenPreview)
+        // "Daily brief" used to sit here as a planned row. It is not a delivery
+        // of a reminder the user set, it is a separate feature nobody has
+        // built, and a switch that promises a summary and delivers nothing is
+        // worse than no switch. Removed rather than left lying.
+        SettingsGroup("Delivery") {
+            SettingActionRow(
+                title = "Reminders and channels",
+                description = "What is scheduled next, and how each channel is set",
+                action = "Open",
+                enabled = true,
+                onClick = onOpenPreview,
+            )
+            SettingDivider()
+            SettingActionRow(
+                title = "Android notification settings",
+                description = "Sounds, importance, and lock-screen behaviour",
+                action = "Open",
+                enabled = true,
+                onClick = { context.startActivity(systemSettingsIntent(context)) },
+            )
+        }
+        SettingsGroup("If a reminder never arrives") {
+            SettingNote(
+                "Some phones -- Samsung, Xiaomi, Huawei, OnePlus and others -- shut background " +
+                    "apps down aggressively to save battery, which stops alarms from firing at all. " +
+                    "If reminders go missing, exempt Calino from battery optimisation. " +
+                    "dontkillmyapp.com lists the exact steps for each manufacturer.",
+            )
+        }
+        SettingsGroup("Default reminder") {
+            SettingNote("What a new event reminds you with is set under Events.")
         }
     }
 }
@@ -974,5 +1030,16 @@ private fun SettingActionRow(title: String, description: String, action: String,
 
 @Composable
 private fun SettingDivider() = Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line2))
+
+/** A paragraph inside a settings group, for the things a row cannot say. */
+@Composable
+private fun SettingNote(text: String) {
+    Text(
+        text,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+        style = CalinoTypography.bodySmall,
+        color = CalinoColors.Ink3,
+    )
+}
 
 private fun Modifier.alphaIfDisabled(enabled: Boolean): Modifier = if (enabled) this else alpha(.45f)
