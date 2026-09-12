@@ -1184,7 +1184,10 @@ fun CalinoMonthHeading(
             onClick = onPreviousMonth,
             modifier = Modifier.semantics { contentDescription = "Previous month" },
         ) { Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink2) }
-        Column(Modifier.weight(1f).padding(horizontal = 2.dp)) {
+        // Compose centers the title's line box, but the display face has more
+        // visual weight above its baseline. Nudge the complete month/year lockup
+        // to the optical center of the surrounding 48dp controls.
+        Column(Modifier.weight(1f).padding(horizontal = 2.dp).offset(y = 2.dp)) {
             if (monthPagerState != null && monthForPage != null) {
                 val centerPage = monthPagerState.currentPage
                 Box(Modifier.fillMaxWidth().height(30.dp).clipToBounds()) {
@@ -1260,7 +1263,7 @@ private fun MonthHeadingLabel(month: YearMonth, modifier: Modifier = Modifier) {
             month.year.toString(),
             style = CalinoTypography.bodyMedium,
             color = CalinoColors.Ink3,
-            modifier = Modifier.padding(start = 7.dp, bottom = 2.dp),
+            modifier = Modifier.padding(start = 7.dp, bottom = 4.dp),
         )
     }
 }
