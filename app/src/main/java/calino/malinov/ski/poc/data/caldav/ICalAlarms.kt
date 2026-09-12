@@ -75,6 +75,13 @@ internal fun ICalComponent.readReminders(): List<Reminder> =
  * [ICalWriter] follows: clearing the reminder chips has to delete our `VALARM`s
  * from the resource, or the clear silently fails to save. What it must not do
  * is widen that deletion to an alarm Calino never authored.
+ *
+ * **This function must stay idempotent**, and `ICalPatcher.mergeAlarms` is the
+ * reason. Rebuilding an unchanged alarm would look like a simplification and
+ * would quietly break the rebase: the merge decides whether the local edit
+ * touched the alarms by comparing their rendered form, so a delete-and-recreate
+ * makes every unrelated edit claim the reminders moved and win over the
+ * server's. If you change the shape of this function, run `ICalPatcherTest`.
  */
 internal fun ICalComponent.writeReminders(reminders: List<Reminder>, summary: String) {
     val wanted = reminders.map { it.minutesBefore.coerceAtLeast(0) }.distinct().sortedDescending()
@@ -87,9 +94,8 @@ internal fun ICalComponent.writeReminders(reminders: List<Reminder>, summary: St
 
     // An alarm whose lead time is unchanged is left exactly as it is rather
     // than rebuilt. Rewriting it would churn its DESCRIPTION and any parameter
-    // another client put on it, and -- because the rebase in ICalPatcher tells
-    // "the user changed the alarms" from the alarms' rendered form -- would
-    // make every unrelated edit claim the reminders had been touched.
+    // another client put on it, and would defeat ICalPatcher.mergeAlarms as
+    // described above.
     val kept = mutableSetOf<Int>()
     ours.forEach { (alarm, minutes) ->
         if (minutes in wanted && kept.add(minutes)) return@forEach

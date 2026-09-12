@@ -313,6 +313,15 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
          * persisted or parsed -- it only has to answer "did the local edit
          * touch the alarms", and an over-sensitive key merely makes the local
          * set win a rebase it would have won anyway.
+         *
+         * That question is only answerable because `writeReminders` in
+         * `ICalAlarms.kt` leaves an unchanged alarm byte-identical instead of
+         * rebuilding it. The two are a pair: if writing ever starts churning
+         * alarms it did not change, this merge starts lying.
+         *
+         * Rendered form rather than the modelled reminders on purpose -- it
+         * also catches a *foreign* alarm the local edit changed, which a
+         * reminder-only key would miss.
          */
         fun mergeAlarms(base: ICalComponent, local: ICalComponent, merged: ICalComponent) {
             val baseAlarms = base.alarmKeys()
