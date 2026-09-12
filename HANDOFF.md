@@ -4,6 +4,26 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### A local CalDAV server for live tests — 2026-09-12
+
+`scripts/live-caldav/radicale.sh` runs Radicale on the developer's machine for
+the live tests and for emulator checks that need a real account. It installs
+itself on first run and keeps everything under a gitignored `state/` directory,
+so it can be deleted and recreated at will.
+
+- Plain HTTP, at `http://10.0.2.2:5232/` from the emulator. The alternative was
+  a self-signed certificate, which an emulator with a locked bootloader will not
+  trust without being rooted first. Instead `app/src/debug/` carries a network
+  security config permitting cleartext to `10.0.2.2`, `127.0.0.1` and
+  `localhost` and nothing else. It does not exist in the release source set.
+- Credentials are throwaway (`calino` / `calinopass`). The rule from the
+  `VALARM` work still stands: a live test works inside a collection it creates,
+  and never points at a real calendar.
+- `radicale.sh env` prints the `CALINO_CALDAV_*` exports the JVM live tests
+  read, which is why the suite reports skips without them.
+- `scripts/live-caldav/README.md` also records how to plant a resource by hand,
+  which is how reminder delivery was validated end to end.
+
 ### Local notification delivery — 2026-09-12
 
 TODO item 2. A reminder used to sync and then notify nobody. It now fires.

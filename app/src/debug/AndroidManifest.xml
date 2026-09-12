@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Debug-only overlay. It exists solely so a local CalDAV server can be
+        used for live testing on the emulator; see
+        app/src/debug/res/xml/network_security_config.xml for the scope, which
+        is three loopback-ish addresses and nothing else.
+    -->
+    <application
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:replace="android:networkSecurityConfig" />
+</manifest>

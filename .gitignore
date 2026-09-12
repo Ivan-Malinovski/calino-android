@@ -8,3 +8,4 @@ app/build/
 .externalNativeBuild/
 .cxx/
 .claude/
+scripts/live-caldav/state/

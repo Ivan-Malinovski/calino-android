@@ -240,6 +240,19 @@ Capture screenshots at rest and during transitions when visual geometry is the
 subject of the change. Do not claim physical-phone validation from emulator
 results.
 
+### A server to test against
+
+`scripts/live-caldav/radicale.sh start` runs a throwaway Radicale on this
+machine, in its own virtualenv, with its own gitignored storage. Use it for the
+live tests and for any emulator check that needs a real account; never point a
+live test at a real calendar. `scripts/live-caldav/README.md` has the addresses,
+the credentials, and how to plant a fixture resource by hand.
+
+The emulator reaches it at `http://10.0.2.2:5232/`. Plain HTTP works only
+because the **debug** source set permits cleartext to three loopback addresses
+(`app/src/debug/res/xml/network_security_config.xml`); release builds are
+unchanged and still refuse it everywhere.
+
 The physical phone may be used only when the user explicitly requests a
 deployment or phone check. Its current wireless serial is
 `physical-device:45095`, but the address can change.
