@@ -1336,6 +1336,21 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         launchWrite({ repository.deleteEvent(target.id, scope) })
                     },
                     onEventAction = ::handleEventAction,
+                    onInlineSave = { target, input, scope ->
+                        writeError = null
+                        try {
+                            when (val result = repository.updateEvent(target.id, input.copy(recurrenceScope = scope))) {
+                                is WriteResult.Applied -> true
+                                is WriteResult.Queued -> true
+                                is WriteResult.Rejected -> { writeError = result.reason; false }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            writeError = error.message ?: "That change could not be saved."
+                            false
+                        }
+                    },
                     occurrenceDate = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay),
                     onBack = {
                         selectedEventId = null

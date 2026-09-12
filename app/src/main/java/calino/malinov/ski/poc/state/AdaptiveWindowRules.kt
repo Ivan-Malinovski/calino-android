@@ -17,6 +17,7 @@ enum class CalinoSurfaceMode {
 enum class CalinoSurfaceKind(val widthCapDp: Int, val heightCapDp: Int) {
     Day(widthCapDp = 440, heightCapDp = 760),
     CompactPreview(widthCapDp = 400, heightCapDp = 360),
+    EventPreviewCompact(widthCapDp = 400, heightCapDp = 560),
     Preview(widthCapDp = 420, heightCapDp = 560),
     Detail(widthCapDp = 520, heightCapDp = 760),
     Editor(widthCapDp = 640, heightCapDp = 820),

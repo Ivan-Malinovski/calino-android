@@ -4,6 +4,31 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Legacy-style event preview — 2026-09-12
+
+- Event taps now open a tinted, rounded adaptive preview inspired by the
+  legacy Calino/Samsung card: a compact drag-handle header, editable title and
+  icon-led metadata rows, and optional keyword illustration (including
+  mountain artwork for climbing/hiking titles).
+- Title, date, time, location, and description edits remain page-local until
+  Save is pressed. Every dismissal path discards them. Open event first saves
+  a valid dirty draft and only enters the full editor after the repository
+  applies or queues the write; rejected writes leave the preview visible.
+- Inline conversion preserves calendar/server identity, recurrence, attendees,
+  reminders, availability, metadata, and every field the preview does not
+  edit. Recurring saves ask for This, This and future, or Entire series;
+  expanded/detached occurrences default to This.
+- Horizontal event paging is retained and each keyed page owns its own draft,
+  validation, recurrence prompt, artwork, and pill actions. The preview keeps
+  the shared morphing pill: Cancel and Open remain stable, while the final
+  action is Delete for a clean draft and Save for a dirty one.
+- Event previews calculate a preferred height from their rendered metadata and
+  estimated wrapped description/attendee lines, between a compact 420dp base
+  and a 560dp cap. Shorter foldable displays may use up to 86% of their height
+  to reach that target. Event preview reserves only the pill's actual lane, so
+  ordinary descriptions stay visible without an empty body gap; exceptionally
+  long content remains scrollable.
+
 ### Compact event and task previews — 2026-09-11
 
 - Tapping an event or task now uses the dedicated `Preview` surface geometry:

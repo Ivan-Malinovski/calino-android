@@ -22,6 +22,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -129,6 +131,7 @@ import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.NewTask
+import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.EditorDraft
 import calino.malinov.ski.poc.data.model.blankEditorDraft
 import calino.malinov.ski.poc.data.model.RecurrenceEditScope
@@ -653,6 +656,7 @@ fun EventDetailSurface(
     onEditEvent: (CalEvent) -> Unit = { onPrimary() },
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
     onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
+    onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
 ) {
     var shown by remember { mutableStateOf(true) }
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -680,26 +684,46 @@ fun EventDetailSurface(
             events.getOrNull(page)?.let(currentSelectionCallback)
         }
     }
-    // The pill lane shows one pill for the whole pager, so the overflow it
-    // opens belongs to whichever event is settled under it.
-    val laneEvent = events.getOrNull(pager.currentPage) ?: event
-    val compactPreview = laneEvent.location.isNullOrBlank() &&
-        laneEvent.notes.isNullOrBlank() &&
-        laneEvent.attendees.isEmpty() &&
-        laneEvent.recurrence == null
-    var moreOpen by remember(laneEvent.id) { mutableStateOf(false) }
+    val visibleEvent = events.getOrNull(pager.currentPage) ?: event
+    val descriptionLines = visibleEvent.notes.orEmpty().lineSequence().sumOf { line ->
+        ((line.length.coerceAtLeast(1) + 37) / 38)
+    }.coerceAtLeast(1)
+    val attendeeLines = if (visibleEvent.attendees.isEmpty()) 0 else {
+        val length = visibleEvent.attendees.sumOf { it.name.ifBlank { it.email }.length + 2 }
+        ((length + 37) / 38).coerceAtLeast(1)
+    }
+    // Base includes handle/header, date/time/location/description rows, the
+    // divider, and the real pill clearance. Add only what this event renders.
+    val preferredPreviewHeight = (
+        420 +
+            (descriptionLines - 1) * 22 +
+            attendeeLines * 24 +
+            (if (visibleEvent.recurrence != null) 54 else 0) +
+            (if (visibleEvent.reminders.isNotEmpty()) 54 else 0)
+        ).coerceAtMost(560).dp
+    var pillState by remember { mutableStateOf(EventPreviewPillState(false, {}, {}, {})) }
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
-        surfaceKind = if (compactPreview) CalinoSurfaceKind.CompactPreview else CalinoSurfaceKind.Preview,
+        surfaceKind = CalinoSurfaceKind.EventPreviewCompact,
+        preferredSurfaceHeight = preferredPreviewHeight,
         pill = {
-            EventDetailPill(
-                event = laneEvent,
-                occurrenceDate = occurrenceDate,
-                expanded = shown,
-                onBack = { closeAfterAnimation(onBack) },
-                onPrimary = { if (!pager.isScrollInProgress) onEditEvent(laneEvent) },
-                onMoreOpen = { moreOpen = true },
+            val state = pillState
+            ModalActionPill(
+                    modifier = Modifier.widthIn(min = 300.dp),
+                    addLabel = "Add event",
+                    morphFromAddPill = true,
+                    inPillLane = true,
+                    expanded = shown,
+                    cancelLabel = "Cancel",
+                    onCancel = { closeAfterAnimation(onBack) },
+                    cancelDescription = "Close event preview",
+                    secondaryLabel = "Open",
+                    onSecondary = state.onOpen,
+                    secondaryDescription = "Open event",
+                    primaryLabel = if (state.dirty) "Save" else "Delete",
+                    onPrimary = if (state.dirty) state.onSave else state.onDelete,
+                    primaryDescription = if (state.dirty) "Save event changes" else "Delete event",
             )
         },
     ) { overlayModifier ->
@@ -720,15 +744,15 @@ fun EventDetailSurface(
                     handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
                     allowDownwardDismissInEndPanel = true,
                 ) { cardModifier ->
-                    EventDetailContent(pageEvent, occurrenceDate,
+                    EventDetailContent(pageEvent,
                         onBack = { closeAfterAnimation(onBack) },
-                        onPrimary = { if (!pager.isScrollInProgress) onEditEvent(pageEvent) },
+                        onPrimary = { onEditEvent(pageEvent) },
                         onDeleteEvent = { target, scope ->
                             closeAfterAnimation { onDeleteEvent(target, scope) }
                         },
-                        onEventAction = onEventAction,
-                        moreOpen = moreOpen && pageEvent.id == laneEvent.id,
-                        onMoreOpen = { moreOpen = it },
+                        onInlineSave = onInlineSave,
+                        active = page == pager.currentPage,
+                        onPillState = { pillState = it },
                     )
                 }
             }
@@ -739,100 +763,126 @@ fun EventDetailSurface(
 @Composable
 private fun EventDetailContent(
     event: CalEvent,
-    occurrenceDate: LocalDate?,
     onBack: () -> Unit,
     onPrimary: () -> Unit,
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit,
-    // The overflow menu is opened from the pill lane, which is outside this
-    // card, so its state is owned by the host rather than by the page.
-    moreOpen: Boolean = false,
-    onMoreOpen: (Boolean) -> Unit = {},
+    onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean,
+    active: Boolean,
+    onPillState: (EventPreviewPillState) -> Unit,
 ) {
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
+    val original = remember(event) { eventPreviewDraft(event) }
+    var draft by remember(event.id, event.etag) { mutableStateOf(original) }
+    var dateText by remember(event.id, event.etag) { mutableStateOf(original.date.toString()) }
+    val originalTimeText = remember(original) {
+        if (original.startTime == null) "All day" else original.startTime.toString() + " – " +
+            original.startTime.plusMinutes(original.durationMinutes?.toLong() ?: 0).toString()
+    }
+    var timeText by remember(event.id, event.etag) { mutableStateOf(originalTimeText) }
+    var error by remember(event.id) { mutableStateOf<String?>(null) }
+    var saving by remember(event.id) { mutableStateOf(false) }
+    var saveScope by remember(event.id) {
+        mutableStateOf(if (event.recurrenceId != null || event.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All)
+    }
+    var pendingOpen by remember(event.id) { mutableStateOf(false) }
+    var scopePrompt by remember(event.id) { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     var confirmDelete by remember(event.id) { mutableStateOf(false) }
     var deleteScope by remember(event.id, event.recurrenceId, event.recurrenceDate) {
         mutableStateOf(defaultEventDeleteScope(event))
     }
-    val recurring = isRecurringEvent(event)
+    val dirty = draft != original || dateText != original.date.toString() || timeText != originalTimeText
+    fun save(openAfter: Boolean) {
+        val validDate = runCatching { LocalDate.parse(dateText) }.getOrNull()
+        val timeParts = timeText.split('–', '-', limit = 2).map(String::trim)
+        val allDayText = timeText.equals("all day", true)
+        val validStart = timeParts.getOrNull(0)?.takeUnless { allDayText }?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+        val validEnd = timeParts.getOrNull(1)?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+        val validation = when {
+            validDate == null -> "Use a date in YYYY-MM-DD format."
+            !allDayText && (validStart == null || validEnd == null) -> "Use times in HH:MM format."
+            else -> draft.validationError()
+        }
+        if (validation != null) { error = validation; return }
+        if (isRecurringEvent(event) && !scopePrompt) {
+            pendingOpen = openAfter
+            scopePrompt = true
+            return
+        }
+        saving = true
+        error = null
+        coroutineScope.launch {
+            val saved = onInlineSave(event, draft.toNewEvent(event, saveScope), saveScope)
+            saving = false
+            if (saved) {
+                scopePrompt = false
+                if (openAfter || pendingOpen) onPrimary()
+            }
+        }
+    }
+    val openAction = { if (!saving) { if (dirty) save(true) else onPrimary() } }
+    val saveAction = { if (!saving) save(false) }
+    val deleteAction = { confirmDelete = true }
+    LaunchedEffect(dirty, saving, active) {
+        if (active) onPillState(EventPreviewPillState(dirty, openAction, saveAction, deleteAction))
+    }
     Column(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(tint)
-                .padding(
-                    start = 22.dp,
-                    end = 22.dp,
-                    top = 4.dp,
-                    bottom = 16.dp,
-                ),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                IconButtonGlyph("‹", "Back", { onBack() })
-                Column(Modifier.weight(1f)) {
-                    label(event.calendarId)
-                    Text(
-                        event.title,
-                        style = CalinoTypography.headlineLarge,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                    Text(
-                        eventHeaderText(
-                            event = event,
-                            occurrenceDate = occurrenceDate,
-                            timeFormat = LocalTimeFormat,
-                            showEndTimes = LocalCalinoPreferences.current.showEndTimes,
-                        ),
-                        style = CalinoTypography.bodyLarge,
-                        color = CalinoColors.Ink2,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-                Box {
-                    DropdownMenu(expanded = moreOpen, onDismissRequest = { onMoreOpen(false) }) {
-                        DropdownMenuItem(
-                            text = { Text("Edit event") },
-                            onClick = { onMoreOpen(false); onEventAction(EventMenuAction.Edit, event) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Duplicate") },
-                            onClick = { onMoreOpen(false); onEventAction(EventMenuAction.Duplicate, event) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Convert to task") },
-                            enabled = !recurring,
-                            onClick = { onMoreOpen(false); onEventAction(EventMenuAction.ConvertToTask, event) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (recurring) "Delete occurrence" else "Delete event") },
-                            onClick = {
-                                onMoreOpen(false)
-                                confirmDelete = true
-                            },
-                        )
+        Box(Modifier.fillMaxWidth().height(52.dp).background(tint)) {
+            EventPreviewArtwork(eventPreviewDecoration(draft.title), Modifier.matchParentSize().alpha(.22f))
+            Row(
+                Modifier.fillMaxSize().padding(start = 20.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(10.dp).background(eventColor(event), CircleShape))
+                BasicTextField(
+                    value = draft.title,
+                    onValueChange = { draft = draft.copy(title = it); error = null },
+                    textStyle = CalinoTypography.headlineSmall,
+                    singleLine = true,
+                    modifier = Modifier.weight(1f).padding(horizontal = 14.dp).semantics { contentDescription = "Event title" },
+                )
+                IconButtonGlyph("×", "Close event preview", onBack)
+            }
+        }
+        LazyColumn(Modifier.weight(1f).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            item { PreviewEditRow(CalinoIcon.Calendar, "Date", dateText) {
+                dateText = it; runCatching { LocalDate.parse(it) }.getOrNull()?.let { value -> draft = draft.copy(date = value) }
+            } }
+            item {
+                PreviewEditRow(CalinoIcon.Clock, "Time", timeText) { value ->
+                    timeText = value
+                    if (value.equals("all day", true)) { draft = draft.copy(startTime = null, durationMinutes = null) }
+                    else {
+                        val parts = value.split('–', '-', limit = 2).map(String::trim)
+                        if (parts.size == 2) {
+                            val start = runCatching { LocalTime.parse(parts[0]) }.getOrNull()
+                            val end = runCatching { LocalTime.parse(parts[1]) }.getOrNull()
+                            if (start != null && end != null) draft = draft.copy(startTime = start,
+                                durationMinutes = java.time.Duration.between(start, end).toMinutes().toInt())
+                        }
                     }
                 }
             }
+            item { PreviewEditRow(CalinoIcon.Pin, "Location", draft.location) { draft = draft.copy(location = it) } }
+            if (event.recurrence != null) item { PreviewStaticRow(CalinoIcon.Repeat, "Repeats", recurrenceSummary(event)) }
+            if (event.reminders.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Bell, "Reminder", event.reminders.joinToString { "${it.minutesBefore} minutes before" }) }
+            if (event.attendees.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Users, "Attendees", event.attendees.joinToString { it.name.ifBlank { it.email } }) }
+            item { HorizontalDivider(Modifier.padding(vertical = 6.dp), color = CalinoColors.Ink.copy(.1f)) }
+            item { PreviewEditRow(CalinoIcon.Note, "Description", draft.description, if (draft.description.isBlank()) "+ Add description" else "") { draft = draft.copy(description = it) } }
+            error?.let { message -> item { Text(message, color = CalinoColors.Rose, style = CalinoTypography.bodySmall, modifier = Modifier.padding(12.dp)) } }
         }
-        LazyColumn(Modifier.weight(1f).padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            event.location?.let { location -> item(key = "location") { DetailRow("⌖", "Location", location) } }
-            event.notes?.let { notes -> item(key = "notes") { DetailRow("≡", "Notes", notes, markdown = true) } }
-            if (event.attendees.isNotEmpty()) item(key = "attendees") { Attendees(event.attendees) }
-            if (event.recurrence != null) item(key = "occurrences") {
-                Column(Modifier.padding(top = 20.dp, bottom = 16.dp)) {
-                    label("Next occurrences")
-                    Text(recurrenceSummary(event), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 5.dp))
-                    nextOccurrences(event, occurrenceDate ?: LocalCalinoNow.current.today).forEach { occurrence ->
-                        Text(
-                            occurrence.format(dateFormat) + " · " + LocalTimeFormat.format(occurrence),
-                            style = CalinoTypography.bodyLarge,
-                            modifier = Modifier.padding(top = 10.dp),
-                        )
+        AnimatedVisibility(scopePrompt) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                Text("Apply changes to", style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    RecurrenceEditScope.entries.forEach { option ->
+                        val text = when(option) { RecurrenceEditScope.This -> "This"; RecurrenceEditScope.Future -> "This and future"; RecurrenceEditScope.All -> "Entire series" }
+                        CalinoChip(text, saveScope == option, "Save $text", onClick = { saveScope = option }, semanticsRole = Role.RadioButton)
                     }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton({ scopePrompt = false }) { Text("Cancel") }
+                    TextButton({ save(pendingOpen) }) { Text("Continue") }
                 }
             }
         }
@@ -850,8 +900,54 @@ private fun EventDetailContent(
                 modifier = Modifier.padding(horizontal = 22.dp, vertical = 4.dp),
             )
         }
-        // Room for the pill, which stands in the pill lane outside this card.
-        Spacer(Modifier.height(CalinoSpacing.PillClearance))
+        // This compact card's pill is 56dp high and sits close to the card
+        // edge; the global 96dp editor clearance needlessly hid the final row.
+        Spacer(Modifier.height(76.dp))
+    }
+}
+
+private data class EventPreviewPillState(
+    val dirty: Boolean,
+    val onOpen: () -> Unit,
+    val onSave: () -> Unit,
+    val onDelete: () -> Unit,
+)
+
+@Composable
+private fun PreviewEditRow(icon: CalinoIcon, labelText: String, value: String, placeholder: String = "", onValue: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 54.dp), verticalAlignment = Alignment.CenterVertically) {
+        CalinoIcon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+        TextField(value, onValue, placeholder = { if (placeholder.isNotBlank()) Text(placeholder) }, label = { Text(labelText) },
+            singleLine = icon != CalinoIcon.Note, modifier = Modifier.weight(1f).semantics { contentDescription = labelText },
+            colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
+    }
+}
+
+@Composable
+private fun PreviewStaticRow(icon: CalinoIcon, labelText: String, value: String) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+        CalinoIcon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+        Column(Modifier.padding(start = 16.dp)) { label(labelText); Text(value, style = CalinoTypography.bodyLarge) }
+    }
+}
+
+@Composable
+private fun EventPreviewArtwork(decoration: EventPreviewDecoration?, modifier: Modifier = Modifier) {
+    if (decoration == null) return
+    val ink = CalinoColors.Ink.copy(alpha = .55f)
+    Canvas(modifier) {
+        when (decoration) {
+            EventPreviewDecoration.Mountain -> {
+                drawLine(ink, Offset(size.width * .55f, size.height * .86f), Offset(size.width * .72f, size.height * .3f), 4f, StrokeCap.Round)
+                drawLine(ink, Offset(size.width * .72f, size.height * .3f), Offset(size.width * .94f, size.height * .86f), 4f, StrokeCap.Round)
+                drawLine(ink, Offset(size.width * .73f, size.height * .45f), Offset(size.width * .79f, size.height * .58f), 3f, StrokeCap.Round)
+            }
+            else -> {
+                drawCircle(ink, radius = size.minDimension * .18f, center = Offset(size.width * .78f, size.height * .52f), style = androidx.compose.ui.graphics.drawscope.Stroke(4f))
+                drawLine(ink, Offset(size.width * .65f, size.height * .75f), Offset(size.width * .91f, size.height * .3f), 3f, StrokeCap.Round)
+            }
+        }
     }
 }
 
@@ -2143,16 +2239,18 @@ fun EventDetail(
     onEditEvent: (CalEvent) -> Unit = { onPrimaryAction() },
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
     onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
+    onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
 ) = EventDetailSurface(
-    event,
-    onBack,
-    onPrimaryAction,
-    occurrenceDate,
-    events,
-    onEventSelected,
-    onEditEvent,
-    onDeleteEvent,
-    onEventAction,
+    event = event,
+    onBack = onBack,
+    onPrimary = onPrimaryAction,
+    occurrenceDate = occurrenceDate,
+    events = events,
+    onEventSelected = onEventSelected,
+    onEditEvent = onEditEvent,
+    onDeleteEvent = onDeleteEvent,
+    onEventAction = onEventAction,
+    onInlineSave = onInlineSave,
 )
 
 @Composable

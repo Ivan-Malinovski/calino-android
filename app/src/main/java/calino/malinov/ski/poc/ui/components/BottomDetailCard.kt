@@ -57,6 +57,7 @@ fun BottomDetailOverlay(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
+    preferredSurfaceHeight: androidx.compose.ui.unit.Dp? = null,
     pill: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
@@ -66,6 +67,7 @@ fun BottomDetailOverlay(
         onDismiss = onDismiss,
         modifier = modifier,
         contentDescription = "Dismiss detail card",
+        preferredSurfaceHeight = preferredSurfaceHeight,
         pill = pill,
         content = content,
     )

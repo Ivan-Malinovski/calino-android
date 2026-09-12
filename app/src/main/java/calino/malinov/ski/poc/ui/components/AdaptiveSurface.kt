@@ -105,6 +105,7 @@ fun AdaptiveSurfaceHost(
     modifier: Modifier = Modifier,
     scrimAlpha: Float = .28f,
     contentDescription: String = "Dismiss surface",
+    preferredSurfaceHeight: Dp? = null,
     pill: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
@@ -144,7 +145,7 @@ fun AdaptiveSurfaceHost(
             label = "adaptive surface scrim",
         )
         val surfaceWidthCap = kind.widthCapDp.dp
-        val surfaceHeightCap = kind.heightCapDp.dp
+        val surfaceHeightCap = minOf(kind.heightCapDp.dp, preferredSurfaceHeight ?: kind.heightCapDp.dp)
         // Bending the device halves the room a transient surface may take, in
         // step with the hinge, so a sheet or a panel does not end up lying
         // across the crease while the calendar behind it has already parted.
@@ -189,6 +190,10 @@ fun AdaptiveSurfaceHost(
         val bottomHeightTarget = when {
             maxHeight < 520.dp -> maxHeight * .96f
             kind == CalinoSurfaceKind.CompactPreview -> minOf(maxHeight * .5f, surfaceHeightCap)
+            // The foldable cover display is shorter in dp than the emulator;
+            // half-height there clips the final editable row. This remains a
+            // compact card but reaches its content cap when the screen allows.
+            kind == CalinoSurfaceKind.EventPreviewCompact -> minOf(maxHeight * .86f, surfaceHeightCap)
             kind == CalinoSurfaceKind.Preview -> minOf(maxHeight * .68f, surfaceHeightCap)
             else -> maxHeight * .86f
         }
