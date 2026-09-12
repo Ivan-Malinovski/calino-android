@@ -113,10 +113,17 @@ fun JournalSurface(
     val sorted = remember(visibleEntries) { visibleEntries.sortedByDescending { it.date } }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     val editing = visibleEntries.firstOrNull { it.id == editingId }
-    LaunchedEffect(editingId) { onEditingChanged(editingId != null) }
+    fun selectEditor(id: String?) {
+        editingId = id
+        // Keep the shell's root-pill visibility in the same state write as
+        // the editor itself. Reporting this from a LaunchedEffect leaves the
+        // modal pill unmounted for a few frames before the root pill is told
+        // to return, which is visible as a short blink after dismissal.
+        onEditingChanged(id != null)
+    }
     LaunchedEffect(openEntryId, entries) {
         if (openEntryId != null && entries.any { it.id == openEntryId }) {
-            editingId = openEntryId
+            selectEditor(openEntryId)
             onOpenEntryConsumed()
         }
     }
@@ -125,7 +132,7 @@ fun JournalSurface(
         draftSequence += 1
         draftId = id
         draftDateEpochDay = newEntryDate.toEpochDay()
-        editingId = id
+        selectEditor(id)
         // Keep the host callback as a notification, but do not persist until
         // the editor explicitly saves a non-empty draft.
         onAdd()
@@ -142,7 +149,7 @@ fun JournalSurface(
             draftId = null
             draftDateEpochDay = null
         }
-        editingId = null
+        selectEditor(null)
     }
 
     Box(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
@@ -179,8 +186,8 @@ fun JournalSurface(
                 label = "journal mode transition",
             ) { currentMode ->
                 when (currentMode) {
-                    JournalMode.All -> JournalRecentList(sorted) { editingId = it.id }
-                    JournalMode.Month -> JournalMonthList(sorted) { editingId = it.id }
+                    JournalMode.All -> JournalRecentList(sorted) { selectEditor(it.id) }
+                    JournalMode.Month -> JournalMonthList(sorted) { selectEditor(it.id) }
                 }
             }
         }
@@ -198,7 +205,7 @@ fun JournalSurface(
                     } else {
                         onUpdate(updated)
                     }
-                    editingId = null
+                    selectEditor(null)
                 },
                 onDelete = { deleted ->
                     if (draft?.id == deleted.id) {
@@ -207,7 +214,7 @@ fun JournalSurface(
                     } else {
                         onDelete(deleted)
                     }
-                    editingId = null
+                    selectEditor(null)
                 },
             )
 

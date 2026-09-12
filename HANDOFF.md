@@ -252,6 +252,10 @@ continue the UI work.
   journal screen for a journal draft. Deciding it in the write's callback left
   the pill morphing back into the *calendar's* add pill and then snapping to
   the journal's once the record was saved.
+- Journal's local editor identity and `MainActivity`'s
+  `journalEditorVisible` mirror are updated in the same callback. Deferring the
+  mirror through a `LaunchedEffect` unmounted the modal pill first and kept the
+  root `New entry` pill hidden for three 120 Hz frames (25 ms) after dismissal.
 
 - Contact detail's card now animates out (`detailShown`) instead of vanishing.
   Without that window there is nothing for the pill to morph back into.
