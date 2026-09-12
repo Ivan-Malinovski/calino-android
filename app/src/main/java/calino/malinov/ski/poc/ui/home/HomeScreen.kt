@@ -2180,20 +2180,52 @@ private fun WeekStripPage(
     val visual = rememberCompactWeekRowVisual(firstDay, weekStart, events, eventDateIndex, selected)
     val colors = CalinoColors
     val today = LocalCalinoNow.current.today
+    val showWeekNumbers = LocalCalinoPreferences.current.showWeekNumbers
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val weekNumberLayout = remember(firstDay, showWeekNumbers, density, textMeasurer) {
+        if (showWeekNumbers) {
+            textMeasurer.measure(
+                text = isoWeekNumber(firstDay).toString(),
+                style = ComposeTextStyle(fontSize = 10.sp, lineHeight = 12.sp),
+            )
+        } else {
+            null
+        }
+    }
+    val weekGutter = if (showWeekNumbers) CompactWeekMetrics.WeekGutterWidth else 0.dp
     Box(Modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize()) {
+            val gutterPx = weekGutter.toPx()
             drawCompactWeekRow(
                 visual = visual,
                 colors = colors,
                 selectorIndex = indicatorIndex,
                 bandTop = 0f,
                 bandHeight = size.height,
+                gutterPx = gutterPx,
             )
+            weekNumberLayout?.let { layout ->
+                val paddingPx = CompactWeekMetrics.HorizontalPadding.toPx()
+                drawText(
+                    layout,
+                    topLeft = Offset(
+                        paddingPx + (gutterPx - layout.size.width) / 2f,
+                        (size.height - layout.size.height) / 2f,
+                    ),
+                    color = colors.Ink3.copy(alpha = colors.Ink3.alpha * .75f),
+                )
+            }
         }
         // The row itself is painted; these lanes exist only to be touched and
         // to be read out. Keeping them free of any drawing is what stops a
         // second version of the row from growing back.
-        Row(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxSize().padding(
+                start = CompactWeekMetrics.HorizontalPadding + weekGutter,
+                end = CompactWeekMetrics.HorizontalPadding,
+            ),
+        ) {
             visual.dates.forEach { date ->
                 val tasksDueCount = openTasksDueOn(tasksByDueDate[date].orEmpty(), date).size
                 Box(
