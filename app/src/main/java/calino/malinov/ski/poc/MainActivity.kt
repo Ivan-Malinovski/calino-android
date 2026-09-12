@@ -34,12 +34,15 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
@@ -591,11 +594,19 @@ private fun rememberHingeOpenness(): State<Float>? {
  * the system's night setting -- and `values-night` cannot see that choice.
  */
 @Composable
+@Suppress("DEPRECATION") // Required below API 35 to clear the system navigation-bar fill.
 private fun SystemBarAppearance(light: Boolean) {
     val view = LocalView.current
     if (view.isInEditMode) return
     val window = (view.context as? android.app.Activity)?.window ?: return
     SideEffect {
+        // Keep the gesture-navigation lane visually continuous with the app.
+        // Some platform versions otherwise add their own contrast scrim behind
+        // the navigation pill even though this window is edge-to-edge.
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         WindowCompat.getInsetsController(window, view).apply {
             isAppearanceLightStatusBars = light
             isAppearanceLightNavigationBars = light
@@ -1048,7 +1059,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         Modifier.fillMaxSize()
             .background(CalinoColors.Canvas)
             .blur(aiContextBlur)
-            .padding(WindowInsets.safeDrawing.asPaddingValues()),
+            // Let each active surface paint behind the gesture-navigation
+            // lane. Interactive floating controls still apply that bottom
+            // inset themselves below.
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                ),
+            ),
     ) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val rootRoute = when (visibleRoute) {
@@ -1581,7 +1599,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             visible = pillVisible && !sidebarVisible && !searchVisible,
             enter = if (laneHandoff) EnterTransition.None else slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
             exit = if (laneHandoff) ExitTransition.None else slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 20.dp),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(bottom = 20.dp),
             label = "add pill visibility",
         ) {
             // In the large landscape split the pill rides in the right-side
