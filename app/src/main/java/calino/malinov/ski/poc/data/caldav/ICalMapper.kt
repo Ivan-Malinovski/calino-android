@@ -373,6 +373,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 attendees = mapAttendees(vevent),
                 categories = readCategories(vevent),
                 reminders = vevent.readReminders(),
+                travelTimeMinutes = vevent.readAppleTravelTimeMinutes(),
                 uid = uid,
                 href = href,
                 etag = etag,
@@ -407,6 +408,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                     Availability.Busy
                 },
                 reminders = vevent.readReminders(),
+                travelTimeMinutes = vevent.readAppleTravelTimeMinutes(),
                 uid = uid,
                 href = href,
                 etag = etag,

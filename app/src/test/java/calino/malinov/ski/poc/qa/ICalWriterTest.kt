@@ -53,6 +53,7 @@ class ICalWriterTest {
             attendees = listOf(Attendee("Ada", "ada@example.com")),
             categories = listOf("work", "team"),
             availability = Availability.Free,
+            travelTimeMinutes = 75,
             calendarId = "cal",
             uid = "uid-1",
         )
@@ -65,8 +66,23 @@ class ICalWriterTest {
         assertEquals("bring the laptop", back.notes)
         assertEquals(listOf("work", "team"), back.categories)
         assertEquals(Availability.Free, back.availability)
+        assertEquals(75, back.travelTimeMinutes)
         assertEquals(listOf(Attendee("Ada", "ada@example.com")), back.attendees)
         assertEquals("uid-1", back.uid)
+    }
+
+    @Test
+    fun `Apple travel duration is written and can be cleared`() {
+        val event = CalEvent(
+            id = "travel-1", title = "Appointment", color = 1L,
+            start = LocalDateTime.of(2026, 3, 5, 9, 0), durationMinutes = 30,
+            travelTimeMinutes = 15, calendarId = "cal", uid = "travel-1",
+        )
+        val component = writer.writeEvent(event, now = now)
+        assertTrue(serialize(component).contains("X-APPLE-TRAVEL-DURATION:PT15M"))
+
+        val cleared = serialize(writer.writeEvent(event.copy(travelTimeMinutes = null), component, now))
+        assertFalse(cleared.contains("X-APPLE-TRAVEL-DURATION"))
     }
 
     @Test

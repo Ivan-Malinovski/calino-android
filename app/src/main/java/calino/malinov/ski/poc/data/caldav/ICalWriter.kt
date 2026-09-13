@@ -94,6 +94,7 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         vevent.replaceOrRemove(event.url?.trim()?.takeIf(String::isNotEmpty)) { Url(it) }
         vevent.writeCategories(event.categories)
         vevent.writeReminders(event.reminders, event.title)
+        vevent.writeAppleTravelTimeMinutes(event.travelTimeMinutes)
 
         vevent.removeProperties(RecurrenceId::class.java)
         event.recurrenceDate?.let { date ->

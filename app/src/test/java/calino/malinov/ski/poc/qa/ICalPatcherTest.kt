@@ -261,6 +261,22 @@ class ICalPatcherTest {
         assertTrue(rebased.contains("BEGIN:VALARM"))
     }
 
+    @Test
+    fun `a travel time edit rebases without overwriting another remote X property`() {
+        val base = foreignResource.replace(
+            "X-CUSTOM-THING;X-PARAM=7:preserve this",
+            "X-APPLE-TRAVEL-DURATION:PT15M\r\nX-CUSTOM-THING;X-PARAM=7:preserve this",
+        )
+        val event = eventFrom(base, "ours")
+        val local = patcher.patchEvents(base, listOf(event.copy(travelTimeMinutes = 30)), now)!!
+        val current = base.replace("preserve this", "remote-only update")
+
+        val rebased = patcher.rebaseResource(current, local, base, "VEVENT", setOf("ours"))!!
+
+        assertTrue(rebased.contains("X-APPLE-TRAVEL-DURATION:PT30M"))
+        assertTrue(rebased.contains("X-CUSTOM-THING;X-PARAM=7:remote-only update"))
+    }
+
     // --- VALARM ---------------------------------------------------------------
 
     /**

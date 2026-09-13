@@ -4,6 +4,21 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Apple travel time — 2026-09-13
+
+`CalEvent.travelTimeMinutes` now round-trips the same
+`X-APPLE-TRAVEL-DURATION` property as the neighboring web app. Positive RFC
+5545/ISO durations are read as whole minutes (a partial minute rounds up), new
+and patched events write the canonical Java duration form, and clearing the
+editor choice removes the property. Invalid, zero, and negative values remain
+unmodelled rather than appearing as a misleading choice.
+
+The existing Travel time choices under the event editor's More options now
+therefore persist for connected calendars. A populated value is also shown in
+the event detail card. Stale-ETag rebasing now merges raw iCalendar properties
+by experimental-property name: changing `X-APPLE-TRAVEL-DURATION` cannot erase
+an unrelated `X-` property added remotely.
+
 ### `.ics` and Android intents — 2026-09-13
 
 TODO item 9. `data/ical/IcsInterop.kt` owns event-only iCalendar interchange.

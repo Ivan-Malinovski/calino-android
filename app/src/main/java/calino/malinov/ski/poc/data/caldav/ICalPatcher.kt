@@ -13,6 +13,7 @@ import biweekly.property.ICalProperty
 import biweekly.property.RecurrenceDates
 import biweekly.property.RecurrenceId
 import biweekly.property.RecurrenceRule
+import biweekly.property.RawProperty
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.data.model.JournalEntry
@@ -288,6 +289,10 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
             val localProperties = local.getProperties().asMap()
             val propertyClasses = (baseProperties.keys + localProperties.keys).toSet()
             propertyClasses.forEach { propertyClass ->
+                // All experimental X-properties share RawProperty.class. Merge
+                // them by their actual names below so changing Apple travel
+                // time cannot overwrite an unrelated remote X-property.
+                if (propertyClass == RawProperty::class.java) return@forEach
                 val baseValues = baseProperties[propertyClass].orEmpty()
                 val localValues = localProperties[propertyClass].orEmpty()
                 if (baseValues != localValues) {
@@ -297,8 +302,24 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                     localValues.forEach { merged.addProperty(it.copy()) }
                 }
             }
+            mergeRawProperties(base, local, merged)
             mergeAlarms(base, local, merged)
             return merged
+        }
+
+        fun mergeRawProperties(base: ICalComponent, local: ICalComponent, merged: ICalComponent) {
+            val baseByName = base.getProperties(RawProperty::class.java).groupBy { it.name.uppercase() }
+            val localByName = local.getProperties(RawProperty::class.java).groupBy { it.name.uppercase() }
+            (baseByName.keys + localByName.keys).forEach { name ->
+                val baseValues = baseByName[name].orEmpty()
+                val localValues = localByName[name].orEmpty()
+                if (baseValues == localValues) return@forEach
+                merged.getProperties(RawProperty::class.java)
+                    .filter { it.name.equals(name, ignoreCase = true) }
+                    .toList()
+                    .forEach(merged::removeProperty)
+                localValues.forEach { merged.addProperty(it.copy()) }
+            }
         }
 
         /**

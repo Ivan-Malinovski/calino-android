@@ -33,6 +33,44 @@ class ICalMapperTest {
     private val zone = ZoneId.of("Europe/Copenhagen")
     private val mapper = ICalMapper(zone)
 
+    @Test
+    fun `Apple travel duration maps to whole travel minutes`() {
+        val parsed = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:travel-1
+            DTSTART:20260907T080000Z
+            DTEND:20260907T090000Z
+            SUMMARY:Appointment
+            X-APPLE-TRAVEL-DURATION:PT1H15M
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal",
+            1L,
+            "travel.ics",
+        ).events.single()
+
+        assertEquals(75, parsed.travelTimeMinutes)
+    }
+
+    @Test
+    fun `invalid and non-positive Apple travel durations stay unset`() {
+        listOf("not-a-duration", "PT0M", "-PT15M").forEach { value ->
+            val event = mapper.parse(
+                "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:$value\n" +
+                    "DTSTART:20260907T080000Z\nX-APPLE-TRAVEL-DURATION:$value\n" +
+                    "END:VEVENT\nEND:VCALENDAR",
+                "cal",
+                1L,
+                "$value.ics",
+            ).events.single()
+            assertNull(value, event.travelTimeMinutes)
+        }
+    }
+
     // --- the day-bucketing regression ----------------------------------------
 
     @Test

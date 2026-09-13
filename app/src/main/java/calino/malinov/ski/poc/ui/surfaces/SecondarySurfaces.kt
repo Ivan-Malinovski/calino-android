@@ -704,7 +704,8 @@ fun EventDetailSurface(
             (descriptionLines - 1) * 22 +
             attendeeLines * 24 +
             (if (visibleEvent.recurrence != null) 54 else 0) +
-            (if (visibleEvent.reminders.isNotEmpty()) 54 else 0)
+            (if (visibleEvent.reminders.isNotEmpty()) 54 else 0) +
+            (if (visibleEvent.travelTimeMinutes != null) 54 else 0)
         ).coerceAtMost(560).dp
     var pillState by remember { mutableStateOf(EventPreviewPillState(false, {}, {}, {})) }
     BottomDetailOverlay(
@@ -871,6 +872,9 @@ private fun EventDetailContent(
             item { PreviewEditRow(CalinoIcon.Pin, "Location", draft.location) { draft = draft.copy(location = it) } }
             if (event.recurrence != null) item { PreviewStaticRow(CalinoIcon.Repeat, "Repeats", recurrenceSummary(event)) }
             if (event.reminders.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Bell, "Reminder", event.reminders.joinToString { "${it.minutesBefore} minutes before" }) }
+            event.travelTimeMinutes?.takeIf { it > 0 }?.let { minutes ->
+                item { PreviewStaticRow(CalinoIcon.Clock, "Travel time", formatCalinoDuration(minutes)) }
+            }
             if (event.attendees.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Users, "Attendees", event.attendees.joinToString { it.name.ifBlank { it.email } }) }
             item { HorizontalDivider(Modifier.padding(vertical = 6.dp), color = CalinoColors.Ink.copy(.1f)) }
             item { PreviewEditRow(CalinoIcon.Note, "Description", draft.description, if (draft.description.isBlank()) "+ Add description" else "") { draft = draft.copy(description = it) } }
