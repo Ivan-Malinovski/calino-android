@@ -89,12 +89,19 @@ class CalendarPagingTest : CalinoUiTest() {
         compose.assertDaySelected(WeekPager, FixtureDate.minusDays(1))
     }
 
-    @Test fun sundayToMondayDaySwipeCrossesTheWeekBoundary() {
+    @Test fun repeatedSundayMondayDaySwipesKeepTheCommittedSelectionInSync() {
         compose.onNodeWithTag(DayPager).performTouchInput { swipeRight() }
         compose.waitForIdle()
         compose.onNodeWithTag(DayPager).performTouchInput { swipeLeft() }
         compose.waitForIdle()
+        compose.assertDaySelected(WeekPager, FixtureDate)
 
+        compose.onNodeWithTag(DayPager).performTouchInput { swipeRight() }
+        compose.waitForIdle()
+        compose.assertDaySelected(WeekPager, FixtureDate.minusDays(1))
+
+        compose.onNodeWithTag(DayPager).performTouchInput { swipeLeft() }
+        compose.waitForIdle()
         compose.assertDaySelected(WeekPager, FixtureDate)
     }
 

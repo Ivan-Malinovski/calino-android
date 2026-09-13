@@ -699,6 +699,10 @@ reached the server. They now map to and from `VALARM` in both directions.
   `6 -> 7 -> -1 -> 0` wrap (and its mirror) could expose the selector at the
   opposite edge for a frame; both live pager travel and the one-shot settle
   handoff now use the same uninterrupted across-row trajectory.
+- Boundary travel remains derived from the day pager on every crossing. It
+  must not fall back to the selector `Animatable` when the raw weekday index
+  passes outside `0..6`; that clock happened to match the first transition but
+  drifted from the pager when reversing through the same boundary.
 - Compact month/day swipes keep pager ownership until the settled date is
   committed. This removes the one-frame flash of the date being left without
   activating the week pager's opaque preview layer: day-swipe animation stays

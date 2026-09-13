@@ -368,6 +368,19 @@ private fun dayPageFor(date: LocalDate): Int =
 private fun dateForDayPage(page: Int): LocalDate =
     PagerEpoch.plusDays((page - DayPagerCenter).toLong())
 
+/** Maps live day-pager travel onto the compact row's visible selector column. */
+internal fun selectorColumnForDayTravel(selectedColumn: Int, liveOffset: Float): Float {
+    val continuousColumn = selectedColumn - liveOffset
+    val lower = floor(continuousColumn).toInt()
+    val fraction = continuousColumn - floor(continuousColumn)
+    val lowerColumn = Math.floorMod(lower, 7)
+    return if (lowerColumn == 6 && fraction > .001f) {
+        6f * (1f - fraction)
+    } else {
+        lowerColumn + fraction
+    }
+}
+
 internal fun weekPageFor(date: LocalDate, weekStart: CalinoWeekStart): Int {
     val epochWeek = PagerEpoch.startOfWeek(weekStart)
     val week = date.startOfWeek(weekStart)
@@ -889,20 +902,14 @@ fun HomeScreen(
             distance.coerceIn(-7f, 7f)
         }
     }
-    // Null while no same-week day preview is live. The pill follows this
-    // directly during the drag; the spring below owns it the rest of the time.
+    // Null while no day preview is live. The pill follows PagerState directly
+    // during the drag, including a direct Sunday/Monday crossing; the
+    // Animatable below owns it only at rest and during non-gesture changes.
     val compactSelectorPreview = remember(dayPagerTravel, selectedWeekdayIndex) {
         derivedStateOf {
             val liveOffset = dayPagerTravel.value.coerceIn(-7f, 7f)
             if (abs(liveOffset) <= .001f) return@derivedStateOf null
-            val liveIndex = selectedWeekdayIndex - liveOffset
-            if (liveIndex !in 0f..6f) {
-                // Cross-week motion is owned by [compactBoundaryDay], which
-                // moves the whole strip and then seeds this selector in the
-                // neighboring week.
-                return@derivedStateOf null
-            }
-            liveIndex
+            selectorColumnForDayTravel(selectedWeekdayIndex, liveOffset)
         }
     }
     val compactSelectorIndex = remember(compactSelectorPreview) {
@@ -3481,25 +3488,21 @@ private fun StaticMonthGrid(
                 var liveSelectorRow = fallbackSelectorWeekRow
                 var liveSelectorColumn = compactSelectorIndex
                 if (liveDayTravel != null) {
-                    val continuousCell = selected.toEpochDay().toFloat() -
-                        start.toEpochDay().toFloat() - liveDayTravel
+                    val selectedCell = selected.toEpochDay().toFloat() - start.toEpochDay().toFloat()
+                    val continuousCell = selectedCell - liveDayTravel
                     val lowerCell = floor(continuousCell).toInt()
-                    val fraction = continuousCell - floor(continuousCell)
                     val lowerRow = Math.floorDiv(lowerCell, 7)
                     val lowerColumn = Math.floorMod(lowerCell, 7)
+                    val fraction = continuousCell - floor(continuousCell)
                     if (lowerColumn == 6 && fraction > .001f) {
-                        if (liveDayTravel < 0f) {
-                            liveSelectorRow = compactWeekRow
-                            liveSelectorColumn = 6f * (1f - fraction)
-                        } else {
-                            val reverseProgress = 1f - fraction
-                            liveSelectorRow = compactWeekRow
-                            liveSelectorColumn = 6f * reverseProgress
-                        }
+                        liveSelectorRow = compactWeekRow
                     } else {
                         liveSelectorRow = lowerRow
-                        liveSelectorColumn = lowerColumn + fraction
                     }
+                    liveSelectorColumn = selectorColumnForDayTravel(
+                        selected.weekdayColumn(weekStart),
+                        liveDayTravel,
+                    )
                     liveSelectorRow = liveSelectorRow.coerceIn(0, rows - 1)
                 }
                 val contentHeaderHeightPx = headerHeightPx * (1f - compactProgress)
