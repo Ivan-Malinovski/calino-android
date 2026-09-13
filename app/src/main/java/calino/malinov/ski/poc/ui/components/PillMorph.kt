@@ -195,6 +195,15 @@ class CalinoPillLane {
     internal fun claim() {
         claims += 1
         handingBack = false
+        // The retained root layer contains the route subtree that is about to
+        // host this modal. If the modal pill draws that layer on its first
+        // frame, HWUI can see the layer as its own descendant and recurse
+        // until RenderThread overflows its stack. The modal surface publishes
+        // its sibling-only backdrop immediately after composition; use the
+        // opaque glass fallback for the handoff frame instead of risking a
+        // cyclic RenderNode tree.
+        backdrop = null
+        backdropOrigin = Offset.Zero
     }
 
     internal fun release() {

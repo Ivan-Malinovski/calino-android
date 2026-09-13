@@ -4,6 +4,16 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Modal pill RenderThread crash — 2026-09-13
+
+Opening a journal entry on the Android 17 Samsung cover display exposed a
+native HWUI stack overflow: the modal pill's first frame could draw the retained
+root backdrop layer even though that root layer now contained the modal itself.
+`CalinoPillLane.claim()` clears the retained root backdrop synchronously; the
+modal surface publishes its sibling-only backdrop after composition. The single
+handoff frame therefore uses the opaque glass fallback and cannot form a cyclic
+RenderNode tree.
+
 ### Range drag paging and Today — 2026-09-13
 
 The 3/7-day range pager now owns timed-event lift gestures above its pages,

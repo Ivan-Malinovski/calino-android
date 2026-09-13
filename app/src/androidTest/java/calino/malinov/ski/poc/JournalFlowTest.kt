@@ -36,6 +36,13 @@ class JournalFlowTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Open journal entry A clear Monday").assertIsDisplayed()
     }
 
+    @Test fun opensAnExistingEntryInReadMode() {
+        openEntry()
+
+        compose.onNodeWithContentDescription("Edit journal entry").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Journal title").assertIsDisplayed()
+    }
+
     @Test fun createsAnEntry() {
         openJournal()
         compose.onNodeWithContentDescription("New entry. Swipe up to search").performClick()
