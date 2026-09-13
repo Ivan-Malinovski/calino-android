@@ -166,6 +166,21 @@ shows neither; that is recorded rather than claimed as met.
 - Extend `CalinoDefaultView` so a range view can be the default view, and make
   sure the persisted preference migrates cleanly.
 
+**Status 2026-09-13 — [x] done, with an approved design change.** The user
+chose a dedicated Range root page rather than adding two more stops to the
+month/day zoom lane. It sits between Month and Agenda in the sidebar and add
+pill swipe order, uses one persisted 3/7-day segmented toggle, and is available
+as the single `Range` default view. Three-day windows roll from the selected
+date; seven-day windows align to the configured week start.
+
+The range grid reuses the shared calendar heading, segmented control,
+`EventDateIndex`, hour rail/grid, event cards, menus, task rules, time format,
+motion, and root navigation. All columns remain on screen on narrow phones;
+secondary card metadata collapses before geometry does. Paging, event opening
+and menus, held event moves across time/day, empty-slot creation, task actions,
+and timeline pinch scaling are wired through the same repository callbacks as
+the existing calendar.
+
 ## 5. Fix the recurrence engines
 
 There are two, and they disagree.

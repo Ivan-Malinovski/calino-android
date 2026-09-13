@@ -197,6 +197,7 @@ import calino.malinov.ski.poc.ui.components.CalinoToast
 import calino.malinov.ski.poc.ui.components.NavSidebar
 import calino.malinov.ski.poc.ui.components.pockRouteLabel
 import calino.malinov.ski.poc.ui.home.HomeScreen
+import calino.malinov.ski.poc.ui.range.RangeScreen
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.surfaces.DayModalSurface
 import calino.malinov.ski.poc.ui.surfaces.EventDetail
@@ -252,6 +253,7 @@ private val RouteSaver = Saver<PockRoute, String>(
     restore = { key ->
         when (key) {
             "agenda" -> PockRoute.Agenda
+            "range" -> PockRoute.Range
             "detail" -> PockRoute.Detail
             "task-detail" -> PockRoute.TaskDetail
             "tasks" -> PockRoute.Tasks
@@ -278,6 +280,7 @@ private val QuickAddKindSaver = Saver<QuickAddKind, String>(
 
 private fun PockRoute.saveableKey(): String = when (this) {
     PockRoute.Day -> "calendar"
+    PockRoute.Range -> "range"
     PockRoute.Agenda -> "agenda"
     PockRoute.Detail -> "detail"
     PockRoute.TaskDetail -> "task-detail"
@@ -292,20 +295,21 @@ private fun PockRoute.saveableKey(): String = when (this) {
 
 private fun PockRoute.rootOrder(): Int = when (this) {
     PockRoute.Day -> 0
-    PockRoute.Agenda -> 1
-    PockRoute.Tasks -> 2
-    PockRoute.Journal -> 3
-    PockRoute.Contacts -> 4
-    PockRoute.Settings -> 5
-    PockRoute.Accounts -> 6
+    PockRoute.Range -> 1
+    PockRoute.Agenda -> 2
+    PockRoute.Tasks -> 3
+    PockRoute.Journal -> 4
+    PockRoute.Contacts -> 5
+    PockRoute.Settings -> 6
+    PockRoute.Accounts -> 7
     // Detail and notification previews are pushed destinations. Keeping them
     // after the root destinations makes opening them enter from the right and
     // returning from them reverse the same motion, instead of treating them
     // as another instance of the calendar route.
-    PockRoute.Detail -> 7
-    PockRoute.TaskDetail -> 7
-    PockRoute.Notifications -> 7
-    PockRoute.QuickAdd -> 7
+    PockRoute.Detail -> 8
+    PockRoute.TaskDetail -> 8
+    PockRoute.Notifications -> 8
+    PockRoute.QuickAdd -> 8
 }
 
 class MainActivity : ComponentActivity() {
@@ -682,7 +686,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val pendingChanges = remember(snapshot.revision) { pocViewModel.pendingChanges() }
     val calDavAccounts = rememberCalDavAccounts(accountStore)
     val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-    var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
+    var route by rememberSaveable(stateSaver = RouteSaver) {
+        mutableStateOf<PockRoute>(if (preferences.defaultView == calino.malinov.ski.poc.util.CalinoDefaultView.Range) PockRoute.Range else PockRoute.Day)
+    }
     var selectedContactId by rememberSaveable { mutableStateOf<String?>(null) }
     // The fixture data lives around May 2026, so that is where the sample
     // app opens. Real calendars are anchored on the actual date instead --
@@ -983,13 +989,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun handleTaskAction(action: TaskMenuAction, task: CalTask) {
         when (action) {
             TaskMenuAction.Edit -> openTaskDetail(task, when (route) {
+                PockRoute.Range -> PocReturnTarget.Range
                 PockRoute.Agenda -> PocReturnTarget.Agenda
                 PockRoute.Tasks -> PocReturnTarget.Tasks
                 else -> PocReturnTarget.Calendar
             })
             TaskMenuAction.AddSubtask -> openQuickAdd(
                 QuickAddKind.Task,
-                if (route == PockRoute.Agenda) PocReturnTarget.Agenda else PocReturnTarget.Tasks,
+                when (route) {
+                    PockRoute.Range -> PocReturnTarget.Range
+                    PockRoute.Agenda -> PocReturnTarget.Agenda
+                    else -> PocReturnTarget.Tasks
+                },
                 morphFromAddPill = true,
                 parentTaskId = task.id,
             )
@@ -1006,7 +1017,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun handleEventAction(action: EventMenuAction, event: CalEvent) {
         when (action) {
-            EventMenuAction.Edit -> openEditor(event, if (route == PockRoute.Agenda) PocReturnTarget.Agenda else PocReturnTarget.Calendar)
+            EventMenuAction.Edit -> openEditor(event, when (route) {
+                PockRoute.Range -> PocReturnTarget.Range
+                PockRoute.Agenda -> PocReturnTarget.Agenda
+                else -> PocReturnTarget.Calendar
+            })
             EventMenuAction.Duplicate -> launchWrite({ repository.duplicateEvent(event) })
             EventMenuAction.ConvertToTask -> launchWrite({ repository.convertEventToTask(event) })
             EventMenuAction.Delete -> pendingEventDelete = event
@@ -1030,6 +1045,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 showDayModal = true
             }
             PocReturnTarget.Agenda -> route = PockRoute.Agenda
+            PocReturnTarget.Range -> route = PockRoute.Range
             PocReturnTarget.Tasks -> route = PockRoute.Tasks
             PocReturnTarget.Journal -> route = PockRoute.Journal
             PocReturnTarget.Search -> {
@@ -1045,6 +1061,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun restoreTaskDetailOrigin() {
         route = when (taskDetailOrigin) {
+            PocReturnTarget.Range -> PockRoute.Range
             PocReturnTarget.Tasks -> PockRoute.Tasks
             PocReturnTarget.Agenda -> PockRoute.Agenda
             PocReturnTarget.Search -> searchOriginRoute.also { searchVisible = true }
@@ -1060,6 +1077,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         quickAddStartMinute = null
         quickAddMorphFromAddPill = false
         when (quickAddOrigin) {
+            PocReturnTarget.Range -> {
+                route = PockRoute.Range
+                showDayModal = false
+            }
             PocReturnTarget.DayModal -> {
                 route = PockRoute.Day
                 showDayModal = true
@@ -1164,6 +1185,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val rootRoute = when (visibleRoute) {
             PockRoute.Day -> PockRoute.Day
+            PockRoute.Range -> PockRoute.Range
             PockRoute.Agenda -> PockRoute.Agenda
             PockRoute.Tasks -> PockRoute.Tasks
             PockRoute.Journal -> PockRoute.Journal
@@ -1172,6 +1194,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Accounts -> PockRoute.Accounts
             PockRoute.Detail -> when (detailOrigin) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
+                PocReturnTarget.Range -> PockRoute.Range
                 PocReturnTarget.Tasks -> PockRoute.Tasks
                 PocReturnTarget.Journal -> PockRoute.Journal
                 PocReturnTarget.Contacts -> PockRoute.Contacts
@@ -1180,12 +1203,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             }
             PockRoute.TaskDetail -> when (taskDetailOrigin) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
+                PocReturnTarget.Range -> PockRoute.Range
                 PocReturnTarget.Tasks -> PockRoute.Tasks
                 PocReturnTarget.Search -> searchOriginRoute
                 else -> PockRoute.Day
             }
             PockRoute.QuickAdd -> when (quickAddOrigin) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
+                PocReturnTarget.Range -> PockRoute.Range
                 PocReturnTarget.Tasks -> PockRoute.Tasks
                 PocReturnTarget.Journal -> PockRoute.Journal
                 PocReturnTarget.Contacts -> PockRoute.Contacts
@@ -1262,6 +1287,37 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         },
                         onTaskAction = ::handleTaskAction,
                         onSplitPaneChanged = { splitMonthLayoutVisible = it },
+                    )
+                    PockRoute.Range -> RangeScreen(
+                        events = calendarEvents,
+                        tasks = calendarTasks,
+                        initialDate = selectedDate,
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenMenu = { sidebarVisible = true },
+                        onDateChanged = { selectedDate = it },
+                        onEventClick = { day, event ->
+                            selectedDate = day
+                            selectedEventId = event.id
+                            selectedEventOccurrenceDay = day.toEpochDay()
+                            detailOrigin = PocReturnTarget.Range
+                            route = PockRoute.Detail
+                        },
+                        onEventAction = ::handleEventAction,
+                        onEventDrop = ::handleEventDrop,
+                        onEventTimeDrop = ::handleEventTimeDrop,
+                        onCreateEventAt = { start ->
+                            selectedDate = start.toLocalDate()
+                            openQuickAdd(
+                                QuickAddKind.Event,
+                                PocReturnTarget.Range,
+                                startMinute = start.toLocalTime().toSecondOfDay() / 60,
+                            )
+                        },
+                        onTaskClick = { task -> openTaskDetail(task, PocReturnTarget.Range) },
+                        onTaskAction = ::handleTaskAction,
+                        onTaskDone = { task, done ->
+                            launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
+                        },
                     )
                     PockRoute.Agenda -> AgendaScreen(
                         // The snapshot rather than a direct repository
@@ -1685,6 +1741,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
         val pillVisible = when (rootRoute) {
             PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
+            PockRoute.Range -> route == PockRoute.Range
             PockRoute.Agenda -> route == PockRoute.Agenda
             PockRoute.Tasks -> route == PockRoute.Tasks
             PockRoute.Journal -> route == PockRoute.Journal && !journalEditorVisible
@@ -1734,6 +1791,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             // drag steps through them in the same order the sidebar lists.
             val pillRoutes = listOfNotNull(
                 PockRoute.Day,
+                PockRoute.Range,
                 PockRoute.Agenda,
                 PockRoute.Tasks,
                 PockRoute.Journal.takeIf { preferences.journalEnabled },
@@ -1773,6 +1831,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)
                         PockRoute.Journal -> journalEntryRequest += 1
                         PockRoute.Contacts -> contactRequest += 1
+                        PockRoute.Range -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Range, morphFromAddPill = true)
                         else -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true)
                     }
                 },

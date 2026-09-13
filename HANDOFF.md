@@ -4,6 +4,34 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### 3-day and 7-day Range page — 2026-09-13
+
+TODO item 4 landed as a dedicated `PockRoute.Range`, by explicit user choice,
+instead of expanding the already gesture-dense month/day zoom continuum.
+
+- `ui/range/RangeScreen.kt` is one root surface with a shared, persisted 3/7
+  segmented toggle. Three-day pages are rolling; seven-day pages align to
+  `CalinoWeekStart`; horizontal paging advances by the visible range width.
+- The implementation deliberately borrows the shared calendar heading,
+  segmented control, event index and the active one-day hour/event renderer.
+  `HourRailContent` is now internal and has narrow-column/hour-gutter hooks so
+  the range view does not fork event layout, styling, overlap rules, menus, or
+  current-time rendering.
+- The hour gutter is outside the equal-width columns. This matters on a phone:
+  putting it inside day one technically fit seven columns but left Monday with
+  almost no usable event lane. Narrow cards retain color and title semantics
+  while secondary text naturally disappears.
+- `CalinoDefaultView.Range` has no zoom value and selects the startup root;
+  `CalinoRangeMode` independently remembers the last 3/7 choice. Existing
+  stored Month/Week/Day names remain valid.
+- Detail, task detail, Quick Add, search origin, sidebar and add-pill navigation
+  all recognize Range, so pushed surfaces return to the page that opened them.
+
+Validated with the range rule tests and the API 36 emulator in 3- and 7-day
+portrait layouts plus 7-day dark landscape. Seven columns, the detached hour
+gutter, event placement, all-day summary, current-time marker, paging and the
+persisted toggle were inspected.
+
 ### Home screen widget — 2026-09-12
 
 TODO item 3. A resizable Glance agenda widget, under `widget/`.

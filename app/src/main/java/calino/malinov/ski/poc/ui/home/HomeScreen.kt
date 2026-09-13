@@ -163,6 +163,7 @@ import calino.malinov.ski.poc.qa.timelineCreateMinute
 import calino.malinov.ski.poc.qa.timelineScaleAfterPinch
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
+import calino.malinov.ski.poc.util.CalinoDefaultView
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
@@ -413,6 +414,7 @@ fun HomeScreen(
     // session. Reading it continuously would pin the calendar to that level and
     // leave the user unable to zoom away from their own default.
     val initialZoom = LocalCalinoPreferences.current.defaultView.zoomLevel
+        ?: CalinoDefaultView.Default.zoomLevel!!
     val zoomState = rememberSaveable { mutableFloatStateOf(initialZoom) }
     var settledZoom by rememberSaveable { mutableFloatStateOf(initialZoom) }
     LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
@@ -5613,7 +5615,7 @@ private fun CompactLaneScrim(
 }
 
 @Composable
-private fun HourRailContent(
+internal fun HourRailContent(
     day: LocalDate,
     dayEvents: List<CalEvent>,
     onEvent: ((CalEvent) -> Unit)?,
@@ -5623,32 +5625,36 @@ private fun HourRailContent(
     draggingCardKey: String?,
     onCardBounds: ((TimelineCardBounds) -> Unit)?,
     onCardGone: ((String) -> Unit)?,
+    showHourLabels: Boolean = true,
+    onEventDragEnd: ((CalEvent, Offset) -> Unit)? = null,
 ) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
     val timeFormat = LocalTimeFormat
     val slots = remember(dayEvents) { layoutDayRail(dayEvents) }
     val hourHeight = (TimelineBaseHourHeightDp * timelineScale).dp
+    val railStart = if (showHourLabels) 52.dp else 0.dp
     Box(Modifier.fillMaxWidth().height((hourHeight.value * 24f).dp)) {
         Canvas(Modifier.fillMaxSize()) {
             repeat(24) { hour ->
                 val y = hour * hourHeight.toPx()
-                drawLine(colors.Ink.copy(.08f), androidx.compose.ui.geometry.Offset(52.dp.toPx(), y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
+                drawLine(colors.Ink.copy(.08f), androidx.compose.ui.geometry.Offset(railStart.toPx(), y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
             }
         }
-        (0..23).forEach { hour ->
-            Text(
-                timeFormat.formatHour(hour),
-                Modifier.offset(x = 8.dp, y = (hour * hourHeight.value - 7f).dp),
-                fontSize = 10.sp,
-                color = colors.Ink3,
-            )
+        if (showHourLabels) {
+            (0..23).forEach { hour ->
+                Text(
+                    timeFormat.formatHour(hour),
+                    Modifier.offset(x = 8.dp, y = (hour * hourHeight.value - 7f).dp),
+                    fontSize = 10.sp,
+                    color = colors.Ink3,
+                )
+            }
         }
         // Overlapping events share the rail's width instead of being stacked
         // on top of each other, where the later one hid the earlier one.
         val railPreferences = LocalCalinoPreferences.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val railStart = 52.dp
             val railWidth = (maxWidth - railStart - 20.dp).coerceAtLeast(0.dp)
             val laneGap = 3.dp
             slots.forEach { slot ->
@@ -5673,6 +5679,13 @@ private fun HourRailContent(
                     onEventAction != null -> Modifier.combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
                     else -> Modifier
                 }
+                val directDragInteraction = if (onEventDragEnd != null) {
+                    Modifier.calinoLongPressDrag(
+                        onClick = onEvent?.let { callback -> { callback(event) } },
+                        onLongPress = onEventAction?.let { { menuOpen = true } },
+                        onDragEnd = { offset -> onEventDragEnd(event, offset) },
+                    )
+                } else eventInteraction
                 // The lift belongs to the pager host, not to this card: a
                 // drag that can walk into another day has to outlive the page,
                 // and the pager disposes a page as soon as it leaves the
@@ -5702,7 +5715,7 @@ private fun HourRailContent(
                             )
                         }
                         .alpha(if (draggingCardKey == cardKey) 0f else 1f)
-                        .then(eventInteraction)
+                        .then(directDragInteraction)
                         .semantics(mergeDescendants = true) {
                             contentDescription = eventDescription(event, timeFormat)
                             if (onEvent != null) {
@@ -5751,7 +5764,7 @@ private fun HourRailContent(
 private fun timelineCardKey(day: LocalDate, eventId: String) = "${day.toEpochDay()}:$eventId"
 
 /** Where a rail card sits on screen, published by the page for the host. */
-private data class TimelineCardBounds(
+internal data class TimelineCardBounds(
     val key: String,
     val event: CalEvent,
     val day: LocalDate,

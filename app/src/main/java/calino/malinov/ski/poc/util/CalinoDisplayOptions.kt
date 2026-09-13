@@ -36,10 +36,11 @@ enum class CalinoEventDensity(val label: String, val maxItems: Int) {
  * so the preference seeds the zoom state; [zoomLevel] is the value that goes
  * into it.
  */
-enum class CalinoDefaultView(val label: String, val zoomLevel: Float) {
+enum class CalinoDefaultView(val label: String, val zoomLevel: Float?) {
     Month("Month", 2f),
     Week("Week", 0f),
     Day("Day", 1f),
+    Range("Range", null),
     ;
 
     companion object {
@@ -47,6 +48,19 @@ enum class CalinoDefaultView(val label: String, val zoomLevel: Float) {
         val Default = Week
 
         fun fromName(name: String?): CalinoDefaultView =
+            entries.firstOrNull { it.name == name } ?: Default
+    }
+}
+
+/** The number of adjacent days shown by the dedicated range calendar. */
+enum class CalinoRangeMode(val label: String, val dayCount: Int) {
+    ThreeDay("3 days", 3),
+    SevenDay("7 days", 7),
+    ;
+
+    companion object {
+        val Default = ThreeDay
+        fun fromName(name: String?): CalinoRangeMode =
             entries.firstOrNull { it.name == name } ?: Default
     }
 }

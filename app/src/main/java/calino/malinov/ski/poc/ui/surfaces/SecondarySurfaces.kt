@@ -190,6 +190,7 @@ private data class TaskDropBounds(val top: Float, val bottom: Float)
 /** Small, stable routes to make these surfaces easy to wire into a pager later. */
 sealed interface PockRoute {
     data object Day : PockRoute
+    data object Range : PockRoute
     data object Agenda : PockRoute
     data object Detail : PockRoute
     data object TaskDetail : PockRoute
@@ -2303,4 +2304,3 @@ fun QuickAddSheet(
         )
     }
 }
-
