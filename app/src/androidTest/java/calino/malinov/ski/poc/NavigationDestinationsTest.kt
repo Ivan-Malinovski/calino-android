@@ -1,0 +1,108 @@
+package calino.malinov.ski.poc
+
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * Navigation destinations and their accessibility bounds.
+ *
+ * `AGENTS.md` calls this "dock indicator destinations"; the app has no dock --
+ * navigation is the sidebar, and these are its rows. That wording predates the
+ * sidebar and is corrected alongside this suite.
+ *
+ * Reaching a destination is asserted through the sidebar's own selection state
+ * rather than through a landmark string per surface: the row reporting itself
+ * selected *is* the app's answer to "where am I", and it is the same check for
+ * every route.
+ */
+@RunWith(AndroidJUnit4::class)
+class NavigationDestinationsTest : CalinoUiTest() {
+
+    @Test fun everyRootDestinationIsReachable() {
+        // Journal and Contacts need no preference first: the fixture data
+        // contains records, and `featureAvailabilityAfter` turns those surfaces
+        // on once records exist.
+        Destinations.forEach { label ->
+            compose.openRoute(label)
+            compose.waitForIdle()
+
+            compose.onNodeWithContentDescription("Open navigation").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithContentDescription("$label, selected").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithContentDescription("Dismiss").performClick()
+            compose.waitForIdle()
+        }
+    }
+
+    @Test fun theCalendarRootIsSelectedOnLaunch() {
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Month, selected").assertIsDisplayed()
+    }
+
+    /** The surfaces whose landmarks are worth pinning by content, not just by route. */
+    @Test fun destinationsShowTheirOwnContent() {
+        compose.openRoute("Tasks")
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Open task: Buy flowers").assertIsDisplayed()
+
+        compose.openRoute("Journal")
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Open journal entry A clear Monday").assertIsDisplayed()
+
+        compose.openRoute("Agenda")
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Add on May 18, 2026").assertIsDisplayed()
+    }
+
+    /**
+     * Every navigation row keeps the 44dp touch lane the UI requirements ask
+     * for, even where the painted row is more compact.
+     */
+    @Test fun navigationRowsKeepTheMinimumTouchLane() {
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+
+        Destinations.forEach { label ->
+            compose.onNodeWithContentDescription(label)
+                .performScrollTo()
+                .assertHeightIsAtLeast(MinimumTouchLane)
+        }
+    }
+
+    /** The header controls are held to the same lane. */
+    @Test fun headerControlsKeepTheMinimumTouchLane() {
+        compose.onNodeWithContentDescription("Open navigation")
+            .assertHeightIsAtLeast(MinimumTouchLane)
+            .assertWidthIsAtLeast(MinimumTouchLane)
+        compose.onNodeWithContentDescription(CalinoTestActions.zoomHandleLabel(0))
+            .assertHeightIsAtLeast(MinimumTouchLane)
+    }
+
+    @Test fun returningToTheCalendarRestoresIt() {
+        compose.openRoute("Tasks")
+        compose.waitForIdle()
+        compose.openRoute("Month")
+        compose.waitForIdle()
+
+        assertTrue(compose.exists(hasContentDescription(CalinoTestActions.zoomHandleLabel(0))))
+        compose.assertDaySelected(CalinoTestActions.WeekPager, CalinoTestActions.FixtureDate)
+    }
+
+    private companion object {
+        val MinimumTouchLane = 44.dp
+
+        val Destinations = listOf("Tasks", "Journal", "Agenda", "Contacts", "Calendars", "Settings", "Range")
+    }
+}

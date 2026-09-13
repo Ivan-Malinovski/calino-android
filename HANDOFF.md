@@ -4,6 +4,77 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Device tests — 2026-09-13
+
+TODO item 6. There is now an `app/src/androidTest/` source set with a Compose
+harness and 54 tests over the nine interactions `AGENTS.md` lists. Run them with
+`./gradlew :app:connectedDebugAndroidTest` against a booted API 36 emulator.
+
+**They run on the fixture repository, and that is the whole basis of their
+determinism.** With no account connected `CalinoContainer` serves the frozen May
+2026 data, `rememberCalinoNow(live = hasAccounts)` pins "today" to 2026-05-18,
+and `PagerEpoch` is that same date, so every pager starts on its centre page. A
+test that connects an account would lose all of it.
+
+- `CalinoUiTest` is the base class. Its `RuleChain` puts `CalinoResetRule`
+  **outside** the Compose rule on purpose: the Activity reads preferences during
+  its first composition, so a `@Before` reset would be too late. The rule clears
+  the preference and account SharedPreferences, re-asserts the
+  notification-prompt flag (otherwise a *system* permission dialog can appear on
+  the second resume, which no Compose matcher can dismiss), and calls
+  `FixtureRepository.resetToFixtures()` -- a seam that exists only for this, as
+  the container is process-scoped and all tests share one.
+- `CalinoTestActions` holds the finders. Day labels re-derive
+  `DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)` rather than importing
+  the private constant: what these tests pin is the user-visible string.
+
+Five traps, all of which cost a debugging round here:
+
+1. **Pager date commits require a real gesture.** Every settle collector is
+   gated on `isUserSettle`, fed only by a `DragInteraction.Start` on the pager's
+   interaction source. `pagerState.scrollToPage()` moves the pager and commits
+   nothing, so a test driving it that way passes while proving nothing. Use
+   `performTouchInput { swipeLeft() }`.
+2. **"Exactly one selected day cell" is false by design.** The pager keeps the
+   adjacent page composed and that page marks its own equivalent day selected,
+   so the selection reads as continuous while paging. Assert that *this* cell is
+   selected (`assertDaySelected`), never that a search for `", selected"`
+   returns one node.
+3. **The month heading is preview state.** It mounts three `MonthHeadingLabel`s
+   at once and follows `compactHeadingDay`, not the committed date. Never read
+   the committed month from it.
+4. **The floating add pill is drawn over the list.** A row whose centre falls
+   under it takes the pill's click instead -- which opened a *new* journal draft
+   and made an edit look like a duplicate. Tap rows and day cells away from
+   their centre; `selectDayIn` and the journal helper both do.
+5. **`closeAnimated {}` runs the write after a real-time delay.** Compose's
+   idleness does not track that, so `waitForIdle` is a race there. The
+   `awaitDescribed`/`awaitNoDescribed` helpers poll instead.
+
+The app opens on `CalinoDefaultView.Default`, which is **Week** (zoom 0), not
+Month -- anything asserting against the month grid calls `zoomTo(2)` first. Zoom
+is driven through the handle rather than the vertical drag, because the drag
+settles on a velocity-dependent level.
+
+Four accessibility gaps were found by writing these and fixed in main source,
+rather than worked around in the tests:
+
+- `MenuButton` was a 40dp touch target on every surface with a header, under the
+  44dp lane the UI requirements mandate. Now 44dp; the glyph is unchanged.
+- A settings `Switch` carried its `contentDescription` on a bare `semantics {}`
+  node layered *above* the switch's own toggleable node, so the label and the
+  state were two separate nodes and neither was the whole control. Merged.
+- `CompactMonthRow` was the only one of four day-cell producers that omitted
+  `", selected"` while still being clickable, so the selected day lost its state
+  partway through the morph.
+- The global undo banner's action button had no description ("Undo" alone does
+  not say what of), and the toast was not a live region despite appearing
+  unprompted and leaving on a timer.
+
+Three test tags were added where no user-facing label belongs: the two
+`SwipeDownDismiss`/`SwipeEndDismiss` gesture containers, the undo banner, and
+the range pager (for parity with the three calendar pagers).
+
 ### One recurrence engine — 2026-09-13
 
 TODO item 5. Calino carried two recurrence implementations that disagreed:

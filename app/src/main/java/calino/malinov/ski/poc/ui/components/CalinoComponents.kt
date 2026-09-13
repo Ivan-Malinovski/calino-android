@@ -101,9 +101,12 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontStyle
@@ -314,6 +317,17 @@ fun eventColor(value: Long): Color = CalinoColors.forEvent(Color(value))
  * This is deliberately separate from [visible]: a host can keep the surface
  * visible underneath its confirmation UI without replaying its exit animation.
  */
+/**
+ * The dismissable gesture surfaces, addressed by tag.
+ *
+ * These two `Box`es carry no semantics of their own on purpose -- they are
+ * pointer-stream owners, not controls, and the scrim behind them is what a
+ * screen reader is meant to find. That leaves the device tests with nothing to
+ * aim a swipe at, so they get a tag instead of a label they should not have.
+ */
+const val SwipeDownDismissTag = "swipe-down-dismiss"
+const val SwipeEndDismissTag = "swipe-end-dismiss"
+
 @Composable
 fun SwipeDownDismiss(
     visible: Boolean,
@@ -440,7 +454,11 @@ fun SwipeDownDismiss(
     // Keep the pointer-input node stationary while the child moves. If the
     // node receiving coordinates also moves, its local pointer coordinates
     // move against the finger and produce the characteristic pixel vibration.
-    Box(modifier.then(gestureModifier)) {
+    // Tagged rather than described: this is a bare gesture container with no
+    // label a screen reader should read -- the scrim behind it already carries
+    // "Dismiss surface". The device tests drive the downward dismissal through
+    // this node, and there is no other handle on the pointer stream.
+    Box(modifier.testTag(SwipeDownDismissTag).then(gestureModifier)) {
         content(
             modifier
                 .offset { IntOffset(0, dragY.roundToInt()) }
@@ -472,6 +490,11 @@ fun CalinoToast(
     icon: CalinoIcon = CalinoIcon.Bell,
     accent: Color = Color.Unspecified,
     actionLabel: String? = null,
+    /**
+     * What the action button reads as, when the label alone is ambiguous.
+     * "Undo" on its own does not say what would be undone.
+     */
+    actionDescription: String? = null,
     onAction: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -482,7 +505,11 @@ fun CalinoToast(
         modifier = modifier
             .widthIn(min = 280.dp, max = 360.dp)
             .shadow(10.dp * CalinoColors.elevationAlpha, shape, clip = false)
-            .border(1.dp, tone.copy(alpha = .32f), shape),
+            .border(1.dp, tone.copy(alpha = .32f), shape)
+            // A toast arrives without the user having asked for it, and
+            // disappears on a timer. Polite rather than assertive: it should
+            // not cut off whatever the user is already listening to.
+            .semantics { liveRegion = LiveRegionMode.Polite },
         shape = shape,
         color = CalinoColors.Panel,
         contentColor = CalinoColors.Ink,
@@ -515,7 +542,9 @@ fun CalinoToast(
                     TextButton(
                         onClick = onAction,
                         contentPadding = PaddingValues(horizontal = 8.dp),
-                        modifier = Modifier.heightIn(min = 40.dp),
+                        modifier = Modifier
+                            .heightIn(min = 40.dp)
+                            .semantics { contentDescription = actionDescription ?: actionLabel },
                     ) {
                         Text(actionLabel, color = tone, fontWeight = FontWeight.Medium)
                     }
@@ -1987,7 +2016,10 @@ private fun SwipeDestinationChip(
 fun MenuButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .size(40.dp)
+            // 44dp, not the 40dp this used to be: the UI requirements ask every
+            // interactive control for a 44dp touch lane, and this one was under
+            // it on every surface that has a header. The glyph is unchanged.
+            .size(44.dp)
             .clip(RoundedCornerShape(CalinoShapes.Button))
             .calinoPressable(onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = "Open navigation" },

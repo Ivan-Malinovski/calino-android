@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.unit.dp
@@ -90,6 +91,9 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val RangeDate = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+
+/** The range pager, addressed by tag the way the calendar pagers are. */
+const val RangePagerTag = "range-pager"
 
 @Composable
 fun RangeScreen(
@@ -178,7 +182,11 @@ fun RangeScreen(
                 state = pager,
                 beyondViewportPageCount = 1,
                 key = { page -> "${activeMode.name}:$page" },
-                modifier = Modifier.fillMaxSize(),
+                // Tagged like month-pager/week-pager/day-pager, so a device
+                // test can scope a day query to this surface. Several grids are
+                // mounted at once during a route change and day descriptions
+                // are not unique across them.
+                modifier = Modifier.fillMaxSize().testTag(RangePagerTag),
             ) { page ->
                 val pageAnchor = rangeAnchorForPage(base, page, activeMode)
                 val days = rangeDays(pageAnchor, activeMode, weekStart)

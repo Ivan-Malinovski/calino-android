@@ -402,6 +402,35 @@ class FixtureRepository : CalinoRepository {
         current.copy(tasks = current.tasks.map { if (it.id == task.id) task else it })
     }
 
+    /**
+     * Restore the frozen May 2026 dataset.
+     *
+     * The container is process-scoped and instrumented tests share one process,
+     * so a test that completes a task or files an event would otherwise be
+     * visible to every test that runs after it. This is the seam the device
+     * harness resets through; nothing in the app calls it.
+     *
+     * The revision keeps climbing rather than returning to zero: observers key
+     * off it, and handing them a number they have already seen would let a
+     * stale snapshot look current.
+     */
+    fun resetToFixtures() {
+        nextEventId = 1
+        nextTaskId = 1
+        nextJournalId = 1
+        nextContactId = 1
+        update {
+            CalinoSnapshot(
+                events = fixtureEvents(),
+                tasks = fixtureTasks(),
+                journals = fixtureJournals(),
+                contacts = fixtureContacts(),
+                addressBooks = FixtureAddressBooks,
+                revision = it.revision,
+            )
+        }
+    }
+
     private fun update(transform: (CalinoSnapshot) -> CalinoSnapshot) {
         val current = snapshot()
         val next = transform(current).copy(revision = current.revision + 1)

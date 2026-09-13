@@ -157,6 +157,7 @@ import calino.malinov.ski.poc.design.CalinoSpacing
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -1990,6 +1991,15 @@ private fun rememberRepositorySnapshot(repository: CalinoRepository): CalinoSnap
     return snapshot
 }
 
+/**
+ * The global undo banner, addressed by tag.
+ *
+ * Its message is written by the repository rather than by the UI, so a device
+ * test cannot assert "a banner is showing" from a literal without pinning a
+ * string that is not this file's to keep.
+ */
+const val UndoBannerTag = "undo-banner"
+
 @Composable
 private fun PocUndoBanner(
     change: UndoableChange,
@@ -2006,8 +2016,9 @@ private fun PocUndoBanner(
         message = change.description,
         icon = CalinoIcon.Check,
         actionLabel = "Undo",
+        actionDescription = "Undo: ${change.description}",
         onAction = onUndo,
-        modifier = modifier,
+        modifier = modifier.testTag(UndoBannerTag),
     )
 }
 

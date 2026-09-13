@@ -61,6 +61,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -491,7 +492,7 @@ fun SwipeEndDismiss(
         }
     }
 
-    Box(modifier.then(gestureModifier)) {
+    Box(modifier.testTag(SwipeEndDismissTag).then(gestureModifier)) {
         content(
             modifier
                 .offset {

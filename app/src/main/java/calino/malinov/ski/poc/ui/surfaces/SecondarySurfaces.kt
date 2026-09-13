@@ -115,6 +115,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -1842,7 +1843,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                 "$name · ${tasks.size}",
                 Modifier
                     .animateItem()
-                    .padding(top = 10.dp, bottom = 3.dp),
+                    .padding(top = 10.dp, bottom = 3.dp)
+                    // These divide the list into sections a screen reader can
+                    // jump between. Marked here rather than inside `label`,
+                    // which is also used for field captions that are not
+                    // headings.
+                    .semantics { heading() },
             )
         }
         // Rails are drawn from the rendered order: a level keeps its rail when a

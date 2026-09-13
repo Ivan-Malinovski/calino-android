@@ -492,7 +492,10 @@ private fun JournalEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Discard your changes?", style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
-                TextButton(onClick = { showDiscard = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Keep editing", color = CalinoColors.Panel) }
+                TextButton(
+                    onClick = { showDiscard = false },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Keep editing journal entry" },
+                ) { Text("Keep editing", color = CalinoColors.Panel) }
                 TextButton(
                     onClick = {
                         title = entry.title

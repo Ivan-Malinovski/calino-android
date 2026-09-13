@@ -4227,6 +4227,7 @@ private fun MonthGrid(
                             CompactMonthRow(
                                 start = start.plusDays((row * 7).toLong()),
                                 month = month,
+                                selected = selected,
                                 events = monthEvents,
                                 journalDates = monthJournalDates,
                                 weekStart = weekStart,
@@ -4254,6 +4255,7 @@ private fun MonthGrid(
 private fun CompactMonthRow(
     start: LocalDate,
     month: YearMonth,
+    selected: LocalDate,
     weekStart: CalinoWeekStart,
     events: Map<LocalDate, List<CalEvent>>,
     journalDates: Set<LocalDate>,
@@ -4269,9 +4271,14 @@ private fun CompactMonthRow(
             val inMonth = YearMonth.from(date) == month
             val today = date == calinoToday
             val dayEvents = events[date].orEmpty()
-            val dateDescription = remember(date, dayEvents) {
+            val dateDescription = remember(date, selected, dayEvents) {
                 buildString {
                     append(date.format(FullDateFormatter))
+                    // This row stays clickable most of the way through the
+                    // collapse, so it has to report selection like every other
+                    // day cell does. Without it the selected day silently loses
+                    // its state partway through the morph.
+                    if (date == selected) append(", selected")
                     if (dayEvents.isNotEmpty()) append(", events: ").append(dayEvents.joinToString { it.title })
                 }
             }

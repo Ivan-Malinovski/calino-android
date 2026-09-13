@@ -240,6 +240,33 @@ animation behaviour.
 - Prefer assertions about committed state, visible content, and semantics over
   pixel coordinates.
 
+**Status 2026-09-13 — [x] done.** `app/src/androidTest/` exists with a Compose
+harness (`CalinoUiTest` + `CalinoTestActions`) and 54 tests across nine classes,
+one per listed interaction. They run on the fixture repository with no account,
+which freezes the clock at 2026-05-18 and pins every pager to its centre page;
+`CalinoResetRule` returns preferences, accounts and fixture data to a
+first-launch state before each test, ordered outside the Compose rule because
+the Activity reads preferences during its first composition.
+
+Validated on the API 36 emulator: 54 passing, then **54 passing again on an
+immediate second run** and on per-class runs in a different order, which is what
+actually exercises the reset rule. Plus `test lintDebug assembleDebug`.
+
+Writing them found four real accessibility defects, fixed in main source rather
+than worked around: `MenuButton` was a 40dp touch target against the documented
+44dp lane; a settings `Switch` split its label and its state across two nodes;
+`CompactMonthRow` dropped `", selected"` while still clickable; and the global
+undo banner had an unlabelled action and no live region. Three test tags were
+added where no user-facing label belongs (the two dismiss gesture containers,
+the undo banner, the range pager).
+
+Note `AGENTS.md` asked for "dock indicator destinations"; there is no dock in
+this app, so that bullet is covered as sidebar destinations and the stale
+wording has been corrected there. The five traps that make these tests
+non-obvious -- chiefly that a pager commits a date only after a *real* drag, and
+that two day cells legitimately report themselves selected while paging -- are
+written up under "Device tests" in `HANDOFF.md`. Read that before adding tests.
+
 ## 7. Fetch-window paging
 
 `CalDavRepository.DefaultWindowMonths` is today ±6 months and does not extend.

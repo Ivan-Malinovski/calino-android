@@ -904,7 +904,11 @@ private fun SettingToggleRow(label: String, description: String, checked: Boolea
         checked = checked,
         onCheckedChange = onCheckedChange,
         colors = SwitchDefaults.colors(checkedThumbColor = CalinoColors.OnAccent, checkedTrackColor = CalinoColors.Accent, uncheckedThumbColor = CalinoColors.Panel, uncheckedTrackColor = CalinoColors.Ink3.copy(.26f), uncheckedBorderColor = Color.Transparent),
-        modifier = Modifier.semantics { contentDescription = "$label toggle" },
+        // Merged, not layered: a bare `semantics {}` here produces a node that
+        // owns the label while the switch's own toggleable node underneath owns
+        // the state, so a screen reader reads the two separately and neither
+        // node is the whole control. Merging makes it one switch again.
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "$label toggle" },
     )
 }
 

@@ -220,6 +220,13 @@ From the repository root, the normal focused/full check is:
 distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'
 ```
 
+The instrumented suite is a **separate** check, because it needs a booted
+emulator. Run it before a handoff that touches UI:
+
+```bash
+distrobox enter android-sdk -- bash -lc './gradlew :app:connectedDebugAndroidTest'
+```
+
 The debug APK is:
 
 ```text
@@ -264,20 +271,27 @@ Existing unit tests live under `app/src/test/` and cover fixture contracts,
 formatting, recurrence, navigation rules, Quick Add parsing, journal drafts,
 and task rules.
 
+Compose device tests live under `app/src/androidTest/` and cover the high-risk
+interactions. They run on the fixture repository with no account connected,
+which is what makes them deterministic: the clock is frozen at 2026-05-18 and
+`PagerEpoch` is the same date. `CalinoUiTest` is the base class; read its
+doc comment and the "Device tests" section of `HANDOFF.md` before adding to it.
+
+- `CalendarDateSelectionTest` — month cell and week-day date selection.
+- `CalendarPagingTest` — day/week/month paging and cancellation.
+- `CalendarZoomMorphTest` — month-to-week morph target selection.
+- `ModalDismissalTest` — modal/editor downward dismissal and spring-back.
+- `QuickAddReturnTargetTest` — Quick Add return-target restoration.
+- `TaskInteractionTest` — task completion, reschedule, and undo.
+- `JournalFlowTest` — journal create/edit/delete and mode changes.
+- `SettingsRetentionTest` — settings state retention.
+- `NavigationDestinationsTest` — navigation destinations and accessibility
+  bounds. (This bullet used to read "dock indicator destinations"; there is no
+  dock. Navigation is the sidebar.)
+
 Add or update tests for user-visible behavior where a behavior-level test is
 practical. Prefer assertions about committed dates, route state, visible
-content, and semantics over private pixel coordinates. Add Compose/device tests
-for high-risk interactions as the test harness is expanded:
-
-- Month cell and week-day date selection.
-- Day/week/month paging and cancellation.
-- Month-to-week morph target selection.
-- Modal/editor downward dismissal and spring-back.
-- Quick Add return-target restoration.
-- Task completion, reschedule, and undo.
-- Journal create/edit/delete and mode changes.
-- Settings state retention.
-- Dock indicator destinations and accessibility bounds.
+content, and semantics over private pixel coordinates.
 
 ## Review protocol
 

@@ -19,6 +19,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = repositoryVersion
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -90,6 +91,18 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     baselineProfile(project(":benchmark"))
     debugImplementation("androidx.compose.ui:ui-tooling")
+    // The Compose device-test harness. The BOM pins ui-test-junit4 to the same
+    // Compose version the app compiles against; the test manifest is what
+    // provides the empty activity ComposeTestRule needs, and is debug-only.
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.10.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:rules:1.7.0")
+    // Not for view assertions -- Compose owns those. This is for pressBack()
+    // (the calendar's zoom-collapse back handler) and closeSoftKeyboard().
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
