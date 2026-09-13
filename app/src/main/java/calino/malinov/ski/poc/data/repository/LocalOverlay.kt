@@ -266,6 +266,7 @@ internal class LocalOverlay {
         durationMinutes = if (input.allDay) null else (input.durationMinutes ?: 60),
         allDay = input.allDay,
         date = if (input.allDay) input.date else null,
+        endDate = if (input.allDay) input.endDate else null,
         recurrence = input.recurrence,
         location = input.location,
         notes = input.notes,
@@ -276,6 +277,7 @@ internal class LocalOverlay {
         reminders = input.reminders,
         travelTimeMinutes = input.travelTimeMinutes,
         relatedTo = input.relatedTo,
+        uid = input.uid,
         url = input.url,
     )
 

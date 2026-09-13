@@ -182,6 +182,16 @@ class CalDavRepository(
 
     override fun snapshot(): CalinoSnapshot = current
 
+    /** A complete, raw export. Failure is propagated so callers never label a partial cache as a backup. */
+    suspend fun exportCalendarEvents(calendarId: String): String {
+        val source = sources.firstOrNull { it.calendar.url == calendarId }
+            ?: throw IllegalArgumentException("That calendar is no longer connected.")
+        val resources = fetcher.fetchAllEvents(source.calendar, source.credentials)
+        return if (resources.isEmpty()) {
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Calino//Calino Android//EN\r\nEND:VCALENDAR\r\n"
+        } else resources.joinToString("\r\n") { it.ics.trim() + "\r\n" }
+    }
+
     /**
      * Registers [listener] and hands it the current snapshot immediately.
      *
@@ -829,7 +839,7 @@ class CalDavRepository(
         source ?: return WriteResult.Rejected("No calendar is connected.")
 
         val local = overlay.newEvent(input.copy(calendarId = source.calendar.url))
-        val candidate = local.copy(uid = local.id, calendarId = source.calendar.url)
+        val candidate = local.copy(uid = input.uid ?: local.id, calendarId = source.calendar.url)
         return when (val result = putEventOnServer(source, candidate, PendingChangeType.CREATE)) {
             is WriteResult.Applied -> result.also {
                 overlay.putEvent(it.record)

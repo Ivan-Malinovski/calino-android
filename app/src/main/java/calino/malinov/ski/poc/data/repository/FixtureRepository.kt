@@ -238,12 +238,14 @@ class FixtureRepository : CalinoRepository {
             attendees = input.attendees,
             calendarId = input.calendarId,
             date = if (input.allDay) input.date else null,
+            endDate = if (input.allDay) input.endDate else null,
             availability = input.availability,
             categories = input.categories,
             reminders = input.reminders,
             travelTimeMinutes = input.travelTimeMinutes,
             relatedTo = input.relatedTo,
             url = input.url,
+            uid = input.uid,
         )
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {

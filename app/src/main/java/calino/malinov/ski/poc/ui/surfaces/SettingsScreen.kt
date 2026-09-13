@@ -141,6 +141,8 @@ fun SettingsSurface(
     // view; `startAdding` asks it to open the add sheet on arrival.
     onOpenAccounts: (startAdding: Boolean, focusAccountId: String?) -> Unit = { _, _ -> },
     openAiVisionRequest: Int = 0,
+    onImportCalendar: () -> Unit = {},
+    onExportCalendar: () -> Unit = {},
 ) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.General.name) }
     val section = remember(sectionName) {
@@ -210,7 +212,7 @@ fun SettingsSurface(
                 beyondViewportPageCount = 1,
                 key = { page -> SettingsSection.entries[page].name },
             ) { page ->
-                SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications, calDavAccounts, onOpenAccounts)
+                SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications, calDavAccounts, onOpenAccounts, onImportCalendar, onExportCalendar)
             }
         }
 
@@ -351,6 +353,8 @@ private fun SettingsSectionContent(
     onOpenNotifications: () -> Unit,
     calDavAccounts: List<CalDavAccount>,
     onOpenAccounts: (Boolean, String?) -> Unit,
+    onImportCalendar: () -> Unit,
+    onExportCalendar: () -> Unit,
 ) {
     when (section) {
         SettingsSection.General -> GeneralSettings()
@@ -360,7 +364,7 @@ private fun SettingsSectionContent(
         SettingsSection.Categories -> CategoriesSettings()
         SettingsSection.Notifications -> NotificationSettings(onOpenNotifications)
         SettingsSection.Sync -> SyncSettings(calDavAccounts, onOpenAccounts)
-        SettingsSection.Data -> DataSettings()
+        SettingsSection.Data -> DataSettings(onImportCalendar, onExportCalendar)
         SettingsSection.AiVision -> AiVisionSettingsPage()
     }
 }
@@ -737,11 +741,11 @@ private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean
 }
 
 @Composable
-private fun DataSettings() = SettingsPage("Data") {
+private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) = SettingsPage("Data") {
     SettingsGroup("Import & export") {
-        SettingActionRow("Export calendar", "Save a local .ics copy of your records", "Export")
+        SettingActionRow("Export calendar", "Save a local .ics copy of one calendar", "Export", enabled = true, onClick = onExport)
         SettingDivider()
-        SettingActionRow("Import calendar", "Bring an existing .ics file into Calino", "Choose file")
+        SettingActionRow("Import calendar", "Review events from an existing .ics file", "Choose file", enabled = true, onClick = onImport)
     }
     SettingsGroup("Danger zone") {
         Text("These actions are intentionally disabled in the UI-only POC.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(18.dp))

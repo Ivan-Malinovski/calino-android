@@ -152,6 +152,8 @@ data class NewEvent(
     val recurrenceId: Instant? = null,
     val recurrenceDate: LocalDate? = null,
     val sequence: Int? = null,
+    /** Inclusive last date for imported multi-day all-day events. */
+    val endDate: LocalDate? = null,
     /** True when the editor explicitly changed or cleared the recurrence rule. */
     val recurrenceChanged: Boolean = false,
     val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,

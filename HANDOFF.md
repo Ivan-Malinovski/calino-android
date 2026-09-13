@@ -4,6 +4,35 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### `.ics` and Android intents — 2026-09-13
+
+TODO item 9. `data/ical/IcsInterop.kt` owns event-only iCalendar interchange.
+Inbound reads are capped at 5 MB, VEVENTs use the existing CalDAV mapper,
+VTODO/VJOURNAL components are reported as ignored, and matching UIDs are
+skipped rather than overwritten.
+
+- Calendar VIEW and Settings Import lead to a review dialog and one writable
+  destination calendar. Creates use `CalinoRepository`, including its durable
+  offline queue and applied/queued/rejected outcomes.
+- Settings Export requires one calendar. Connected export uses a dedicated
+  unbounded VEVENT query, while fixture export serializes the selected fixture
+  calendar. The Storage Access Framework owns both document paths.
+- Event sharing uses a cache-scoped `.ics`, a non-exported `FileProvider`, and
+  a temporary read grant. Recurring selections retain their series rule.
+- `SEND text/plain` seeds Quick Add. Calendar INSERT/EDIT maps standard event
+  extras into the editor; EDIT updates only with the package-namespaced
+  `EVENT_ID` or `EVENT_UID`. No Calendar Provider permission was added.
+
+Validated with `IcsInteropTest`, `test lintDebug assembleDebug`, all 56 device
+tests on the API 36 emulator, and direct SEND and INSERT emulator intents. A
+raw adb VIEW cannot reproduce a document provider's temporary URI grant; its
+permission-denied path fails visibly and the real path shares the same reader
+used by Open Document.
+
+**The user has not tested or accepted this `.ics` and intent integration yet.**
+Treat hands-on product review as outstanding despite the automated and emulator
+checks above.
+
 ### Ranked and filtered search — 2026-09-13
 
 TODO item 10. `data/search/CalinoSearch.kt` now owns a deterministic fuzzy

@@ -92,6 +92,11 @@ class CalDavFetcher(
     private val http: DavHttp = DavHttp(),
     private val incrementalSync: IncrementalSync = IncrementalSync(http),
 ) {
+    /** Complete VEVENT collection for an explicit user export; never windowed or cached as sync data. */
+    suspend fun fetchAllEvents(
+        calendar: DiscoveredCalendar,
+        credentials: DavCredentials,
+    ): List<CalendarResource> = report(calendar, credentials, componentQuery(Vevent))
 
     suspend fun fetch(
         calendar: DiscoveredCalendar,

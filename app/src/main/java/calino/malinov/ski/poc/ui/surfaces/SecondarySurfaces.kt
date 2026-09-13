@@ -221,6 +221,7 @@ enum class TaskMenuAction {
 
 enum class EventMenuAction {
     Edit,
+    Share,
     Duplicate,
     ConvertToTask,
     Delete,
@@ -318,6 +319,7 @@ fun EventActionMenu(
 ) {
     CalinoActionMenu(expanded = expanded, onDismiss = onDismiss) {
         CalinoActionMenuItem("Edit event") { onDismiss(); onAction(EventMenuAction.Edit) }
+        CalinoActionMenuItem("Share event") { onDismiss(); onAction(EventMenuAction.Share) }
         CalinoActionMenuItem("Duplicate") { onDismiss(); onAction(EventMenuAction.Duplicate) }
         CalinoActionMenuItem(
             "Convert to task",

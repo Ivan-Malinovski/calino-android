@@ -336,6 +336,14 @@ and `assembleDebug`.
 - Import/export, which also gives `allowBackup="false"` an escape hatch for
   local-only state.
 
+**Status 2026-09-13 — [x] done.** Calendar VIEW, shared plain text,
+Calendar INSERT/EDIT prefill, event sharing, and reviewed event-only
+import/export are implemented. Connected export performs an unbounded VEVENT
+query instead of exporting only the normal sync window; import chooses one
+writable destination, skips matching UIDs, and uses the durable write queue.
+`IcsInteropTest`, `test lintDebug assembleDebug`, and all 56 API 36 device tests
+pass; direct SEND and INSERT intents were also inspected on the emulator.
+
 ## 10. Search quality
 
 `searchCalino` is substring-only over the loaded window.

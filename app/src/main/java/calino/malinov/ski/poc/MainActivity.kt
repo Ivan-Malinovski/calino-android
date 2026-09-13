@@ -2,6 +2,7 @@ package calino.malinov.ski.poc
 
 import android.app.Application
 import android.content.Intent
+import android.provider.CalendarContract
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -11,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
@@ -71,6 +73,8 @@ import calino.malinov.ski.poc.data.caldav.KeystoreCredentialStore
 import calino.malinov.ski.poc.data.caldav.SharedPreferencesAccountPersistence
 import calino.malinov.ski.poc.data.model.CalDavCalendar
 import calino.malinov.ski.poc.data.model.CalDavForm
+import calino.malinov.ski.poc.data.ical.IcsImportBatch
+import calino.malinov.ski.poc.data.ical.IcsInterop
 import calino.malinov.ski.poc.data.caldav.FileCalendarCache
 import calino.malinov.ski.poc.data.repository.CalDavRepository
 import androidx.compose.runtime.Composable
@@ -151,6 +155,7 @@ import calino.malinov.ski.poc.data.repository.convertTaskToEvent
 import calino.malinov.ski.poc.data.repository.convertEventToTask
 import calino.malinov.ski.poc.data.repository.moveEventToDate
 import calino.malinov.ski.poc.data.repository.moveEventToDateTime
+import calino.malinov.ski.poc.data.repository.accepts
 import calino.malinov.ski.poc.data.model.RecurrenceEditScope
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoColors
@@ -319,6 +324,14 @@ private fun PockRoute.rootOrder(): Int = when (this) {
 class MainActivity : ComponentActivity() {
     var incomingImage by mutableStateOf<Uri?>(null)
         private set
+    var incomingCalendar by mutableStateOf<Uri?>(null)
+        private set
+    var incomingText by mutableStateOf<String?>(null)
+        private set
+    var incomingEventDraft by mutableStateOf<EditorDraft?>(null)
+        private set
+    var incomingEventKey by mutableStateOf<String?>(null)
+        private set
     var aiShortcutRequest by mutableIntStateOf(0)
         private set
 
@@ -347,6 +360,7 @@ class MainActivity : ComponentActivity() {
         ReminderChannels.ensure(this)
         consumeAiIntent(intent)
         consumeReminderIntent(intent)
+        consumeInteropIntent(intent)
         enableEdgeToEdge()
         setContent { CalinoApp() }
     }
@@ -356,9 +370,14 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         consumeAiIntent(intent)
         consumeReminderIntent(intent)
+        consumeInteropIntent(intent)
     }
 
     fun consumeIncomingImage() { incomingImage = null }
+    fun consumeIncomingCalendar() { incomingCalendar = null }
+    fun acceptIncomingCalendar(uri: Uri) { incomingCalendar = uri }
+    fun consumeIncomingText() { incomingText = null }
+    fun consumeIncomingEventDraft() { incomingEventDraft = null; incomingEventKey = null }
 
     fun consumeReminderLink() { pendingReminderLink = null }
 
@@ -381,6 +400,44 @@ class MainActivity : ComponentActivity() {
             incomingImage = single ?: multiple?.firstOrNull()
         } else if (intent.data?.host == "ai-photo-import") {
             aiShortcutRequest += 1
+        }
+    }
+
+    private fun consumeInteropIntent(intent: Intent?) {
+        intent ?: return
+        when {
+            intent.action == Intent.ACTION_SEND && intent.type == "text/plain" ->
+                incomingText = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
+            intent.action == Intent.ACTION_VIEW && intent.data != null &&
+                (intent.type?.contains("calendar", ignoreCase = true) == true ||
+                    intent.data?.lastPathSegment?.endsWith(".ics", ignoreCase = true) == true) ->
+                incomingCalendar = intent.data
+            intent.action == Intent.ACTION_INSERT || intent.action == Intent.ACTION_EDIT -> {
+                incomingEventKey = if (intent.action == Intent.ACTION_EDIT) {
+                    intent.getStringExtra("calino.malinov.ski.poc.extra.EVENT_ID")
+                        ?: intent.getStringExtra("calino.malinov.ski.poc.extra.EVENT_UID")
+                } else null
+                val begin = intent.getLongExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, -1L)
+                val end = intent.getLongExtra(CalendarContract.EXTRA_EVENT_END_TIME, -1L)
+                val zone = java.time.ZoneId.systemDefault()
+                val start = begin.takeIf { it >= 0 }?.let { java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime() }
+                val allDay = intent.getBooleanExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, false)
+                incomingEventDraft = EditorDraft(
+                    kind = PocQuickAddKind.Event,
+                    rawInput = intent.getStringExtra(CalendarContract.Events.TITLE).orEmpty(),
+                    title = intent.getStringExtra(CalendarContract.Events.TITLE).orEmpty(),
+                    date = start?.toLocalDate() ?: java.time.LocalDate.now(),
+                    startTime = if (allDay) null else start?.toLocalTime(),
+                    durationMinutes = if (begin >= 0 && end > begin) ((end - begin) / 60_000L).toInt() else 60,
+                    allDay = allDay,
+                    location = intent.getStringExtra(CalendarContract.Events.EVENT_LOCATION),
+                    description = intent.getStringExtra(CalendarContract.Events.DESCRIPTION),
+                    attendees = intent.getStringExtra(Intent.EXTRA_EMAIL)?.split(',')
+                        ?.map(String::trim)?.filter(String::isNotEmpty)
+                        ?.map { calino.malinov.ski.poc.data.model.Attendee(it, it) }.orEmpty(),
+                    touched = calino.malinov.ski.poc.data.model.EditorField.entries.toSet(),
+                )
+            }
         }
     }
 }
@@ -491,6 +548,9 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     fun discardPendingChange(id: String): Boolean = container.calDavRepository.discardPendingChange(id)
 
     fun setEventWindowMonths(months: Long) = container.calDavRepository.setWindowMonths(months)
+
+    suspend fun exportCalendarEvents(calendarId: String): String =
+        container.calDavRepository.exportCalendarEvents(calendarId)
 
     /** Re-plan the reminder schedule from the latest snapshot. */
     fun replanReminders() = container.reminderBridge.refresh()
@@ -759,6 +819,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
     var undoNonce by remember { mutableIntStateOf(0) }
     var writeError by remember { mutableStateOf<String?>(null) }
+    var importBatch by remember { mutableStateOf<IcsImportBatch?>(null) }
+    var importCalendarId by remember { mutableStateOf<String?>(null) }
+    var exportCalendarPicker by remember { mutableStateOf(false) }
+    var pendingExportText by remember { mutableStateOf<String?>(null) }
+    var externalDraft by remember { mutableStateOf<EditorDraft?>(null) }
     // The overflow menu can act on one occurrence of a series, so its delete
     // asks for a scope instead of defaulting to the whole series.
     var pendingEventDelete by remember { mutableStateOf<CalEvent?>(null) }
@@ -787,6 +852,30 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         bitmap?.let { image ->
             pickedImage = ByteArrayOutputStream().use { image.compress(Bitmap.CompressFormat.JPEG, 90, it); it.toByteArray() } to "image/jpeg"
         }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) activity.acceptIncomingCalendar(uri)
+    }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/calendar")) { uri ->
+        val text = pendingExportText
+        if (uri != null && text != null) {
+            runCatching { activity.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(text) } }
+                .onFailure { writeError = "The calendar export could not be written." }
+        }
+        pendingExportText = null
+    }
+
+    LaunchedEffect(activity.incomingCalendar) {
+        val uri = activity.incomingCalendar ?: return@LaunchedEffect
+        activity.consumeIncomingCalendar()
+        runCatching {
+            val bytes = activity.contentResolver.openInputStream(uri)?.use(IcsInterop::readLimited)
+                ?: error("That calendar file could not be read.")
+            IcsInterop.withDuplicates(IcsInterop.parseEvents(bytes.toString(Charsets.UTF_8)), snapshot.events)
+        }.onSuccess { batch ->
+            importBatch = batch
+            importCalendarId = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VEVENT") }?.id
+        }.onFailure { writeError = it.message ?: "That calendar file could not be read." }
     }
 
     fun requestPhotoImport() {
@@ -885,6 +974,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         parentTaskId: String? = null,
         startMinute: Int? = null,
     ) {
+        externalDraft = null
         editEventId = null
         quickAddSeed = ""
         quickAddStartMinute = startMinute
@@ -897,6 +987,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     /** The same editor, seeded from a record that already exists. */
     fun openEditor(event: CalEvent, origin: PocReturnTarget) {
+        externalDraft = null
         editEventId = event.id
         quickAddSeed = ""
         quickAddStartMinute = null
@@ -907,6 +998,28 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         quickAddKind = QuickAddKind.Event
         quickAddOrigin = origin
         route = PockRoute.QuickAdd
+    }
+
+    LaunchedEffect(activity.incomingText) {
+        val text = activity.incomingText ?: return@LaunchedEffect
+        activity.consumeIncomingText()
+        selectedDate = now.today
+        openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar)
+        quickAddSeed = text
+    }
+    LaunchedEffect(activity.incomingEventDraft) {
+        val draft = activity.incomingEventDraft ?: return@LaunchedEffect
+        val existing = activity.incomingEventKey?.let { key -> snapshot.events.firstOrNull { it.id == key || it.uid == key } }
+        activity.consumeIncomingEventDraft()
+        selectedDate = draft.date
+        openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar)
+        externalDraft = draft.copy(
+            editingId = existing?.id,
+            calendarId = existing?.calendarId ?: snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VEVENT") }?.id ?: draft.calendarId,
+            uid = existing?.uid, href = existing?.href, etag = existing?.etag,
+            recurrence = existing?.recurrence, recurrenceId = existing?.recurrenceId,
+            recurrenceDate = existing?.recurrenceDate, sequence = existing?.sequence,
+        )
     }
 
     fun <T> launchWrite(operation: suspend () -> WriteResult<T>, onApplied: (T) -> Unit = {}) {
@@ -1026,6 +1139,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 PockRoute.Agenda -> PocReturnTarget.Agenda
                 else -> PocReturnTarget.Calendar
             })
+            EventMenuAction.Share -> runCatching {
+                val text = IcsInterop.export(listOf(event))
+                val directory = java.io.File(activity.cacheDir, "calendar-exports").also { it.mkdirs() }
+                val file = java.io.File(directory, "${event.title.ifBlank { "event" }.replace(Regex("[^A-Za-z0-9._-]"), "-").take(48)}.ics")
+                file.writeText(text)
+                val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
+                activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/calendar"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = android.content.ClipData.newRawUri("Calendar event", uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, "Share event"))
+            }.onFailure { writeError = "That event could not be shared." }
             EventMenuAction.Duplicate -> launchWrite({ repository.duplicateEvent(event) })
             EventMenuAction.ConvertToTask -> launchWrite({ repository.convertEventToTask(event) })
             EventMenuAction.Delete -> pendingEventDelete = event
@@ -1475,6 +1601,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             route = PockRoute.Accounts
                         },
                         openAiVisionRequest = openAiSettingsRequest,
+                        onImportCalendar = { importLauncher.launch(arrayOf("text/calendar", "application/ics", "application/octet-stream")) },
+                        onExportCalendar = { exportCalendarPicker = true },
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,
@@ -1645,6 +1773,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         draft = editing
                             ?.let(::editorDraftFor)
                             ?: aiDraft
+                            ?: externalDraft
                             ?: run {
                                 val defaults = LocalCalinoPreferences.current
                                 blankEditorDraft(
@@ -1963,6 +2092,69 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             pendingEventDelete = null
             launchWrite({ repository.deleteEvent(target.id, scope) })
         },
+    )
+
+    importBatch?.let { batch ->
+        val writable = snapshot.calendars.filter { !it.readOnly && it.accepts("VEVENT") }
+        AlertDialog(
+            onDismissRequest = { importBatch = null },
+            title = { Text("Import ${batch.events.size} event${if (batch.events.size == 1) "" else "s"}?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (batch.unsupportedComponents > 0) Text("${batch.unsupportedComponents} task or journal component(s) will be ignored.")
+                    if (batch.duplicateUids.isNotEmpty()) Text("${batch.duplicateUids.size} duplicate event(s) will be skipped.")
+                    Text("Choose a destination calendar:")
+                    writable.forEach { calendar ->
+                        TextButton(onClick = { importCalendarId = calendar.id }) {
+                            Text(if (importCalendarId == calendar.id) "✓ ${calendar.name}" else calendar.name)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = importCalendarId != null, onClick = {
+                    val target = importCalendarId ?: return@TextButton
+                    val candidates = batch.events.filterNot { it.uid in batch.duplicateUids }
+                    importBatch = null
+                    writeScope.launch {
+                        var imported = 0; var queued = 0; var failed = 0
+                        candidates.forEach { event ->
+                            when (repository.addEvent(IcsInterop.asNewEvent(event, target))) {
+                                is WriteResult.Applied -> imported++
+                                is WriteResult.Queued -> queued++
+                                is WriteResult.Rejected -> failed++
+                            }
+                        }
+                        writeError = "Imported $imported${if (queued > 0) ", queued $queued" else ""}${if (batch.duplicateUids.isNotEmpty()) ", skipped ${batch.duplicateUids.size}" else ""}${if (failed > 0) ", failed $failed" else ""}."
+                    }
+                }) { Text("Import") }
+            },
+            dismissButton = { TextButton(onClick = { importBatch = null }) { Text("Cancel") } },
+        )
+    }
+    if (exportCalendarPicker) AlertDialog(
+        onDismissRequest = { exportCalendarPicker = false },
+        title = { Text("Export calendar") },
+        text = {
+            Column {
+                snapshot.calendars.forEach { calendar ->
+                    TextButton(onClick = {
+                        exportCalendarPicker = false
+                        writeScope.launch {
+                            runCatching {
+                                if (pocViewModel.hasAccounts) pocViewModel.exportCalendarEvents(calendar.id)
+                                else IcsInterop.export(snapshot.events.filter { it.calendarId == calendar.id })
+                            }.onSuccess { text ->
+                                pendingExportText = text
+                                exportLauncher.launch("${calendar.name.replace(Regex("[^A-Za-z0-9._-]"), "-")}.ics")
+                            }.onFailure { writeError = it.message ?: "A complete calendar export could not be read." }
+                        }
+                    }) { Text(calendar.name) }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { exportCalendarPicker = false }) { Text("Cancel") } },
     )
 
     AiProcessingOverlay(aiBusy, aiStage)
