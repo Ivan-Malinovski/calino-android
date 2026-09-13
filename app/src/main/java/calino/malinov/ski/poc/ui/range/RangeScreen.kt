@@ -24,7 +24,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.material3.Text
@@ -34,14 +33,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -76,7 +79,6 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
 
 private val RangeDate = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
@@ -104,22 +106,25 @@ fun RangeScreen(
     var anchorEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
     val anchor = LocalDate.ofEpochDay(anchorEpoch)
     val eventIndex = remember(events) { EventDateIndex.build(events) }
-    val scope = rememberCoroutineScope()
-    val pager = key(mode, weekStart) {
+    var timelineScale by rememberSaveable { mutableFloatStateOf(1f) }
+    var pagerGeneration by rememberSaveable(mode, weekStart) { mutableIntStateOf(0) }
+    var pagerBaseEpoch by rememberSaveable(mode, weekStart) { mutableLongStateOf(anchorEpoch) }
+    val pager = key(mode, weekStart, pagerGeneration) {
         rememberPagerState(initialPage = RangePagerCenter) { RangePagerPageCount }
     }
-    val base = remember(mode, weekStart, anchorEpoch) { anchor }
+    val base = LocalDate.ofEpochDay(pagerBaseEpoch)
 
     LaunchedEffect(initialDate) { anchorEpoch = initialDate.toEpochDay() }
     LaunchedEffect(pager, mode) {
         snapshotFlow { pager.isScrollInProgress to pager.settledPage }
             .distinctUntilChanged()
             .collect { (scrolling, page) ->
-                if (!scrolling && page != RangePagerCenter) {
+                if (!scrolling) {
                     val next = rangeAnchorForPage(base, page, mode)
-                    pager.scrollToPage(RangePagerCenter)
-                    anchorEpoch = next.toEpochDay()
-                    onDateChanged(next)
+                    if (next.toEpochDay() != anchorEpoch) {
+                        anchorEpoch = next.toEpochDay()
+                        onDateChanged(next)
+                    }
                 }
             }
     }
@@ -130,21 +135,27 @@ fun RangeScreen(
         CalinoMonthHeading(
             day = visibleDays.first(),
             onOpenMenu = onOpenMenu,
-            onPreviousMonth = { scope.launch { pager.animateScrollToPage(RangePagerCenter - 1) } },
-            onNextMonth = { scope.launch { pager.animateScrollToPage(RangePagerCenter + 1) } },
+            onPreviousMonth = {},
+            onNextMonth = {},
             onToday = {
+                pagerBaseEpoch = today.toEpochDay()
                 anchorEpoch = today.toEpochDay()
                 onDateChanged(today)
+                pagerGeneration += 1
             },
             showToday = today !in visibleDays,
             subtitle = subtitle,
-        )
-        CompactSegmentedControl(
-            options = CalinoRangeMode.entries.map { it.label },
-            selectedIndex = CalinoRangeMode.entries.indexOf(mode),
-            onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
-            semanticLabel = "Range size",
-            modifier = Modifier.align(Alignment.CenterHorizontally).width(220.dp),
+            showNavigationArrows = false,
+            showTodayButton = false,
+            trailingContent = {
+                CompactSegmentedControl(
+                    options = listOf("3", "7"),
+                    selectedIndex = CalinoRangeMode.entries.indexOf(mode),
+                    onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
+                    semanticLabel = "Range size in days",
+                    modifier = Modifier.width(112.dp),
+                )
+            },
         )
         AnimatedContent(
             targetState = mode,
@@ -164,6 +175,8 @@ fun RangeScreen(
                     days = days,
                     eventIndex = eventIndex,
                     tasks = tasks,
+                    timelineScale = timelineScale,
+                    onTimelineScaleChanged = { timelineScale = it },
                     onEventClick = onEventClick,
                     onEventAction = onEventAction,
                     onEventDrop = onEventDrop,
@@ -183,6 +196,8 @@ private fun RangePage(
     days: List<LocalDate>,
     eventIndex: EventDateIndex,
     tasks: List<CalTask>,
+    timelineScale: Float,
+    onTimelineScaleChanged: (Float) -> Unit,
     onEventClick: (LocalDate, CalEvent) -> Unit,
     onEventAction: (EventMenuAction, CalEvent) -> Unit,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
@@ -194,7 +209,6 @@ private fun RangePage(
 ) {
     val density = LocalDensity.current
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    var timelineScale by rememberSaveable { mutableFloatStateOf(1f) }
     val scroll = rememberScrollState(with(density) { (9 * 62).dp.roundToPx() })
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
     Column(Modifier.fillMaxSize().semantics { contentDescription = "${days.size}-day calendar" }) {
@@ -250,7 +264,7 @@ private fun RangePage(
         Spacer(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
         Row(
             Modifier.fillMaxSize()
-                .rangePinch { zoom -> timelineScale = (timelineScale * zoom).coerceIn(.65f, 1.8f) }
+                .rangePinch { zoom -> onTimelineScaleChanged((timelineScale * zoom).coerceIn(.65f, 1.8f)) }
                 .verticalScroll(scroll).padding(bottom = CalinoSpacing.PillClearance),
             horizontalArrangement = Arrangement.spacedBy(1.dp),
         ) {
@@ -259,13 +273,23 @@ private fun RangePage(
                 val timed = remember(eventIndex, day) { eventIndex.eventsOn(day).filterNot { it.allDay } }
                 Box(
                     Modifier.weight(1f).border(0.5.dp, CalinoColors.Line2)
-                        .pointerInput(day) {
-                            detectTapGestures(onDoubleTap = { point ->
+                        .rangeEmptyDoubleTap(
+                            isOccupied = { point ->
+                                val minute = point.y /
+                                    with(density) { (62 * timelineScale).dp.toPx() } * 60f
+                                timed.any { event ->
+                                    val start = event.start ?: return@any false
+                                    val startMinute = start.hour * 60 + start.minute
+                                    val duration = event.durationMinutes ?: 30
+                                    minute >= startMinute && minute <= startMinute + duration
+                                }
+                            },
+                            onDoubleTap = { point ->
                                 val raw = (point.y / with(density) { (62 * timelineScale).dp.toPx() } * 60f)
                                 val minute = ((raw / 15f).roundToInt() * 15).coerceIn(0, 23 * 60 + 45)
                                 onCreateEventAt(LocalDateTime.of(day, java.time.LocalTime.MIDNIGHT.plusMinutes(minute.toLong())))
-                            })
-                        },
+                            },
+                        ),
                 ) {
                     HourRailContent(
                         day = day,
@@ -278,6 +302,7 @@ private fun RangePage(
                         onCardBounds = null,
                         onCardGone = null,
                         showHourLabels = false,
+                        compactRangeCards = true,
                         onEventDragEnd = { event, offset ->
                             val start = event.start ?: return@HourRailContent
                             val columnWidthPx = with(density) { ((screenWidthDp - 52f) / days.size).dp.toPx() }
@@ -288,6 +313,52 @@ private fun RangePage(
                         },
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Observes taps on a day column without claiming the pointer stream from event
+ * cards, scrolling, or the horizontal pager. Only a second stationary tap on
+ * genuinely empty timeline space creates an event.
+ */
+private fun Modifier.rangeEmptyDoubleTap(
+    isOccupied: (androidx.compose.ui.geometry.Offset) -> Boolean,
+    onDoubleTap: (androidx.compose.ui.geometry.Offset) -> Unit,
+): Modifier = composed {
+    val currentIsOccupied by rememberUpdatedState(isOccupied)
+    val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
+    pointerInput(Unit) {
+        var previousTapTime = 0L
+        var previousTapPosition = androidx.compose.ui.geometry.Offset.Unspecified
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+            val pointerId = down.id
+            var moved = false
+            var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+            while (up == null) {
+                val event = awaitPointerEvent(PointerEventPass.Final)
+                val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                if (!change.pressed) up = change
+            }
+            val release = up
+            if (!moved && release != null && !currentIsOccupied(release.position)) {
+                val elapsed = release.uptimeMillis - previousTapTime
+                val closeEnough = previousTapPosition.isSpecified &&
+                    (release.position - previousTapPosition).getDistance() <= viewConfiguration.touchSlop * 2f
+                if (elapsed in viewConfiguration.doubleTapMinTimeMillis..viewConfiguration.doubleTapTimeoutMillis && closeEnough) {
+                    currentOnDoubleTap(release.position)
+                    previousTapTime = 0L
+                    previousTapPosition = androidx.compose.ui.geometry.Offset.Unspecified
+                } else {
+                    previousTapTime = release.uptimeMillis
+                    previousTapPosition = release.position
+                }
+            } else {
+                previousTapTime = 0L
+                previousTapPosition = androidx.compose.ui.geometry.Offset.Unspecified
             }
         }
     }

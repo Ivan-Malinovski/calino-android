@@ -5627,6 +5627,7 @@ internal fun HourRailContent(
     onCardGone: ((String) -> Unit)?,
     showHourLabels: Boolean = true,
     onEventDragEnd: ((CalEvent, Offset) -> Unit)? = null,
+    compactRangeCards: Boolean = false,
 ) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
@@ -5655,19 +5656,37 @@ internal fun HourRailContent(
         // on top of each other, where the later one hid the earlier one.
         val railPreferences = LocalCalinoPreferences.current
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val railWidth = (maxWidth - railStart - 20.dp).coerceAtLeast(0.dp)
+            val railEndInset = if (compactRangeCards) 1.dp else 20.dp
+            val railWidth = (maxWidth - railStart - railEndInset).coerceAtLeast(0.dp)
             val laneGap = 3.dp
+            // Seven-day columns are too narrow to split into conventional
+            // side-by-side lanes. Cascade collisions instead: the earliest
+            // (and, for equal starts, longest) event stays left and beneath,
+            // while later/shorter events reveal themselves slightly to the
+            // right without surrendering most of their title width.
             slots.forEach { slot ->
                 val event = slot.event
-                val laneWidth = ((railWidth - laneGap * (slot.columns - 1)) / slot.columns)
-                    .coerceAtLeast(0.dp)
+                val compactCascade = if (slot.columns > 1) {
+                    minOf(8.dp, (railWidth - 24.dp).coerceAtLeast(0.dp) / (slot.columns - 1))
+                } else {
+                    0.dp
+                }
+                val laneWidth = if (compactRangeCards) {
+                    (railWidth - compactCascade * slot.column).coerceAtLeast(24.dp)
+                } else {
+                    ((railWidth - laneGap * (slot.columns - 1)) / slot.columns).coerceAtLeast(0.dp)
+                }
                 val top = (hourHeight.value * (slot.startMinute / 60f)).dp
                 val height = (hourHeight.value * ((slot.endMinute - slot.startMinute) / 60f) - 4f)
                     .coerceAtLeast(24f).dp
                 // Only a block with room for a second line gets one; a
                 // half-width 30-minute event would otherwise clip its title.
                 val showMetadata = height >= 42.dp && laneWidth >= 110.dp
-                val cardX = railStart + (laneWidth + laneGap) * slot.column
+                val cardX = if (compactRangeCards) {
+                    railStart + compactCascade * slot.column
+                } else {
+                    railStart + (laneWidth + laneGap) * slot.column
+                }
                 var menuOpen by remember(event.id) { mutableStateOf(false) }
                 val cardKey = remember(day, event.id) { timelineCardKey(day, event.id) }
                 val eventInteraction = when {
@@ -5700,6 +5719,7 @@ internal fun HourRailContent(
                     modifier = Modifier.offset(x = cardX, y = top)
                         .width(laneWidth)
                         .height(height)
+                        .zIndex(if (compactRangeCards) slot.column.toFloat() else 0f)
                         .onGloballyPositioned { coords ->
                             onCardBounds?.invoke(
                                 TimelineCardBounds(
@@ -5730,6 +5750,7 @@ internal fun HourRailContent(
                     timeFormat = timeFormat,
                     preferences = railPreferences,
                     colors = colors,
+                    hideAccentRail = compactRangeCards,
                 ) {
                     EventActionMenu(
                         event = event,
@@ -5998,6 +6019,7 @@ private fun TimelineEventCard(
     preferences: calino.malinov.ski.poc.state.CalinoPreferences,
     colors: calino.malinov.ski.poc.design.CalinoPalette,
     lifted: Boolean = false,
+    hideAccentRail: Boolean = false,
     content: @Composable (() -> Unit)? = null,
 ) {
     val liftScale by animateFloatAsState(
@@ -6011,37 +6033,56 @@ private fun TimelineEventCard(
         label = "timeline card shadow",
     )
     val shape = RoundedCornerShape(11.dp)
-    Box(
+    BoxWithConstraints(
         modifier
             .graphicsLayer {
                 scaleX = liftScale
                 scaleY = liftScale
                 shadowElevation = liftShadow.toPx()
                 this.shape = shape
-            }
-            .clip(shape)
-            .background(eventTint(Color(event.color), .13f, colors.Panel))
-            .border(
-                if (lifted) 2.dp else 1.dp,
-                if (lifted) colors.Accent.copy(alpha = .72f) else Color(event.color).copy(alpha = .16f),
-                shape,
-            )
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            },
     ) {
-        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) {
-            Box(
-                Modifier.width(4.dp)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(CalinoColors.forEvent(Color(event.color))),
-            )
-            Column(Modifier.padding(start = 8.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        // Seven equal day columns are intentionally narrow on a phone. At
+        // that width use the month cell's compact chip priorities: the title
+        // gets the available pixels first, with a slim accent and tight
+        // insets, instead of leaving only an accent rail and an ellipsis.
+        val compact = maxWidth < 72.dp
+        val cardShape = RoundedCornerShape(if (compact) 6.dp else 11.dp)
+        Box(
+            Modifier.fillMaxSize().clip(cardShape)
+                .background(eventTint(Color(event.color), if (compact) .10f else .13f, colors.Panel))
+                .border(
+                    if (lifted) 2.dp else 1.dp,
+                    if (lifted) colors.Accent.copy(alpha = .72f) else Color(event.color).copy(alpha = if (compact) .12f else .16f),
+                    cardShape,
+                ),
+        ) {
+            Row(
+                Modifier.fillMaxSize().padding(
+                    horizontal = if (compact) 3.dp else 8.dp,
+                    vertical = if (compact) 3.dp else 5.dp,
+                ),
+                verticalAlignment = Alignment.Top,
+            ) {
+            if (!hideAccentRail) {
+                Box(
+                    Modifier.width(if (compact) 2.dp else 4.dp)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(CalinoColors.forEvent(Color(event.color))),
+                )
+            }
+            Column(
+                Modifier.padding(start = if (hideAccentRail) 1.dp else if (compact) 3.dp else 8.dp).weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
                 Text(
                     event.title,
-                    fontSize = 13.5.sp,
-                    lineHeight = 17.sp,
+                    fontSize = if (compact) 9.sp else 13.5.sp,
+                    lineHeight = if (compact) 11.sp else 17.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
+                    softWrap = !compact,
                     overflow = TextOverflow.Ellipsis,
                     color = colors.Ink,
                 )
@@ -6058,8 +6099,9 @@ private fun TimelineEventCard(
                     Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = colors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+            }
+            content?.invoke()
         }
-        content?.invoke()
     }
 }
 

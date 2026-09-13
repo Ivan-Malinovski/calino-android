@@ -67,6 +67,15 @@ class DayRailLayoutTest {
     }
 
     @Test
+    fun simultaneousEvents_putTheLongestInTheLeftmostColumn() {
+        val slots = layoutDayRail(listOf(event("short", 9, minutes = 30), event("long", 9, minutes = 180)))
+            .associateBy { it.event.id }
+
+        assertEquals(0, slots.getValue("long").column)
+        assertEquals(1, slots.getValue("short").column)
+    }
+
+    @Test
     fun allDayEvents_leaveTheRail() {
         val allDay = event("a", 0, minutes = null).copy(allDay = true)
         assertTrue(layoutDayRail(listOf(allDay)).isEmpty())

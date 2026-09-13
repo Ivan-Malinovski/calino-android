@@ -41,7 +41,7 @@ fun layoutDayRail(events: List<CalEvent>): List<DayRailSlot> {
         val startMinute = start.hour * 60 + start.minute
         val span = (event.durationMinutes ?: 60).coerceAtLeast(MinimumBlockMinutes)
         Triple(event, startMinute, (startMinute + span).coerceAtMost(24 * 60))
-    }.sortedWith(compareBy({ it.second }, { it.third }, { it.first.id }))
+    }.sortedWith(compareBy<Triple<CalEvent, Int, Int>>({ it.second }, { -it.third }, { it.first.id }))
 
     val slots = mutableListOf<DayRailSlot>()
     // Events buffered for the cluster being built, with the column each took.

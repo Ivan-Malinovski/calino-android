@@ -1174,16 +1174,21 @@ fun CalinoMonthHeading(
     subtitle: String? = null,
     monthPagerState: PagerState? = null,
     monthForPage: ((Int) -> YearMonth)? = null,
+    showNavigationArrows: Boolean = true,
+    showTodayButton: Boolean = true,
+    trailingContent: (@Composable () -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         onOpenMenu?.let { MenuButton(onClick = it) }
-        IconButton(
-            onClick = onPreviousMonth,
-            modifier = Modifier.semantics { contentDescription = "Previous month" },
-        ) { Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink2) }
+        if (showNavigationArrows) {
+            IconButton(
+                onClick = onPreviousMonth,
+                modifier = Modifier.semantics { contentDescription = "Previous month" },
+            ) { Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink2) }
+        }
         // Compose centers the title's line box, but the display face has more
         // visual weight above its baseline. Nudge the complete month/year lockup
         // to the optical center of the surrounding 48dp controls.
@@ -1223,28 +1228,33 @@ fun CalinoMonthHeading(
                 }
             }
         }
-        val todayAlpha by animateFloatAsState(
-            targetValue = if (showToday) 1f else 0f,
-            animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
-            label = "today shortcut opacity",
-        )
-        TextButton(
-            onClick = onToday,
-            enabled = showToday,
-            modifier = Modifier
-                .graphicsLayer { alpha = todayAlpha }
-                .then(
-                    if (showToday) {
-                        Modifier.semantics { contentDescription = "Go to today" }
-                    } else {
-                        Modifier.clearAndSetSemantics { }
-                    },
-                ),
-        ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
-        IconButton(
-            onClick = onNextMonth,
-            modifier = Modifier.semantics { contentDescription = "Next month" },
-        ) { Icon(CalinoIcons.ChevronRight, contentDescription = null, tint = CalinoColors.Ink2) }
+        trailingContent?.invoke()
+        if (showTodayButton) {
+            val todayAlpha by animateFloatAsState(
+                targetValue = if (showToday) 1f else 0f,
+                animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+                label = "today shortcut opacity",
+            )
+            TextButton(
+                onClick = onToday,
+                enabled = showToday,
+                modifier = Modifier
+                    .graphicsLayer { alpha = todayAlpha }
+                    .then(
+                        if (showToday) {
+                            Modifier.semantics { contentDescription = "Go to today" }
+                        } else {
+                            Modifier.clearAndSetSemantics { }
+                        },
+                    ),
+            ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
+        }
+        if (showNavigationArrows) {
+            IconButton(
+                onClick = onNextMonth,
+                modifier = Modifier.semantics { contentDescription = "Next month" },
+            ) { Icon(CalinoIcons.ChevronRight, contentDescription = null, tint = CalinoColors.Ink2) }
+        }
     }
     Box(
         Modifier.fillMaxWidth().height(2.dp).padding(horizontal = 16.dp)
