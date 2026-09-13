@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -111,10 +112,12 @@ fun RangeScreen(
     val mode = preferences.rangeMode
     val weekStart = preferences.weekStart
     val today = LocalCalinoNow.current.today
+    val density = LocalDensity.current
     var anchorEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
     val anchor = LocalDate.ofEpochDay(anchorEpoch)
     val eventIndex = remember(events) { EventDateIndex.build(events) }
     var timelineScale by rememberSaveable { mutableFloatStateOf(1f) }
+    val timelineScroll = rememberScrollState(with(density) { (9 * 62).dp.roundToPx() })
     var pagerGeneration by rememberSaveable(mode, weekStart) { mutableIntStateOf(0) }
     var pagerBaseEpoch by rememberSaveable(mode, weekStart) { mutableLongStateOf(anchorEpoch) }
     val pager = key(mode, weekStart, pagerGeneration) {
@@ -184,6 +187,7 @@ fun RangeScreen(
                     eventIndex = eventIndex,
                     tasks = tasks,
                     timelineScale = timelineScale,
+                    timelineScroll = timelineScroll,
                     onTimelineScaleChanged = { timelineScale = it },
                     onEventClick = onEventClick,
                     onEventAction = onEventAction,
@@ -205,6 +209,7 @@ private fun RangePage(
     eventIndex: EventDateIndex,
     tasks: List<CalTask>,
     timelineScale: Float,
+    timelineScroll: ScrollState,
     onTimelineScaleChanged: (Float) -> Unit,
     onEventClick: (LocalDate, CalEvent) -> Unit,
     onEventAction: (EventMenuAction, CalEvent) -> Unit,
@@ -217,7 +222,6 @@ private fun RangePage(
 ) {
     val density = LocalDensity.current
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val scroll = rememberScrollState(with(density) { (9 * 62).dp.roundToPx() })
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
     val railLayer = rememberGraphicsLayer()
     var stripHeight by remember { mutableStateOf(0.dp) }
@@ -230,7 +234,7 @@ private fun RangePage(
                     drawLayer(railLayer)
                 }
                 .rangePinch { zoom -> onTimelineScaleChanged((timelineScale * zoom).coerceIn(.65f, 1.8f)) }
-                .verticalScroll(scroll).padding(bottom = CalinoSpacing.PillClearance),
+                .verticalScroll(timelineScroll).padding(bottom = CalinoSpacing.PillClearance),
             horizontalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             RangeHourGutter(timelineScale)
