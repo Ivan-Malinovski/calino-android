@@ -166,6 +166,10 @@ import calino.malinov.ski.poc.qa.edgeScrollDirection
 import calino.malinov.ski.poc.qa.timelineScaleAfterPinch
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
+import calino.malinov.ski.poc.qa.monthRowHingeOffset
+import calino.malinov.ski.poc.qa.monthRowReveal
+import calino.malinov.ski.poc.qa.monthSelectorMorphProgress
+import calino.malinov.ski.poc.qa.monthUnfoldPhase
 import calino.malinov.ski.poc.util.CalinoDefaultView
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
@@ -3468,6 +3472,7 @@ private fun StaticMonthGrid(
                 val liveDayTravel = compactDayPagerTravel()
                 val drawAlpha = visualAlpha.value.coerceIn(0f, 1f)
                 val zoom = zoomState.value.coerceIn(0f, 2f)
+                val unfoldZoom = zoom.coerceIn(0f, 1f)
                 val compactProgress = smoothStep(1f - zoom.coerceIn(0f, 1f))
                 // Exactly at rest, not merely close to it: the shared row is
                 // the endpoint geometry, and anything past zero is already
@@ -3563,6 +3568,8 @@ private fun StaticMonthGrid(
                 val compactWeekContentTop = compactWeekCenter - compactWeekContentHeightPx / 2f
                 fun dateTopFor(row: Int, column: Int): Float {
                     val cellTop = rowTopFor(row)
+                    val hingeOffset = with(density) { 6.dp.toPx() } *
+                        monthRowHingeOffset(unfoldZoom, row, compactWeekRow)
                     val compactWeekStyle = zoom < 1f && row == compactWeekRow
                     return if (compactWeekStyle) {
                         val monthDateTop = if (compactWeekRow == 0) {
@@ -3575,10 +3582,11 @@ private fun StaticMonthGrid(
                             with(density) { 4.dp.toPx() }
                         monthDateTop + (weekDateTop - monthDateTop) * compactProgress
                     } else {
-                        cellTop + dateTopPaddingPx
+                        cellTop + dateTopPaddingPx + if (zoom <= 1f) hingeOffset else 0f
                     }
                 }
                 fun drawWeekdayHeadings() {
+                    val headingReveal = monthUnfoldPhase(unfoldZoom, .08f, .28f)
                     weekdayLetters(weekStart).forEachIndexed { column, _ ->
                         val layout = weekdayLayouts[column]
                         drawText(
@@ -3591,6 +3599,7 @@ private fun StaticMonthGrid(
                             color = faded(
                                 lerpColor(colors.Ink3, colors.OnSelection,
                                     (1f - abs(compactSelectorIndex - column)).coerceIn(0f, 1f) * compactProgress),
+                                headingReveal,
                             ),
                         )
                     }
@@ -3615,8 +3624,9 @@ private fun StaticMonthGrid(
                     val dateSizePx = compactDateSizePx +
                         (detailedDateSizePx - compactDateSizePx) * detailProgress
                     weekNumberLayouts.forEachIndexed { row, layout ->
-                        val rowAlpha =
-                            if (zoom <= 1f && row != compactWeekRow) 1f - compactProgress else 1f
+                        val rowAlpha = if (zoom <= 1f) {
+                            monthRowReveal(unfoldZoom, row, compactWeekRow)
+                        } else 1f
                         if (rowAlpha <= .001f) return@forEachIndexed
                         val center = if (sharedCompactRow) {
                             if (row != compactWeekRow) return@forEachIndexed
@@ -3655,7 +3665,7 @@ private fun StaticMonthGrid(
                 // The whole thing retreats as the grid collapses into the week
                 // strip, which has its own selected-day pill to carry.
                 if (compactProgress < .999f) {
-                    val washAlpha = 1f - compactProgress
+                    val washAlpha = monthUnfoldPhase(unfoldZoom, .18f, .72f)
                     // A single-column band under a Sunday start is only one
                     // cell wide, so the block radius has to fit inside it.
                     val washRadius = min(
@@ -3701,22 +3711,40 @@ private fun StaticMonthGrid(
                         )
                     }
                 }
-                if (!sharedCompactRow && zoom < 1f && compactProgress > .001f) {
+                if (!sharedCompactRow && zoom <= 1f) {
                     val pillHeight = min(
                         with(density) { CompactWeekMetrics.PillHeight.toPx() },
                         naturalWeekHeight.coerceAtLeast(1f),
                     )
-                    val pillTopLeft = Offset(
+                    val compactPillTopLeft = Offset(
                         compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(-1f, 7f),
                         compactWeekCenter - pillHeight / 2f,
                     )
-                    val pillSize = Size(compactWeekCellWidthPx, pillHeight)
-                    val pillCorner = CornerRadius(with(density) { CompactWeekMetrics.PillRadius.toPx() })
+                    val selectorColumn = liveSelectorColumn.coerceIn(-1f, 7f)
+                    val selectorDateTop = dateTopFor(
+                        liveSelectorRow,
+                        selectorColumn.roundToInt().coerceIn(0, 6),
+                    )
+                    val selectorSize = compactDateSizePx
+                    val targetTopLeft = Offset(
+                        gridLeftPx + cellWidthPx * (selectorColumn + .5f) - selectorSize / 2f,
+                        selectorDateTop,
+                    )
+                    val selectorMorph = monthSelectorMorphProgress(unfoldZoom)
+                    val selectorTopLeft = Offset(
+                        compactPillTopLeft.x + (targetTopLeft.x - compactPillTopLeft.x) * selectorMorph,
+                        compactPillTopLeft.y + (targetTopLeft.y - compactPillTopLeft.y) * selectorMorph,
+                    )
+                    val selectorWidth = compactWeekCellWidthPx +
+                        (selectorSize - compactWeekCellWidthPx) * selectorMorph
+                    val selectorHeight = pillHeight + (selectorSize - pillHeight) * selectorMorph
+                    val compactCorner = with(density) { CompactWeekMetrics.PillRadius.toPx() }
+                    val selectorCorner = compactCorner + (selectorSize / 2f - compactCorner) * selectorMorph
                     drawRoundRect(
-                        color = faded(colors.SelectionFill.copy(alpha = colors.SelectionFill.alpha * .95f), compactProgress),
-                        topLeft = pillTopLeft,
-                        size = pillSize,
-                        cornerRadius = pillCorner,
+                        color = faded(colors.SelectionFill),
+                        topLeft = selectorTopLeft,
+                        size = Size(selectorWidth, selectorHeight),
+                        cornerRadius = CornerRadius(selectorCorner),
                     )
                     if (colors.SelectionBorder.alpha > 0f) {
                         // Inset by half the stroke so the edge lands inside the
@@ -3724,10 +3752,10 @@ private fun StaticMonthGrid(
                         // pixel wider than the fill.
                         val strokePx = with(density) { 1.dp.toPx() }
                         drawRoundRect(
-                            color = faded(colors.SelectionBorder, compactProgress),
-                            topLeft = pillTopLeft + Offset(strokePx / 2f, strokePx / 2f),
-                            size = Size(pillSize.width - strokePx, pillSize.height - strokePx),
-                            cornerRadius = pillCorner,
+                            color = faded(colors.SelectionBorder),
+                            topLeft = selectorTopLeft + Offset(strokePx / 2f, strokePx / 2f),
+                            size = Size(selectorWidth - strokePx, selectorHeight - strokePx),
+                            cornerRadius = CornerRadius((selectorCorner - strokePx / 2f).coerceAtLeast(0f)),
                             style = Stroke(width = strokePx),
                         )
                     }
@@ -3737,35 +3765,6 @@ private fun StaticMonthGrid(
                 // month marker follows the finger instead of waiting for the
                 // settled page to commit [selected]. The compact week pill
                 // hands into this date-sized marker over the zoom morph.
-                val monthSelectionProgress = 1f - compactProgress
-                if (monthSelectionProgress > .001f) {
-                    val selectorColumn = liveSelectorColumn.coerceIn(-1f, 7f)
-                    val selectorDateTop = dateTopFor(
-                        liveSelectorRow,
-                        selectorColumn.roundToInt().coerceIn(0, 6),
-                    )
-                    val selectorCenter = Offset(
-                        gridLeftPx + cellWidthPx * (selectorColumn + .5f),
-                        selectorDateTop + (compactDateSizePx +
-                            (detailedDateSizePx - compactDateSizePx) * detailProgress) / 2f,
-                    )
-                    val selectorRadius = (compactDateSizePx +
-                        (detailedDateSizePx - compactDateSizePx) * detailProgress) / 2f
-                    drawCircle(
-                        color = faded(colors.SelectionFill, monthSelectionProgress),
-                        radius = selectorRadius,
-                        center = selectorCenter,
-                    )
-                    if (colors.SelectionBorder.alpha > 0f) {
-                        val strokePx = with(density) { 1.dp.toPx() }
-                        drawCircle(
-                            color = faded(colors.SelectionBorder, monthSelectionProgress),
-                            radius = (selectorRadius - strokePx / 2f).coerceAtLeast(0f),
-                            center = selectorCenter,
-                            style = Stroke(width = strokePx),
-                        )
-                    }
-                }
                 repeat(rows * 7) { index ->
                     val row = index / 7
                     val column = index % 7
@@ -3775,7 +3774,9 @@ private fun StaticMonthGrid(
                     val compactWeekStyle = zoom < 1f && row == compactWeekRow
                     if (sharedCompactRow && row == compactWeekRow) return@repeat
                     val cellLeft = gridLeftPx + cellWidthPx * column
-                    contentFade = if (zoom <= 1f && row != compactWeekRow) 1f - compactProgress else 1f
+                    contentFade = if (zoom <= 1f) {
+                        monthRowReveal(unfoldZoom, row, compactWeekRow)
+                    } else 1f
                     clipRect(
                         left = cellLeft,
                         top = cellTop,
@@ -3887,6 +3888,9 @@ private fun StaticMonthGrid(
                     } else {
                         1f
                     }
+                    val markerEntrance = if (zoom <= 1f) {
+                        .86f + .14f * monthRowReveal(unfoldZoom, row, compactWeekRow)
+                    } else 1f
                     var markerLeft = cellLeft + (cellWidthPx - rawTotal * markerScale) / 2f
                     // The collapsed grid only ever carries four markers, so a
                     // card past the fourth has nothing to grow out of: it
@@ -3894,8 +3898,11 @@ private fun StaticMonthGrid(
                     repeat(max(rawWidths.size, shownCount)) { eventIndex ->
                         val event = dayEvents[eventIndex]
                         val hasMarker = eventIndex < rawWidths.size
-                        val markerWidth = if (hasMarker) rawWidths[eventIndex] * markerScale else 0f
-                        val markerHeight = with(density) { if (event.allDay) 3.dp.toPx() else 5.dp.toPx() }
+                        val baseMarkerWidth = if (hasMarker) rawWidths[eventIndex] * markerScale else 0f
+                        val baseMarkerHeight = with(density) { if (event.allDay) 3.dp.toPx() else 5.dp.toPx() }
+                        val markerWidth = baseMarkerWidth * markerEntrance
+                        val markerHeight = baseMarkerHeight * markerEntrance
+                        val markerX = markerLeft + (baseMarkerWidth - markerWidth) / 2f
                         val markerTop = eventAreaTop + (eventAreaHeightPx - markerHeight) / 2f
                         val isBeingDragged = draggedEvent?.eventId == event.id
                         if (!isBeingDragged) {
@@ -3908,7 +3915,7 @@ private fun StaticMonthGrid(
                                 if (span.continuesToNext) 0f else chipHorizontalPaddingPx
                             val chipWidth = (chipRight - chipLeft).coerceAtLeast(1f)
                             val chipTop = eventAreaTop + chipPitchPx * eventIndex
-                            val fromX = if (hasMarker) markerLeft else chipLeft
+                            val fromX = if (hasMarker) markerX else chipLeft
                             val fromY = if (hasMarker) markerTop else chipTop
                             val fromWidth = if (hasMarker) markerWidth else chipWidth
                             val fromHeight = if (hasMarker) markerHeight else chipHeightPx
@@ -3980,13 +3987,13 @@ private fun StaticMonthGrid(
                         } else if (hasMarker) {
                             drawRoundRect(
                                 color = faded(colors.forEvent(Color(event.color)), 1f - detailProgress),
-                                topLeft = Offset(markerLeft, markerTop),
+                                topLeft = Offset(markerX, markerTop),
                                 size = Size(markerWidth, markerHeight),
                                 cornerRadius = CornerRadius(2.dp.toPx()),
                             )
                         }
                         }
-                        if (hasMarker) markerLeft += markerWidth + eventMarkerGapPx
+                        if (hasMarker) markerLeft += baseMarkerWidth + eventMarkerGapPx
                     }
                     val overflowProgress = smoothStep(((detailProgress - .5f) / .5f).coerceIn(0f, 1f))
                     if (overflowProgress > .01f) {

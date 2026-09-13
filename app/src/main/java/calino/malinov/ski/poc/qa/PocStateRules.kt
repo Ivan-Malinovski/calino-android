@@ -36,6 +36,30 @@ fun dominantAxis(dx: Float, dy: Float, dominanceRatio: Float = 1.15f): GestureAx
 fun zoomAfterVerticalDrag(zoom: Float, dragDeltaDp: Float, stepDp: Float = 280f): Float =
     (zoom + dragDeltaDp / stepDp.coerceAtLeast(1f)).coerceIn(0f, 2f)
 
+/** A reversible, finger-driven phase within the compact-week to month morph. */
+fun monthUnfoldPhase(zoom: Float, start: Float, end: Float): Float {
+    if (end <= start) return if (zoom >= end) 1f else 0f
+    val t = ((zoom.coerceIn(0f, 1f) - start) / (end - start)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+/** Rows nearest the selected-week hinge become legible first. */
+fun monthRowReveal(zoom: Float, row: Int, hingeRow: Int): Float {
+    val distance = abs(row - hingeRow)
+    if (distance == 0) return 1f
+    val stagger = .055f * (distance - 1)
+    return monthUnfoldPhase(zoom, start = .20f + stagger, end = .78f + stagger)
+}
+
+/** Direction and remaining amount of the small translation toward the hinge. */
+fun monthRowHingeOffset(zoom: Float, row: Int, hingeRow: Int): Float = when {
+    row < hingeRow -> 1f - monthRowReveal(zoom, row, hingeRow)
+    row > hingeRow -> -(1f - monthRowReveal(zoom, row, hingeRow))
+    else -> 0f
+}
+
+fun monthSelectorMorphProgress(zoom: Float): Float = monthUnfoldPhase(zoom, .06f, .46f)
+
 /**
  * A downward pull from the day rail expands the calendar only at the rail's
  * top boundary. Every other vertical pull belongs to the rail's scroll

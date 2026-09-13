@@ -1975,6 +1975,26 @@ partial zoom capture showed agenda/list text briefly superimposed during the
 crossfade; Ivan should review that intermediate frame visually. These checks
 remain representative spot checks rather than comprehensive gesture acceptance.
 
+### Hinged week-to-month unfold — 2026-09-13
+
+The active `StaticMonthGrid` now gives the compact week strip to the split
+month level through a rendering-only hinged accordion morph. The selected week
+stays anchored while nearby rows reveal before distant rows, with a restrained
+6dp hinge-directed lift, separate heading/wash phases, and event markers that
+grow into their month geometry. The selected-day pill and month selector are a
+single interpolated rounded shape rather than a crossfade between duplicate
+indicators. All phases derive directly from the live zoom value, so reversal,
+cancelled drags, and settle interruptions remain continuous; gesture ownership,
+pager thresholds, hit targets, and measurement are unchanged.
+
+Pure phase/row-order/selector tests were added beside the existing home gesture
+rules, and `CalendarZoomMorphTest` now verifies the split-level surface keeps
+the selected date. Full unit/lint/build checks and all 65 API 36 emulator tests
+passed. A 4-second emulator screen recording was inspected across the unfold;
+the verified debug APK was then installed and launched on the connected Samsung
+SM-F971B, where Ivan performed the physical-phone check. First-entry jank and
+loss of coupling with the day-surface transition remain the next backlog item.
+
 ## Data and architecture
 
 The app host is `MainActivity.kt` / `CalinoApp()`.

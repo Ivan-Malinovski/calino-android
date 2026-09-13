@@ -18,7 +18,7 @@ Rules for using this file:
 
 ### Scope note
 
-Items 1–3 and 9 add platform functionality that the current `AGENTS.md` scope
+Items 1–3 and 10 add platform functionality that the current `AGENTS.md` scope
 section does not cover (it restricts remote/native work to CalDAV and CardDAV).
 The user has explicitly asked for them, so they are in scope as of 2026-09-12.
 They remain the only sanctioned exceptions: webcal, telemetry, and other remote
@@ -267,7 +267,26 @@ non-obvious -- chiefly that a pager commits a date only after a *real* drag, and
 that two day cells legitimately report themselves selected while paging -- are
 written up under "Device tests" in `HANDOFF.md`. Read that before adding tests.
 
-## 7. Fetch-window paging
+## 7. Polish the week-strip/month transition
+
+The hinged week-strip → split-month unfold is visually more layered, but the
+first initialization can still be janky and the month morph no longer stays
+fully coupled to the day-surface transition. The next pass should make the
+first-run frame deterministic and restore one shared transition contract.
+
+- Remove first-frame jumps, blank/duplicate content, and late initialization
+  when the calendar first enters or settles on the month level.
+- Reconnect the week/month unfold progress, selected-date anchor, and day
+  surface blend so the calendar and agenda move as one composition in both
+  directions.
+- Preserve continuous finger-follow behavior, pager/event/pinch ownership,
+  and the fixed-size rendering budget; do not paper over the issue with a
+  second animation state machine.
+- Add regression coverage for cold entry, reverse/cancelled settles, and the
+  coupled day-surface transition, then validate slow/fast gestures on the API
+  36 emulator and the approved physical phone.
+
+## 8. Fetch-window paging
 
 `CalDavRepository.DefaultWindowMonths` is today ±6 months and does not extend.
 Paging past it shows nothing, with no explanation, and search cannot find what
@@ -278,7 +297,7 @@ was never fetched.
 - Note that a cached *series* re-expands into any window, so the missing
   records are one-off events outside the fetched range.
 
-## 8. Sync status on the calendar surfaces
+## 9. Sync status on the calendar surfaces
 
 `snapshot.sync` is only rendered under Calendars, so a failed refresh is
 invisible from the month or agenda view and a stale cache looks identical to a
@@ -325,7 +344,7 @@ month/year lockup stays on one line in the tightest case — marker, Today butto
 and both chevrons at once. 544 unit tests, 54 device tests, plus `lintDebug`
 and `assembleDebug`.
 
-## 9. `.ics` and intent integration
+## 10. `.ics` and intent integration
 
 - `text/calendar` VIEW intent filter so an `.ics` from mail or a browser opens
   in Calino.
@@ -344,13 +363,13 @@ writable destination, skips matching UIDs, and uses the durable write queue.
 `IcsInteropTest`, `test lintDebug assembleDebug`, and all 56 API 36 device tests
 pass; direct SEND and INSERT intents were also inspected on the emulator.
 
-## 10. Search quality
+## 11. Search quality
 
 `searchCalino` is substring-only over the loaded window.
 
 - Fuzzy matching, to match the web app's Fuse.js behaviour.
 - Filters by calendar, date range, and record type.
-- Depends on item 7 for anything outside the fetch window.
+- Depends on item 8 for anything outside the fetch window.
 
 **Status 2026-09-13 — [x] done.** Search now uses deterministic, balanced fuzzy
 ranking across events, tasks, journals, and contacts: exact/title-prefix/word
@@ -370,12 +389,12 @@ Connected-account search says that it covers downloaded calendar data and does
 not imply server-wide results. Validated with the search unit tests and on the
 API 36 emulator: 56 device tests passing, plus `test lintDebug assembleDebug`.
 
-## 11. Task priorities and percent-complete
+## 12. Task priorities and percent-complete
 
 `CalTask` models neither; `ICalWriter` writes `PERCENT-COMPLETE` as 0 or 100
 only. The web app advertises due dates, priorities, and completion status.
 
-## 12. Recurring tasks
+## 13. Recurring tasks
 
 `CalTask` has no recurrence field, so a repeating `VTODO` shows once at its due
 date. The web app's wire format is standards-only (`RRULE` plus per-occurrence
@@ -383,7 +402,7 @@ completion, no vendor properties) and is already documented in the web repo at
 `docs/RECURRING_TASKS.md`, including a per-client interop table. Match it —
 do not invent a second format.
 
-## 13. Timezones
+## 14. Timezones
 
 `CalEvent` carries no zone; `ICalMapper` coerces everything to the device zone
 on read.
@@ -391,16 +410,16 @@ on read.
 - Model the event's own timezone and preserve it through a write.
 - Secondary timezone display, as the web app has.
 
-## 14. Year view
+## 15. Year view
 
 The remaining view-parity gap after item 4.
 
-## 15. Keyword auto-categorization
+## 16. Keyword auto-categorization
 
 Apply categories automatically from keywords in the title, as the web app does.
 Categories already sync through `CATEGORIES`.
 
-## 16. Light-mode contrast
+## 17. Light-mode contrast
 
 `PaperLight.Ink3` (`#A39D93`) measures about 2.7:1 and fails WCAG AA. The web's
 `built-in.css` has already corrected the same tokens to `#655F57` and
@@ -412,14 +431,14 @@ today.
 
 ## Lower priority — explicitly deprioritized by the user on 2026-09-12
 
-## 17. Localization
+## 18. Localization
 
 `res/values/` contains only `colors.xml` and `styles.xml`; every user-facing
 string is hardcoded in Kotlin. The web app ships `en`, `da`, and `de`.
 Extracting strings is also what makes RTL and pseudolocale validation possible,
 which is known gap #11 in `HANDOFF.md`.
 
-## 18. Settings sync
+## 19. Settings sync
 
 Preferences are device-local `SharedPreferences`. The web app syncs them
 opt-in through a dedicated hidden calendar on the user's own server; the format

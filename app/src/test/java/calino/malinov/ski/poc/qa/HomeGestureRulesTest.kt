@@ -1,6 +1,7 @@
 package calino.malinov.ski.poc.qa
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeGestureRulesTest {
@@ -16,6 +17,33 @@ class HomeGestureRulesTest {
     fun zoomFlingUsesScreenVelocityDirection() {
         assertEquals(1, zoomSettleLevel(0.12f, anchorLevel = 0, zoomVelocityDpPerSecond = 700f))
         assertEquals(0, zoomSettleLevel(0.88f, anchorLevel = 1, zoomVelocityDpPerSecond = -700f))
+    }
+
+    @Test
+    fun monthUnfoldPhases_areBoundedMonotonicAndReachTheirEndpoints() {
+        assertEquals(0f, monthUnfoldPhase(.08f, .08f, .28f), 0.001f)
+        val middle = monthUnfoldPhase(.18f, .08f, .28f)
+        assertTrue(middle in 0f..1f)
+        assertTrue(middle > monthUnfoldPhase(.12f, .08f, .28f))
+        assertEquals(1f, monthUnfoldPhase(.28f, .08f, .28f), 0.001f)
+    }
+
+    @Test
+    fun monthRows_unfoldNearestFirstAndSymmetricallyAroundTheHinge() {
+        val near = monthRowReveal(.5f, row = 1, hingeRow = 2)
+        val far = monthRowReveal(.5f, row = 0, hingeRow = 2)
+        assertTrue(near > far)
+        assertEquals(near, monthRowReveal(.5f, row = 3, hingeRow = 2), 0.001f)
+        assertEquals(1f, monthRowReveal(0f, row = 2, hingeRow = 2), 0.001f)
+    }
+
+    @Test
+    fun monthRows_beginTowardTheHingeAndSelectorResolvesToMonthGeometry() {
+        assertTrue(monthRowHingeOffset(.2f, row = 1, hingeRow = 2) > 0f)
+        assertTrue(monthRowHingeOffset(.2f, row = 3, hingeRow = 2) < 0f)
+        assertEquals(0f, monthRowHingeOffset(1f, row = 1, hingeRow = 2), 0.001f)
+        assertEquals(0f, monthSelectorMorphProgress(.06f), 0.001f)
+        assertEquals(1f, monthSelectorMorphProgress(.46f), 0.001f)
     }
 
     @Test

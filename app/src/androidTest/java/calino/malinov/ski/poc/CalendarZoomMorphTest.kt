@@ -66,6 +66,14 @@ class CalendarZoomMorphTest : CalinoUiTest() {
         compose.dayCellIn(MonthPager, FixtureDate.plusDays(3)).assertIsDisplayed()
     }
 
+    @Test fun splitMonthKeepsTheSelectedDateAndOwnsTheCalendarSurface() {
+        zoomTo(1)
+
+        assertFalse("week strip still mounted at zoom 1", compose.exists(hasTestTag(WeekPager)))
+        compose.dayCellIn(MonthPager, FixtureDate).assertIsDisplayed()
+        compose.assertDaySelected(MonthPager, FixtureDate)
+    }
+
     /**
      * The morph target is the week containing the committed date, not the week
      * that happened to be on screen. Selecting a day two weeks out on the month
