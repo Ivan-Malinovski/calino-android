@@ -5571,7 +5571,7 @@ private fun DayRailPage(
  * bleed through the grid.
  */
 @Composable
-private fun CompactLaneScrim(
+internal fun CompactLaneScrim(
     source: GraphicsLayer,
     blend: () -> Float,
     modifier: Modifier = Modifier,

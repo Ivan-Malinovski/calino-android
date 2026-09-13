@@ -44,7 +44,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +73,7 @@ import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
+import calino.malinov.ski.poc.ui.home.CompactLaneScrim
 import calino.malinov.ski.poc.ui.home.HourRailContent
 import calino.malinov.ski.poc.ui.home.DirectTimelineDrop
 import calino.malinov.ski.poc.ui.surfaces.EventMenuAction
@@ -212,9 +219,16 @@ private fun RangePage(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val scroll = rememberScrollState(with(density) { (9 * 62).dp.roundToPx() })
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
+    val railLayer = rememberGraphicsLayer()
+    var stripHeight by remember { mutableStateOf(0.dp) }
     Box(Modifier.fillMaxSize().semantics { contentDescription = "${days.size}-day calendar" }) {
         Row(
             Modifier.fillMaxSize()
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    railLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(railLayer)
+                }
                 .rangePinch { zoom -> onTimelineScaleChanged((timelineScale * zoom).coerceIn(.65f, 1.8f)) }
                 .verticalScroll(scroll).padding(bottom = CalinoSpacing.PillClearance),
             horizontalArrangement = Arrangement.spacedBy(1.dp),
@@ -278,9 +292,18 @@ private fun RangePage(
                 }
             }
         }
-        // Match the compact week strip: the day labels own content and input,
-        // but paint no backing, so the scrolling hour grid remains visible.
-        Column(Modifier.fillMaxWidth()) {
+        CompactLaneScrim(
+            source = railLayer,
+            blend = { 1f },
+            modifier = Modifier.fillMaxWidth().height(stripHeight + 10.dp),
+        )
+        // Match the compact week strip: content and input sit over the same
+        // translucent, blurred copy of the hour rail instead of an opaque bar.
+        Column(
+            Modifier.fillMaxWidth().onSizeChanged { size ->
+                stripHeight = with(density) { size.height.toDp() }
+            },
+        ) {
             Row(Modifier.fillMaxWidth().padding(start = 48.dp, end = 4.dp)) {
                 days.forEach { day ->
                     val due = remember(tasks, day, hideDone) { tasksDueOn(tasks, day).filterNot { hideDone && it.done } }
