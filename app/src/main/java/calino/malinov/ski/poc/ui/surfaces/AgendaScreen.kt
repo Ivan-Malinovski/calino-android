@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -37,6 +38,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
@@ -64,9 +66,11 @@ import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalTimeFormat
 import calino.malinov.ski.poc.ui.home.MonthPagerPageCount
+import calino.malinov.ski.poc.ui.home.dateForDayPage
 import calino.malinov.ski.poc.ui.home.monthEventIndex
 import calino.malinov.ski.poc.ui.home.monthForPage
 import calino.malinov.ski.poc.ui.home.monthPageFor
+import calino.malinov.ski.poc.util.EventDateIndex
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -353,15 +357,18 @@ internal fun AgendaDayBlock(
 }
 
 /**
- * The landscape companion pane: the selected day's agenda beside the month
- * grid. It scrolls on its own and reserves the add pill's clearance, since the
- * pill sits over this pane when it is showing.
+ * The landscape companion pane: a day-paged agenda beside the month grid. The
+ * pager is supplied by [HomeScreen], so its real-user settle collector remains
+ * the one owner of the committed date. Each page scrolls vertically on its
+ * own and reserves the add pill's clearance, since the pill sits over this pane
+ * when it is showing.
  */
 @Composable
 fun DayPane(
-    day: LocalDate,
-    events: List<CalEvent>,
-    tasks: List<CalTask>,
+    state: PagerState,
+    eventDateIndex: EventDateIndex,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
+    interactionEnabled: Boolean,
     modifier: Modifier = Modifier,
     onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
@@ -370,29 +377,45 @@ fun DayPane(
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     onTaskDrop: (CalTask, LocalDate) -> Unit = { _, _ -> },
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
-    onAdd: () -> Unit = {},
+    onAdd: (LocalDate) -> Unit = {},
 ) {
-    Column(
-        modifier
+    HorizontalPager(
+        state = state,
+        modifier = modifier
             .fillMaxSize()
             .background(CalinoColors.Canvas)
-            .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp)
-            .padding(bottom = CalinoSpacing.PillClearance),
-    ) {
-        AgendaDayBlock(
-            day = day,
-            events = events,
-            tasks = tasks,
-            onEventClick = onEventClick,
-            onEventAction = onEventAction,
-            onEventDrop = onEventDrop,
-            onTaskClick = onTaskClick,
-            onTaskAction = onTaskAction,
-            onTaskDrop = onTaskDrop,
-            onTaskDone = onTaskDone,
-            onAdd = onAdd,
-        )
+            .testTag("day-pane-pager")
+            .semantics { contentDescription = "Day sidebar" },
+        userScrollEnabled = interactionEnabled,
+        key = { page -> dateForDayPage(page).toEpochDay() },
+    ) { page ->
+        val pageDay = dateForDayPage(page)
+        val pageEvents = remember(eventDateIndex, pageDay) { eventDateIndex.eventsOn(pageDay) }
+        val pageTasks = tasksByDueDate[pageDay].orEmpty()
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                .padding(bottom = CalinoSpacing.PillClearance)
+                .semantics {
+                    contentDescription = "Day sidebar page ${pageDay.format(AgendaDayFormatter)}"
+                },
+        ) {
+            AgendaDayBlock(
+                day = pageDay,
+                events = pageEvents,
+                tasks = pageTasks,
+                onEventClick = onEventClick,
+                onEventAction = onEventAction,
+                onEventDrop = onEventDrop,
+                onTaskClick = onTaskClick,
+                onTaskAction = onTaskAction,
+                onTaskDrop = onTaskDrop,
+                onTaskDone = onTaskDone,
+                onAdd = { onAdd(pageDay) },
+            )
+        }
     }
 }
 

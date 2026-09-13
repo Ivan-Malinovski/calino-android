@@ -2,6 +2,7 @@ package calino.malinov.ski.poc
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -13,6 +14,28 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class RangeInteractionTest : CalinoUiTest() {
+    @Test fun eventDetailReturnsToTheRangePageAnchor() {
+        compose.openRoute("Range")
+        repeat(2) {
+            compose.onNodeWithTag(RangePagerTag).performTouchInput { swipeLeft() }
+            compose.waitForIdle()
+        }
+        compose.onNodeWithText("May 24 – May 26").assertIsDisplayed()
+
+        val designReviews = compose.onAllNodesWithContentDescription("Design review", substring = true)
+        val visibleEvent = designReviews.fetchSemanticsNodes().indexOfFirst {
+            it.boundsInRoot.left >= 0f && it.boundsInRoot.top >= 0f
+        }
+        designReviews[visibleEvent].performClick()
+        awaitDescribed("Close event preview")
+        compose.onNodeWithText("Cancel").performClick()
+        awaitNoDescribed("Close event preview")
+
+        compose.onNodeWithText("May 24 – May 26").assertIsDisplayed()
+        awaitDescribed("Add on Sun, 24 May. Swipe up to search")
+        compose.onNodeWithContentDescription("Add on Sun, 24 May. Swipe up to search").assertIsDisplayed()
+    }
+
     @Test fun todayReturnsFromAnotherRangePage() {
         compose.openRoute("Range")
         assertFalse(compose.exists(hasContentDescription("Go to today")))

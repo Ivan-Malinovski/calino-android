@@ -218,6 +218,7 @@ import calino.malinov.ski.poc.ui.surfaces.rememberNotificationSurfaceState
 import calino.malinov.ski.poc.ui.surfaces.AgendaScreen
 import calino.malinov.ski.poc.ui.surfaces.CalendarAccountsSurface
 import calino.malinov.ski.poc.ui.surfaces.PockRoute
+import calino.malinov.ski.poc.ui.surfaces.detailOriginRootRoute
 import calino.malinov.ski.poc.ui.surfaces.QuickAddKind
 import calino.malinov.ski.poc.ui.surfaces.QuickAddSheet
 import calino.malinov.ski.poc.ui.surfaces.QuickAddSheetState
@@ -1377,15 +1378,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Contacts -> PockRoute.Contacts
             PockRoute.Settings -> PockRoute.Settings
             PockRoute.Accounts -> PockRoute.Accounts
-            PockRoute.Detail -> when (detailOrigin) {
-                PocReturnTarget.Agenda -> PockRoute.Agenda
-                PocReturnTarget.Range -> PockRoute.Range
-                PocReturnTarget.Tasks -> PockRoute.Tasks
-                PocReturnTarget.Journal -> PockRoute.Journal
-                PocReturnTarget.Contacts -> PockRoute.Contacts
-                PocReturnTarget.Search -> searchOriginRoute
-                else -> PockRoute.Day
-            }
+            PockRoute.Detail -> detailOriginRootRoute(detailOrigin, searchOriginRoute)
             PockRoute.TaskDetail -> when (taskDetailOrigin) {
                 PocReturnTarget.Agenda -> PockRoute.Agenda
                 PocReturnTarget.Range -> PockRoute.Range
@@ -1400,7 +1393,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 PocReturnTarget.Journal -> PockRoute.Journal
                 PocReturnTarget.Contacts -> PockRoute.Contacts
                 PocReturnTarget.Settings -> PockRoute.Settings
-                PocReturnTarget.Detail -> PockRoute.Day
+                PocReturnTarget.Detail -> detailOriginRootRoute(detailOrigin, searchOriginRoute)
                 PocReturnTarget.Search -> searchOriginRoute
                 else -> PockRoute.Day
             }
@@ -1483,7 +1476,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = { selectedDate = it },
                         onEventClick = { day, event ->
-                            selectedDate = day
                             selectedEventId = event.id
                             selectedEventOccurrenceDay = day.toEpochDay()
                             detailOrigin = PocReturnTarget.Range

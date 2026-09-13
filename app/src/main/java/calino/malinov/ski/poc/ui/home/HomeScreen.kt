@@ -365,7 +365,7 @@ private fun dayPageFor(date: LocalDate): Int =
         .coerceIn(0L, (DayPagerPageCount - 1).toLong())
         .toInt()
 
-private fun dateForDayPage(page: Int): LocalDate =
+internal fun dateForDayPage(page: Int): LocalDate =
     PagerEpoch.plusDays((page - DayPagerCenter).toLong())
 
 /** Maps live day-pager travel onto the compact row's visible selector column. */
@@ -1277,6 +1277,7 @@ fun HomeScreen(
             eventDateIndex = eventDateIndex,
             journals = journals,
             tasksByDueDate = tasksByDueDate,
+            dayPagerState = dayPagerState,
             monthPagerState = monthPagerState,
             interactionEnabled = interactionEnabled,
             dayPaneCollapsed = dayPaneCollapsed,
@@ -1826,6 +1827,7 @@ private fun SplitHomeLayout(
     eventDateIndex: EventDateIndex,
     journals: List<JournalEntry>,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
+    dayPagerState: PagerState,
     monthPagerState: PagerState,
     interactionEnabled: Boolean,
     dayPaneCollapsed: Boolean,
@@ -1862,8 +1864,6 @@ private fun SplitHomeLayout(
     // Half open, the crease is a real edge: put the rule in the band so
     // neither pane straddles it.
     val hingeSplit = hingeStartDp != null && hingeStartDp > 0f && !dayPaneCollapsed
-    val dayEvents = remember(eventDateIndex, selected) { eventDateIndex.eventsOn(selected) }
-    val dayTasks = tasksByDueDate[selected].orEmpty()
 
     Row(modifier.fillMaxSize()) {
         Column(
@@ -1918,19 +1918,20 @@ private fun SplitHomeLayout(
         DayPaneDivider(collapsed = dayPaneCollapsed, onToggle = onToggleDayPane)
         if (paneWidth > 0.dp) {
             DayPane(
-                day = selected,
-                events = dayEvents,
-                tasks = dayTasks,
+                state = dayPagerState,
+                eventDateIndex = eventDateIndex,
+                tasksByDueDate = tasksByDueDate,
+                interactionEnabled = interactionEnabled,
                 modifier = (if (hingeSplit) Modifier.weight(1f) else Modifier.width(paneWidth))
                     .fillMaxHeight()
                     .clipToBounds(),
-            onEventClick = { _, event -> onEventClick?.invoke(event) },
-            onEventAction = onEventAction,
-                        onTaskClick = onTaskClick,
-                        onTaskAction = onTaskAction,
-                        onTaskDrop = onTaskDrop,
-                        onTaskDone = onTaskDone,
-                onAdd = { onAddOn(selected) },
+                onEventClick = { _, event -> onEventClick?.invoke(event) },
+                onEventAction = onEventAction,
+                onTaskClick = onTaskClick,
+                onTaskAction = onTaskAction,
+                onTaskDrop = onTaskDrop,
+                onTaskDone = onTaskDone,
+                onAdd = onAddOn,
             )
         }
     }

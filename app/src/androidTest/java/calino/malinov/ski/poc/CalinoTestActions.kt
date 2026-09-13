@@ -39,6 +39,7 @@ object CalinoTestActions {
     const val MonthPager = "month-pager"
     const val WeekPager = "week-pager"
     const val DayPager = "day-pager"
+    const val DayPanePager = "day-pane-pager"
 
     fun dayLabel(date: LocalDate): String = date.format(DayLabelFormatter)
 

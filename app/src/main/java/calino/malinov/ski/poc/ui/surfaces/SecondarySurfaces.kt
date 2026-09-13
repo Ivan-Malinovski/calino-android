@@ -843,7 +843,7 @@ private fun EventDetailContent(
                 BasicTextField(
                     value = draft.title,
                     onValueChange = { draft = draft.copy(title = it); error = null },
-                    textStyle = CalinoTypography.headlineSmall,
+                    textStyle = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink),
                     singleLine = true,
                     modifier = Modifier.weight(1f).padding(horizontal = 14.dp).semantics { contentDescription = "Event title" },
                 )

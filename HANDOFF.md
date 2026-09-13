@@ -1357,6 +1357,11 @@ Today button appears and targets the real date. The full
   tap on the day already showing there opens the day modal.
 - `DayPane` and the month agenda share `AgendaDayBlock` (`AgendaScreen.kt`), so
   the row set, sort order and "Nothing scheduled" case cannot drift.
+- `DayPane` is a `HorizontalPager` over the already-hoisted `dayPagerState`.
+  Its pages use the shared epoch date key, `EventDateIndex`/due-task lookups,
+  and independent vertical scroll states. The existing real-user settle
+  collector in `HomeScreen` remains the only owner of the committed date;
+  `day-pane-pager` is the device-test boundary for this interaction.
 - `dayPaneCollapsed` lives in `HomeScreen` as `rememberSaveable`. The split
   layout reports through `onSplitPaneChanged`, and `MainActivity` keeps the add
   pill in the same right-side lane even while that pane is collapsed, so the
