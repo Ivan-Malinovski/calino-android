@@ -134,7 +134,6 @@ fun NavSidebar(
         NavItem(pockRouteLabel(PockRoute.Day), PockRoute.Day, CalinoIcons.Calendar),
         NavItem(pockRouteLabel(PockRoute.Range), PockRoute.Range, CalinoIcons.Calendar),
         NavItem(pockRouteLabel(PockRoute.Agenda), PockRoute.Agenda, CalinoIcons.AgendaList),
-        NavItem(pockRouteLabel(PockRoute.Accounts), PockRoute.Accounts, CalinoIcons.Repeat),
     )
     val items = listOfNotNull(
         NavItem(pockRouteLabel(PockRoute.Tasks), PockRoute.Tasks, CalinoIcons.ListChecks),
@@ -229,9 +228,9 @@ fun NavSidebar(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(start = 8.dp, bottom = 12.dp),
+                                .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             // Match the web sidebar brand: an 11dp accent diamond
                             // with a theme-aware accent focus ring.

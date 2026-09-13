@@ -93,6 +93,7 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import calino.malinov.ski.poc.notify.LocalNotificationPermission
 import calino.malinov.ski.poc.notify.systemSettingsIntent
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
@@ -282,7 +283,9 @@ fun SettingsSurface(
                 ) {
                     LazyRow(
                         state = sectionRailState,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("Settings section rail"),
                         contentPadding = PaddingValues(horizontal = 20.dp),
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
@@ -693,6 +696,15 @@ private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean
     val preferences = LocalCalinoPreferences.current
     SettingsPage("Sync") {
         SettingsGroup("Connected accounts") {
+            SettingActionRow(
+                title = "Calendars and accounts",
+                description = "Manage connected accounts, calendars, and address books",
+                action = "Open",
+                actionContentDescription = "Open calendars and accounts",
+                enabled = true,
+                onClick = { onOpenAccounts(false, null) },
+            )
+            SettingDivider()
             if (accounts.isEmpty()) {
                 Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(CalinoColors.AccentSoft), contentAlignment = Alignment.Center) {
@@ -1026,13 +1038,37 @@ private fun AccentSwatch(name: String, color: Color, selected: Boolean, enabled:
 }
 
 @Composable
-private fun SettingActionRow(title: String, description: String, action: String, danger: Boolean = false, enabled: Boolean = false, onClick: () -> Unit = {}) {
+private fun SettingActionRow(
+    title: String,
+    description: String,
+    action: String,
+    danger: Boolean = false,
+    enabled: Boolean = false,
+    actionContentDescription: String? = null,
+    onClick: () -> Unit = {},
+) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 10.dp)) {
             Text(title, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
             Text(description, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 2.dp))
         }
-        OutlinedButton(enabled = enabled, onClick = onClick, shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = if (danger) CalinoColors.Rose else CalinoColors.Ink2), border = androidx.compose.foundation.BorderStroke(1.dp, if (danger) CalinoColors.Rose.copy(.3f) else CalinoColors.Line), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) { Text(action, fontSize = 12.sp) }
+        OutlinedButton(
+            enabled = enabled,
+            onClick = onClick,
+            modifier = Modifier
+                .heightIn(min = 44.dp)
+                .then(
+                    if (actionContentDescription != null) {
+                        Modifier.semantics { contentDescription = actionContentDescription }
+                    } else {
+                        Modifier
+                    },
+                ),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (danger) CalinoColors.Rose else CalinoColors.Ink2),
+            border = androidx.compose.foundation.BorderStroke(1.dp, if (danger) CalinoColors.Rose.copy(.3f) else CalinoColors.Line),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+        ) { Text(action, fontSize = 12.sp) }
     }
 }
 

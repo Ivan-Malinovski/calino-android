@@ -807,8 +807,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchOriginRoute by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
     var notificationOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
-    // Calendars is reachable from the sidebar and from Settings, so back
-    // has to return to whichever one opened it.
+    // Calendar management is reached from Settings and from a calendar root's
+    // sync marker, so Back returns to whichever surface opened it.
     var accountsOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
     // Set when Settings opens the surface via its add button, so the add
     // sheet is already showing on arrival.

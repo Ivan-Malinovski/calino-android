@@ -105,7 +105,7 @@ private const val DateNumberHeightFraction = .12f
  * Open a root destination through the navigation sidebar.
  *
  * [label] comes from `pockRouteLabel`: "Month", "Range", "Agenda", "Tasks",
- * "Journal", "Contacts", "Calendars", "Settings". A row reads its own label
+ * "Journal", "Contacts", "Settings". A row reads its own label
  * when unselected and "<label>, selected" when it is the current route, so an
  * exact match on the bare label is what finds a destination you are not
  * already on.

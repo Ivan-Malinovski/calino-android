@@ -5,10 +5,14 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -100,9 +104,37 @@ class NavigationDestinationsTest : CalinoUiTest() {
         compose.assertDaySelected(CalinoTestActions.WeekPager, CalinoTestActions.FixtureDate)
     }
 
+    @Test fun calendarManagementMovesFromTheSidebarToSettings() {
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+
+        assertFalse("Calendars should not be a navigation row", compose.hasDescribedNode("Calendars"))
+        compose.onNodeWithContentDescription("Show demo[@]example.test")
+            .performScrollTo()
+            .assertIsDisplayed()
+
+        compose.onNodeWithContentDescription("Dismiss").performClick()
+        // Let the sidebar's AnimatedVisibility exit finish before asking the
+        // same host to open it again for the Settings navigation click.
+        compose.waitForIdle()
+        compose.openRoute("Settings")
+        compose.waitForIdle()
+        compose.onNodeWithTag("Settings section rail")
+            .performScrollToIndex(SettingsSyncSectionIndex)
+        compose.onNodeWithContentDescription("Sync settings").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Open calendars and accounts")
+            .performScrollTo()
+            .performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Calendars").assertIsDisplayed()
+    }
+
     private companion object {
         val MinimumTouchLane = 44.dp
+        const val SettingsSyncSectionIndex = 6
 
-        val Destinations = listOf("Tasks", "Journal", "Agenda", "Contacts", "Calendars", "Settings", "Range")
+        val Destinations = listOf("Tasks", "Journal", "Agenda", "Contacts", "Settings", "Range")
     }
 }

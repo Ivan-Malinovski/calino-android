@@ -528,6 +528,10 @@ reached the server. They now map to and from `VALARM` in both directions.
   panel with a physical accent rail for the selected route, while secondary
   destinations sit under `ORGANIZE`. Upcoming Tasks starts collapsed so dense
   task content no longer pushes the calendar list out of the initial viewport.
+- Calendar account management no longer has a standalone sidebar destination.
+  The sidebar keeps its calendar visibility/task toggles, while Settings → Sync
+  exposes an always-present Calendars and accounts row that opens the existing
+  account-management surface.
 - Calendar visibility controls are grouped into a secondary management panel
   with calendar-coloured check controls and compact overflow actions. The
   orphaned Privacy label was removed, and Settings now has the same contained
@@ -2425,8 +2429,10 @@ log a password; `DavCredentials.toString()` masks it.
 ### Account surface and navigation
 
 `PockRoute.Accounts` renders `CalendarAccountsSurface`
-(`ui/surfaces/CalDavScreen.kt`), reachable from the sidebar's calendar group and
-from Settings → Sync. `AddCalDavAccountSheet` is the three-step add flow —
+(`ui/surfaces/CalDavScreen.kt`), reachable from Settings → Sync and from the
+calendar roots' sync marker. The sidebar keeps calendar list/toggle controls but
+does not expose account management as a standalone destination.
+`AddCalDavAccountSheet` is the three-step add flow —
 credentials, connecting, choose calendars — hosted in `BottomDetailCard` and
 stepped with `AnimatedContent`.
 
