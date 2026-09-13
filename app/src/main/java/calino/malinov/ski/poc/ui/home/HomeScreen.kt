@@ -221,6 +221,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
@@ -330,10 +332,32 @@ private data class WeekPreviewSuppression(
     val cancelled: Boolean = false,
 )
 
+/**
+ * The two days the add pill's label is between: the day of the page a pager is
+ * on, and the day of the neighbour its offset leans toward. Both are named at
+ * once so the pill can draw them as one strip of text moved by the page, with
+ * no notion of which is "current" -- at the halfway mark they swap roles and
+ * nothing about the drawing changes.
+ */
+data class PillSwipeDays(val from: LocalDate, val to: LocalDate)
+
 private data class MonthEventDragVisual(
     val eventId: String,
     val offset: Offset,
 )
+
+/**
+ * Where a pager is, as one continuous number: page index plus the fraction it
+ * is offset by. The two halves are not written in the same frame -- around the
+ * halfway mark of a swipe the fraction can flip sign a frame or two before the
+ * index follows it -- so anything that reads them apart sees the page jump a
+ * whole step backward and then forward again. Their sum never does.
+ */
+/** Stands in for "no gesture is steering the label", where a page index goes. */
+private const val NoSwipeBase = Int.MIN_VALUE
+
+private fun pagePosition(pager: PagerState): Float =
+    pager.currentPage + pager.currentPageOffsetFraction
 
 private fun dayPageFor(date: LocalDate): Int =
     (DayPagerCenter.toLong() + date.toEpochDay() - PagerEpoch.toEpochDay())
@@ -409,6 +433,19 @@ fun HomeScreen(
     interactionEnabled: Boolean = true,
     /** Reports whether the large split month layout is active. */
     onSplitPaneChanged: (Boolean) -> Unit = {},
+    /**
+     * The two days the add pill's label sits between. Always reported, never
+     * null: at rest both halves are the committed day, which draws exactly as
+     * a single label would. Changes once per page crossing, not per frame.
+     */
+    onSwipeLabelDaysChanged: (PillSwipeDays) -> Unit = {},
+    /**
+     * Where between those two days the label is, signed and bounded to half a
+     * page either side: the driving pager's own offset. Handed over as a
+     * lambda to be read per frame from a draw or measure scope -- reading it
+     * as state would recompose the whole screen on every frame of a drag.
+     */
+    onSwipeLabelTravel: (() -> Float) -> Unit = {},
 ) {
     // Hoisted: the compact lane's draw scope cannot read the composition local.
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
@@ -680,6 +717,116 @@ fun HomeScreen(
             .collect { scrolling ->
                 if (!scrolling) weekUserGestureActive = false
             }
+    }
+
+    // The add pill names the day it would create on, and every pager here
+    // moves that day. The label is a carousel on those pagers rather than an
+    // animation in its own right: its position is the pager's own fractional
+    // page offset, read fresh in the pill's measure and draw passes, and its
+    // two days are the page the pager is on and the neighbour that offset
+    // leans toward.
+    //
+    // Nothing here animates. A label with a clock of its own has to guess when
+    // the gesture ends and what it meant -- and every guess is a way for the
+    // two to disagree: a tween that lands before the page does, a spring-back
+    // the label plays as a commit, a commit it plays backwards. Taking the
+    // position from the page instead makes those states unrepresentable. The
+    // label follows the finger exactly because the page does, settles on the
+    // pager's own spring because that is the only spring involved, and returns
+    // on it too; an abandoned swipe needs no special case, because an offset
+    // going back to zero already is one.
+    //
+    // The pair also survives the page index flipping under it at the halfway
+    // mark. [PagerState.currentPageOffsetFraction] is bounded to a half page
+    // either side, so at the flip the two days swap roles and the offset swaps
+    // sign -- which places both labels, and sizes the pill, exactly where they
+    // already were.
+    //
+    // Day first, then week, then month. A day swipe across a week boundary
+    // pages the strip underneath it, so more than one can be moving at once;
+    // the innermost is the one the finger is on.
+    // Which pager, if any, the user is driving. Only a gesture steers the
+    // label: the pagers are also animated programmatically to follow a date
+    // that was tapped, and chasing that would walk the label through every day
+    // between here and there.
+    val swipeOwner by remember(dayPagerState, weekPagerState, monthPagerState) {
+        derivedStateOf {
+            listOf(dayPagerState, weekPagerState, monthPagerState).firstOrNull { isUserSettle(it) }
+        }
+    }
+    val swipeLabelDays by remember(dayPagerState, weekPagerState, monthPagerState, weekStart) {
+        derivedStateOf {
+            // [selectedEpoch] itself, not the [rememberUpdatedState] mirror of
+            // it the rest of this screen reads. That mirror is only rewritten
+            // in composition, so it trails the settle that commits a date by a
+            // frame -- and ownership of the gesture ends in that same frame.
+            // Read through it, the pill spent two frames naming the day the
+            // swipe had just left.
+            val committed = LocalDate.ofEpochDay(selectedEpoch)
+            val owner = swipeOwner
+                // At rest the committed day is both halves of the pair, which
+                // draws it exactly as a single label would. Reporting nothing
+                // here instead is what used to blink: the pill would fall back
+                // to its own committed label, and that label is a recomposition
+                // behind, so for a frame or two it named the day just left.
+                // There is no fallback to be stale now -- the pair is always
+                // mounted, and it always names the page the calendar is on.
+                ?: return@derivedStateOf NoSwipeBase to PillSwipeDays(committed, committed)
+            val dayAt: (Int) -> LocalDate = when (owner) {
+                dayPagerState -> ::dateForDayPage
+                weekPagerState -> { page ->
+                    weekStartForPage(page, weekStart)
+                        .plusDays(committed.weekdayColumn(weekStart).toLong())
+                }
+                else -> { page ->
+                    val month = monthForPage(page)
+                    month.atDay(committed.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
+                }
+            }
+            val base = floor(pagePosition(owner)).toInt()
+            base to PillSwipeDays(
+                from = dayAt(base.coerceIn(0, owner.pageCount - 1)),
+                to = dayAt((base + 1).coerceIn(0, owner.pageCount - 1)),
+            )
+        }
+    }
+    val daysReporter = rememberUpdatedState(onSwipeLabelDaysChanged)
+    // The page the pill's current pair was built from. The pair reaches the
+    // pill through a recomposition and the travel below is read straight out
+    // of the pager in the same frame it is drawn, so the two run a frame
+    // apart. Measuring the travel from the base that was actually reported --
+    // rather than from wherever the pager happens to be floored right now --
+    // is what keeps them describing the same picture: as the page crosses a
+    // boundary the travel simply reaches 1, which draws the arriving day dead
+    // centre, and that is exactly what the next frame draws at a travel of 0
+    // once the new pair lands. Read them apart and that frame instead drew the
+    // day being left, centred, for as long as the pair took to catch up.
+    val reportedBase = remember { mutableIntStateOf(NoSwipeBase) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { swipeLabelDays }.collect { (base, days) ->
+            reportedBase.intValue = base
+            daysReporter.value(days)
+        }
+    }
+    // Read per frame from the pill's draw and measure scopes. Deliberately not
+    // state the pill observes: a drag must move the label without recomposing
+    // this screen sixty times a second.
+    val ownerState = rememberUpdatedState(swipeOwner)
+    val swipeLabelTravel = remember {
+        {
+            val pager = ownerState.value
+            val base = reportedBase.intValue
+            if (pager == null || base == NoSwipeBase) {
+                0f
+            } else {
+                (pagePosition(pager) - base).coerceIn(0f, 1f)
+            }
+        }
+    }
+    val travelReporter = rememberUpdatedState(onSwipeLabelTravel)
+    DisposableEffect(Unit) {
+        travelReporter.value(swipeLabelTravel)
+        onDispose { travelReporter.value { 0f } }
     }
 
     // A month swipe preserves the selected day number where possible. The

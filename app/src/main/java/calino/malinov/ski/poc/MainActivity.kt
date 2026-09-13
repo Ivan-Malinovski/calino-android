@@ -207,6 +207,7 @@ import calino.malinov.ski.poc.ui.components.CalinoToast
 import calino.malinov.ski.poc.ui.components.NavSidebar
 import calino.malinov.ski.poc.ui.components.pockRouteLabel
 import calino.malinov.ski.poc.ui.home.HomeScreen
+import calino.malinov.ski.poc.ui.home.PillSwipeDays
 import calino.malinov.ski.poc.ui.range.RangeScreen
 import calino.malinov.ski.poc.ui.components.SwipeDownDismiss
 import calino.malinov.ski.poc.ui.surfaces.DayModalSurface
@@ -762,6 +763,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var selectedDate by rememberSaveable(stateSaver = LocalDateSaver) {
         mutableStateOf(if (pocViewModel.hasAccounts) LocalDate.now() else FixtureNow.today)
     }
+    // The two days a live swipe has the add pill's label between, ahead of
+    // the commit. Only chrome that merely names the day reads this; the
+    // calendar itself still follows the committed [selectedDate].
+    var swipeLabelDays by remember { mutableStateOf<PillSwipeDays?>(null) }
+    // Where between them it is. A lambda rather than a value, and held in its
+    // own state: the pill reads it inside its own draw and measure passes, so
+    // a drag moves the label without recomposing this screen per frame.
+    var swipeLabelTravel by remember { mutableStateOf<() -> Float>({ 0f }) }
     // Connecting the first account mid-session moves the calendar to today
     // for the same reason.
     LaunchedEffect(pocViewModel.hasAccounts) {
@@ -1433,6 +1442,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         initialDate = selectedDate,
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = { selectedDate = it },
+                        onSwipeLabelDaysChanged = { swipeLabelDays = it },
+                        onSwipeLabelTravel = { swipeLabelTravel = it },
                         onDayClick = { date -> selectedDate = date; showDayModal = true; route = PockRoute.Day },
                         onEventClick = { event ->
                             selectedEventId = event.id
@@ -2005,6 +2016,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     searchVisible = true
                 },
                 label = addPillLabel,
+                // A swipe names both of the days it is between and lets the
+                // pill carry them across the gesture, rather than renaming
+                // itself once everything has settled.
+                swipeLabels = swipeLabelDays
+                    ?.takeIf { rootRoute == PockRoute.Day || rootRoute == PockRoute.Range }
+                    ?.let { "Add on ${it.from.format(DateLabel)}" to "Add on ${it.to.format(DateLabel)}" },
+                swipeTravel = { swipeLabelTravel() },
                 onClick = {
                     when (rootRoute) {
                         PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)

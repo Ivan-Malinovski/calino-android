@@ -24,6 +24,8 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
@@ -87,6 +89,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -1663,10 +1668,162 @@ private fun Modifier.floatingPillSurface(
  * and a chip carrying that name is revealed from under the pill as it travels,
  * filling in once the drag is past the commit threshold.
  */
+/**
+ * The leading text two pill labels agree on, cut back to a word boundary so a
+ * day that happens to start with the same letter as the one it replaces does
+ * not leave half a word behind while the rest of it moves.
+ */
+private fun sharedLabelPrefix(from: String, to: String): String {
+    var shared = 0
+    while (shared < minOf(from.length, to.length) && from[shared] == to[shared]) shared++
+    if (shared == from.length && shared == to.length) return ""
+    val boundary = from.lastIndexOf(' ', (shared - 1).coerceAtLeast(0))
+    // Ends in a non-breaking space: an ordinary one is trimmed at the end of a
+    // line and at the start of the next Text, either way closing the gap and
+    // leaving the pill reading "Add onMon, 18 May".
+    return if (boundary <= 0) "" else from.substring(0, boundary) + '\u00A0'
+}
+
+/**
+ * The two days a swipe is between -- the earlier and the later, always in that
+ * order -- drawn in one place and moved by the finger.
+ * [progress] is where the pager is between them, 0 to 1, so the pair needs no
+ * notion of direction: forward raises it, backward lowers it, and a page
+ * boundary is just the point where it wraps and the days it names move on by
+ * one. They travel a full width apart, so the one being left is always exactly
+ * one label clear of the one arriving: the pair reads as a strip of text being
+ * pulled through the pill rather than as two labels sharing a spot.
+ *
+ * Neither fades. What hides a date is the box's own edge, and that edge is a
+ * short gradient rather than a cut -- a hard clip chops the text mid-letter,
+ * which is the one moment in the move that looks like a rendering artefact
+ * instead of a shape. The softening comes and goes with the swipe: at rest, at
+ * either end, no date is near an edge and there is nothing to soften.
+ *
+ * The width is part of the move too. Measured to the wider of the two, the
+ * pill holds the old day's width for the whole gesture and then snaps to the
+ * new one when the preview clears -- a growing pill that animates and a
+ * shrinking pill that jumps. Interpolated here, the shape travels with the
+ * text in both directions, and there is nothing left to animate at the end.
+ */
+@Composable
+private fun PillLabelSwipePair(
+    departing: String,
+    arriving: String,
+    progress: () -> Float,
+) {
+    val edge = with(LocalDensity.current) { PillLabelEdgeFade.toPx() }
+    val gap = with(LocalDensity.current) { PillLabelSwipeGap.toPx() }
+    Layout(
+        modifier = Modifier
+            // The gradient is painted over the content with DstIn, which needs
+            // the content in a layer of its own to punch holes in.
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .clipToBounds()
+            .drawWithContent {
+                drawContent()
+                val travelled = progress().coerceIn(0f, 1f)
+                // Widest halfway through, nothing at either end.
+                val soften = edge * (1f - abs(2f * travelled - 1f))
+                if (soften < .5f || size.width <= 0f) return@drawWithContent
+                val span = (soften / size.width).coerceIn(0f, .5f)
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Transparent,
+                        span to Color.Black,
+                        1f - span to Color.Black,
+                        1f to Color.Transparent,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
+        content = {
+            PillLabelText(departing)
+            PillLabelText(arriving)
+        },
+    ) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0)
+        val outgoing = measurables[0].measure(loose)
+        val incoming = measurables[1].measure(loose)
+        // Read in the measure pass, so the width is remeasured on the frames
+        // the finger moves rather than animated after it has stopped.
+        val travelled = progress().coerceIn(0f, 1f)
+        val width = (outgoing.width + (incoming.width - outgoing.width) * travelled)
+            .roundToInt()
+            .coerceIn(constraints.minWidth, constraints.maxWidth)
+        val height = maxOf(outgoing.height, incoming.height)
+        // A gap between the two, so the swap never reads as one date running
+        // into the other. Without it they arrive shoulder to shoulder in a
+        // window only one date wide, and the halfway point is two half-dates
+        // spelling a word that is in neither of them.
+        val span = width + gap
+        // One direction only, and no special case at either end: the pair
+        // always runs the earlier day out to the left as the later one comes
+        // in from the right. A backward swipe is the same picture read from
+        // the other end -- it lowers the position rather than raising it.
+        layout(width, height) {
+            outgoing.place((-travelled * span).roundToInt(), (height - outgoing.height) / 2)
+            incoming.place(((1f - travelled) * span).roundToInt(), (height - incoming.height) / 2)
+        }
+    }
+}
+
+/**
+ * What the pill's label row is showing, and whether a live swipe is moving it.
+ * [previewing] is part of the state rather than a flag read alongside it so
+ * that [AnimatedContent]'s transitionSpec, which sees the outgoing and the
+ * incoming state, can tell a gesture starting from a gesture ending from a
+ * plain relabel -- each of which wants a different transition, or none.
+ */
+private data class PillLabelState(
+    val save: PillSaveState,
+    val kind: PillWriteKind,
+    val text: String,
+    val previewing: Boolean,
+)
+
+/** The add pill's own text style, shared by the label and its swipe pair. */
+@Composable
+private fun PillLabelText(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier = modifier,
+        color = CalinoColors.OnFloat,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/**
+ * How wide the swipe pair's edges dissolve over. Enough that a date leaves by
+ * softening rather than by being cut, short enough that the label is legible
+ * for all but the moment it spends crossing.
+ */
+private val PillLabelEdgeFade = 22.dp
+
+/** How far apart the two dates ride, past the width of the label itself. */
+private val PillLabelSwipeGap = 18.dp
+
 @Composable
 fun AddPill(
     label: String,
     modifier: Modifier = Modifier,
+    /**
+     * The two labels a live swipe has the pill between, drawn as one strip and
+     * positioned by [swipeTravel]. Null whenever the plain [label] is the
+     * whole truth. Neither is privileged: at the halfway point of a swipe the
+     * pair swaps and the drawing is unchanged.
+     */
+    swipeLabels: Pair<String, String>? = null,
+    /**
+     * Where between them it sits, signed. Read every frame from the measure
+     * and draw scopes. A lambda, not a value: this changes on every frame of a
+     * drag and must not recompose the pill or its host to do so.
+     */
+    swipeTravel: () -> Float = { 0f },
     backdrop: GraphicsLayer? = null,
     backdropOrigin: () -> Offset = { Offset.Zero },
     canSwipe: (Int) -> Boolean = { false },
@@ -1826,9 +1983,41 @@ fun AddPill(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // While a swipe is live the pair names both of its days, and the
+            // first of them is the page the calendar is actually on -- so the
+            // pill never has to be told when to stop showing one day and start
+            // showing the other. It shows both, positioned by the page.
+            val shownLabel = swipeLabels?.first ?: label
+            // Whether a swipe owns the label motion travels *in* the state,
+            // not beside it. Held in a state the effects write after the fact,
+            // transitionSpec would read the previous composition's value and
+            // get the answer backwards at both ends of a gesture: a fade
+            // through on the frame the pair appears, a hard cut on the frame
+            // it leaves.
             AnimatedContent(
-                targetState = Triple(saveState, writeKind, label),
-                transitionSpec = { fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith fadeOut(tween(CalinoMotion.FadeThroughMillis)) },
+                // Only a swipe that is actually between two days owns the
+                // motion. At rest the pair names one day twice, and a change
+                // of that day -- a tapped date, a new route -- is a relabel
+                // like any other and still fades through.
+                targetState = PillLabelState(
+                    saveState,
+                    writeKind,
+                    shownLabel,
+                    previewing = swipeLabels != null && swipeLabels.first != swipeLabels.second,
+                ),
+                transitionSpec = {
+                    val sameState = initialState.save == targetState.save &&
+                        initialState.kind == targetState.kind
+                    if (sameState && (initialState.previewing || targetState.previewing)) {
+                        // The pair is already drawing both days at their drag
+                        // positions. Anything here would be a second, slower
+                        // copy of the move the finger is making.
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith
+                            fadeOut(tween(CalinoMotion.FadeThroughMillis))
+                    }
+                },
                 label = "add pill label",
             ) { (state, kind, text) ->
                 Row(
@@ -1853,19 +2042,31 @@ fun AddPill(
                             contentDescription = null,
                         )
                     }
-                    Text(
-                        when (state) {
-                            PillSaveState.Saving -> if (kind == PillWriteKind.Remove) "Removing" else "Saving"
-                            PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
-                            PillSaveState.Idle -> text
-                        },
-                        color = CalinoColors.OnFloat,
-                        fontSize = 15.sp,
-                        lineHeight = 20.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    val pillText = when (state) {
+                        PillSaveState.Saving -> if (kind == PillWriteKind.Remove) "Removing" else "Saving"
+                        PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
+                        PillSaveState.Idle -> text
+                    }
+                    if (state == PillSaveState.Idle && swipeLabels != null) {
+                        // Only the part that actually differs moves. Both
+                        // labels are "Add on <day>", and sliding the whole
+                        // string sends "Add on" out of the pill and back for
+                        // a change it has no part in; kept still, it reads as
+                        // one sentence whose last words are being swapped.
+                        val (from, to) = swipeLabels
+                        val prefix = sharedLabelPrefix(from, to)
+                        val moving = prefix.length
+                        Row(horizontalArrangement = Arrangement.Start) {
+                            if (prefix.isNotEmpty()) PillLabelText(prefix)
+                            PillLabelSwipePair(
+                                departing = from.drop(moving),
+                                arriving = to.drop(moving),
+                                progress = swipeTravel,
+                            )
+                        }
+                    } else {
+                        PillLabelText(pillText)
+                    }
                 }
             }
         }
