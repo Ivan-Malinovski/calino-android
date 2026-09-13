@@ -212,57 +212,7 @@ private fun RangePage(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val scroll = rememberScrollState(with(density) { (9 * 62).dp.roundToPx() })
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
-    Column(Modifier.fillMaxSize().semantics { contentDescription = "${days.size}-day calendar" }) {
-        Row(Modifier.fillMaxWidth().padding(start = 48.dp, end = 4.dp)) {
-            days.forEach { day ->
-                val due = remember(tasks, day, hideDone) { tasksDueOn(tasks, day).filterNot { hideDone && it.done } }
-                val allDay = remember(eventIndex, day) { eventIndex.eventsOn(day).filter { it.allDay } }
-                Column(
-                    Modifier.weight(1f).padding(horizontal = 1.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()).uppercase(), fontSize = 10.sp, color = CalinoColors.Ink3)
-                    Text(day.dayOfMonth.toString(), fontSize = if (days.size == 7) 14.sp else 16.sp, fontWeight = FontWeight.SemiBold, color = CalinoColors.Ink)
-                    allDay.firstOrNull()?.let { event ->
-                        Text(
-                            event.title,
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-                                .background(CalinoColors.AccentSoft)
-                                .combinedClickable(
-                                    onClick = { onEventClick(day, event) },
-                                    onLongClick = { onEventAction(EventMenuAction.Edit, event) },
-                                ).padding(2.dp),
-                            fontSize = 8.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                        )
-                    } ?: due.firstOrNull()?.let { task ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-                                .background(CalinoColors.AccentSoft)
-                                .combinedClickable(
-                                    onClick = { onTaskClick(task) },
-                                    onLongClick = { onTaskAction(TaskMenuAction.Edit, task) },
-                                ),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(task.title, Modifier.weight(1f).padding(start = 2.dp), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                if (task.done) "✓" else "○",
-                                Modifier.width(28.dp).height(44.dp).clickable { onTaskDone(task, !task.done) }
-                                    .semantics { contentDescription = if (task.done) "Mark ${task.title} open" else "Complete ${task.title}" }
-                                    .padding(top = 13.dp),
-                                textAlign = TextAlign.Center,
-                                fontSize = 12.sp,
-                            )
-                        }
-                    }
-                    if (allDay.size + due.size > 1) Text("+${allDay.size + due.size - 1}", fontSize = 8.sp, color = CalinoColors.Ink3)
-                }
-            }
-        }
-        Spacer(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
+    Box(Modifier.fillMaxSize().semantics { contentDescription = "${days.size}-day calendar" }) {
         Row(
             Modifier.fillMaxSize()
                 .rangePinch { zoom -> onTimelineScaleChanged((timelineScale * zoom).coerceIn(.65f, 1.8f)) }
@@ -327,6 +277,60 @@ private fun RangePage(
                     )
                 }
             }
+        }
+        // Match the compact week strip: the day labels own content and input,
+        // but paint no backing, so the scrolling hour grid remains visible.
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(start = 48.dp, end = 4.dp)) {
+                days.forEach { day ->
+                    val due = remember(tasks, day, hideDone) { tasksDueOn(tasks, day).filterNot { hideDone && it.done } }
+                    val allDay = remember(eventIndex, day) { eventIndex.eventsOn(day).filter { it.allDay } }
+                    Column(
+                        Modifier.weight(1f).padding(horizontal = 1.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()).uppercase(), fontSize = 10.sp, color = CalinoColors.Ink3)
+                        Text(day.dayOfMonth.toString(), fontSize = if (days.size == 7) 14.sp else 16.sp, fontWeight = FontWeight.SemiBold, color = CalinoColors.Ink)
+                        allDay.firstOrNull()?.let { event ->
+                            Text(
+                                event.title,
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+                                    .background(CalinoColors.AccentSoft)
+                                    .combinedClickable(
+                                        onClick = { onEventClick(day, event) },
+                                        onLongClick = { onEventAction(EventMenuAction.Edit, event) },
+                                    ).padding(2.dp),
+                                fontSize = 8.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
+                        } ?: due.firstOrNull()?.let { task ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+                                    .background(CalinoColors.AccentSoft)
+                                    .combinedClickable(
+                                        onClick = { onTaskClick(task) },
+                                        onLongClick = { onTaskAction(TaskMenuAction.Edit, task) },
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(task.title, Modifier.weight(1f).padding(start = 2.dp), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    if (task.done) "✓" else "○",
+                                    Modifier.width(28.dp).height(44.dp).clickable { onTaskDone(task, !task.done) }
+                                        .semantics { contentDescription = if (task.done) "Mark ${task.title} open" else "Complete ${task.title}" }
+                                        .padding(top = 13.dp),
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                        }
+                        if (allDay.size + due.size > 1) Text("+${allDay.size + due.size - 1}", fontSize = 8.sp, color = CalinoColors.Ink3)
+                    }
+                }
+            }
+            Spacer(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
         }
     }
 }
