@@ -80,6 +80,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -180,6 +181,8 @@ import calino.malinov.ski.poc.state.LocalHingeOpenness
 import calino.malinov.ski.poc.state.hingeOpenness
 import calino.malinov.ski.poc.state.foldPostureOf
 import calino.malinov.ski.poc.state.LocalCalinoNow
+import calino.malinov.ski.poc.state.CalinoSyncStatus
+import calino.malinov.ski.poc.state.LocalCalinoSync
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.poc.state.rememberCalinoPreferences
@@ -1150,7 +1153,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             route == PockRoute.Notifications -> route = if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
             route == PockRoute.Accounts -> {
                 accountsAutoAdd = false
-                route = if (accountsOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
+                route = when (accountsOrigin) {
+                    PocReturnTarget.Settings -> PockRoute.Settings
+                    PocReturnTarget.Range -> PockRoute.Range
+                    PocReturnTarget.Agenda -> PockRoute.Agenda
+                    else -> PockRoute.Day
+                }
             }
             showDayModal -> showDayModal = false
             else -> route = PockRoute.Day
@@ -1162,6 +1170,28 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
         label = "AI context blur",
     )
+    // One sync marker for the whole app. The calendar headings read it from
+    // here; the Calendars screen remains the place that explains and retries.
+    // Both halves are remembered: this is a static local wrapping the entire
+    // app, so a value with a fresh identity on every recomposition would
+    // invalidate every surface under it.
+    val syncRoute = rememberUpdatedState(route)
+    val openSyncDetail: () -> Unit = remember {
+        {
+            // Come back to the calendar the marker was tapped from, not to
+            // Day: the marker is on three different roots.
+            accountsOrigin = when (syncRoute.value) {
+                PockRoute.Range -> PocReturnTarget.Range
+                PockRoute.Agenda -> PocReturnTarget.Agenda
+                else -> PocReturnTarget.Calendar
+            }
+            route = PockRoute.Accounts
+        }
+    }
+    val syncStatus = remember(snapshot.sync, openSyncDetail) {
+        CalinoSyncStatus(state = snapshot.sync, onOpenDetail = openSyncDetail)
+    }
+    CompositionLocalProvider(LocalCalinoSync provides syncStatus) {
     // Keep the blur on the calendar/content sibling only. AI surfaces are
     // drawn after this block and must stay crisp above the blurred context.
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -1967,6 +1997,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         )
     }
 
+}
 }
 }
 }

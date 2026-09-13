@@ -285,6 +285,46 @@ invisible from the month or agenda view and a stale cache looks identical to a
 fresh one. Add a global, quiet sync/staleness indicator to the calendar
 surfaces. Deferred item #4 in `HANDOFF.md`.
 
+**Status 2026-09-13 — [x] done.** One marker, in the shared
+`CalinoMonthHeading`, so Month/Day, Range and Agenda cannot disagree: a single
+dot beside the month/year lockup, rose when the last read failed or came back
+partial, neutral when a clean read has aged past `SyncStaleAfter`, a small
+spinner while a read is in flight, and **nothing at all** otherwise. Tapping it
+opens Calendars — which keeps the timestamp, the warnings and Refresh — and
+back returns to the calendar the marker was tapped from rather than always to
+Day.
+
+`state/SyncIndicatorRules.kt` holds the whole decision as a pure function
+(`syncBadgeFor`) plus the `LocalCalinoSync` composition local that `MainActivity`
+provides from `snapshot.sync`; the local exists because every calendar heading
+needs the value and no layer between the root and the heading has any business
+carrying it. `SyncIndicatorRulesTest` pins the rules, including that a warning
+outranks age and that a `fetchedAt` in the future counts as fresh rather than
+stale.
+
+Two decisions worth knowing:
+
+- **Staleness is 30 minutes**, because nothing refreshes on a timer — a read
+  happens at launch, on connect, and when a person asks. An app left open
+  overnight was showing yesterday's calendar with no outward difference from a
+  fresh one, which is the failure this exists for. The marker appears on its
+  own as `LocalCalinoNow` ticks; it does not wait for an interaction.
+- **The marker costs the heading 26dp, not 44dp.** A fourth full-width control
+  wrapped "2026" onto its own line on a narrow phone. It keeps a 44dp touch
+  lane by overflowing its slot — `Row` does not clip and hit testing uses the
+  node's own bounds — and the overflow leans into the title, which is not
+  clickable, rather than into the next chevron.
+
+Validated on the API 36 emulator against the local Radicale, in all four
+states: absent with no account and after a clean read, rose when the server was
+stopped and Refresh failed (with the cached event still on screen), neutral
+after the device clock crossed the 30-minute window on its own, and the tap
+landing on Calendars and returning to the right root from both Day and Agenda.
+Range and Agenda were checked as well as the month/day heading, and the
+month/year lockup stays on one line in the tightest case — marker, Today button
+and both chevrons at once. 544 unit tests, 54 device tests, plus `lintDebug`
+and `assembleDebug`.
+
 ## 9. `.ics` and intent integration
 
 - `text/calendar` VIEW intent filter so an `.ics` from mail or a browser opens

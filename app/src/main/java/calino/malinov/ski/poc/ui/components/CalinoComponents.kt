@@ -13,7 +13,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
@@ -46,6 +48,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -55,6 +58,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -107,6 +111,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontStyle
@@ -132,9 +137,14 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
+import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
+import calino.malinov.ski.poc.state.LocalCalinoSync
 import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.state.SyncBadge
+import calino.malinov.ski.poc.state.syncBadgeFor
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -1258,6 +1268,7 @@ fun CalinoMonthHeading(
             }
         }
         trailingContent?.invoke()
+        CalendarSyncBadge()
         if (showTodayButton) {
             val todayAlpha by animateFloatAsState(
                 targetValue = if (showToday) 1f else 0f,
@@ -1290,6 +1301,95 @@ fun CalinoMonthHeading(
             .background(CalinoColors.Accent.copy(alpha = .22f)),
     )
 }
+
+/**
+ * The quiet sync marker every calendar heading carries.
+ *
+ * `snapshot.sync` used to be rendered only under Calendars, so a failed
+ * refresh was invisible from the month, range, day or agenda view and a cache
+ * from yesterday looked exactly like a read from a moment ago. This is the
+ * smallest honest correction: nothing at all while the calendar is current,
+ * and a single dot -- opening the screen that can explain and retry --  when
+ * it is not. It lives in the shared heading rather than in each surface so
+ * there is one marker, in one place, that cannot drift between views.
+ */
+@Composable
+fun CalendarSyncBadge(modifier: Modifier = Modifier) {
+    val status = LocalCalinoSync.current
+    val now = LocalCalinoNow.current
+    val zone = remember { ZoneId.systemDefault() }
+    // Recomputed as the clock ticks, which is what lets a calendar left open
+    // cross into "stale" on its own rather than at the next interaction.
+    val badge = remember(status.state, now, zone) {
+        syncBadgeFor(status.state, now.dateTime.atZone(zone).toInstant())
+    }
+    val description = when (badge) {
+        SyncBadge.None -> null
+        SyncBadge.Refreshing -> "Refreshing calendars"
+        SyncBadge.Stale -> "Calendar may be out of date. Open Calendars to refresh."
+        SyncBadge.Incomplete -> "Part of the calendar could not be read. Open Calendars for details."
+        SyncBadge.Failed -> "Calendar could not be updated. Open Calendars for details."
+    }
+    // Fade and widen rather than appear: the heading must not jump a month
+    // title sideways the instant a refresh starts.
+    AnimatedVisibility(
+        visible = description != null,
+        enter = fadeIn(tween(CalinoMotion.SurfaceFadeMillis)) +
+            expandHorizontally(tween(CalinoMotion.SurfaceFadeMillis), clip = false),
+        exit = fadeOut(tween(CalinoMotion.ContentExitMillis)) +
+            shrinkHorizontally(tween(CalinoMotion.ContentExitMillis), clip = false),
+        modifier = modifier,
+    ) {
+        // The last non-null description keeps the exit animation readable
+        // instead of blanking its label halfway out.
+        val shown = remember { mutableStateOf(description) }
+        if (description != null) shown.value = description
+        val settled = shown.value.orEmpty()
+        val tint by animateColorAsState(
+            targetValue = when (badge) {
+                SyncBadge.Failed, SyncBadge.Incomplete -> CalinoColors.Rose
+                else -> CalinoColors.Ink3
+            },
+            animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
+            label = "sync badge tint",
+        )
+        // The heading is already three controls and a display-face month/year
+        // lockup wide; a fourth 44dp slot wrapped "2026" onto its own line on a
+        // narrow phone. So the marker *occupies* a narrow slot and keeps its
+        // 44dp touch lane by overflowing it -- Row does not clip, and hit
+        // testing uses the node's own bounds. The overflow leans into the
+        // title, which is not clickable, rather than into the next chevron.
+        Box(Modifier.width(SyncBadgeSlotWidth), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .requiredSize(44.dp)
+                .clip(CircleShape)
+                .calinoPressable(onClick = status.onOpenDetail)
+                .semantics(mergeDescendants = true) {
+                    role = Role.Button
+                    contentDescription = settled
+                    // Quiet: it announces itself when it changes, and is not a
+                    // focus trap when it does not.
+                    liveRegion = LiveRegionMode.Polite
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (badge == SyncBadge.Refreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(13.dp),
+                    strokeWidth = 1.5.dp,
+                    color = tint,
+                )
+            } else {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(tint))
+            }
+        }
+        }
+    }
+}
+
+/** The layout width the marker costs the heading, as against its touch lane. */
+private val SyncBadgeSlotWidth = 26.dp
 
 @Composable
 private fun MonthHeadingLabel(month: YearMonth, modifier: Modifier = Modifier) {

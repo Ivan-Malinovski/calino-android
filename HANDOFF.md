@@ -2372,6 +2372,57 @@ CALINO_CALDAV_USER=you CALINO_CALDAV_PASS=... \
   distrobox enter android-sdk -- bash -lc './gradlew test --tests "*CalDavLiveTest*"'
 ```
 
+## The sync marker
+
+`snapshot.sync` is rendered in two places, and they say different amounts on
+purpose. The Calendars screen keeps the full story -- a timestamp, the
+warnings, and Refresh. Every calendar surface gets one dot.
+
+The dot lives in `CalinoMonthHeading`, which Month/Day, Range and Agenda all
+share, so there is exactly one marker and it cannot drift between views. It
+reads `LocalCalinoSync`, provided once in `CalinoAppContent` from
+`snapshot.sync`; a composition local rather than a parameter because no layer
+between the root and the heading has any business carrying it.
+
+`state/SyncIndicatorRules.kt` holds the decision as a pure function:
+
+| State | Marker |
+|---|---|
+| `Idle` (no account -- the fixture app) | nothing |
+| `Loading` | a 13dp spinner |
+| `Ready`, clean, newer than `SyncStaleAfter` | nothing |
+| `Ready`, clean, older than that | a neutral dot |
+| `Ready` with warnings | a rose dot |
+| `Failed` | a rose dot |
+
+Things to know before changing it:
+
+- **`SyncStaleAfter` is 30 minutes, and the threshold is the whole point.**
+  Nothing refreshes on a timer; a read happens at launch, on connect, and when
+  a person asks. Without an age rule an app left open overnight shows
+  yesterday's calendar with no outward difference from a fresh one. The dot
+  appears on its own because the rule is recomputed as `LocalCalinoNow` ticks,
+  not at the next interaction.
+- **A `fetchedAt` in the future counts as fresh**, not stale. Clock skew would
+  otherwise make the marker a guess.
+- **A warning outranks age**: a recent read that is missing a calendar says
+  "incomplete", because which part of the calendar is absent matters more than
+  how old it is.
+- **The marker costs the heading 26dp of layout, not 44dp.** A fourth
+  full-width control wrapped "2026" onto its own line on a narrow phone, with
+  the Today button and both chevrons showing. It keeps its 44dp touch lane by
+  overflowing the slot -- `Row` does not clip, and hit testing uses the node's
+  own bounds -- and the overflow leans left into the title, which is not
+  clickable, rather than right into the next chevron. If the heading gains
+  another control, re-check that case first.
+- Tapping it opens Calendars and sets `accountsOrigin` from the current root,
+  so back returns to Range or Agenda rather than always to Day. That `when` in
+  the Accounts back handler exists for this.
+
+The device tests do not cover it: they run with no account connected, which is
+`Idle`, which by design shows nothing. `SyncIndicatorRulesTest` covers the rule
+instead, and the states were checked on the emulator against a local Radicale.
+
 ## Historical CalDAV deferred work
 
 These were the pre-write handoff items. They are retained as history; the
@@ -2385,11 +2436,11 @@ implemented counterparts are documented in the current write section above.
 3. **Incremental sync.** Complete in `IncrementalSync`, `CalDavFetcher`, and
    `CardDavFetcher`; changed resources are bounded-concurrent GETs and invalid
    reports fall back safely.
-4. **A sync indicator on the calendar surfaces.** `snapshot.sync` is only
-   rendered under Calendars, so a failed refresh is invisible from the month or
-   agenda view. Less acute since the cache landed -- a cold start is no longer
-   a blank calendar -- but a stale copy still looks identical to a fresh one
-   outside the Calendars screen.
+4. **A sync indicator on the calendar surfaces.** Done on 2026-09-13; see
+   "The sync marker" below. It used to read: `snapshot.sync` is only rendered
+   under Calendars, so a failed refresh is invisible from the month or agenda
+   view, and a stale copy looks identical to a fresh one outside the Calendars
+   screen.
 5. **Fetch-window paging.** The window is today ±6 months
    (`CalDavRepository.DefaultWindowMonths`) and does not extend when the user
    pages beyond it — events simply stop. Note the cache changes the shape of
