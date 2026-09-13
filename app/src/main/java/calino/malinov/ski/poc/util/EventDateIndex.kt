@@ -72,7 +72,16 @@ class EventDateIndex private constructor(
                     if (separator > 0) part.substring(0, separator) to part.substring(separator + 1) else null
                 }.toMap()
                 val anchor = event.placementDate()
-                when (fields["FREQ"]) {
+                // A bucket is only allowed to narrow the candidates when the
+                // rule's placement is provable from its FREQ alone. Anything
+                // carrying a BY* part other than a weekly BYDAY -- BYMONTHDAY,
+                // BYSETPOS, BYMONTH, an ordinal BYDAY -- can land on a date the
+                // anchor does not predict, so it is always a candidate and
+                // RecurrenceRules decides.
+                val byParts = fields.keys.filter { it.startsWith("BY") }
+                val simple = byParts.isEmpty() ||
+                    (fields["FREQ"] == "WEEKLY" && byParts == listOf("BYDAY"))
+                when (fields["FREQ"].takeIf { simple }) {
                     "DAILY" -> daily += index
                     "WEEKLY" -> {
                         val days = fields["BYDAY"]?.split(',')?.mapNotNull(::dayOfWeek).orEmpty()
@@ -80,11 +89,10 @@ class EventDateIndex private constructor(
                         if (days.isEmpty()) other += index
                         else days.distinct().forEach { weekly.getOrPut(it) { mutableListOf() }.add(index) }
                     }
-                    "MONTHLY" -> anchor?.dayOfMonth?.let {
-                        // occursOn clamps this anchor to the final day of short months.
-                        val days = if (it > 28) 28..it else it..it
-                        for (day in days) monthly.getOrPut(day) { mutableListOf() }.add(index)
-                    } ?: run { other += index }
+                    // RFC 5545 skips a month too short for the anchor day
+                    // rather than clamping, so the anchor day is exact.
+                    "MONTHLY" -> anchor?.dayOfMonth?.let { monthly.getOrPut(it) { mutableListOf() }.add(index) }
+                        ?: run { other += index }
                     "YEARLY" -> anchor?.let {
                         yearly.getOrPut(it.monthValue) { mutableListOf() }.add(index)
                     } ?: run { other += index }

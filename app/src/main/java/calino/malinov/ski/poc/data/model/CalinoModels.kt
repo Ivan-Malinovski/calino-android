@@ -4,9 +4,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.Instant
-import java.time.DayOfWeek
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /** Visual-POC data contract; server persistence and sync live in the DAV layer. */
 data class Attendee(val name: String, val email: String)
@@ -73,45 +70,10 @@ fun CalEvent.occursOn(day: LocalDate): Boolean {
     lastCoveredDate()?.let { last ->
         if (!day.isBefore(anchor) && !day.isAfter(last)) return true
     }
-    val fields = recurrence?.uppercase(Locale.US)?.split(';')?.mapNotNull { part ->
-        part.indexOf('=').takeIf { it > 0 }?.let { separator -> part.substring(0, separator) to part.substring(separator + 1) }
-    }?.toMap() ?: return false
+    val rule = recurrence ?: return false
     if (day.isBefore(anchor)) return false
-    val until = fields["UNTIL"]?.removeSuffix("Z")?.let { value ->
-        runCatching {
-            when (value.length) {
-                8 -> LocalDate.parse(value, DateTimeFormatter.BASIC_ISO_DATE)
-                15 -> LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss", Locale.US)).toLocalDate()
-                else -> null
-            }
-        }.getOrNull()
-    }
-    if (until != null && day.isAfter(until)) return false
-    return when (fields["FREQ"]) {
-        "DAILY" -> true
-        "WEEKLY" -> {
-            val weekdays = fields["BYDAY"]?.split(',')?.mapNotNull(::dayOfWeekForCode)?.toSet().orEmpty()
-                .ifEmpty { setOf(anchor.dayOfWeek) }
-            day.dayOfWeek in weekdays
-        }
-        // A day-of-month anchor past the length of a shorter month falls on
-        // that month's last day rather than skipping the month entirely.
-        "MONTHLY" -> day.dayOfMonth == anchor.dayOfMonth.coerceAtMost(day.lengthOfMonth())
-        "YEARLY" -> day.monthValue == anchor.monthValue &&
-            day.dayOfMonth == anchor.dayOfMonth.coerceAtMost(day.lengthOfMonth())
-        else -> false
-    }
-}
-
-private fun dayOfWeekForCode(code: String): DayOfWeek? = when (code.trim()) {
-    "MO" -> DayOfWeek.MONDAY
-    "TU" -> DayOfWeek.TUESDAY
-    "WE" -> DayOfWeek.WEDNESDAY
-    "TH" -> DayOfWeek.THURSDAY
-    "FR" -> DayOfWeek.FRIDAY
-    "SA" -> DayOfWeek.SATURDAY
-    "SU" -> DayOfWeek.SUNDAY
-    else -> null
+    // One engine, shared with the CalDAV expander. See RecurrenceRules.
+    return RecurrenceRules.occursOn(rule, start ?: anchor.atStartOfDay(), allDay, day)
 }
 
 fun CalEvent.placementDate(): LocalDate? = if (allDay) date else start?.toLocalDate()

@@ -199,6 +199,33 @@ Start with a failing test that pins the current wrong behaviour, then decide
 whether `occursOn` grows to match `ICalMapper` or whether the UI paths stop
 using a second engine at all. One engine is the preferred end state.
 
+**Status 2026-09-13 — [x] done.** There is now one engine.
+`data/model/RecurrenceRules.kt` evaluates a rule by handing biweekly the same
+RFC 5545 iterator `ICalMapper` expands with, and `CalEvent.occursOn` delegates
+to it, so the grid, the reminder planner and the widget cannot disagree with
+the CalDAV expander. `INTERVAL`, `COUNT`, `BYMONTHDAY`, `BYSETPOS`, `BYMONTH`,
+ordinal `BYDAY` and `EXDATE` are all honoured; the confirmed bug
+(`FREQ=WEEKLY;INTERVAL=2` rendering every week) is pinned by
+`RecurrenceRuleTest`, which fails against the old hand-rolled parser.
+
+Two deliberate behaviour changes, both toward the standard:
+
+- A monthly anchor past the length of a shorter month now **skips** that month
+  rather than clamping to its last day (RFC 5545 3.3.10). The old clamp was
+  the hand-rolled engine's invention and the expander never agreed with it.
+- `EventDateIndex` only buckets a rule whose placement follows from its `FREQ`
+  alone. Anything with a `BY*` part other than a weekly `BYDAY` is now a
+  candidate on every date, because such a rule can land where the anchor does
+  not predict; `RecurrenceRules` makes the decision.
+
+Results are memoised per rule, anchor and year, since `occursOn` is called once
+per visible event per visible day.
+
+Validated on the API 36 emulator: a weekly series created in the editor renders
+on its weekday only, across the month grid, and continues correctly across the
+month and year boundary into January 2027; deleting the series clears every
+occurrence. 535 unit tests, none failing, plus `lintDebug` and `assembleDebug`.
+
 ## 6. Instrumented tests
 
 There is no `androidTest` source set, for an app whose core value is gesture and

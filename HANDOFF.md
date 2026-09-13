@@ -4,6 +4,40 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### One recurrence engine — 2026-09-13
+
+TODO item 5. Calino carried two recurrence implementations that disagreed:
+`ICalMapper` expanded server series with biweekly's RFC 5545 iterator, while
+`CalEvent.occursOn` re-implemented `FREQ`/`BYDAY`/`UNTIL` by hand. An unbounded
+`FREQ=WEEKLY;INTERVAL=2` therefore rendered every week.
+
+- `data/model/RecurrenceRules.kt` is now the single evaluator. It wraps the rule
+  in a minimal VEVENT and walks the same iterator the expander walks, so the
+  grid, the reminder planner and the widget cannot drift from what the server
+  round trip produces. `INTERVAL`, `COUNT`, `BYMONTHDAY`, `BYSETPOS`, `BYMONTH`
+  and ordinal `BYDAY` now all behave.
+- `EXDATE=` parts are lifted out of the rule string into real properties before
+  parsing. `CalEvent.recurrence` holds RRULE text, but a locally written rule
+  may carry an EXDATE inside it, and biweekly would otherwise discard the whole
+  rule rather than one part of it.
+- **A monthly anchor past the length of a shorter month now skips that month**
+  instead of clamping to its last day. RFC 5545 3.3.10 skips; the clamp was the
+  hand-rolled engine's invention, and the expander never agreed with it.
+- **`EventDateIndex` buckets conservatively.** A bucket may only narrow the
+  candidate set when placement follows from `FREQ` alone, so any rule carrying a
+  `BY*` part other than a weekly `BYDAY` is a candidate on every date and
+  `RecurrenceRules` decides. Bucketing such a rule by its anchor day would hide
+  occurrences the rule places elsewhere.
+- Results are memoised per rule, anchor and year, bounded by an LRU, because
+  `occursOn` is called once per visible event per visible day. A rule that fails
+  to parse yields no occurrences beyond its anchor rather than throwing.
+
+`RecurrenceRuleTest` pins the whole grammar, including the `INTERVAL` bug, and
+fails against the old parser. Validated on the API 36 emulator: a weekly series
+created in the editor renders on its weekday only across the month grid and
+continues correctly into January 2027; deleting the series clears every
+occurrence.
+
 ### 3-day and 7-day Range page — 2026-09-13
 
 TODO item 4 landed as a dedicated `PockRoute.Range`, by explicit user choice,
@@ -158,8 +192,8 @@ TODO item 2. A reminder used to sync and then notify nobody. It now fires.
   be made from a boot receiver where there is no Activity and no repository.
   Expanded occurrences are used as they arrive from `ICalMapper`; only an
   unexpanded master is day-walked, through `CalEvent.occursOn`, so a
-  notification cannot land on a day the grid does not show. It inherits that
-  engine's gaps, which is TODO item 5's to fix in one place.
+  notification cannot land on a day the grid does not show. Since TODO item 5
+  that predicate is the RFC 5545 engine, so there are no gaps left to inherit.
 - All-day records anchor at 09:00, never midnight. A "0 minutes before"
   reminder on an all-day event otherwise arrives in the middle of the night.
 - `notify/ReminderScheduleStore.kt` is the durable plan, written with the
@@ -1860,8 +1894,8 @@ to be complete:
 14. Reminders are delivered locally as of TODO item 2. What remains: a
     timezone change re-arms stored instants only and the anchors are corrected
     on the next foreground; the planner uses `CalEvent.occursOn` for
-    unexpanded recurrence masters and inherits gap #5's missing `INTERVAL`;
-    and the "Daily brief" summary the Notifications mock used to advertise was
+    unexpanded recurrence masters, which since TODO item 5 is the same RFC 5545
+    engine the expander uses; and the "Daily brief" summary the Notifications mock used to advertise was
     removed rather than built.
 15. `Reminder` models a lead time and nothing else. Absolute triggers,
     `RELATED=END`, `REPEAT`/`DURATION` and non-display actions are preserved on
@@ -2146,9 +2180,9 @@ Load-bearing rules, each paid for once:
   day-level fallback applies only to an EXDATE inside the window that cancelled
   nothing exactly.
 - **`CalEvent.recurrence` stays null on expanded instances.** `occursOn()` in
-  `data/model/CalinoModels.kt` is a second, hand-rolled expander that fires
-  whenever `recurrence` is set. Populating it would place every occurrence
-  twice. If a series summary is ever wanted on the detail card, add a
+  `data/model/CalinoModels.kt` evaluates the rule itself whenever `recurrence`
+  is set (through `RecurrenceRules`, the same biweekly engine used here).
+  Populating it would place every occurrence twice. If a series summary is ever wanted on the detail card, add a
   display-only field that `occursOn` does not consult.
 - **Occurrence id is `"$uid@$instant"`**, so occurrences are individually
   addressable while `CalEvent.uid` still names the series for editing. A
