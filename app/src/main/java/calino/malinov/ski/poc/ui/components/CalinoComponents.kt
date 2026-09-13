@@ -25,6 +25,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.SizeTransform
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -2010,12 +2014,30 @@ fun AddPill(
                         initialState.kind == targetState.kind
                     if (sameState && (initialState.previewing || targetState.previewing)) {
                         // The pair is already drawing both days at their drag
-                        // positions. Anything here would be a second, slower
-                        // copy of the move the finger is making.
-                        EnterTransition.None togetherWith ExitTransition.None
+                        // positions, and sizing itself to them as it goes.
+                        // Anything here would be a second, slower copy of the
+                        // move the finger is making -- including the size
+                        // animation AnimatedContent supplies by default, which
+                        // is what made the pill hunt for its width on the way
+                        // out of a swipe: it was easing toward the width of
+                        // the child it had just swapped in while the pair
+                        // underneath was already measuring itself exactly.
+                        // `using null` hands the width back to the content.
+                        EnterTransition.None togetherWith ExitTransition.None using null
                     } else {
+                        // A genuine relabel still crosses over, and the pill
+                        // takes the width change with it on a spring rather
+                        // than a tween -- it is the one moment the size really
+                        // is animating rather than tracking something.
                         fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith
-                            fadeOut(tween(CalinoMotion.FadeThroughMillis))
+                            fadeOut(tween(CalinoMotion.FadeThroughMillis)) using
+                            SizeTransform(clip = false) { _, _ ->
+                                spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    visibilityThreshold = IntSize.VisibilityThreshold,
+                                )
+                            }
                     }
                 },
                 label = "add pill label",
