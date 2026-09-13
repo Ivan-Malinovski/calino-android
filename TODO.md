@@ -344,6 +344,24 @@ and `assembleDebug`.
 - Filters by calendar, date range, and record type.
 - Depends on item 7 for anything outside the fetch window.
 
+**Status 2026-09-13 — [x] done.** Search now uses deterministic, balanced fuzzy
+ranking across events, tasks, journals, and contacts: exact/title-prefix/word
+matches lead, modest typos and compact ordered subsequences follow, and title
+matches outrank metadata. Case, punctuation, whitespace, and diacritics are
+normalized without adding a dependency.
+
+The search capsule has an animated filter panel for record type, calendar, and
+date. Date choices are Any time, Past, Upcoming, and an inclusive custom range;
+active date filters omit undated tasks and contacts. Calendar selection applies
+to events and tasks because `JournalEntry` carries no calendar identity. Filters
+are intentionally session-local and reset when search closes; date navigation
+and Quick Add remain available through every filter combination.
+
+Item 7 remains a real dependency rather than being folded into this change.
+Connected-account search says that it covers downloaded calendar data and does
+not imply server-wide results. Validated with the search unit tests and on the
+API 36 emulator: 56 device tests passing, plus `test lintDebug assembleDebug`.
+
 ## 11. Task priorities and percent-complete
 
 `CalTask` models neither; `ICalWriter` writes `PERCENT-COMPLETE` as 0 or 100

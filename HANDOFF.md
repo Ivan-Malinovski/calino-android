@@ -4,6 +4,32 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Ranked and filtered search — 2026-09-13
+
+TODO item 10. `data/search/CalinoSearch.kt` now owns a deterministic fuzzy
+scorer and `CalinoSearchOptions`. Exact, title-prefix, and word-prefix matches
+rank first; modest edit-distance typos and compact ordered subsequences rank
+after them. Title matches always beat metadata, with date proximity and stable
+identity as tie-breakers. Text is normalized for case, punctuation, whitespace,
+and diacritics, and there is no new search dependency.
+
+The search capsule exposes animated chips for record type, calendars, and Any
+time/Past/Upcoming/Custom dates. Custom bounds are inclusive and use the shared
+platform date picker. Filters run before each group's eight-result cap, reset
+when the capsule closes, and never suppress date-navigation or Quick Add.
+Calendar filters govern events and tasks only: `JournalEntry` has no calendar
+identity, and this item deliberately did not expand the DAV/model contract to
+invent one. Any active date filter hides undated tasks and contacts.
+
+Search is still over `CalinoSnapshot`, not the server. Until TODO item 7 extends
+the CalDAV window, connected-account search displays “Search covers downloaded
+calendar data.” Recurring occurrences continue to collapse to one series result.
+`CalinoSearchTest` covers matching, ordering and filter composition;
+`SearchQualityTest` covers the real add-pill search gesture, a typo result,
+filtering, navigation out of search, and reset-on-close. Validated on the API 36
+emulator with all 56 device tests passing; `test lintDebug assembleDebug` also
+passes.
+
 ### Device tests — 2026-09-13
 
 TODO item 6. There is now an `app/src/androidTest/` source set with a Compose
