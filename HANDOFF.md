@@ -28,7 +28,9 @@ calendar data.” Recurring occurrences continue to collapse to one series resul
 `SearchQualityTest` covers the real add-pill search gesture, a typo result,
 filtering, navigation out of search, and reset-on-close. Validated on the API 36
 emulator with all 56 device tests passing; `test lintDebug assembleDebug` also
-passes.
+passes. **The user has not tested or accepted this search change yet.** Treat
+that product review as outstanding even though the automated and emulator
+checks are green.
 
 ### Device tests — 2026-09-13
 
