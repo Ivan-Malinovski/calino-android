@@ -5626,12 +5626,14 @@ internal fun HourRailContent(
     onCardBounds: ((TimelineCardBounds) -> Unit)?,
     onCardGone: ((String) -> Unit)?,
     showHourLabels: Boolean = true,
-    onEventDragEnd: ((CalEvent, Offset) -> Unit)? = null,
+    onEventDragEnd: ((CalEvent, Offset) -> DirectTimelineDrop?)? = null,
     compactRangeCards: Boolean = false,
 ) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
     val timeFormat = LocalTimeFormat
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
     val slots = remember(dayEvents) { layoutDayRail(dayEvents) }
     val hourHeight = (TimelineBaseHourHeightDp * timelineScale).dp
     val railStart = if (showHourLabels) 52.dp else 0.dp
@@ -5688,6 +5690,35 @@ internal fun HourRailContent(
                     railStart + (laneWidth + laneGap) * slot.column
                 }
                 var menuOpen by remember(event.id) { mutableStateOf(false) }
+                var directDragActive by remember(event.id) { mutableStateOf(false) }
+                var directDragSettlingBack by remember(event.id) { mutableStateOf(false) }
+                var directDragOffset by remember(event.id) { mutableStateOf(Offset.Zero) }
+                var pendingDirectDrop by remember(event.id) { mutableStateOf<DirectTimelineDrop?>(null) }
+                var lastDragMinute by remember(event.id) { mutableIntStateOf(0) }
+                LaunchedEffect(event.start, pendingDirectDrop) {
+                    val pending = pendingDirectDrop ?: return@LaunchedEffect
+                    if (event.start == pending.targetStart) {
+                        pendingDirectDrop = null
+                        directDragOffset = Offset.Zero
+                    }
+                }
+                LaunchedEffect(pendingDirectDrop) {
+                    if (pendingDirectDrop == null) return@LaunchedEffect
+                    delay(PendingDropHoldMillis)
+                    pendingDirectDrop = null
+                    directDragSettlingBack = true
+                    directDragOffset = Offset.Zero
+                }
+                val settlingDragX by animateFloatAsState(
+                    targetValue = directDragOffset.x,
+                    animationSpec = spring(dampingRatio = .78f, stiffness = 520f),
+                    label = "range card drag x",
+                )
+                val settlingDragY by animateFloatAsState(
+                    targetValue = directDragOffset.y,
+                    animationSpec = spring(dampingRatio = .78f, stiffness = 520f),
+                    label = "range card drag y",
+                )
                 val cardKey = remember(day, event.id) { timelineCardKey(day, event.id) }
                 val eventInteraction = when {
                     onEvent != null && onEventAction != null -> Modifier.combinedClickable(
@@ -5702,7 +5733,42 @@ internal fun HourRailContent(
                     Modifier.calinoLongPressDrag(
                         onClick = onEvent?.let { callback -> { callback(event) } },
                         onLongPress = onEventAction?.let { { menuOpen = true } },
-                        onDragEnd = { offset -> onEventDragEnd(event, offset) },
+                        onDragArmed = {
+                            directDragSettlingBack = false
+                            directDragActive = true
+                            lastDragMinute = 0
+                        },
+                        onDragStart = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
+                        onDrag = { delta ->
+                            directDragOffset += delta
+                            val minute = timelineDropMinutes(
+                                directDragOffset.y,
+                                with(density) { hourHeight.toPx() },
+                            )
+                            if (minute != lastDragMinute) {
+                                lastDragMinute = minute
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        },
+                        onDragEnd = { offset ->
+                            val drop = onEventDragEnd(event, offset)
+                            directDragActive = false
+                            if (drop != null) {
+                                pendingDirectDrop = drop
+                                directDragSettlingBack = false
+                                directDragOffset = drop.offset
+                            } else {
+                                directDragSettlingBack = true
+                                directDragOffset = Offset.Zero
+                            }
+                        },
+                        onDragCancel = {
+                            directDragActive = false
+                            directDragSettlingBack = true
+                            directDragOffset = Offset.Zero
+                        },
                     )
                 } else eventInteraction
                 // The lift belongs to the pager host, not to this card: a
@@ -5719,7 +5785,21 @@ internal fun HourRailContent(
                     modifier = Modifier.offset(x = cardX, y = top)
                         .width(laneWidth)
                         .height(height)
-                        .zIndex(if (compactRangeCards) slot.column.toFloat() else 0f)
+                        .graphicsLayer {
+                            translationX = when {
+                                directDragActive -> directDragOffset.x
+                                pendingDirectDrop != null -> pendingDirectDrop?.offset?.x ?: 0f
+                                directDragSettlingBack -> settlingDragX
+                                else -> 0f
+                            }
+                            translationY = when {
+                                directDragActive -> directDragOffset.y
+                                pendingDirectDrop != null -> pendingDirectDrop?.offset?.y ?: 0f
+                                directDragSettlingBack -> settlingDragY
+                                else -> 0f
+                            }
+                        }
+                        .zIndex(if (directDragActive || pendingDirectDrop != null) 50f else if (compactRangeCards) slot.column.toFloat() else 0f)
                         .onGloballyPositioned { coords ->
                             onCardBounds?.invoke(
                                 TimelineCardBounds(
@@ -5750,6 +5830,7 @@ internal fun HourRailContent(
                     timeFormat = timeFormat,
                     preferences = railPreferences,
                     colors = colors,
+                    lifted = directDragActive,
                     hideAccentRail = compactRangeCards,
                 ) {
                     EventActionMenu(
@@ -5757,6 +5838,25 @@ internal fun HourRailContent(
                         expanded = menuOpen,
                         onDismiss = { menuOpen = false },
                         onAction = { action -> onEventAction?.invoke(action, event) },
+                    )
+                }
+                if (directDragActive && event.start != null) {
+                    val snappedMinutes = timelineDropMinutes(
+                        directDragOffset.y,
+                        with(density) { hourHeight.toPx() },
+                    )
+                    val snappedOffset = (hourHeight.value * snappedMinutes / 60f).dp
+                    TimelineDropIndicator(
+                        modifier = Modifier
+                            .offset(y = top + snappedOffset - 31.dp)
+                            .fillMaxWidth()
+                            .height(51.dp)
+                            .graphicsLayer { translationX = directDragOffset.x }
+                            .zIndex(49f),
+                        time = timeFormat.format(event.start.plusMinutes(snappedMinutes.toLong())),
+                        railStart = 0.dp,
+                        colors = colors,
+                        compact = true,
                     )
                 }
             }
@@ -5780,6 +5880,11 @@ internal fun HourRailContent(
         }
     }
 }
+
+internal data class DirectTimelineDrop(
+    val offset: Offset,
+    val targetStart: LocalDateTime,
+)
 
 /** Identifies one event card on one day's rail. */
 private fun timelineCardKey(day: LocalDate, eventId: String) = "${day.toEpochDay()}:$eventId"
@@ -5970,6 +6075,7 @@ private fun TimelineDropIndicator(
     time: String,
     railStart: Dp,
     colors: calino.malinov.ski.poc.design.CalinoPalette,
+    compact: Boolean = false,
 ) {
     val labelShape = RoundedCornerShape(7.dp)
     Box(
@@ -5993,6 +6099,7 @@ private fun TimelineDropIndicator(
     ) {
         Box(
             Modifier.offset(x = railStart + 8.dp)
+                .then(if (compact) Modifier.requiredWidth(64.dp) else Modifier)
                 .clip(labelShape)
                 .background(colors.Panel.copy(alpha = .96f))
                 .border(1.dp, colors.Accent.copy(alpha = .7f), labelShape)
@@ -6005,6 +6112,9 @@ private fun TimelineDropIndicator(
                 letterSpacing = .7.sp,
                 fontWeight = FontWeight.Bold,
                 color = colors.Accent,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

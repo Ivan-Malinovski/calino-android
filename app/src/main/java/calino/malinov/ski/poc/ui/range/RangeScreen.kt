@@ -68,6 +68,7 @@ import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.home.HourRailContent
+import calino.malinov.ski.poc.ui.home.DirectTimelineDrop
 import calino.malinov.ski.poc.ui.surfaces.EventMenuAction
 import calino.malinov.ski.poc.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.poc.util.CalinoRangeMode
@@ -304,12 +305,24 @@ private fun RangePage(
                         showHourLabels = false,
                         compactRangeCards = true,
                         onEventDragEnd = { event, offset ->
-                            val start = event.start ?: return@HourRailContent
+                            val start = event.start ?: return@HourRailContent null
                             val columnWidthPx = with(density) { ((screenWidthDp - 52f) / days.size).dp.toPx() }
                             val dayDelta = (offset.x / columnWidthPx.coerceAtLeast(1f)).roundToInt()
                             val minuteDelta = ((offset.y / with(density) { (62 * timelineScale).dp.toPx() }) * 4f).roundToInt() * 15
                             val targetDay = day.plusDays(dayDelta.toLong())
-                            onEventTimeDrop(event, LocalDateTime.of(targetDay, start.toLocalTime().plusMinutes(minuteDelta.toLong())))
+                            val target = LocalDateTime.of(targetDay, start.toLocalTime().plusMinutes(minuteDelta.toLong()))
+                            if (target == start) {
+                                null
+                            } else {
+                                onEventTimeDrop(event, target)
+                                DirectTimelineDrop(
+                                    offset = androidx.compose.ui.geometry.Offset(
+                                        x = dayDelta * columnWidthPx,
+                                        y = with(density) { (62 * timelineScale).dp.toPx() } * minuteDelta / 60f,
+                                    ),
+                                    targetStart = target,
+                                )
+                            }
                         },
                     )
                 }
