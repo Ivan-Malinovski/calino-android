@@ -10,6 +10,7 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -591,20 +592,14 @@ fun HomeScreen(
         if (compactSelectorHandoff == target) {
             compactSelectorPosition.snapTo(target)
             compactSelectorHandoff = null
-        } else if (compactSelectorPosition.value - target > 3f) {
-            // End of one week to start of the next: leave through the right
-            // edge, then enter from just beyond the left edge. Numerically
-            // animating 6 -> 0 makes the selector walk backwards across every
-            // unrelated day in the row.
-            compactSelectorPosition.animateTo(7f, animationSpec = tween(110))
-            compactSelectorPosition.snapTo(-1f)
-            compactSelectorPosition.animateTo(target, animationSpec = tween(110))
-        } else if (target - compactSelectorPosition.value > 3f) {
-            // Mirror the wrap when moving from the first days of a week into
-            // the end of the previous one.
-            compactSelectorPosition.animateTo(-1f, animationSpec = tween(110))
-            compactSelectorPosition.snapTo(7f)
-            compactSelectorPosition.animateTo(target, animationSpec = tween(110))
+        } else if (abs(compactSelectorPosition.value - target) > 3f) {
+            // Sunday/Monday crossings deliberately traverse the row in one
+            // uninterrupted linear motion. Keeping this a single animation
+            // avoids the old off-screen wrap and its visible edge snap.
+            compactSelectorPosition.animateTo(
+                target,
+                animationSpec = tween(220, easing = LinearEasing),
+            )
         } else {
             compactSelectorPosition.animateTo(
                 target,
@@ -2083,9 +2078,8 @@ private fun DrawScope.drawCompactWeekRow(
     gutterPx: Float = 0f,
 ) {
     if (alpha <= .001f) return
-    // Values just outside 0..6 are intentional during a week-boundary wrap:
-    // clipping at the row edge lets the pill exit and re-enter instead of
-    // traversing every intervening day.
+    // Fast multi-page pager travel may transiently exceed the row. Boundary
+    // crossings themselves stay in 0..6 and traverse the visible columns.
     val selector = selectorIndex.coerceIn(-1f, 7f)
     val paddingPx = CompactWeekMetrics.HorizontalPadding.toPx()
     // The week-number rail is carved out of the content width, so the row's
@@ -3476,22 +3470,14 @@ private fun StaticMonthGrid(
                 val compactWeekRow = ((compactWeekStart.toEpochDay() - start.toEpochDay()) / 7L)
                     .toInt()
                     .coerceIn(0, rows - 1)
-                // During a boundary wrap [compactDay] already belongs to the
-                // destination week, but the selector must finish leaving the
-                // source row before that row handoff becomes visible. Once it
-                // is outside the grid (7 -> -1 forward, or -1 -> 7 backward),
-                // the destination row can take ownership invisibly.
-                val compactTargetColumn = compactDay.weekdayColumn(weekStart)
-                val fallbackSelectorWeekRow = when {
-                    compactTargetColumn == 0 && compactSelectorIndex > 3f -> compactWeekRow - 1
-                    compactTargetColumn == 6 && compactSelectorIndex < 3f -> compactWeekRow + 1
-                    else -> compactWeekRow
-                }.coerceIn(0, rows - 1)
+                // A boundary preview already belongs to the destination week.
+                // Its compact row remains the selector owner while the pill
+                // crosses directly between the Sunday and Monday columns.
+                val fallbackSelectorWeekRow = compactWeekRow
                 // An active day drag owns the selector geometry directly.
-                // Split a Sunday/Monday crossing into an exit half and an
-                // entrance half, switching rows only while the marker is
-                // fully outside the grid. This is based on actual fractional
-                // pager travel, never its potentially unstable fling target.
+                // At a Sunday/Monday boundary, interpolate straight across
+                // the row from 6 to 0 (or 0 to 6) from actual fractional pager
+                // travel, never its potentially unstable fling target.
                 var liveSelectorRow = fallbackSelectorWeekRow
                 var liveSelectorColumn = compactSelectorIndex
                 if (liveDayTravel != null) {
@@ -3503,22 +3489,12 @@ private fun StaticMonthGrid(
                     val lowerColumn = Math.floorMod(lowerCell, 7)
                     if (lowerColumn == 6 && fraction > .001f) {
                         if (liveDayTravel < 0f) {
-                            if (fraction < .5f) {
-                                liveSelectorRow = lowerRow
-                                liveSelectorColumn = 6f + fraction * 2f
-                            } else {
-                                liveSelectorRow = lowerRow + 1
-                                liveSelectorColumn = -1f + (fraction - .5f) * 2f
-                            }
+                            liveSelectorRow = compactWeekRow
+                            liveSelectorColumn = 6f * (1f - fraction)
                         } else {
                             val reverseProgress = 1f - fraction
-                            if (reverseProgress < .5f) {
-                                liveSelectorRow = lowerRow + 1
-                                liveSelectorColumn = -reverseProgress * 2f
-                            } else {
-                                liveSelectorRow = lowerRow
-                                liveSelectorColumn = 7f - (reverseProgress - .5f) * 2f
-                            }
+                            liveSelectorRow = compactWeekRow
+                            liveSelectorColumn = 6f * reverseProgress
                         }
                     } else {
                         liveSelectorRow = lowerRow

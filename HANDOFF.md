@@ -694,6 +694,11 @@ reached the server. They now map to and from `VALARM` in both directions.
 
 ### Compact day-swipe selector continuity — 2026-09-11
 
+- Sunday/Monday day swipes now move the compact selector directly and
+  linearly between columns 6 and 0. The previous staged off-screen
+  `6 -> 7 -> -1 -> 0` wrap (and its mirror) could expose the selector at the
+  opposite edge for a frame; both live pager travel and the one-shot settle
+  handoff now use the same uninterrupted across-row trajectory.
 - Compact month/day swipes keep pager ownership until the settled date is
   committed. This removes the one-frame flash of the date being left without
   activating the week pager's opaque preview layer: day-swipe animation stays

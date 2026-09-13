@@ -82,6 +82,22 @@ class CalendarPagingTest : CalinoUiTest() {
         compose.assertDaySelected(WeekPager, FixtureDate.plusDays(1))
     }
 
+    @Test fun mondayToSundayDaySwipeCrossesTheWeekBoundary() {
+        compose.onNodeWithTag(DayPager).performTouchInput { swipeRight() }
+        compose.waitForIdle()
+
+        compose.assertDaySelected(WeekPager, FixtureDate.minusDays(1))
+    }
+
+    @Test fun sundayToMondayDaySwipeCrossesTheWeekBoundary() {
+        compose.onNodeWithTag(DayPager).performTouchInput { swipeRight() }
+        compose.waitForIdle()
+        compose.onNodeWithTag(DayPager).performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+
+        compose.assertDaySelected(WeekPager, FixtureDate)
+    }
+
     private companion object {
         /** Well under the pager's snap threshold, so the page springs back. */
         const val CancelledSwipeFraction = .12f
