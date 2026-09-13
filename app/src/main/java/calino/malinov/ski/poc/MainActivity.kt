@@ -1228,13 +1228,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
     }
 
-    fun dismissQuickAdd() {
+    fun dismissQuickAdd(closeDetailStack: Boolean = false) {
         editEventId = null
         aiDraft = null
         aiQueue = emptyList()
         quickAddParentTaskId = null
         quickAddStartMinute = null
         quickAddMorphFromAddPill = false
+        if (closeDetailStack && quickAddOrigin == PocReturnTarget.Detail) {
+            selectedEventId = null
+            selectedEventOccurrenceDay = null
+            restoreDetailOrigin()
+            return
+        }
         when (quickAddOrigin) {
             PocReturnTarget.Range -> {
                 route = PockRoute.Range
@@ -1295,7 +1301,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         when {
             sidebarVisible -> sidebarVisible = false
             journalReviewVisible -> journalReviewVisible = false
-            route == PockRoute.QuickAdd -> dismissQuickAdd()
+            route == PockRoute.QuickAdd -> dismissQuickAdd(closeDetailStack = true)
             route == PockRoute.Detail -> {
                 selectedEventId = null
                 selectedEventOccurrenceDay = null
@@ -1823,7 +1829,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         snapshot.tasks.filterNot { it.done }.map { it.id to it.title }
                     },
                     onPhoto = if (quickAddKind == QuickAddKind.Event && aiSettingsStore.load().hasApiKey) ::requestPhotoImport else null,
-                    onDismiss = ::dismissQuickAdd,
+                    // Opening the full editor replaces the compact event
+                    // preview. Cancelling it closes that whole modal stack;
+                    // successful saves still use dismissQuickAdd() below to
+                    // return to the refreshed event preview.
+                    onDismiss = { dismissQuickAdd(closeDetailStack = true) },
                     // The editor owns every field now, so the host only
                     // decides between creating and updating a record.
                     // Where this editor is going back to, decided as Save is

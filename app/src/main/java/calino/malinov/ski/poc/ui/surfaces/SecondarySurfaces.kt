@@ -689,12 +689,18 @@ fun EventDetailSurface(
             events.getOrNull(page)?.let(currentSelectionCallback)
         }
     }
-    val visibleEvent = events.getOrNull(pager.currentPage) ?: event
-    val descriptionLines = visibleEvent.notes.orEmpty().lineSequence().sumOf { line ->
+    // Size for the page the gesture is heading toward, not the page that last
+    // happened to occupy the snap position. PagerState exposes targetPage as
+    // soon as it resolves the drag/fling destination, which gives the shared
+    // card shell the whole swipe to reach the incoming event's height. Using
+    // currentPage here made the shell begin resizing only at the page handoff,
+    // so a short incoming card visibly shrank after it had arrived.
+    val sizingEvent = events.getOrNull(pager.targetPage) ?: event
+    val descriptionLines = sizingEvent.notes.orEmpty().lineSequence().sumOf { line ->
         ((line.length.coerceAtLeast(1) + 37) / 38)
     }.coerceAtLeast(1)
-    val attendeeLines = if (visibleEvent.attendees.isEmpty()) 0 else {
-        val length = visibleEvent.attendees.sumOf { it.name.ifBlank { it.email }.length + 2 }
+    val attendeeLines = if (sizingEvent.attendees.isEmpty()) 0 else {
+        val length = sizingEvent.attendees.sumOf { it.name.ifBlank { it.email }.length + 2 }
         ((length + 37) / 38).coerceAtLeast(1)
     }
     // Base includes handle/header, date/time/location/description rows, the
@@ -703,9 +709,9 @@ fun EventDetailSurface(
         420 +
             (descriptionLines - 1) * 22 +
             attendeeLines * 24 +
-            (if (visibleEvent.recurrence != null) 54 else 0) +
-            (if (visibleEvent.reminders.isNotEmpty()) 54 else 0) +
-            (if (visibleEvent.travelTimeMinutes != null) 54 else 0)
+            (if (sizingEvent.recurrence != null) 54 else 0) +
+            (if (sizingEvent.reminders.isNotEmpty()) 54 else 0) +
+            (if (sizingEvent.travelTimeMinutes != null) 54 else 0)
         ).coerceAtMost(560).dp
     var pillState by remember { mutableStateOf(EventPreviewPillState(false, {}, {}, {})) }
     BottomDetailOverlay(

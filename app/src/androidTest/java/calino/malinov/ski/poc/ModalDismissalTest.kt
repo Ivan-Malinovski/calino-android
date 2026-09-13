@@ -85,6 +85,19 @@ class ModalDismissalTest : CalinoUiTest() {
         assertTrue(compose.hasDescribedNode("Open task: Buy flowers"))
     }
 
+    @Test fun dismissingAnOpenedEventEditorClosesThePreviewToo() {
+        compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
+        awaitDescribed("Open event")
+        compose.onNodeWithContentDescription("Open event").performClick()
+        awaitDescribed("Title, event")
+
+        compose.onNodeWithContentDescription("Close editor").performClick()
+        awaitNoDescribed("Title, event")
+
+        assertFalse("event preview returned after editor dismissal", compose.hasDescribedNode("Close event preview"))
+        assertTrue("calendar was not restored", compose.hasDescribedNode("Design review, 10:00 AM, Studio"))
+    }
+
     private fun openQuickAdd() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
