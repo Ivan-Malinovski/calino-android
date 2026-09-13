@@ -5,11 +5,16 @@ import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -85,8 +90,16 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.translate
@@ -1675,6 +1688,12 @@ fun AddPill(
     // A modal pill takes over this lane and has to start from the shape the
     // person just tapped, which only the real pill can measure.
     val lane = LocalCalinoPillLane.current
+    // The pill reports on the record it started: the border traces while the
+    // write is in flight, then closes once in green and the label holds
+    // "Saved" for a beat. Nothing new appears above the lane to say so.
+    val saveState = lane.saveState
+    val writeKind = lane.writeKind
+    val saveTrace = rememberPillSaveTrace()
     val commitPx = with(density) { 56.dp.toPx() }
     // A refused direction still moves, but only enough to read as a limit.
     val maxTravelPx = with(density) { 88.dp.toPx() }
@@ -1724,6 +1743,9 @@ fun AddPill(
         Row(
             Modifier
                 .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
+                // Above the pill's own fill and border, so the trace reads as
+                // something running along the edge rather than under it.
+                .pillSaveTrace(saveTrace)
                 .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
                 .clip(RoundedCornerShape(CalinoShapes.Pill))
                 // Carries the pill's shape where the fill is too close to the
@@ -1731,7 +1753,12 @@ fun AddPill(
                 // edge and never drew one.
                 .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill))
                 // Where a modal's pill has to appear to continue from.
-                .onGloballyPositioned { lane.setAddPill(it.boundsInRoot(), label) }
+                // Only the settled add shape is worth anchoring a modal pill
+                // to. "Saving" and "Saved" are narrower, and a modal opened
+                // mid-save would start from one of those widths.
+                .onGloballyPositioned {
+                    if (saveState == PillSaveState.Idle) lane.setAddPill(it.boundsInRoot(), label)
+                }
                 .floatingPillSurface(backdrop, backdropOrigin)
                 // A route swipe can recompose the pill before clickable emits
                 // its release. Without this guard the release is interpreted
@@ -1788,21 +1815,198 @@ fun AddPill(
                         }
                     }
                 }
-                .semantics(mergeDescendants = true) { contentDescription = "$label. Swipe up to search" }
+                .semantics(mergeDescendants = true) {
+                    contentDescription = when (saveState) {
+                        PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) "Removing" else "Saving"
+                        PillSaveState.Saved -> if (writeKind == PillWriteKind.Remove) "Removed" else "Saved"
+                        PillSaveState.Idle -> "$label. Swipe up to search"
+                    }
+                }
                 .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
             AnimatedContent(
-                targetState = label,
+                targetState = Triple(saveState, writeKind, label),
                 transitionSpec = { fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith fadeOut(tween(CalinoMotion.FadeThroughMillis)) },
                 label = "add pill label",
-            ) { text ->
-                Text(text, color = CalinoColors.OnFloat, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            ) { (state, kind, text) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    when (state) {
+                        // Saving keeps the lane quiet: the border is already
+                        // carrying the news, so the label drops its icon
+                        // rather than adding a second moving thing.
+                        PillSaveState.Saving -> Unit
+                        PillSaveState.Saved -> CalinoIcon(
+                            if (kind == PillWriteKind.Remove) CalinoIcon.Trash else CalinoIcon.Check,
+                            tint = if (kind == PillWriteKind.Remove) CalinoColors.Rose else CalinoColors.Green,
+                            modifier = Modifier.size(19.dp),
+                            contentDescription = null,
+                        )
+                        PillSaveState.Idle -> CalinoIcon(
+                            CalinoIcon.Plus,
+                            tint = CalinoColors.OnFloat,
+                            modifier = Modifier.size(19.dp),
+                            contentDescription = null,
+                        )
+                    }
+                    Text(
+                        when (state) {
+                            PillSaveState.Saving -> if (kind == PillWriteKind.Remove) "Removing" else "Saving"
+                            PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
+                            PillSaveState.Idle -> text
+                        },
+                        color = CalinoColors.OnFloat,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * What a pill in the lane needs to draw the save it started: where the tracing
+ * segment is on its lap, and how far the confirming ring has closed.
+ *
+ * Held together so the root pill and a modal's pill draw the same thing. A
+ * save is a property of the lane, not of whichever shape happens to be
+ * standing in it -- a record saved from a modal is still being written while
+ * the pill is morphing back, and the trace should carry across that handoff
+ * rather than starting over on the other side of it.
+ */
+private data class PillSaveTrace(
+    val saving: Boolean,
+    val phase: Float,
+    val close: Float,
+    val closeAlpha: Float,
+    val accent: Color,
+    val landed: Color,
+    val strokeWidthPx: Float,
+    /**
+     * The confirming ring is drawn heavier than the trace. It only appears for
+     * a moment, and at the trace's weight it read as a hairline rather than as
+     * the thing that says the record landed.
+     */
+    val landedStrokeWidthPx: Float,
+)
+
+@Composable
+private fun rememberPillSaveTrace(): PillSaveTrace {
+    val lane = LocalCalinoPillLane.current
+    val state = lane.saveState
+    val saving = state == PillSaveState.Saving
+    // The transition only exists while a write is in flight. An infinite
+    // animation running the whole time a pill is on screen never lets the
+    // composition go idle, which costs frames for nothing and hangs every UI
+    // test that waits for idle.
+    val phase = if (saving) {
+        val transition = rememberInfiniteTransition(label = "pill save trace")
+        val running by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(SaveTraceLapMillis, easing = LinearEasing)),
+            label = "pill save phase",
+        )
+        running
+    } else {
+        0f
+    }
+    val landedState = state == PillSaveState.Saved
+    val close by animateFloatAsState(
+        targetValue = if (landedState) 1f else 0f,
+        // Closing is a move; re-arming is not, so the ring never runs backwards.
+        animationSpec = if (landedState) tween(SaveCloseMillis, easing = FastOutSlowInEasing) else snap(),
+        label = "pill save close",
+    )
+    // The closed ring is a confirmation, not a state: it fades out from under
+    // the label rather than outlining the pill for the whole hold.
+    val closeAlpha by animateFloatAsState(
+        targetValue = if (landedState) 0f else 1f,
+        animationSpec = tween(durationMillis = 420, delayMillis = SaveCloseMillis + 120),
+        label = "pill save close fade",
+    )
+    val density = LocalDensity.current
+    val strokeWidthPx = with(density) { 2.dp.toPx() }
+    val landedStrokeWidthPx = with(density) { 3.dp.toPx() }
+    return PillSaveTrace(
+        saving = saving,
+        phase = phase,
+        close = close,
+        closeAlpha = closeAlpha,
+        accent = CalinoColors.Accent,
+        // A removal closes in rose. It is not an error -- the record went
+        // where it was told to go -- so it gets the same single ring the save
+        // gets, in the hue the app already uses for something taken away.
+        landed = if (lane.writeKind == PillWriteKind.Remove) CalinoColors.Rose else CalinoColors.Green,
+        strokeWidthPx = strokeWidthPx,
+        landedStrokeWidthPx = landedStrokeWidthPx,
+    )
+}
+
+/** Draws [trace] on the pill's own outline, over its fill, border and label. */
+private fun Modifier.pillSaveTrace(trace: PillSaveTrace) = drawWithContent {
+    drawContent()
+    if (trace.saving) {
+        drawPillEdge(trace.accent, trace.phase, SaveTraceSweep, trace.strokeWidthPx)
+    }
+    if (trace.close > 0f && trace.closeAlpha > 0f) {
+        drawPillEdge(
+            color = trace.landed.copy(alpha = trace.closeAlpha),
+            // Starting at the bottom of the pill, so the two ends of the ring
+            // meet under the label rather than across it.
+            start = .75f,
+            sweep = trace.close,
+            strokeWidthPx = trace.landedStrokeWidthPx,
+        )
+    }
+}
+
+/** One lap of the accent segment around the pill while a write is in flight. */
+private const val SaveTraceLapMillis = 1150
+
+/** How much of the perimeter that segment covers. */
+private const val SaveTraceSweep = .22f
+
+/** The green ring closing once the record has landed. */
+private const val SaveCloseMillis = 420
+
+/**
+ * Strokes part of the pill's own outline: [start] is where the segment begins
+ * as a fraction of the perimeter and [sweep] how far it runs, both wrapping
+ * past the end. Drawn on the border line itself rather than outside it, so a
+ * save never changes the pill's footprint.
+ */
+private fun DrawScope.drawPillEdge(color: Color, start: Float, sweep: Float, strokeWidthPx: Float) {
+    if (sweep <= 0f || size.minDimension <= strokeWidthPx) return
+    val inset = strokeWidthPx / 2f
+    val outline = Path().apply {
+        addRoundRect(
+            RoundRect(
+                rect = androidx.compose.ui.geometry.Rect(
+                    Offset(inset, inset),
+                    Size(size.width - strokeWidthPx, size.height - strokeWidthPx),
+                ),
+                cornerRadius = CornerRadius((size.height - strokeWidthPx) / 2f),
+            )
+        )
+    }
+    val measure = PathMeasure().apply { setPath(outline, false) }
+    val length = measure.length
+    if (length <= 0f) return
+    val from = ((start % 1f) + 1f) % 1f * length
+    val to = from + sweep.coerceAtMost(1f) * length
+    val segment = Path()
+    measure.getSegment(from, minOf(to, length), segment, true)
+    if (to > length) measure.getSegment(0f, to - length, segment, true)
+    drawPath(segment, color, style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round))
 }
 
 private data class ModalPillAction(
@@ -1865,6 +2069,7 @@ fun ModalActionPill(
     // do it early enough in the frame to matter; this reads the lane for the
     // things only the pill needs -- its backdrop and the dismissal drag.
     val lane = LocalCalinoPillLane.current
+    val saveTrace = rememberPillSaveTrace()
     // In the lane, the add shape is the root pill's, not a description of it:
     // its live label, and the size that label actually measured. A modal that
     // names its own add label there hands the lane back to a pill that says
@@ -2002,6 +2207,10 @@ fun ModalActionPill(
     Layout(
         contents = listOf(addForm, actionsForm),
         modifier = modifier
+            // A record saved from a modal is written while this pill is still
+            // morphing back, so the trace runs on whatever shape is in the
+            // lane rather than waiting for the root pill to take it over.
+            .pillSaveTrace(saveTrace)
             .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
             .clip(RoundedCornerShape(CalinoShapes.Pill))
             // The same glass the root pill is made of. The lane records the

@@ -201,6 +201,7 @@ import calino.malinov.ski.poc.state.PocReturnTarget
 import calino.malinov.ski.poc.ui.components.AddPill
 import calino.malinov.ski.poc.ui.components.CalinoPillLane
 import calino.malinov.ski.poc.ui.components.LocalCalinoPillLane
+import calino.malinov.ski.poc.ui.components.PillWriteKind
 import calino.malinov.ski.poc.ui.components.CalinoIcon
 import calino.malinov.ski.poc.ui.components.CalinoToast
 import calino.malinov.ski.poc.ui.components.NavSidebar
@@ -828,6 +829,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // asks for a scope instead of defaulting to the whole series.
     var pendingEventDelete by remember { mutableStateOf<CalEvent?>(null) }
     val writeScope = androidx.compose.runtime.rememberCoroutineScope()
+    // The lane the add pill lives in, so a deliberate save can be reported on
+    // the pill that started it.
+    val savePillLane = LocalCalinoPillLane.current
     val activity = LocalActivity.current as? MainActivity ?: return
     val aiSettingsStore = remember { AiVisionSettingsStore(activity) }
     val aiClient = remember { AiVisionClient() }
@@ -1022,19 +1026,34 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         )
     }
 
-    fun <T> launchWrite(operation: suspend () -> WriteResult<T>, onApplied: (T) -> Unit = {}) {
+    /**
+     * [indicate] puts the write on the add pill: the border traces while it is
+     * in flight and the label holds the outcome once it lands. Reserved for the
+     * writes a person deliberately made -- adding, saving or removing an event,
+     * task or journal entry -- so background and incidental writes (a checkbox,
+     * an undo, a write that already shows an undo chip) leave the lane alone.
+     */
+    fun <T> launchWrite(
+        operation: suspend () -> WriteResult<T>,
+        indicate: PillWriteKind? = null,
+        onApplied: (T) -> Unit = {},
+    ) {
         writeError = null
+        if (indicate != null) savePillLane.saveStarted(indicate)
         writeScope.launch {
+            var landed = false
             try {
                 when (val result = operation()) {
-                    is WriteResult.Applied -> onApplied(result.record)
-                    is WriteResult.Queued -> onApplied(result.record)
+                    is WriteResult.Applied -> { landed = true; onApplied(result.record) }
+                    is WriteResult.Queued -> { landed = true; onApplied(result.record) }
                     is WriteResult.Rejected -> writeError = result.reason
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 writeError = error.message ?: "That change could not be saved."
+            } finally {
+                if (indicate != null) savePillLane.saveFinished(writeScope, success = landed)
             }
         }
     }
@@ -1128,7 +1147,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             TaskMenuAction.ToggleDone -> launchWrite({ repository.setTaskDone(task.id, !task.done) }) { showUndo(it) }
             TaskMenuAction.Duplicate -> launchWrite({ repository.duplicateTask(task) })
             TaskMenuAction.ConvertToEvent -> launchWrite({ repository.convertTaskToEvent(task) })
-            TaskMenuAction.Delete -> launchWrite({ repository.deleteTask(task.id) })
+            TaskMenuAction.Delete -> launchWrite({ repository.deleteTask(task.id) }, indicate = PillWriteKind.Remove)
         }
     }
 
@@ -1160,12 +1179,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun handleEventDrop(event: CalEvent, date: LocalDate) {
         if (event.placementDate() == date) return
-        launchWrite({ repository.moveEventToDate(event, date) })
+        launchWrite({ repository.moveEventToDate(event, date) }, indicate = PillWriteKind.Save)
     }
 
     fun handleEventTimeDrop(event: CalEvent, start: java.time.LocalDateTime) {
         if (event.start == start) return
-        launchWrite({ repository.moveEventToDateTime(event, start) })
+        launchWrite({ repository.moveEventToDateTime(event, start) }, indicate = PillWriteKind.Save)
     }
 
     fun restoreDetailOrigin() {
@@ -1527,19 +1546,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onOpenMenu = { sidebarVisible = true },
                         onTaskAction = ::handleTaskAction,
                         onTaskDrop = { task, target ->
-                            launchWrite({ repository.reparentTask(task, target?.id) })
+                            launchWrite({ repository.reparentTask(task, target?.id) }, indicate = PillWriteKind.Save)
                         },
                     )
                     PockRoute.Journal -> JournalSurface(
                         entries = snapshot.journals,
                         newEntryDate = selectedDate,
                         onCreate = { entry ->
-                            launchWrite(operation = { repository.addJournal(NewJournal(entry.date, entry.title, entry.body)) })
+                            launchWrite(operation = { repository.addJournal(NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
                         },
                         onUpdate = { entry ->
-                            launchWrite(operation = { repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body)) })
+                            launchWrite(operation = { repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
                         },
-                        onDelete = { entry -> launchWrite(operation = { repository.deleteJournal(entry.id) }) },
+                        onDelete = { entry -> launchWrite(operation = { repository.deleteJournal(entry.id) }, indicate = PillWriteKind.Remove) },
                         onEditingChanged = { editing ->
                             journalEditorVisible = editing
                             if (!editing && journalSearchReturn && journalOpenEntryId == null) {
@@ -1677,7 +1696,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         selectedEventId = null
                         selectedEventOccurrenceDay = null
                         restoreDetailOrigin()
-                        launchWrite({ repository.deleteEvent(target.id, scope) })
+                        launchWrite({ repository.deleteEvent(target.id, scope) }, indicate = PillWriteKind.Remove)
                     },
                     onEventAction = ::handleEventAction,
                     onInlineSave = { target, input, scope ->
@@ -1719,7 +1738,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         restoreTaskDetailOrigin()
                     },
                     onSave = { input, done ->
-                        launchWrite({ repository.updateTask(task.id, input, done) }) {
+                        launchWrite({ repository.updateTask(task.id, input, done) }, indicate = PillWriteKind.Save) {
                             selectedTaskId = null
                             restoreTaskDetailOrigin()
                         }
@@ -1815,7 +1834,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         }
                     },
                     onSave = { draft ->
-                        launchWrite({ saveEditorDraft(repository, draft) }) {
+                        launchWrite({ saveEditorDraft(repository, draft) }, indicate = PillWriteKind.Save) {
                             selectedDate = draft.date
                             if (aiQueue.isNotEmpty()) {
                                 val next = aiQueue.first()
@@ -2090,7 +2109,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         onDismiss = { pendingEventDelete = null },
         onDelete = { target, scope ->
             pendingEventDelete = null
-            launchWrite({ repository.deleteEvent(target.id, scope) })
+            launchWrite({ repository.deleteEvent(target.id, scope) }, indicate = PillWriteKind.Remove)
         },
     )
 

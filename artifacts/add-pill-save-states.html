@@ -1,0 +1,467 @@
+<title>Add Pill Save States</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --canvas: #FAF8F3;
+    --panel: #FFFFFF;
+    --side: #F6F3ED;
+    --ink: #2C2823;
+    --ink2: #6F6A62;
+    --ink3: #A39D93;
+    --hair: #E7E1D7;
+    --accent: #B07D4F;
+    --accent-soft: #EFE7DB;
+    --green: #5D9A78;
+    --float-fill: #2C2823;
+    --on-float: #FAF8F3;
+    --float-border: rgba(0,0,0,0);
+    --pill-shadow: 0 12px 28px rgba(44,40,35,.20), 0 2px 6px rgba(44,40,35,.10);
+    --chip-fill: #FFFFFF;
+    --chip-ink: #2C2823;
+    --chip-shadow: 0 8px 20px rgba(44,40,35,.16);
+    --k: 1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --canvas: #1A1816;
+      --panel: #242220;
+      --side: #2A2826;
+      --ink: #F0ECE6;
+      --ink2: #A8A29A;
+      --ink3: #7E786F;
+      --hair: #35322E;
+      --accent: #C9956A;
+      --accent-soft: #33291F;
+      --green: #6AAA85;
+      --float-fill: #242220;
+      --on-float: #F0ECE6;
+      --float-border: rgba(240,236,230,.22);
+      --pill-shadow: 0 12px 30px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35);
+      --chip-fill: #2F2C29;
+      --chip-ink: #F0ECE6;
+      --chip-shadow: 0 8px 22px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --canvas: #1A1816;
+    --panel: #242220;
+    --side: #2A2826;
+    --ink: #F0ECE6;
+    --ink2: #A8A29A;
+    --ink3: #7E786F;
+    --hair: #35322E;
+    --accent: #C9956A;
+    --accent-soft: #33291F;
+    --green: #6AAA85;
+    --float-fill: #242220;
+    --on-float: #F0ECE6;
+    --float-border: rgba(240,236,230,.22);
+    --pill-shadow: 0 12px 30px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.35);
+    --chip-fill: #2F2C29;
+    --chip-ink: #F0ECE6;
+    --chip-shadow: 0 8px 22px rgba(0,0,0,.5);
+  }
+
+  body {
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 17px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 48px 72px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 10px;
+  }
+  h1 { font-size: clamp(32px, 6vw, 46px); font-weight: 400; line-height: 1.1; margin: 0 0 14px; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { margin: 0; color: var(--ink2); max-width: 62ch; font-size: 19px; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--hair);
+    font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 13px;
+  }
+  .controls .spacer { flex: 1 1 20px; }
+  button {
+    font: inherit; font-weight: 500; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 8px;
+    padding: 7px 13px; cursor: pointer;
+  }
+  button:hover { border-color: var(--ink3); }
+  button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .grid { display: grid; gap: 28px; margin-top: 34px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+  .variant { display: flex; flex-direction: column; gap: 0; }
+  .variant header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .variant h2 { font-size: 22px; font-weight: 500; margin: 0; letter-spacing: -.01em; }
+  .tag {
+    font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 10px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 4px; padding: 2px 6px; line-height: 1.4;
+  }
+  .variant p.note { margin: 12px 0 0; color: var(--ink2); font-size: 16px; }
+  .spec {
+    font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 12px; color: var(--ink3);
+    margin: 8px 0 0; font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- stage: the bottom strip of the calendar with the lane in it ---- */
+  .stage {
+    position: relative; height: 208px; border-radius: 14px; overflow: hidden;
+    background: var(--side); border: 1px solid var(--hair);
+    display: flex; align-items: flex-end; justify-content: center;
+    cursor: pointer;
+  }
+  .stage .rows { position: absolute; inset: 0; padding: 14px 18px 0; display: flex; flex-direction: column; gap: 9px; }
+  .stage .rows i { display: block; height: 13px; border-radius: 4px; background: var(--hair); }
+  .stage .rows i:nth-child(2) { width: 62%; background: color-mix(in srgb, var(--accent) 26%, var(--hair)); }
+  .stage .rows i:nth-child(4) { width: 44%; }
+  .stage .rows i:nth-child(5) { width: 72%; background: color-mix(in srgb, var(--green) 24%, var(--hair)); }
+  .stage .rows i:nth-child(7) { width: 38%; }
+  .lane { position: relative; margin-bottom: 26px; }
+
+  /* ---- the add pill ---- */
+  .pill {
+    position: relative; height: 52px; min-width: 158px; padding: 0 24px;
+    display: flex; align-items: center; justify-content: center; gap: 9px;
+    border-radius: 999px; background: var(--float-fill); color: var(--on-float);
+    box-shadow: var(--pill-shadow); border: 1px solid var(--float-border);
+    font-size: 17px; letter-spacing: .01em;
+    transition: transform calc(260ms * var(--k)) cubic-bezier(.32,.72,.3,1);
+  }
+  .is-saving .pill { transform: scale(.985); }
+  .is-saved .pill { transform: scale(1.012); }
+
+  .label { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+  .plus { width: 13px; height: 13px; position: relative; opacity: .85; }
+  .plus::before, .plus::after { content: ""; position: absolute; background: currentColor; border-radius: 1px; }
+  .plus::before { left: 0; right: 0; top: 6px; height: 1.5px; }
+  .plus::after { top: 0; bottom: 0; left: 6px; width: 1.5px; }
+
+  /* ---- edge trace (SVG border sweep) ---- */
+  .edge { position: absolute; inset: -1px; width: calc(100% + 2px); height: calc(100% + 2px); overflow: visible; pointer-events: none; }
+  .edge rect { fill: none; stroke-width: 2; stroke-linecap: round; rx: 26; }
+  .edge .track { stroke: transparent; }
+  .edge .run {
+    stroke: var(--accent); stroke-dasharray: 22 78; stroke-dashoffset: 0; opacity: 0;
+  }
+  .is-saving .edge .run { opacity: 1; animation: trace calc(1150ms * var(--k)) linear infinite; }
+  @keyframes trace { to { stroke-dashoffset: -100; } }
+  .edge .done { stroke: var(--green); stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0; }
+  .is-saved .edge .done { opacity: 1; animation: close calc(420ms * var(--k)) cubic-bezier(.3,.8,.35,1) forwards, dim calc(520ms * var(--k)) calc(460ms * var(--k)) ease forwards; }
+  @keyframes close { to { stroke-dashoffset: 0; } }
+  @keyframes dim { to { opacity: 0; } }
+
+  /* ---- interior sweep ---- */
+  .sweep { position: absolute; inset: 0; border-radius: 999px; overflow: hidden; pointer-events: none; opacity: 0; }
+  .sweep::after {
+    content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
+  }
+  .is-saving .sweep { opacity: 1; }
+  .is-saving .sweep::after { animation: sweep calc(1250ms * var(--k)) cubic-bezier(.4,0,.5,1) infinite; }
+  @keyframes sweep { to { transform: translateX(100%); } }
+  .is-saved .sweep { opacity: 1; transition: opacity calc(300ms * var(--k)) ease; background: color-mix(in srgb, var(--green) 18%, transparent); }
+
+  /* ---- halo ---- */
+  .halo { position: absolute; inset: 0; border-radius: 999px; pointer-events: none; opacity: 0; box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent); }
+  .is-saving .halo { opacity: 1; animation: breathe calc(1400ms * var(--k)) ease-in-out infinite; }
+  @keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 34%, transparent); }
+    50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent); }
+  }
+  .is-saved .halo { opacity: 1; animation: pop calc(560ms * var(--k)) cubic-bezier(.25,.8,.35,1) forwards; }
+  @keyframes pop {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 36%, transparent); }
+    100% { box-shadow: 0 0 0 12px color-mix(in srgb, var(--green) 0%, transparent); }
+  }
+
+  /* ---- label crossfade + text shimmer ---- */
+  .swap { display: grid; }
+  .swap > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+    transition: opacity calc(180ms * var(--k)) ease, transform calc(240ms * var(--k)) cubic-bezier(.32,.72,.3,1); }
+  .swap .s-saving, .swap .s-saved { opacity: 0; transform: translateY(3px); }
+  .is-saving .swap .s-idle { opacity: 0; transform: translateY(-3px); }
+  .is-saving .swap .s-saving { opacity: 1; transform: none; }
+  .is-saved .swap .s-idle { opacity: 0; transform: translateY(-3px); }
+  .is-saved .swap .s-saved { opacity: 1; transform: none; }
+  .shimmer {
+    background: linear-gradient(95deg, currentColor 20%, color-mix(in srgb, currentColor 35%, transparent) 45%, currentColor 70%);
+    background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .is-saving .shimmer { animation: shim calc(1500ms * var(--k)) linear infinite; }
+  @keyframes shim { from { background-position: 130% 0; } to { background-position: -130% 0; } }
+
+  /* ---- dots ---- */
+  .dots { display: inline-flex; gap: 4px; align-items: center; }
+  .dots b { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .35; }
+  .is-saving .dots b { animation: blink calc(1100ms * var(--k)) ease-in-out infinite; }
+  .is-saving .dots b:nth-child(2) { animation-delay: calc(150ms * var(--k)); }
+  .is-saving .dots b:nth-child(3) { animation-delay: calc(300ms * var(--k)); }
+  @keyframes blink { 0%, 100% { opacity: .28; } 45% { opacity: 1; } }
+
+  /* ---- the saved chip ---- */
+  .chip {
+    position: absolute; left: 50%; bottom: calc(100% + 12px);
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    padding: 6px 13px 6px 10px; border-radius: 999px;
+    background: var(--chip-fill); color: var(--chip-ink); box-shadow: var(--chip-shadow);
+    border: 1px solid var(--float-border);
+    font-size: 14px; letter-spacing: .01em;
+    opacity: 0; transform: translate(-50%, 6px) scale(.94); pointer-events: none;
+  }
+  .is-chip .chip { animation: chipIn calc(2200ms * var(--k)) cubic-bezier(.25,.9,.3,1) forwards; }
+  @keyframes chipIn {
+    0%   { opacity: 0; transform: translate(-50%, 6px) scale(.94); }
+    14%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    22%  { transform: translate(-50%, 0) scale(1); }
+    74%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -5px) scale(.97); }
+  }
+  .tick { width: 15px; height: 15px; flex: none; }
+  .tick path { fill: none; stroke: var(--green); stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 24; stroke-dashoffset: 24; }
+  .is-chip .tick path { animation: draw calc(340ms * var(--k)) calc(170ms * var(--k)) cubic-bezier(.3,.8,.35,1) forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+
+  /* ---- saved held inside the pill instead of on a chip ---- */
+  .pill { transition: transform calc(260ms * var(--k)) cubic-bezier(.32,.72,.3,1),
+                      min-width calc(320ms * var(--k)) cubic-bezier(.32,.72,.3,1); }
+  .inside .s-saved { gap: 7px; }
+  .is-saved .inside .tick path { animation: draw calc(360ms * var(--k)) calc(60ms * var(--k)) cubic-bezier(.3,.8,.35,1) forwards; }
+  .inside .tick path { stroke: var(--green); }
+
+  .hint {
+    font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 11px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink3); position: absolute; top: 12px; right: 14px;
+  }
+
+  /* ---- timeline ---- */
+  .timeline { margin-top: 56px; padding-top: 26px; border-top: 1px solid var(--hair); }
+  .timeline h2 { font-size: 26px; font-weight: 400; margin: 0 0 6px; }
+  .track { margin-top: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+  .track div { border-top: 2px solid var(--hair); padding-top: 10px; }
+  .track div:first-child { border-top-color: var(--ink3); }
+  .track div:nth-child(2) { border-top-color: var(--accent); }
+  .track div:nth-child(3) { border-top-color: var(--green); }
+  .track strong {
+    display: block; font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 11px;
+    font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink2);
+  }
+  .track span { display: block; font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 12px; color: var(--ink3); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .track p { margin: 6px 0 0; font-size: 15px; color: var(--ink2); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+  @media (max-width: 520px) {
+    .track { grid-template-columns: 1fr 1fr; gap: 18px 12px; }
+  }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Calino · motion study</p>
+  <h1>Saving, on the add pill</h1>
+  <p class="lede">Five readings of the same moment: the pill you just used to make the event is the thing that tells you it landed. Nothing new appears on screen until it has — then one small chip, briefly. Tap any lane to play it.</p>
+
+  <div class="controls">
+    <button id="play">Play all</button>
+    <button id="slow" aria-pressed="false">Slow motion</button>
+    <div class="spacer"></div>
+    <button id="theme" aria-pressed="false">Dark preview</button>
+  </div>
+
+  <div class="grid" id="grid">
+
+    <section class="variant" data-v="edge">
+      <header><h2>Edge trace</h2><span class="tag">Recommended</span></header>
+      <div class="stage" tabindex="0" role="button" aria-label="Play edge trace">
+        <div class="rows"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="hint">tap</span>
+        <div class="lane">
+          <div class="chip"><svg class="tick" viewBox="0 0 16 16"><path d="M3.2 8.4 6.3 11.5 12.8 5"/></svg>Saved</div>
+          <div class="pill">
+            <svg class="edge" viewBox="0 0 200 54" preserveAspectRatio="none">
+              <rect class="run" x="1" y="1" width="198" height="52" rx="26" pathLength="100"/>
+              <rect class="done" x="1" y="1" width="198" height="52" rx="26" pathLength="100"/>
+            </svg>
+            <span class="label swap">
+              <span class="s-idle"><span class="plus"></span>Add event</span>
+              <span class="s-saving">Saving<span class="dots"><b></b><b></b><b></b></span></span>
+              <span class="s-saved"><span class="plus"></span>Add event</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="note">A single accent segment runs the pill's own border while the write is in flight, then a green stroke closes the loop once and fades. The label goes quiet — it never shouts.</p>
+      <p class="spec">border 2dp · accent segment 22% of perimeter · 1150ms loop · close 420ms · chip at +12dp</p>
+    </section>
+
+    <section class="variant" data-v="edge-inside">
+      <header><h2>Edge trace, saved inside</h2><span class="tag">New</span></header>
+      <div class="stage" tabindex="0" role="button" aria-label="Play edge trace with saved inside the pill">
+        <div class="rows"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="hint">tap</span>
+        <div class="lane inside">
+          <div class="pill">
+            <svg class="edge" viewBox="0 0 200 54" preserveAspectRatio="none">
+              <rect class="run" x="1" y="1" width="198" height="52" rx="26" pathLength="100"/>
+              <rect class="done" x="1" y="1" width="198" height="52" rx="26" pathLength="100"/>
+            </svg>
+            <span class="label swap">
+              <span class="s-idle"><span class="plus"></span>Add event</span>
+              <span class="s-saving">Saving<span class="dots"><b></b><b></b><b></b></span></span>
+              <span class="s-saved"><svg class="tick" viewBox="0 0 16 16"><path d="M3.2 8.4 6.3 11.5 12.8 5"/></svg>Saved</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="note">Same border run, but nothing floats above the lane — the pill holds “✓ Saved” in place of its own label for a beat, then falls back to “Add event”. One object doing three jobs instead of two objects doing two, and the lane never grows taller.</p>
+      <p class="spec">tick draws 360ms from the green close · “Saved” held 1600ms · label returns with the same 180ms crossfade</p>
+    </section>
+
+    <section class="variant" data-v="sweep">
+      <header><h2>Interior sweep</h2></header>
+      <div class="stage" tabindex="0" role="button" aria-label="Play interior sweep">
+        <div class="rows"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="hint">tap</span>
+        <div class="lane">
+          <div class="chip"><svg class="tick" viewBox="0 0 16 16"><path d="M3.2 8.4 6.3 11.5 12.8 5"/></svg>Saved</div>
+          <div class="pill">
+            <span class="sweep"></span>
+            <span class="label swap">
+              <span class="s-idle"><span class="plus"></span>Add event</span>
+              <span class="s-saving shimmer">Saving</span>
+              <span class="s-saved"><span class="plus"></span>Add event</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="note">The light moves through the glass instead of around it, and the label shimmers on the same pass. Warmer, but it tints the fill — read it in dark mode before deciding.</p>
+      <p class="spec">gradient pass 1250ms · label shimmer shares the cadence · settles to a 18% green wash</p>
+    </section>
+
+    <section class="variant" data-v="halo">
+      <header><h2>Halo pulse</h2></header>
+      <div class="stage" tabindex="0" role="button" aria-label="Play halo pulse">
+        <div class="rows"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="hint">tap</span>
+        <div class="lane">
+          <div class="chip"><svg class="tick" viewBox="0 0 16 16"><path d="M3.2 8.4 6.3 11.5 12.8 5"/></svg>Saved</div>
+          <div class="pill">
+            <span class="halo"></span>
+            <span class="label swap">
+              <span class="s-idle"><span class="plus"></span>Add event</span>
+              <span class="s-saving">Saving<span class="dots"><b></b><b></b><b></b></span></span>
+              <span class="s-saved"><span class="plus"></span>Add event</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="note">Rings breathe outward from the pill's edge and one green ring expands on success. Cheapest to build, and it survives being glanced at from across the room — but it reads a little like an alert.</p>
+      <p class="spec">ring 0 → 7dp, 1400ms ease-in-out · success ring 0 → 12dp, 560ms, once</p>
+    </section>
+
+    <section class="variant" data-v="quiet">
+      <header><h2>Chip only</h2></header>
+      <div class="stage" tabindex="0" role="button" aria-label="Play chip only">
+        <div class="rows"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <span class="hint">tap</span>
+        <div class="lane">
+          <div class="chip"><svg class="tick" viewBox="0 0 16 16"><path d="M3.2 8.4 6.3 11.5 12.8 5"/></svg>Saved</div>
+          <div class="pill">
+            <span class="label swap">
+              <span class="s-idle"><span class="plus"></span>Add event</span>
+              <span class="s-saving">Saving<span class="dots"><b></b><b></b><b></b></span></span>
+              <span class="s-saved"><span class="plus"></span>Add event</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="note">The floor. Label swaps, three dots keep time, the chip does the announcing. Worth keeping as the fallback when the write returns before the edge animation could complete a lap.</p>
+      <p class="spec">label crossfade 180ms · dots 1100ms, 150ms stagger · no edge treatment</p>
+    </section>
+
+  </div>
+
+  <section class="timeline">
+    <h2>One pass, end to end</h2>
+    <p class="lede" style="font-size:17px">The same four beats drive every variant above. Beat two is a question of which surface carries it; beat three is a question of whether the answer lands on a chip or inside the pill itself.</p>
+    <div class="track">
+      <div>
+        <strong>Commit</strong><span>0 ms</span>
+        <p>Sheet closes, pill returns to the lane, settles to 98.5%.</p>
+      </div>
+      <div>
+        <strong>Saving</strong><span>held ≥ 450 ms</span>
+        <p>Indicator runs. A faster write still shows one beat so it doesn't flicker.</p>
+      </div>
+      <div>
+        <strong>Landed</strong><span>+ 420 ms</span>
+        <p>Green closes once, chip rises 6dp into place, tick draws.</p>
+      </div>
+      <div>
+        <strong>Gone</strong><span>+ 2200 ms</span>
+        <p>Chip lifts 5dp and fades — or the pill's label crossfades back. Plain “Add event” again.</p>
+      </div>
+    </div>
+    <p class="spec" style="margin-top:18px">If the write fails, beat three swaps to the rose hue and the chip stays until tapped, reading “Couldn't save · Retry”.</p>
+  </section>
+</div>
+
+<script>
+  const root = document.documentElement;
+  const stages = [...document.querySelectorAll('.stage')];
+  const k = () => parseFloat(getComputedStyle(root).getPropertyValue('--k')) || 1;
+  const timers = new WeakMap();
+
+  function play(stage) {
+    const lane = stage.querySelector('.lane');
+    clearTimeout(timers.get(lane));
+    lane.classList.remove('is-saving', 'is-saved', 'is-chip');
+    void lane.offsetWidth;
+    const f = k();
+    lane.classList.add('is-saving');
+    const t1 = setTimeout(() => {
+      lane.classList.remove('is-saving');
+      lane.classList.add('is-saved', 'is-chip');
+      const t2 = setTimeout(() => {
+        lane.classList.remove('is-saved', 'is-chip');
+      }, 2300 * f);
+      timers.set(lane, t2);
+    }, 1400 * f);
+    timers.set(lane, t1);
+  }
+
+  stages.forEach(s => {
+    s.addEventListener('click', () => play(s));
+    s.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(s); }
+    });
+  });
+
+  document.getElementById('play').addEventListener('click', () => stages.forEach(play));
+
+  const slow = document.getElementById('slow');
+  slow.addEventListener('click', () => {
+    const on = slow.getAttribute('aria-pressed') !== 'true';
+    slow.setAttribute('aria-pressed', String(on));
+    root.style.setProperty('--k', on ? '2.4' : '1');
+  });
+
+  const theme = document.getElementById('theme');
+  theme.addEventListener('click', () => {
+    const on = theme.getAttribute('aria-pressed') !== 'true';
+    theme.setAttribute('aria-pressed', String(on));
+    root.setAttribute('data-theme', on ? 'dark' : 'light');
+    theme.textContent = on ? 'Light preview' : 'Dark preview';
+  });
+
+  setTimeout(() => stages.forEach(play), 600);
+</script>

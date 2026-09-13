@@ -10,6 +10,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * The pill lane: the one place on screen the add affordance lives, and the
@@ -126,6 +130,68 @@ class CalinoPillLane {
         backdropOrigin = origin
     }
 
+    /**
+     * Where the lane is in the write cycle. The pill that started the record is
+     * the thing that reports on it: the border traces while the write is in
+     * flight and the label holds the outcome for a beat once it lands, rather
+     * than a toast appearing somewhere else on screen.
+     */
+    var saveState by mutableStateOf(PillSaveState.Idle)
+        private set
+
+    /** Whether the write in the lane is putting a record down or taking one away. */
+    var writeKind by mutableStateOf(PillWriteKind.Save)
+        private set
+
+    /** Writes currently in flight. The lane only settles when this reaches 0. */
+    private var writesInFlight = 0
+    private var savingSinceMillis = 0L
+    private var settleJob: Job? = null
+
+    /**
+     * A record started being written. Nested or overlapping writes share one
+     * indicator: two saves in a row read as one continuous run rather than
+     * restarting the trace.
+     */
+    fun saveStarted(kind: PillWriteKind = PillWriteKind.Save) {
+        settleJob?.cancel()
+        settleJob = null
+        writesInFlight += 1
+        // The last thing asked for names the run. Removing something and then
+        // saving something else inside one beat is rare, and reporting it as
+        // the older of the two would name the wrong record.
+        writeKind = kind
+        if (saveState != PillSaveState.Saving) {
+            savingSinceMillis = System.currentTimeMillis()
+            saveState = PillSaveState.Saving
+        }
+    }
+
+    /**
+     * That write finished. [scope] drives the tail: the saving state is held
+     * for [MinSavingMillis] from when it started so a write that returns in a
+     * frame still reads as one beat instead of a flicker, and "Saved" is held
+     * for [SavedHoldMillis] before the pill goes back to being an add button.
+     */
+    fun saveFinished(scope: CoroutineScope, success: Boolean) {
+        writesInFlight = (writesInFlight - 1).coerceAtLeast(0)
+        if (writesInFlight > 0) return
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            val elapsed = System.currentTimeMillis() - savingSinceMillis
+            delay((MinSavingMillis - elapsed).coerceAtLeast(0L))
+            if (!success) {
+                // A failure has its own message in the feedback lane. The pill
+                // just stops rather than claiming something landed.
+                saveState = PillSaveState.Idle
+                return@launch
+            }
+            saveState = PillSaveState.Saved
+            delay(SavedHoldMillis)
+            saveState = PillSaveState.Idle
+        }
+    }
+
     internal fun claim() {
         claims += 1
         handingBack = false
@@ -139,6 +205,26 @@ class CalinoPillLane {
         }
     }
 }
+
+/** Where a write is in the lane's one-object report on it. */
+enum class PillSaveState { Idle, Saving, Saved }
+
+/**
+ * What the write is doing to the record, which is all that separates the two
+ * reports: same trace, same timing, different word and different colour on the
+ * ring that closes it.
+ */
+enum class PillWriteKind { Save, Remove }
+
+/**
+ * The least time the saving state stays up. Local writes usually return in a
+ * frame or two, and without a floor the trace would appear and vanish inside
+ * the same blink -- which reads as a glitch, not as work being done.
+ */
+const val MinSavingMillis = 450L
+
+/** How long the pill holds its outcome before turning back into "Add event". */
+const val SavedHoldMillis = 1600L
 
 /** The lane the surrounding screen provides; a default keeps previews working. */
 val LocalCalinoPillLane = staticCompositionLocalOf { CalinoPillLane() }
