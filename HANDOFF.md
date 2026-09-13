@@ -4,6 +4,27 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Range drag paging and Today — 2026-09-13
+
+The 3/7-day range pager now owns timed-event lift gestures above its pages,
+matching the one-day rail's ownership model. Holding a lifted event within the
+52dp left or right edge zone advances whole range pages every 420ms, keeps the
+card mounted under the finger while old pages are disposed, and resolves the
+drop against a column on the newly visible page. The range header also exposes
+the shared animated Today shortcut whenever today is outside the visible span.
+
+Pure range-rule tests cover edge detection and destination-column selection;
+`RangeInteractionTest` covers paging away and returning with Today.
+
+The timed-event drop marker now places its time label inside the 52dp hour
+gutter, vertically centred on the destination line, rather than floating above
+the event lanes.
+
+While a timed event is lifted, holding it in the top or bottom 64dp of either
+the one-day or 3/7-day timeline continuously scrolls the hour rail. The drop
+calculation includes that programmatic scroll distance, so the displayed and
+persisted target time remain the same.
+
 ### Apple travel time — 2026-09-13
 
 `CalEvent.travelTimeMinutes` now round-trips the same

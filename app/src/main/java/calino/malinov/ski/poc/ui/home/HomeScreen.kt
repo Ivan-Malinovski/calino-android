@@ -28,6 +28,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -160,6 +161,7 @@ import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
 import calino.malinov.ski.poc.qa.shouldExpandFromDayRail
 import calino.malinov.ski.poc.qa.timelineCreateMinute
+import calino.malinov.ski.poc.qa.edgeScrollDirection
 import calino.malinov.ski.poc.qa.timelineScaleAfterPinch
 import calino.malinov.ski.poc.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.poc.qa.zoomSettleLevel
@@ -5039,13 +5041,16 @@ private fun DayPagerSurface(
     var activeLaneHeightPx by remember { mutableFloatStateOf(0f) }
     var hostOrigin by remember { mutableStateOf(Offset.Zero) }
     var hostWidth by remember { mutableIntStateOf(0) }
+    var hostHeight by remember { mutableIntStateOf(0) }
     // -1, 0, 1: which edge the lifted card is resting against.
     var flipDirection by remember { mutableIntStateOf(0) }
+    var autoScrollDirection by remember { mutableIntStateOf(0) }
     val hourHeightPx = with(density) { (TimelineBaseHourHeightDp * timelineScale).dp.toPx() }
 
     fun dropTargetFor(session: TimelineDragSession): LocalDateTime? {
         val start = session.card.event.start ?: return null
-        val minutes = timelineDropMinutes(session.drag.y, hourHeightPx)
+        val scrollDelta = scrollState.value - session.scrollAtLift
+        val minutes = timelineDropMinutes(session.drag.y + scrollDelta, hourHeightPx)
         val moved = start.plusMinutes(minutes.toLong())
         val day = dateForDayPage(state.currentPage)
         return LocalDateTime.of(day, moved.toLocalTime())
@@ -5084,11 +5089,22 @@ private fun DayPagerSurface(
         }
     }
 
+    LaunchedEffect(autoScrollDirection, railGestureEnabled) {
+        if (autoScrollDirection == 0 || !railGestureEnabled) return@LaunchedEffect
+        val step = with(density) { TimelineAutoScrollStep.toPx() }
+        while (true) {
+            val consumed = scrollState.scrollBy(autoScrollDirection * step)
+            if (consumed == 0f) break
+            delay(TimelineAutoScrollFrameMillis)
+        }
+    }
+
     Box(
         modifier
             .onGloballyPositioned { coords ->
                 hostOrigin = coords.positionInRoot()
                 hostWidth = coords.size.width
+                hostHeight = coords.size.height
             }
             .timelineLiftDrag(
                 enabled = railGestureEnabled,
@@ -5100,7 +5116,11 @@ private fun DayPagerSurface(
                     cardBounds.values.firstOrNull { it.day == day && it.rootRect.contains(root) }
                 },
                 onLift = { card, pointer ->
-                    dragSession = TimelineDragSession(card = card, pointer = pointer)
+                    dragSession = TimelineDragSession(
+                        card = card,
+                        pointer = pointer,
+                        scrollAtLift = scrollState.value,
+                    )
                 },
                 onDrag = { delta, pointer ->
                     val previous = dragSession ?: return@timelineLiftDrag
@@ -5126,10 +5146,16 @@ private fun DayPagerSurface(
                         localX > hostWidth - edge -> 1
                         else -> 0
                     }
+                    autoScrollDirection = edgeScrollDirection(
+                        pointer = pointer.y,
+                        extent = hostHeight,
+                        edge = with(density) { TimelineAutoScrollEdge.toPx() },
+                    )
                 },
                 onRelease = {
                     val session = dragSession
                     flipDirection = 0
+                    autoScrollDirection = 0
                     dragSession = null
                     if (session != null) {
                         val target = dropTargetFor(session)
@@ -5142,6 +5168,7 @@ private fun DayPagerSurface(
                 },
                 onCancel = {
                     flipDirection = 0
+                    autoScrollDirection = 0
                     dragSession = null
                 },
                 emptyTarget = ::createTargetFor,
@@ -5257,13 +5284,17 @@ private fun DayPagerSurface(
         dragSession?.let { session ->
             val start = session.card.event.start
             val snappedMinutes = timelineDropMinutes(session.drag.y, hourHeightPx)
+            val targetMinutes = timelineDropMinutes(
+                session.drag.y + scrollState.value - session.scrollAtLift,
+                hourHeightPx,
+            )
             val cardRect = session.card.rootRect.translate(Offset(0f, session.drag.y))
             val cardLeft = with(density) { (cardRect.left - hostOrigin.x).toDp() }
             val cardTop = with(density) { (session.card.rootRect.top - hostOrigin.y).toDp() }
             val cardWidth = with(density) { cardRect.width.toDp() }
             val cardHeight = with(density) { cardRect.height.toDp() }
             if (start != null) {
-                val targetTime = start.plusMinutes(snappedMinutes.toLong())
+                val targetTime = start.plusMinutes(targetMinutes.toLong())
                 val snappedOffset = (TimelineBaseHourHeightDp * timelineScale * snappedMinutes / 60f).dp
                 TimelineDropIndicator(
                     modifier = Modifier
@@ -5922,6 +5953,7 @@ private data class TimelineDragSession(
     val card: TimelineCardBounds,
     val drag: Offset = Offset.Zero,
     val pointer: Offset = Offset.Zero,
+    val scrollAtLift: Int = 0,
 )
 
 private data class TimelineCreateSession(
@@ -5934,6 +5966,11 @@ private val TimelineDayFlipEdge = 52.dp
 
 /** How long the drag rests in the edge zone before each day it turns over. */
 private const val TimelineDayFlipDelayMs = 420L
+
+/** Vertical edge lane and cadence for scrolling a lifted event through time. */
+private val TimelineAutoScrollEdge = 64.dp
+private val TimelineAutoScrollStep = 10.dp
+private const val TimelineAutoScrollFrameMillis = 16L
 
 /**
  * The rail's lift gesture, hoisted above the day pager.
@@ -6104,19 +6141,31 @@ private fun TimelineDropIndicator(
                 )
             },
     ) {
-        Box(
-            Modifier.offset(x = railStart + 8.dp)
+        val labelModifier = if (railStart > 0.dp) {
+            // Centre the label on the target line inside the hour gutter. The
+            // line starts at the gutter boundary, so time and destination now
+            // read as one continuous marker instead of two stacked hints.
+            Modifier
+                .offset(y = 30.dp)
+                .width(railStart)
+                .padding(horizontal = 3.dp)
+        } else {
+            Modifier
+                .offset(x = railStart + 8.dp)
                 .then(if (compact) Modifier.requiredWidth(64.dp) else Modifier)
+        }
+        Box(
+            labelModifier
                 .clip(labelShape)
                 .background(colors.Panel.copy(alpha = .96f))
                 .border(1.dp, colors.Accent.copy(alpha = .7f), labelShape)
-                .padding(horizontal = 7.dp, vertical = 3.dp),
+                .padding(horizontal = if (railStart > 0.dp) 2.dp else 7.dp, vertical = 3.dp),
         ) {
             Text(
                 time,
-                fontSize = 10.sp,
+                fontSize = if (railStart > 0.dp) 9.sp else 10.sp,
                 lineHeight = 13.sp,
-                letterSpacing = .7.sp,
+                letterSpacing = if (railStart > 0.dp) 0.sp else .7.sp,
                 fontWeight = FontWeight.Bold,
                 color = colors.Accent,
                 maxLines = 1,
@@ -6128,7 +6177,7 @@ private fun TimelineDropIndicator(
 }
 
 @Composable
-private fun TimelineEventCard(
+internal fun TimelineEventCard(
     modifier: Modifier,
     event: CalEvent,
     showMetadata: Boolean,

@@ -52,6 +52,13 @@ class HomeGestureRulesTest {
     }
 
     @Test
+    fun liftedEventAutoScrollsOnlyInsideVerticalEdgeLanes() {
+        assertEquals(-1, edgeScrollDirection(20f, extent = 800, edge = 64f))
+        assertEquals(0, edgeScrollDirection(400f, extent = 800, edge = 64f))
+        assertEquals(1, edgeScrollDirection(780f, extent = 800, edge = 64f))
+    }
+
+    @Test
     fun pagerTarget_invertsLogicalPageDirectionForScreenTravel() {
         assertEquals(-1f, pagerTargetOffset(pageDirection = 1), 0.001f)
         assertEquals(1f, pagerTargetOffset(pageDirection = -1), 0.001f)

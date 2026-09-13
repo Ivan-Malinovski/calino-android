@@ -18,3 +18,18 @@ fun rangeDays(anchor: LocalDate, mode: CalinoRangeMode, weekStart: CalinoWeekSta
 
 fun rangeAnchorForPage(base: LocalDate, page: Int, mode: CalinoRangeMode): LocalDate =
     base.plusDays((page - RangePagerCenter).toLong() * mode.dayCount)
+
+internal fun rangeEdgeDirection(pointerX: Float, width: Int, edge: Float): Int = when {
+    width <= 0 || edge <= 0f -> 0
+    pointerX < edge -> -1
+    pointerX > width - edge -> 1
+    else -> 0
+}
+
+internal fun rangeDropDay(pointerX: Float, width: Int, gutter: Float, days: List<LocalDate>): LocalDate? {
+    if (width <= 0 || days.isEmpty()) return null
+    val safeGutter = gutter.coerceIn(0f, width.toFloat())
+    val laneWidth = (width - safeGutter).coerceAtLeast(1f)
+    val index = (((pointerX - safeGutter) / laneWidth) * days.size).toInt().coerceIn(0, days.lastIndex)
+    return days[index]
+}

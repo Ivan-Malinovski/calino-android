@@ -27,12 +27,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -47,6 +49,7 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -58,14 +61,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.qa.edgeScrollDirection
 import calino.malinov.ski.poc.design.CalinoColors
 import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.design.CalinoSpacing
@@ -77,7 +85,8 @@ import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.home.CompactLaneScrim
 import calino.malinov.ski.poc.ui.home.HourRailContent
-import calino.malinov.ski.poc.ui.home.DirectTimelineDrop
+import calino.malinov.ski.poc.ui.home.TimelineCardBounds
+import calino.malinov.ski.poc.ui.home.TimelineEventCard
 import calino.malinov.ski.poc.ui.surfaces.EventMenuAction
 import calino.malinov.ski.poc.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.poc.util.CalinoRangeMode
@@ -88,6 +97,8 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val RangeDate = DateTimeFormatter.ofPattern("MMM d", Locale.US)
@@ -161,7 +172,7 @@ fun RangeScreen(
             showToday = today !in visibleDays,
             subtitle = subtitle,
             showNavigationArrows = false,
-            showTodayButton = false,
+            showTodayButton = true,
             trailingContent = {
                 CompactSegmentedControl(
                     options = listOf("3", "7"),
@@ -178,7 +189,134 @@ fun RangeScreen(
             modifier = Modifier.fillMaxSize(),
             label = "range mode",
         ) { activeMode ->
-            HorizontalPager(
+            RangePagerSurface(
+                pager = pager,
+                activeMode = activeMode,
+                base = base,
+                weekStart = weekStart,
+                eventIndex = eventIndex,
+                tasks = tasks,
+                timelineScale = timelineScale,
+                timelineScroll = timelineScroll,
+                onTimelineScaleChanged = { timelineScale = it },
+                onEventClick = onEventClick,
+                onEventAction = onEventAction,
+                onEventDrop = onEventDrop,
+                onEventTimeDrop = onEventTimeDrop,
+                onCreateEventAt = onCreateEventAt,
+                onTaskClick = onTaskClick,
+                onTaskAction = onTaskAction,
+                onTaskDone = onTaskDone,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RangePagerSurface(
+    pager: androidx.compose.foundation.pager.PagerState,
+    activeMode: CalinoRangeMode,
+    base: LocalDate,
+    weekStart: calino.malinov.ski.poc.util.CalinoWeekStart,
+    eventIndex: EventDateIndex,
+    tasks: List<CalTask>,
+    timelineScale: Float,
+    timelineScroll: ScrollState,
+    onTimelineScaleChanged: (Float) -> Unit,
+    onEventClick: (LocalDate, CalEvent) -> Unit,
+    onEventAction: (EventMenuAction, CalEvent) -> Unit,
+    onEventDrop: (CalEvent, LocalDate) -> Unit,
+    onEventTimeDrop: (CalEvent, LocalDateTime) -> Unit,
+    onCreateEventAt: (LocalDateTime) -> Unit,
+    onTaskClick: (CalTask) -> Unit,
+    onTaskAction: (TaskMenuAction, CalTask) -> Unit,
+    onTaskDone: (CalTask, Boolean) -> Unit,
+) {
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val timeFormat = LocalTimeFormat
+    val preferences = LocalCalinoPreferences.current
+    val cardBounds = remember { mutableStateMapOf<String, TimelineCardBounds>() }
+    var drag by remember { mutableStateOf<RangeDragSession?>(null) }
+    var hostOrigin by remember { mutableStateOf(Offset.Zero) }
+    var hostWidth by remember { mutableIntStateOf(0) }
+    var hostHeight by remember { mutableIntStateOf(0) }
+    var edgeDirection by remember { mutableIntStateOf(0) }
+    var autoScrollDirection by remember { mutableIntStateOf(0) }
+    val hourHeightPx = with(density) { (62 * timelineScale).dp.toPx() }
+
+    LaunchedEffect(edgeDirection, drag) {
+        if (edgeDirection == 0 || drag == null) return@LaunchedEffect
+        while (true) {
+            delay(RangeEdgeTurnDelayMillis)
+            val target = pager.currentPage + edgeDirection
+            if (target !in 0 until pager.pageCount) break
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            pager.animateScrollToPage(target)
+        }
+    }
+
+    LaunchedEffect(autoScrollDirection, drag) {
+        if (autoScrollDirection == 0 || drag == null) return@LaunchedEffect
+        val step = with(density) { RangeAutoScrollStep.toPx() }
+        while (true) {
+            val consumed = timelineScroll.scrollBy(autoScrollDirection * step)
+            if (consumed == 0f) break
+            delay(RangeAutoScrollFrameMillis)
+        }
+    }
+
+    Box(
+        Modifier.fillMaxSize()
+            .onGloballyPositioned {
+                hostOrigin = it.positionInRoot()
+                hostWidth = it.size.width
+                hostHeight = it.size.height
+            }
+            .rangeTimelineLiftDrag(
+                hitTest = { point ->
+                    val root = point + hostOrigin
+                    val visible = rangeDays(rangeAnchorForPage(base, pager.currentPage, activeMode), activeMode, weekStart)
+                    cardBounds.values.firstOrNull { it.day in visible && it.rootRect.contains(root) }
+                },
+                onLift = { card, pointer ->
+                    drag = RangeDragSession(card, pointer = pointer, scrollAtLift = timelineScroll.value)
+                },
+                onDrag = { delta, pointer ->
+                    drag = drag?.let { it.copy(offset = it.offset + delta, pointer = pointer) }
+                    edgeDirection = rangeEdgeDirection(pointer.x, hostWidth, with(density) { RangeEdgeTurnZone.toPx() })
+                    autoScrollDirection = edgeScrollDirection(
+                        pointer.y,
+                        hostHeight,
+                        with(density) { RangeAutoScrollEdge.toPx() },
+                    )
+                },
+                onRelease = {
+                    val session = drag
+                    edgeDirection = 0
+                    autoScrollDirection = 0
+                    drag = null
+                    if (session != null) {
+                        val visible = rangeDays(rangeAnchorForPage(base, pager.currentPage, activeMode), activeMode, weekStart)
+                        val day = rangeDropDay(
+                            session.pointer.x,
+                            hostWidth,
+                            with(density) { 52.dp.toPx() },
+                            visible,
+                        )
+                        val start = session.card.event.start
+                        if (day != null && start != null && hourHeightPx > 0f) {
+                            val scrollDelta = timelineScroll.value - session.scrollAtLift
+                            val minuteDelta = (((session.offset.y + scrollDelta) / hourHeightPx) * 4f).roundToInt() * 15
+                            val target = LocalDateTime.of(day, start.toLocalTime().plusMinutes(minuteDelta.toLong()))
+                            if (target != start) onEventTimeDrop(session.card.event, target)
+                        }
+                    }
+                },
+                onCancel = { edgeDirection = 0; autoScrollDirection = 0; drag = null },
+            ),
+    ) {
+        HorizontalPager(
                 state = pager,
                 beyondViewportPageCount = 1,
                 key = { page -> "${activeMode.name}:$page" },
@@ -196,7 +334,7 @@ fun RangeScreen(
                     tasks = tasks,
                     timelineScale = timelineScale,
                     timelineScroll = timelineScroll,
-                    onTimelineScaleChanged = { timelineScale = it },
+                    onTimelineScaleChanged = onTimelineScaleChanged,
                     onEventClick = onEventClick,
                     onEventAction = onEventAction,
                     onEventDrop = onEventDrop,
@@ -205,8 +343,30 @@ fun RangeScreen(
                     onTaskClick = onTaskClick,
                     onTaskAction = onTaskAction,
                     onTaskDone = onTaskDone,
+                    draggingCardKey = drag?.card?.key,
+                    onCardBounds = { cardBounds[it.key] = it },
+                    onCardGone = { cardBounds.remove(it) },
                 )
             }
+        drag?.let { session ->
+            val rect = session.card.rootRect
+            TimelineEventCard(
+                modifier = Modifier
+                    .padding(0.dp)
+                    .width(with(density) { rect.width.toDp() })
+                    .height(with(density) { rect.height.toDp() })
+                    .graphicsLayer {
+                        translationX = rect.left - hostOrigin.x + session.offset.x
+                        translationY = rect.top - hostOrigin.y + session.offset.y
+                    },
+                event = session.card.event,
+                showMetadata = session.card.showMetadata,
+                timeFormat = timeFormat,
+                preferences = preferences,
+                colors = CalinoColors,
+                lifted = true,
+                hideAccentRail = true,
+            )
         }
     }
 }
@@ -227,9 +387,11 @@ private fun RangePage(
     onTaskClick: (CalTask) -> Unit,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
+    draggingCardKey: String?,
+    onCardBounds: (TimelineCardBounds) -> Unit,
+    onCardGone: (String) -> Unit,
 ) {
     val density = LocalDensity.current
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
     val railLayer = rememberGraphicsLayer()
     var stripHeight by remember { mutableStateOf(0.dp) }
@@ -275,31 +437,12 @@ private fun RangePage(
                         onEventAction = onEventAction,
                         onEventDrop = onEventDrop,
                         timelineScale = timelineScale,
-                        draggingCardKey = null,
-                        onCardBounds = null,
-                        onCardGone = null,
+                        draggingCardKey = draggingCardKey,
+                        onCardBounds = onCardBounds,
+                        onCardGone = onCardGone,
                         showHourLabels = false,
                         compactRangeCards = true,
-                        onEventDragEnd = { event, offset ->
-                            val start = event.start ?: return@HourRailContent null
-                            val columnWidthPx = with(density) { ((screenWidthDp - 52f) / days.size).dp.toPx() }
-                            val dayDelta = (offset.x / columnWidthPx.coerceAtLeast(1f)).roundToInt()
-                            val minuteDelta = ((offset.y / with(density) { (62 * timelineScale).dp.toPx() }) * 4f).roundToInt() * 15
-                            val targetDay = day.plusDays(dayDelta.toLong())
-                            val target = LocalDateTime.of(targetDay, start.toLocalTime().plusMinutes(minuteDelta.toLong()))
-                            if (target == start) {
-                                null
-                            } else {
-                                onEventTimeDrop(event, target)
-                                DirectTimelineDrop(
-                                    offset = androidx.compose.ui.geometry.Offset(
-                                        x = dayDelta * columnWidthPx,
-                                        y = with(density) { (62 * timelineScale).dp.toPx() } * minuteDelta / 60f,
-                                    ),
-                                    targetStart = target,
-                                )
-                            }
-                        },
+                        onEventDragEnd = null,
                     )
                 }
             }
@@ -366,6 +509,75 @@ private fun RangePage(
                 }
             }
             Spacer(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
+        }
+    }
+}
+
+private data class RangeDragSession(
+    val card: TimelineCardBounds,
+    val offset: Offset = Offset.Zero,
+    val pointer: Offset,
+    val scrollAtLift: Int,
+)
+
+private val RangeEdgeTurnZone = 52.dp
+private const val RangeEdgeTurnDelayMillis = 420L
+private val RangeAutoScrollEdge = 64.dp
+private val RangeAutoScrollStep = 10.dp
+private const val RangeAutoScrollFrameMillis = 16L
+
+private fun Modifier.rangeTimelineLiftDrag(
+    hitTest: (Offset) -> TimelineCardBounds?,
+    onLift: (TimelineCardBounds, Offset) -> Unit,
+    onDrag: (Offset, Offset) -> Unit,
+    onRelease: () -> Unit,
+    onCancel: () -> Unit,
+): Modifier = composed {
+    val currentHitTest by rememberUpdatedState(hitTest)
+    val currentOnLift by rememberUpdatedState(onLift)
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnRelease by rememberUpdatedState(onRelease)
+    val currentOnCancel by rememberUpdatedState(onCancel)
+    val haptics = LocalHapticFeedback.current
+    pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val pointerId = down.id
+            val startedAt = android.os.SystemClock.uptimeMillis()
+            val liftDelay = minOf(viewConfiguration.longPressTimeoutMillis.toLong(), 220L)
+            var lifted = false
+            var finished = false
+            try {
+                while (!finished) {
+                    val remaining = liftDelay - (android.os.SystemClock.uptimeMillis() - startedAt)
+                    val event = if (!lifted && remaining > 0) {
+                        withTimeoutOrNull(remaining) {
+                            awaitPointerEvent(PointerEventPass.Initial)
+                        }
+                    } else {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                    }
+                    if (event == null) {
+                        val card = currentHitTest(down.position) ?: break
+                        lifted = true
+                        currentOnLift(card, down.position)
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        continue
+                    }
+                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                    if (!change.pressed) {
+                        if (lifted) currentOnRelease()
+                        finished = true
+                    } else if (!lifted && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                        break
+                    } else if (lifted) {
+                        change.consume()
+                        currentOnDrag(change.positionChangeIgnoreConsumed(), change.position)
+                    }
+                }
+            } finally {
+                if (lifted && !finished) currentOnCancel()
+            }
         }
     }
 }

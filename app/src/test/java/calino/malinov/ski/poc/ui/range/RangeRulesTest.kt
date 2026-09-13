@@ -32,4 +32,17 @@ class RangeRulesTest {
         assertEquals(wednesday.plusDays(3), rangeAnchorForPage(wednesday, RangePagerCenter + 1, CalinoRangeMode.ThreeDay))
         assertEquals(wednesday.minusDays(7), rangeAnchorForPage(wednesday, RangePagerCenter - 1, CalinoRangeMode.SevenDay))
     }
+
+    @Test fun `held drag enters edge zones only`() {
+        assertEquals(-1, rangeEdgeDirection(20f, 360, 52f))
+        assertEquals(0, rangeEdgeDirection(180f, 360, 52f))
+        assertEquals(1, rangeEdgeDirection(340f, 360, 52f))
+    }
+
+    @Test fun `drop resolves against newly visible range columns`() {
+        val days = List(3) { wednesday.plusDays(it.toLong()) }
+        assertEquals(days.first(), rangeDropDay(52f, 352, 52f, days))
+        assertEquals(days[1], rangeDropDay(202f, 352, 52f, days))
+        assertEquals(days.last(), rangeDropDay(351f, 352, 52f, days))
+    }
 }

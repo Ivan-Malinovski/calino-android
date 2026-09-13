@@ -60,6 +60,14 @@ fun timelineCreateMinute(rawMinute: Float, intervalMinutes: Int): Int? {
     return ((rawMinute / interval).roundToInt() * interval).coerceIn(0, latestStart)
 }
 
+/** Direction for drag auto-scroll when a pointer enters an edge lane. */
+fun edgeScrollDirection(pointer: Float, extent: Int, edge: Float): Int = when {
+    extent <= 0 || edge <= 0f -> 0
+    pointer < edge -> -1
+    pointer > extent - edge -> 1
+    else -> 0
+}
+
 /**
  * Settle relative to the level where the drag began. A level changes after
  * 60% of a step, or after an intentional fling in that direction. Positive
