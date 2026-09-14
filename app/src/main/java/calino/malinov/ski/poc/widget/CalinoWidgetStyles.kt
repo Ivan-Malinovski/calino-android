@@ -8,6 +8,9 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceModifier
 import androidx.glance.action.Action
 import androidx.glance.action.clickable
+import androidx.glance.ColorFilter
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -25,6 +28,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextDecoration
 import androidx.glance.text.TextStyle
+import calino.malinov.ski.poc.R
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 
 /**
@@ -86,11 +90,12 @@ internal enum class WidgetStyle {
     /**
      * The gap between the widget's edge and its rows.
      *
-     * [Cards] takes less: the chip carries 9dp of its own, and stacking both
-     * would leave the fills floating in a margin wide enough to read as a
-     * mistake. The ledger has no fill, so its text needs the full inset.
+     * One value for both, arrived at from opposite directions: the card
+     * carries 9dp of its own and would float in a wider margin, and the
+     * ledger's first column is small text that reads better close to the edge
+     * than centred in whitespace.
      */
-    val canvasPadding: Dp get() = if (this == Cards) 10.dp else 14.dp
+    val canvasPadding: Dp get() = 10.dp
 
     /**
      * Extra start padding for the header, on top of [canvasPadding].
@@ -158,15 +163,9 @@ internal fun LedgerRow(
                 ),
                 maxLines = 1,
             )
-            Spacer(GlanceModifier.width(8.dp))
-            Box(
-                modifier = GlanceModifier
-                    .size(5.dp)
-                    .background(CalinoWidgetColors.record(row.color))
-                    .cornerRadius(3.dp),
-                contentAlignment = Alignment.Center,
-            ) {}
-            Spacer(GlanceModifier.width(8.dp))
+            Spacer(GlanceModifier.width(5.dp))
+            RowMarker(row)
+            Spacer(GlanceModifier.width(5.dp))
             Text(
                 text = row.title,
                 modifier = GlanceModifier.defaultWeight(),
@@ -212,7 +211,9 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
         ) {
             // Full-strength beside its own tint: the fill says which calendar
             // at a glance, the rail is what makes it legible when two records
-            // in neighbouring hues sit next to each other.
+            // in neighbouring hues sit next to each other. Every row keeps it,
+            // tasks included, so that one card's title starts where the next
+            // one's does.
             Box(
                 modifier = GlanceModifier
                     .width(3.dp)
@@ -242,29 +243,107 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
                 }
             }
             Spacer(GlanceModifier.width(8.dp))
-            Text(
-                text = row.timeLabel ?: if (row.allDay) "All day" else "Due",
-                style = TextStyle(
-                    color = if (row.isNext) CalinoWidgetColors.accent else CalinoWidgetColors.ink2,
-                    fontSize = 10.5.sp,
-                    fontWeight = if (row.isNext) FontWeight.Medium else FontWeight.Normal,
-                    textAlign = TextAlign.End,
-                ),
-                maxLines = 1,
-            )
+            // A task's bare "Due" is dropped rather than set beside the
+            // checkbox: the control already says the row is a task, and the
+            // word adds nothing next to it. A real due *time* still shows.
+            if (row.kind != WidgetRowKind.Task || row.timeLabel != null) {
+                Text(
+                    text = row.timeLabel ?: if (row.allDay) "All day" else "Due",
+                    style = TextStyle(
+                        color = if (row.isNext) CalinoWidgetColors.accent else CalinoWidgetColors.ink2,
+                        fontSize = 10.5.sp,
+                        fontWeight = if (row.isNext) FontWeight.Medium else FontWeight.Normal,
+                        textAlign = TextAlign.End,
+                    ),
+                    maxLines = 1,
+                )
+            }
+            if (row.kind == WidgetRowKind.Task) {
+                if (row.timeLabel != null) Spacer(GlanceModifier.width(4.dp))
+                TaskMarker(row)
+            }
         }
     }
 }
 
 /**
+ * An event's dot or a task's checkbox, in one slot so that titles start at the
+ * same place either way.
+ *
+ * The slot is what makes the checkbox tappable: the mark itself is small, and
+ * a 5dp target is not a control. Padding inside the slot turns the whole thing
+ * into the hit area without moving the title.
+ */
+@Composable
+private fun RowMarker(row: WidgetAgendaRow) {
+    if (row.kind == WidgetRowKind.Task) {
+        TaskMarker(row)
+    } else {
+        Box(
+            modifier = GlanceModifier.size(MarkerSlot),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = GlanceModifier
+                    .size(5.dp)
+                    .background(CalinoWidgetColors.record(row.color))
+                    .cornerRadius(3.dp),
+                contentAlignment = Alignment.Center,
+            ) {}
+        }
+    }
+}
+
+/**
+ * A task's checkbox. Tapping it completes or reopens the task.
+ *
+ * It takes the record's colour while open and drops to [CalinoWidgetColors.ink3]
+ * once done, so a finished row recedes as a whole rather than keeping a bright
+ * mark beside struck-through text.
+ */
+@Composable
+internal fun TaskMarker(row: WidgetAgendaRow) {
+    Box(
+        modifier = GlanceModifier
+            .size(MarkerSlot)
+            .clickable(toggleTask(row)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            provider = ImageProvider(
+                if (row.done) R.drawable.ic_widget_task_done else R.drawable.ic_widget_task_open,
+            ),
+            contentDescription = if (row.done) "Reopen ${row.title}" else "Complete ${row.title}",
+            modifier = GlanceModifier.size(14.dp),
+            colorFilter = ColorFilter.tint(
+                if (row.done) CalinoWidgetColors.ink3 else CalinoWidgetColors.record(row.color),
+            ),
+        )
+    }
+}
+
+/**
+ * The marker's slot, which is also its tap target.
+ *
+ * Under the 48dp the guidelines ask for, and knowingly: this sits in a row
+ * whose other half opens the task, so the slot has to stay a marker's width or
+ * the layout becomes a checkbox with a title attached. The row's own height
+ * carries the rest of the target.
+ */
+private val MarkerSlot = 20.dp
+
+/**
  * How wide the ledger's time column has to be.
  *
- * Sized to the widest label the column can hold, which depends on the clock:
- * "12:30 AM" on a 12-hour clock, and on a 24-hour one "All day", since "08:00"
- * is shorter than the words. A column sized for the 12-hour case throws away
- * about 12dp on a 24-hour one, and because the column is end-aligned that
- * arrives as dead space on the left -- the times end up indented twice as far
- * from the edge as the heading above them.
+ * Measured rather than estimated, at 10.5sp on the platform font: "12:30 AM"
+ * is 44.2dp, and on a 24-hour clock the widest label is not a time at all but
+ * an overdue task's "Aug 30" at 32.4dp, with "All day" just behind it at 31.2
+ * and "08:00" only 25.5. Hence 46 and 34, each a little over its widest label
+ * and nothing more.
+ *
+ * The column is end-aligned, so every dp of slack here arrives as dead space on
+ * the *left* and pushes the whole row away from the edge. That is worth being
+ * exact about: it was the single biggest source of the ledger's indent.
  */
 private fun timeColumnWidth(format: CalinoTimeFormat): Dp =
-    if (format == CalinoTimeFormat.TwentyFourHour) 40.dp else 48.dp
+    if (format == CalinoTimeFormat.TwentyFourHour) 34.dp else 46.dp

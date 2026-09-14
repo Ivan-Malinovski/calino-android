@@ -13,8 +13,8 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/launch_canvas"
-    android:paddingStart="14dp"
-    android:paddingEnd="14dp"
+    android:paddingStart="10dp"
+    android:paddingEnd="10dp"
     android:paddingTop="12dp"
     android:paddingBottom="12dp">
 
@@ -23,7 +23,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="6dp">
+        android:paddingStart="10dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -59,7 +59,7 @@
         android:gravity="center_vertical">
 
         <TextView
-            android:layout_width="48dp"
+            android:layout_width="46dp"
             android:layout_height="wrap_content"
             android:gravity="end"
             android:text="Apr 29"
@@ -67,11 +67,11 @@
             android:textSize="10.5sp" />
 
         <ImageView
-            android:layout_width="5dp"
-            android:layout_height="5dp"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/widget_dot"
-            android:backgroundTint="@color/widget_hue_rose" />
+            android:src="@drawable/ic_widget_task_open"
+            android:tint="@color/widget_hue_rose" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -96,7 +96,7 @@
         android:gravity="center_vertical">
 
         <TextView
-            android:layout_width="48dp"
+            android:layout_width="46dp"
             android:layout_height="wrap_content"
             android:gravity="end"
             android:text="Due"
@@ -104,11 +104,11 @@
             android:textSize="10.5sp" />
 
         <ImageView
-            android:layout_width="5dp"
-            android:layout_height="5dp"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
             android:layout_marginStart="8dp"
-            android:background="@drawable/widget_dot"
-            android:backgroundTint="@color/widget_hue_blue" />
+            android:src="@drawable/ic_widget_task_done"
+            android:tint="@color/widget_ink3" />
 
         <TextView
             android:layout_width="wrap_content"

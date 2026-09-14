@@ -27,7 +27,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="4dp">
+        android:paddingStart="10dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -124,8 +124,15 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="2:00 PM"
+            android:text="Due"
             android:textColor="@color/widget_ink2"
             android:textSize="10.5sp" />
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginStart="7dp"
+            android:src="@drawable/ic_widget_task_open"
+            android:tint="@color/widget_hue_rose" />
     </LinearLayout>
 </LinearLayout>

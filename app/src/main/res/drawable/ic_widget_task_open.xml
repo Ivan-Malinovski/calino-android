@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    An open task's marker. A ring rather than a filled dot, so that a row you
+    can act on looks different from an event's dot, which you cannot.
+
+    Drawn in one colour on purpose: Glance tints the whole image, so a glyph
+    built from two colours would come back flat.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,3.2A8.8,8.8 0 1,0 12,20.8A8.8,8.8 0 1,0 12,3.2Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.2" />
+</vector>
