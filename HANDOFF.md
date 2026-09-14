@@ -17,10 +17,7 @@ mounted beneath the outgoing route and follows Android's 100-to-90% exit,
 it no longer exposes the bare Canvas. Cancelled gestures use the shared
 gesture-return spring. Nested journal, contact and preview callbacks that
 duplicated the adaptive host were removed so only one component owns the
-system back stream. The completion handoff keeps the predictive destination
-mounted for two complete frames while the settled route takes ownership; the
-add pill stays mounted and suppresses only its paint during the gesture, so
-`AnimatedVisibility` cannot replay an enter/exit blink at the commit edge.
+system back stream.
 
 Validated with `test lintDebug assembleDebug`, the 24 focused tests in
 `CalendarZoomMorphTest`, `ModalDismissalTest` and `NavigationDestinationsTest`
