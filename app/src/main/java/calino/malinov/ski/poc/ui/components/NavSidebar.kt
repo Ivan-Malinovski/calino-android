@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -36,7 +35,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -159,7 +157,6 @@ fun NavSidebar(
     val dismissThresholdPx = with(density) { 96.dp.toPx() }
     val axisThresholdPx = with(density) { 8.dp.toPx() }
     val travelPx = with(density) { 360.dp.toPx() }
-    val statusBarHeight = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
     val scrimDragAlpha = 1f - (abs(dragX) / travelPx).coerceIn(0f, 1f)
 
     LaunchedEffect(visible) {
@@ -182,12 +179,9 @@ fun NavSidebar(
             exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .offset(y = -statusBarHeight)
-                .fillMaxWidth()
-                .height(statusBarHeight)
                 .graphicsLayer { alpha = scrimDragAlpha },
         ) {
-            Box(Modifier.fillMaxSize().background(CalinoColors.Scrim))
+            StatusBarScrimExtension(color = CalinoColors.Scrim)
         }
         CalinoScrim(
             visible = visible && !dismissing,

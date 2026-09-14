@@ -4,6 +4,20 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Unified transient-surface status-bar scrim — 2026-09-14
+
+`AdaptiveSurfaceHost` now extends its animated background scrim through the
+transparent status-bar inset, so day/detail/editor surfaces dim the notification
+bar continuously just as the navigation sidebar does. The inset geometry lives
+in the shared `StatusBarScrimExtension`; the sidebar uses that same primitive
+instead of carrying a one-off copy.
+
+Validated with `test lintDebug assembleDebug`, all seven `ModalDismissalTest`
+tests on the API 36 emulator, and direct emulator inspection with an adaptive
+event editor open. The full device suite was attempted on the emulator but its
+process crashed in the first `CalendarColdDetailedEntryTest`, before reaching
+the remaining tests. No physical-phone validation was used for acceptance.
+
 ### Sidebar disclosure grouping — 2026-09-14
 
 Upcoming Tasks now sits directly below the compact Calendar disclosure and

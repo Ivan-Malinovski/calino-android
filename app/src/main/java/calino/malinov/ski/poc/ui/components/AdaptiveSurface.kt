@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -146,6 +148,32 @@ val LocalCalinoSurfaceDismissDrag =
 /** The mode currently used by the nearest adaptive surface host. */
 val LocalCalinoSurfaceMode = androidx.compose.runtime.staticCompositionLocalOf {
     CalinoSurfaceMode.BottomSheet
+}
+
+/**
+ * Extends a scrim from an inset content host into the transparent status bar.
+ *
+ * Root content is intentionally laid out below [WindowInsets.statusBars], but
+ * edge-to-edge makes the pixels behind that inset part of the same window. Any
+ * transient veil hosted by the inset content therefore needs this matching
+ * slice or the notification bar remains visually detached from the dimmed
+ * background. Keeping the geometry here makes drawers and modal hosts follow
+ * the same system-bar rule.
+ */
+@Composable
+internal fun StatusBarScrimExtension(
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val statusBarHeight = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+    Box(
+        modifier
+            .offset(y = -statusBarHeight)
+            .fillMaxWidth()
+            .height(statusBarHeight)
+            .background(color),
+    )
 }
 
 /**
@@ -326,6 +354,10 @@ fun AdaptiveSurfaceHost(
         // box, never inside it, so the layer cannot recurse.
         val backdropLayer = rememberGraphicsLayer()
         var backdropOrigin by remember { mutableStateOf(Offset.Zero) }
+        StatusBarScrimExtension(
+            color = CalinoColors.scrim(scrimProgress),
+            modifier = Modifier.align(Alignment.TopStart),
+        )
         Box(
             Modifier
                 .fillMaxSize()
