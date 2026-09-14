@@ -225,10 +225,10 @@ fun AdaptiveSurfaceHost(
             CalinoSurfaceMode.FloatingWindow ->
                 scaleOut(
                     tween(FloatingExitMillis, easing = FastOutLinearInEasing),
-                    targetScale = .965f,
+                    targetScale = .92f,
                 ) + slideOutVertically(
                     tween(FloatingExitMillis, easing = FastOutLinearInEasing),
-                ) { (it * .045f).roundToInt() } + fadeOut(
+                ) { (it * .09f).roundToInt() } + fadeOut(
                     tween(FloatingExitMillis, easing = LinearEasing),
                 )
             CalinoSurfaceMode.EndPanel ->
@@ -545,16 +545,7 @@ fun DetailCardSurface(
     }
     Column(
         modifier
-            // A floating card is surrounded by scrim on every side; without a
-            // shadow its edge is a hard cut against it, going and coming.
-            .shadow(
-                when (mode) {
-                    CalinoSurfaceMode.BottomSheet -> 0.dp
-                    else -> 18.dp * CalinoColors.elevationAlpha
-                },
-                shape,
-                clip = false,
-            )
+            .shadow(18.dp * if (mode == CalinoSurfaceMode.EndPanel) CalinoColors.elevationAlpha else 0f, shape, clip = false)
             .clip(shape)
             .background(CalinoColors.Canvas),
     ) {
