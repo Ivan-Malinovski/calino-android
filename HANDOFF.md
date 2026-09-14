@@ -4,6 +4,29 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Calino product name — 2026-09-14
+
+The launcher/application label is now simply `Calino`, backed by the shared
+`app_name` resource. Because the app had not been distributed, its application
+ID, namespace, deep-link scheme, source packages, tests, benchmark target, and
+development scripts moved from `calino.malinov.ski.poc` to
+`calino.malinov.ski`. This is intentionally a new Android identity: an old
+local build must be uninstalled and its private data does not migrate. The stale
+user-facing description of disabled Data actions as belonging to a UI-only POC
+was also removed.
+
+Validated with a clean `test lintDebug assembleDebug`, then installed and cold
+launched on the API 36 emulator as `calino.malinov.ski/.MainActivity`. APK
+metadata reports package `calino.malinov.ski` and application label `Calino`.
+The renamed instrumented suite compiled and ran all 74 tests on that emulator;
+72 passed. `SearchQualityTest.typeFilterChangesResultsAndResetsAfterClose`
+passed when rerun in isolation, while
+`RangeInteractionTest.eventDetailReturnsToTheRangePageAnchor` repeated its
+five-second semantics timeout and remains an unrelated interaction-test risk.
+Gradle discovered the connected phone too, but ran zero tests there and its
+attempted APK install was rejected as a version downgrade; no phone deployment
+or phone validation was used.
+
 ### Unified transient-surface status-bar scrim — 2026-09-14
 
 `AdaptiveSurfaceHost` now extends its animated background scrim through the
@@ -579,7 +602,7 @@ TODO item 2. A reminder used to sync and then notify nobody. It now fires.
   and the dontkillmyapp caveat; the illustrative cards remain under a heading
   that admits what they are. "Daily brief" was removed from Settings rather
   than left as a switch that promises a summary nobody built.
-- Deep links are `calino.malinov.ski.poc://reminder/{event,task}?id=&uid=&day=`
+- Deep links are `calino.malinov.ski://reminder/{event,task}?id=&uid=&day=`
   on the existing scheme. Resolution degrades from exact id, to uid plus
   occurrence day, to the next occurrence at or after that day, and finally to
   the calendar on that date -- a notification tapped days later must still land
@@ -1210,15 +1233,15 @@ The current build identity is intentionally still provisional:
 
 - Repository: `calino_android`
 - Gradle root project: `calino_android`
-- Package / application ID: `calino.malinov.ski.poc`
-- Launcher label: `Calino POC`
+- Package / application ID: `calino.malinov.ski`
+- Launcher label: `Calino`
 - Version name: `0.1.0` from `gradle.properties`
 - Minimum Android SDK: 26
 - Target/compile SDK: 36
 - Main validation AVD: `calino-poc-api36`
 
-The app is a polished visual and interaction POC, not a production calendar
-client. Its **fixture** date/data contract is frozen around Monday, 18 May 2026
+The app is a native calendar client with a frozen **fixture** date/data contract
+around Monday, 18 May 2026
 so that visual and gesture behavior is deterministic. That anchor applies only
 when no account is connected; a connected account opens the calendar on today.
 
@@ -2190,7 +2213,7 @@ connected path is `CalDavRepository` with CalDAV/CardDAV read caches.
 The main package layout is:
 
 ```text
-app/src/main/java/calino/malinov/ski/poc/
+app/src/main/java/calino/malinov/ski/
   MainActivity.kt                  route host and top-level state
   data/model/                      event, task, journal models
   data/parser/                     local Quick Add parser
@@ -2253,8 +2276,9 @@ to be complete:
 5. The host and surface files are large (`MainActivity.kt`, `HomeScreen.kt`, and
    `SecondarySurfaces.kt`). Refactor only after preserving gesture ownership and
    animation timing with tests.
-6. The package and launcher label still contain `poc`. Renaming them later will
-   affect installed-app upgrades and must be planned rather than done casually.
+6. The product label, application ID, namespace, and source package now use the
+   settled Calino identity. Any future application-ID change will affect
+   installed-app upgrades and must be planned rather than done casually.
 7. The old `CalendarHome` wrapper is deprecated but remains in source for
    compatibility.
 8. Gradle reports pre-existing warnings about the non-public
@@ -2262,8 +2286,9 @@ to be complete:
    `CalendarHome` wrapper.
 9. The repository has unit tests, but it does not yet have a comprehensive
    Compose UI test suite for every gesture and animation.
-10. The README still calls parts of the project a POC; update public naming as
-    the product identity settles.
+10. Internal source names and historical notes still use POC terminology. They
+    are not user-facing and can be cleaned up separately without changing the
+    installed-app identity.
 11. Text scaling, split-screen/freeform windows, RTL, localization, and very
     narrow widths have not been comprehensively validated.
 12. A recurring VTODO still shows once at its due date; `CalTask` has no
@@ -2297,7 +2322,7 @@ The next model should review in this order:
   ignored.
 - Run `distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'`.
 - Install the APK on `calino-poc-api36` and capture the launch screen.
-- Verify that the package being tested is `calino.malinov.ski.poc`, not the
+- Verify that the package being tested is `calino.malinov.ski`, not the
   separate Capacitor app `calino.malinov.ski` or `.debug`.
 
 ### P0 — visual/interaction audit
@@ -2795,8 +2820,8 @@ distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'
 # Emulator
 emulator -avd calino-poc-api36
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s emulator-5554 shell am force-stop calino.malinov.ski.poc
-adb -s emulator-5554 shell am start -W -n calino.malinov.ski.poc/.MainActivity
+adb -s emulator-5554 shell am force-stop calino.malinov.ski
+adb -s emulator-5554 shell am start -W -n calino.malinov.ski/.MainActivity
 
 # Connected physical device, only when explicitly requested.
 # The wireless serial changes; take it from `adb devices`. The Galaxy Z Fold

@@ -130,21 +130,22 @@ What is not built, and must not be added without a separate review:
 ## Project facts
 
 - Gradle root project: `calino_android`
-- Application ID: `calino.malinov.ski.poc`
-- Launcher label: `Calino POC`
+- Application ID: `calino.malinov.ski`
+- Launcher label: `Calino`
 - Version source: `gradle.properties` (`appVersionName`)
 - Minimum SDK: 26
 - Compile/target SDK: 36
-- Main package: `calino.malinov.ski.poc`
-- Main activity and route host: `app/src/main/java/calino/malinov/ski/poc/MainActivity.kt`
+- Main package: `calino.malinov.ski`
+- Main activity and route host: `app/src/main/java/calino/malinov/ski/MainActivity.kt`
 
-The package and label still contain `poc`. Treat renaming them as an explicit
-release/migration task because it affects installed-app upgrades.
+The former `calino.malinov.ski.poc` identity was retired before distribution.
+Changing `calino.malinov.ski` again is an explicit release/migration task
+because it affects installed-app upgrades.
 
 ## Architecture
 
 ```text
-app/src/main/java/calino/malinov/ski/poc/
+app/src/main/java/calino/malinov/ski/
   MainActivity.kt                  route host and top-level UI state
   data/model/                      event, task, and journal models
   data/parser/                     local Quick Add parser
@@ -238,8 +239,8 @@ The documented emulator is:
 ```bash
 emulator -avd calino-poc-api36
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
-adb -s emulator-5554 shell am force-stop calino.malinov.ski.poc
-adb -s emulator-5554 shell am start -W -n calino.malinov.ski.poc/.MainActivity
+adb -s emulator-5554 shell am force-stop calino.malinov.ski
+adb -s emulator-5554 shell am start -W -n calino.malinov.ski/.MainActivity
 ```
 
 For user-visible changes, build checks are not enough. Use the emulator to

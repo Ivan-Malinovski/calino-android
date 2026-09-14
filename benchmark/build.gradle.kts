@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "calino.malinov.ski.poc.benchmark"
+    namespace = "calino.malinov.ski.benchmark"
     compileSdk = 36
 
     defaultConfig {

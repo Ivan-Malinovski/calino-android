@@ -1,0 +1,536 @@
+package calino.malinov.ski.qa
+
+import calino.malinov.ski.data.caldav.ICalMapper
+import calino.malinov.ski.data.caldav.ICalPatcher
+import calino.malinov.ski.data.caldav.ICalWriter
+import calino.malinov.ski.data.model.Reminder
+import calino.malinov.ski.data.model.RecurrenceEditScope
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * The patcher's whole job is what it does *not* change.
+ *
+ * These cases are ported from the web app's `icalPatch.test.ts`, because the
+ * property that matters -- an edit through Calino must be invisible to every
+ * other client except in the field that changed -- is not something a round-trip
+ * test can show.
+ */
+class ICalPatcherTest {
+
+    private val zone = ZoneId.of("Europe/Copenhagen")
+    private val patcher = ICalPatcher(ICalWriter(zone))
+    private val mapper = ICalMapper(zone)
+    private val now = Instant.parse("2026-03-05T08:00:00Z")
+
+    private fun ics(vararg lines: String) = lines.joinToString("\r\n") + "\r\n"
+
+    /** A resource as a foreign client would leave it: full of things we do not model. */
+    private val foreignResource = ics(
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Foreign Client//EN",
+        "CALSCALE:GREGORIAN",
+        "BEGIN:VTIMEZONE",
+        "TZID:Europe/Copenhagen",
+        "BEGIN:STANDARD",
+        "DTSTART:19701025T030000",
+        "TZOFFSETFROM:+0200",
+        "TZOFFSETTO:+0100",
+        "END:STANDARD",
+        "END:VTIMEZONE",
+        "BEGIN:VEVENT",
+        "UID:ours",
+        "DTSTAMP:20260101T000000Z",
+        "DTSTART:20260305T090000Z",
+        "DTEND:20260305T100000Z",
+        "SUMMARY:Original",
+        "ORGANIZER;CN=Boss:mailto:boss@example.com",
+        "CLASS:CONFIDENTIAL",
+        "X-CUSTOM-THING;X-PARAM=7:preserve this",
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "TRIGGER:-PT15M",
+        "DESCRIPTION:soon",
+        "END:VALARM",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    )
+
+    private fun eventFrom(resource: String, uid: String) =
+        mapper.parse(resource, calendarId = "cal", color = 1L, href = "https://x/e.ics")
+            .events.first { it.uid == uid }
+
+    @Test
+    fun `all-scope task edit from an occurrence retains the master anchor`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",
+            "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Original", "X-FOREIGN:keep",
+            "STATUS:NEEDS-ACTION", "END:VTODO", "END:VCALENDAR",
+        )
+        val occurrence = mapper.parse(
+            resource, "cal", 1L, "repeat.ics",
+            windowStart = LocalDate.of(2026, 3, 9),
+            windowEnd = LocalDate.of(2026, 3, 11),
+        ).tasks.single()
+
+        val patched = patcher.patchTask(
+            resource,
+            occurrence.copy(title = "Edited series", recurrenceScope = RecurrenceEditScope.All),
+            now,
+        )!!
+
+        assertTrue(patched, patched.contains("SUMMARY:Edited series"))
+        assertTrue(patched, patched.contains("DTSTART;VALUE=DATE:20260303"))
+        assertTrue(patched, patched.contains("DUE;VALUE=DATE:20260303"))
+        assertFalse(patched, patched.contains("DTSTART;VALUE=DATE:20260310"))
+        assertTrue(patched, patched.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+        assertTrue(patched, patched.contains("X-FOREIGN:keep"))
+    }
+
+    @Test
+    fun `future-scope task edit never rewrites the master anchor from the selected date`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",
+            "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Original", "END:VTODO", "END:VCALENDAR",
+        )
+        val occurrence = mapper.parse(
+            resource, "cal", 1L, "repeat.ics",
+            windowStart = LocalDate.of(2026, 3, 9),
+            windowEnd = LocalDate.of(2026, 3, 11),
+        ).tasks.single()
+
+        val patched = patcher.patchTask(
+            resource,
+            occurrence.copy(title = "Future title", recurrenceScope = RecurrenceEditScope.Future),
+            now,
+        )!!
+
+        assertTrue(patched, patched.contains("DTSTART;VALUE=DATE:20260303"))
+        assertTrue(patched, patched.contains("DUE;VALUE=DATE:20260303"))
+        assertTrue(patched, patched.contains("RECURRENCE-ID;VALUE=DATE:20260310"))
+    }
+
+    @Test
+    fun `completing a generated task appends a detached completion and leaves master open`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:gym",
+            "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Exercise",
+            "STATUS:NEEDS-ACTION", "PERCENT-COMPLETE:20",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT1H", "DESCRIPTION:Exercise", "END:VALARM",
+            "END:VTODO", "END:VCALENDAR",
+        )
+        val occurrence = mapper.parse(
+            resource, "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 10), windowEnd = LocalDate.of(2026, 3, 10),
+        ).tasks.single()
+        assertEquals(RecurrenceEditScope.This, occurrence.recurrenceScope)
+
+        val patched = patcher.patchTask(
+            resource,
+            occurrence.copy(done = true, percentComplete = 100, status = "COMPLETED", completedAt = now),
+            now,
+        )!!
+
+        assertEquals(2, patched.split("BEGIN:VTODO").size - 1)
+        val masterText = patched.substringAfter("BEGIN:VTODO").substringBefore("END:VTODO")
+        val overrideText = patched.substringAfter("END:VTODO").substringAfter("BEGIN:VTODO").substringBefore("END:VTODO")
+        assertTrue(masterText, masterText.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+        assertTrue(masterText, masterText.contains("STATUS:NEEDS-ACTION"))
+        assertTrue(masterText, masterText.contains("PERCENT-COMPLETE:20"))
+        assertTrue(masterText, masterText.contains("BEGIN:VALARM"))
+        assertTrue(overrideText, overrideText.contains("RECURRENCE-ID;VALUE=DATE:20260310"))
+        assertTrue(overrideText, overrideText.contains("STATUS:COMPLETED"))
+        assertTrue(overrideText, overrideText.contains("PERCENT-COMPLETE:100"))
+        assertFalse(overrideText, overrideText.contains("BEGIN:VALARM"))
+    }
+
+    @Test
+    fun `all-scope title edit from completed occurrence does not complete master`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0",
+            "BEGIN:VTODO", "UID:gym", "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Exercise", "STATUS:NEEDS-ACTION", "END:VTODO",
+            "BEGIN:VTODO", "UID:gym", "DTSTART;VALUE=DATE:20260310", "DUE;VALUE=DATE:20260310",
+            "RECURRENCE-ID;VALUE=DATE:20260310", "SUMMARY:Exercise", "PERCENT-COMPLETE:100",
+            "STATUS:COMPLETED", "COMPLETED:20260310T180400Z", "END:VTODO", "END:VCALENDAR",
+        )
+        val completed = mapper.parse(
+            resource, "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 10), windowEnd = LocalDate.of(2026, 3, 10),
+        ).tasks.single()
+
+        val patched = patcher.patchTask(
+            resource,
+            completed.copy(title = "New series title", recurrenceScope = RecurrenceEditScope.All),
+            now,
+        )!!
+        val masterText = patched.substringAfter("BEGIN:VTODO").substringBefore("END:VTODO")
+        assertTrue(masterText, masterText.contains("SUMMARY:New series title"))
+        assertTrue(masterText, masterText.contains("STATUS:NEEDS-ACTION"))
+        assertFalse(masterText, masterText.contains("STATUS:COMPLETED"))
+        assertFalse(masterText, masterText.contains("COMPLETED:"))
+    }
+
+    @Test
+    fun `an edit preserves every property Calino does not model`() {
+        val event = eventFrom(foreignResource, "ours")
+        val patched = patcher.patchEvents(foreignResource, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("SUMMARY:Edited"))
+        // Nothing else may move.
+        assertTrue(patched, patched.contains("ORGANIZER;CN=Boss:mailto:boss@example.com"))
+        assertTrue(patched, patched.contains("CLASS:CONFIDENTIAL"))
+        assertTrue(patched, patched.contains("X-CUSTOM-THING;X-PARAM=7:preserve this"))
+        assertTrue(patched, patched.contains("BEGIN:VALARM"))
+        assertTrue(patched, patched.contains("TRIGGER:-PT15M"))
+        assertTrue(patched, patched.contains("BEGIN:VTIMEZONE"))
+        assertTrue(patched, patched.contains("TZID:Europe/Copenhagen"))
+    }
+
+    @Test
+    fun `the origin server's PRODID is not replaced with ours`() {
+        val event = eventFrom(foreignResource, "ours")
+        val patched = patcher.patchEvents(foreignResource, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("PRODID:-//Foreign Client//EN"))
+        assertFalse(patched, patched.contains("Calino Android"))
+    }
+
+    @Test
+    fun `a component belonging to somebody else is left alone`() {
+        val shared = foreignResource.replace(
+            "END:VCALENDAR\r\n",
+            ics(
+                "BEGIN:VEVENT",
+                "UID:not-ours",
+                "DTSTAMP:20260101T000000Z",
+                "DTSTART:20260401T090000Z",
+                "SUMMARY:Somebody else",
+                "END:VEVENT",
+                "END:VCALENDAR",
+            ),
+        )
+        val event = eventFrom(shared, "ours")
+        val patched = patcher.patchEvents(shared, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("UID:not-ours"))
+        assertTrue(patched, patched.contains("SUMMARY:Somebody else"))
+        assertEquals(
+            "both events survive",
+            2,
+            mapper.parse(patched, "cal", 1L, "https://x/e.ics").events.size,
+        )
+    }
+
+    @Test
+    fun `malformed input returns null so the caller can rebuild`() {
+        val event = eventFrom(foreignResource, "ours")
+        assertNull(patcher.patchEvents("not a calendar at all", listOf(event), now))
+        assertNull(patcher.patchEvents("", listOf(event), now))
+        assertNull(patcher.patchEvents("   ", listOf(event), now))
+    }
+
+    @Test
+    fun `two concatenated calendars are refused rather than guessed at`() {
+        // There is no way to tell which block the edit belongs in, and choosing
+        // wrong would move the event between objects. A rebuild is safer.
+        val doubled = foreignResource + foreignResource.replace("UID:ours", "UID:second")
+        val event = eventFrom(foreignResource, "ours")
+        assertNull(patcher.patchEvents(doubled, listOf(event), now))
+    }
+
+    @Test
+    fun `an event with no UID cannot be patched`() {
+        val event = eventFrom(foreignResource, "ours").copy(uid = null)
+        assertNull(patcher.patchEvents(foreignResource, listOf(event), now))
+    }
+
+    @Test
+    fun `removing the only component reports the resource as emptied`() {
+        val removal = patcher.removeComponent(foreignResource, "ours")
+        assertEquals(ICalPatcher.PatchRemoval.Emptied, removal)
+    }
+
+    @Test
+    fun `removing one of two components rewrites the resource`() {
+        val shared = foreignResource.replace(
+            "END:VCALENDAR\r\n",
+            ics(
+                "BEGIN:VEVENT",
+                "UID:not-ours",
+                "DTSTAMP:20260101T000000Z",
+                "DTSTART:20260401T090000Z",
+                "SUMMARY:Somebody else",
+                "END:VEVENT",
+                "END:VCALENDAR",
+            ),
+        )
+        val removal = patcher.removeComponent(shared, "ours") as ICalPatcher.PatchRemoval.Patched
+
+        assertFalse(removal.ics, removal.ics.contains("UID:ours"))
+        assertTrue(removal.ics, removal.ics.contains("UID:not-ours"))
+        // The VTIMEZONE is not a Calino component and does not count as content,
+        // but it also must not be dragged out by the removal.
+        assertTrue(removal.ics, removal.ics.contains("BEGIN:VTIMEZONE"))
+    }
+
+    @Test
+    fun `removing a component that is not there returns null`() {
+        assertNull(patcher.removeComponent(foreignResource, "never-existed"))
+    }
+
+    @Test
+    fun `removing a component is scoped by kind when UIDs are shared`() {
+        val shared = foreignResource.replace(
+            "END:VCALENDAR\r\n",
+            ics(
+                "BEGIN:VTODO",
+                "UID:ours",
+                "SUMMARY:Same UID task",
+                "END:VTODO",
+                "END:VCALENDAR",
+            ),
+        )
+
+        val removal = patcher.removeComponent(shared, "ours", "VEVENT")
+        assertTrue(removal is ICalPatcher.PatchRemoval.Patched)
+        assertFalse((removal as ICalPatcher.PatchRemoval.Patched).ics.contains("SUMMARY:Original"))
+        assertTrue(removal.ics.contains("SUMMARY:Same UID task"))
+    }
+
+    @Test
+    fun `recurring VTODOs are rejected as unsafe standalone writes`() {
+        val recurring = ics(
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "BEGIN:VTODO",
+            "UID:task-series",
+            "DTSTART;VALUE=DATE:20260305",
+            "DUE;VALUE=DATE:20260305",
+            "RRULE:FREQ=DAILY;COUNT=2",
+            "SUMMARY:Master task",
+            "END:VTODO",
+            "BEGIN:VTODO",
+            "UID:task-series",
+            "RECURRENCE-ID;VALUE=DATE:20260306",
+            "DUE;VALUE=DATE:20260306",
+            "SUMMARY:Task exception",
+            "END:VTODO",
+            "END:VCALENDAR",
+        )
+        val standalone = recurring.replace(
+            "RRULE:FREQ=DAILY;COUNT=2\r\n",
+            "",
+        ).substringBefore("BEGIN:VTODO\r\nUID:task-series\r\nRECURRENCE-ID") +
+            "END:VCALENDAR\r\n"
+
+        assertTrue(patcher.taskRequiresGroupWrite(recurring, "task-series") == true)
+        assertTrue(patcher.taskRequiresGroupWrite(standalone, "task-series") == false)
+    }
+
+    @Test
+    fun `a new component is added to a resource that does not carry it yet`() {
+        // The move and group-write paths write a component into a resource that
+        // may not hold it, so an absent match must add rather than fail.
+        val event = eventFrom(foreignResource, "ours").copy(uid = "fresh", id = "fresh", title = "New")
+        val patched = patcher.patchEvents(foreignResource, listOf(event), now)!!
+
+        assertTrue(patched, patched.contains("UID:fresh"))
+        assertTrue(patched, patched.contains("UID:ours"))
+    }
+
+    @Test
+    fun `a queued stale update rebases local fields without resurrecting old foreign fields`() {
+        val baseEvent = eventFrom(foreignResource, "ours")
+        val local = patcher.patchEvents(
+            foreignResource,
+            listOf(baseEvent.copy(title = "Local title", location = "Local room")),
+            now,
+        )!!
+        val current = foreignResource
+            .replace("SUMMARY:Original", "SUMMARY:Remote title")
+            .replace("CN=Boss", "CN=New boss")
+            .replace("preserve this", "remote-only update")
+
+        val rebased = patcher.rebaseResource(
+            currentIcs = current,
+            localIcs = local,
+            baseIcs = foreignResource,
+            component = "VEVENT",
+            uids = setOf("ours"),
+        )!!
+
+        assertTrue(rebased.contains("SUMMARY:Local title"))
+        assertTrue(rebased.contains("LOCATION:Local room"))
+        assertTrue(rebased.contains("ORGANIZER;CN=New boss:mailto:boss@example.com"))
+        assertTrue(rebased.contains("X-CUSTOM-THING;X-PARAM=7:remote-only update"))
+        assertTrue(rebased.contains("BEGIN:VALARM"))
+    }
+
+    @Test
+    fun `a travel time edit rebases without overwriting another remote X property`() {
+        val base = foreignResource.replace(
+            "X-CUSTOM-THING;X-PARAM=7:preserve this",
+            "X-APPLE-TRAVEL-DURATION:PT15M\r\nX-CUSTOM-THING;X-PARAM=7:preserve this",
+        )
+        val event = eventFrom(base, "ours")
+        val local = patcher.patchEvents(base, listOf(event.copy(travelTimeMinutes = 30)), now)!!
+        val current = base.replace("preserve this", "remote-only update")
+
+        val rebased = patcher.rebaseResource(current, local, base, "VEVENT", setOf("ours"))!!
+
+        assertTrue(rebased.contains("X-APPLE-TRAVEL-DURATION:PT30M"))
+        assertTrue(rebased.contains("X-CUSTOM-THING;X-PARAM=7:remote-only update"))
+    }
+
+    // --- VALARM ---------------------------------------------------------------
+
+    /**
+     * The same resource, but with an alarm Calino genuinely cannot author.
+     *
+     * `foreignResource`'s own alarm is a plain `DISPLAY` / `-PT15M`, which is
+     * exactly the shape Calino now owns -- so it no longer proves anything
+     * about passthrough. An EMAIL alarm with a repeat does.
+     */
+    private val alienAlarmResource = ics(
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Foreign Client//EN",
+        "BEGIN:VEVENT",
+        "UID:ours",
+        "DTSTAMP:20260101T000000Z",
+        "DTSTART:20260305T090000Z",
+        "DTEND:20260305T100000Z",
+        "SUMMARY:Original",
+        "BEGIN:VALARM",
+        "ACTION:EMAIL",
+        "TRIGGER;RELATED=END:-PT45M",
+        "DESCRIPTION:body",
+        "SUMMARY:subject",
+        "ATTENDEE:mailto:ada@example.com",
+        "REPEAT:2",
+        "DURATION:PT5M",
+        "END:VALARM",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    )
+
+    @Test
+    fun `an edit leaves an alarm Calino did not author alone`() {
+        val event = eventFrom(alienAlarmResource, "ours")
+        assertTrue(event.reminders.isEmpty())
+
+        val patched = patcher.patchEvents(alienAlarmResource, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("SUMMARY:Edited"))
+        assertTrue(patched, patched.contains("ACTION:EMAIL"))
+        assertTrue(patched, patched.contains("TRIGGER;RELATED=END:-PT45M"))
+        assertTrue(patched, patched.contains("ATTENDEE:mailto:ada@example.com"))
+        assertTrue(patched, patched.contains("REPEAT:2"))
+    }
+
+    @Test
+    fun `a new reminder is added beside a foreign alarm, not instead of it`() {
+        val event = eventFrom(alienAlarmResource, "ours")
+        val patched = patcher.patchEvents(
+            alienAlarmResource,
+            listOf(event.copy(reminders = listOf(Reminder(10)))),
+            now,
+        )!!
+
+        assertEquals(2, patched.split("BEGIN:VALARM").size - 1)
+        assertTrue(patched, patched.contains("ACTION:EMAIL"))
+        assertTrue(patched, patched.contains("TRIGGER:-PT10M"))
+        assertEquals(listOf(Reminder(10)), eventFrom(patched, "ours").reminders)
+    }
+
+    @Test
+    fun `clearing the reminders removes only Calino's alarm`() {
+        val seeded = patcher.patchEvents(
+            alienAlarmResource,
+            listOf(eventFrom(alienAlarmResource, "ours").copy(reminders = listOf(Reminder(10)))),
+            now,
+        )!!
+
+        val cleared = patcher.patchEvents(
+            seeded,
+            listOf(eventFrom(seeded, "ours").copy(reminders = emptyList())),
+            now,
+        )!!
+
+        assertEquals(1, cleared.split("BEGIN:VALARM").size - 1)
+        assertTrue(cleared, cleared.contains("ACTION:EMAIL"))
+        assertFalse(cleared, cleared.contains("TRIGGER:-PT10M"))
+        assertTrue(eventFrom(cleared, "ours").reminders.isEmpty())
+    }
+
+    @Test
+    fun `a rebase keeps a reminder the local edit set`() {
+        val baseEvent = eventFrom(foreignResource, "ours")
+        val local = patcher.patchEvents(
+            foreignResource,
+            listOf(baseEvent.copy(reminders = listOf(Reminder(45)))),
+            now,
+        )!!
+        // The server moved the summary in the meantime, but not the alarm.
+        val current = foreignResource.replace("SUMMARY:Original", "SUMMARY:Remote title")
+
+        val rebased = patcher.rebaseResource(
+            currentIcs = current,
+            localIcs = local,
+            baseIcs = foreignResource,
+            component = "VEVENT",
+            uids = setOf("ours"),
+        )!!
+
+        assertEquals(listOf(Reminder(45)), eventFrom(rebased, "ours").reminders)
+        assertFalse(rebased, rebased.contains("TRIGGER:-PT15M"))
+    }
+
+    @Test
+    fun `a rebase keeps the server's alarm when the local edit left it alone`() {
+        val baseEvent = eventFrom(foreignResource, "ours")
+        val local = patcher.patchEvents(
+            foreignResource,
+            listOf(baseEvent.copy(title = "Local title")),
+            now,
+        )!!
+        val current = foreignResource.replace("TRIGGER:-PT15M", "TRIGGER:-PT90M")
+
+        val rebased = patcher.rebaseResource(
+            currentIcs = current,
+            localIcs = local,
+            baseIcs = foreignResource,
+            component = "VEVENT",
+            uids = setOf("ours"),
+        )!!
+
+        assertTrue(rebased, rebased.contains("SUMMARY:Local title"))
+        assertEquals(listOf(Reminder(90)), eventFrom(rebased, "ours").reminders)
+    }
+
+    @Test
+    fun `an edit that does not touch the reminders leaves our own alarm untouched`() {
+        // foreignResource's alarm is Calino-shaped, so Calino now owns it. That
+        // does not license rewriting it: an unrelated edit must leave its
+        // DESCRIPTION -- and anything else on it -- exactly where it was.
+        val event = eventFrom(foreignResource, "ours")
+        assertEquals(listOf(Reminder(15)), event.reminders)
+
+        val patched = patcher.patchEvents(foreignResource, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("TRIGGER:-PT15M"))
+        assertTrue(patched, patched.contains("DESCRIPTION:soon"))
+        assertEquals(1, patched.split("BEGIN:VALARM").size - 1)
+    }
+}

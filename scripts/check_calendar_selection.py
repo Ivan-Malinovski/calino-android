@@ -13,8 +13,8 @@ def tap_desc(fragment):
     n=next(n for n in dump().iter('node') if fragment in n.get('content-desc',''))
     x1,y1,x2,y2=map(int,re.findall(r'\d+',n.get('bounds')))
     adb('shell','input','tap',str((x1+x2)//2),str((y1+y2)//2))
-adb('shell','am','force-stop','calino.malinov.ski.poc')
-adb('shell','am','start','-W','-n','calino.malinov.ski.poc/.MainActivity')
+adb('shell','am','force-stop','calino.malinov.ski')
+adb('shell','am','start','-W','-n','calino.malinov.ski/.MainActivity')
 assert heading() == 'Week 21 · Mon 18 May'
 adb('shell','input','swipe','900','400','150','400','1000')
 assert heading() == 'Week 22 · Mon 25 May'

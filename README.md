@@ -5,8 +5,8 @@ WebView or Capacitor dependency.
 
 ## Identity and scope
 
-- APK/application ID: `calino.malinov.ski.poc`
-- App label: `Calino POC`
+- APK/application ID: `calino.malinov.ski`
+- App label: `Calino`
 - With no account connected, the app keeps its frozen May 2026 fixture. A
   connected account uses real CalDAV/CardDAV reads and conditional writes for
   events, tasks, journal entries, and contacts.

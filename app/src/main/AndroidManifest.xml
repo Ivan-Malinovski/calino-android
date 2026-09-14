@@ -25,7 +25,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
-        android:label="Calino POC"
+        android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.CalinoPoc"
@@ -72,7 +72,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="calino.malinov.ski.poc" />
+                <data android:scheme="calino.malinov.ski" />
             </intent-filter>
         </activity>
         <provider

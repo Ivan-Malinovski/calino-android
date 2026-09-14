@@ -10,11 +10,11 @@ plugins {
 }
 
 android {
-    namespace = "calino.malinov.ski.poc"
+    namespace = "calino.malinov.ski"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "calino.malinov.ski.poc"
+        applicationId = "calino.malinov.ski"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
