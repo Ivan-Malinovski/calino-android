@@ -179,6 +179,7 @@ import androidx.core.view.WindowCompat
 import calino.malinov.ski.poc.design.CalinoTheme
 import calino.malinov.ski.poc.design.CalinoThemes
 import calino.malinov.ski.poc.util.CalinoThemeChoice
+import calino.malinov.ski.poc.state.LocalTaskLookup
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.CalinoFoldPosture
 import calino.malinov.ski.poc.state.LocalFoldPosture
@@ -1352,7 +1353,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val syncStatus = remember(snapshot.sync, openSyncDetail) {
         CalinoSyncStatus(state = snapshot.sync, onOpenDetail = openSyncDetail)
     }
-    CompositionLocalProvider(LocalCalinoSync provides syncStatus) {
+    // Every surface shows a slice of the tasks; a subtask's parent can sit
+    // outside the slice, and still has to be nameable there.
+    val taskLookup: (String) -> CalTask? = remember(calendarTasks) {
+        val byId = calendarTasks.associateBy { it.id }
+        ({ id: String -> byId[id] })
+    }
+    CompositionLocalProvider(
+        LocalCalinoSync provides syncStatus,
+        LocalTaskLookup provides taskLookup,
+    ) {
     // Keep the blur on the calendar/content sibling only. AI surfaces are
     // drawn after this block and must stay crisp above the blurred context.
     BoxWithConstraints(Modifier.fillMaxSize()) {

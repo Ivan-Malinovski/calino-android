@@ -1,7 +1,12 @@
 package calino.malinov.ski.poc.ui.components
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -9,10 +14,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
+import androidx.compose.ui.unit.sp
+import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.design.CalinoColors
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Indent applied per subtask level, and the width of one connector rail slot. */
 const val TaskNestStep = 20
@@ -86,6 +96,77 @@ private fun DrawScope.drawNestRails(
         drawLine(color, Offset(x, -overhangPx), Offset(x, endY), strokePx, StrokeCap.Round)
         if (own) {
             drawLine(color, Offset(x, centerY), Offset(elbowEndPx, centerY), strokePx, StrokeCap.Round)
+        }
+    }
+}
+
+/** Where the day and the title sit apart from the rail they hang off. */
+private val AbsentParentGutter = 7.dp
+
+/** How the stand-in names a parent's day: "Mon 21". */
+private val AbsentParentDay = DateTimeFormatter.ofPattern("EEE d", Locale.US)
+
+/**
+ * The stand-in for a parent that is not on this list -- see
+ * [calino.malinov.ski.poc.state.TaskListRow.AbsentParent].
+ *
+ * Deliberately not a card and not a row: one line of quiet text, with the rail
+ * dropping out of it into the subtasks below exactly as it drops out of a real
+ * parent. Giving it a card would put the parent on a day it is not due, which
+ * is the thing this exists to avoid.
+ *
+ * [railOffset] is the same column the child rows draw their rails in, so the
+ * caller passes whatever it passes them: the middle of the indent step for a
+ * list of cards, the checkbox centre for the compact list.
+ */
+@Composable
+fun AbsentParentRow(
+    parent: CalTask,
+    modifier: Modifier = Modifier,
+    railOffset: Dp = (TaskNestStep / 2).dp,
+    onClick: (() -> Unit)? = null,
+) {
+    val color = CalinoColors.Ink.copy(alpha = .10f)
+    val density = LocalDensity.current
+    val railOffsetPx = with(density) { railOffset.toPx() }
+    val strokePx = with(density) { 1.dp.toPx() }
+    Row(
+        modifier
+            .fillMaxWidth()
+            // Only the lower half: the line starts where the title is and
+            // travels down to meet the first child's elbow.
+            .drawBehind {
+                drawLine(
+                    color,
+                    Offset(railOffsetPx, size.height / 2f),
+                    Offset(railOffsetPx, size.height),
+                    strokePx,
+                    StrokeCap.Round,
+                )
+            }
+            .then(if (onClick != null) Modifier.calinoPressable(onClick = onClick) else Modifier)
+            .heightIn(min = 24.dp)
+            .padding(start = railOffset + AbsentParentGutter, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            parent.title,
+            Modifier.weight(1f),
+            fontSize = 12.5.sp,
+            lineHeight = 18.sp,
+            color = CalinoColors.Ink2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        parent.due?.let { due ->
+            Text(
+                due.format(AbsentParentDay),
+                Modifier.padding(start = AbsentParentGutter),
+                fontSize = 11.sp,
+                lineHeight = 18.sp,
+                color = CalinoColors.Ink3,
+                maxLines = 1,
+            )
         }
     }
 }

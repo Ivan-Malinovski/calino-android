@@ -147,7 +147,10 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.lastCoveredDate
 import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.ui.components.AbsentParentRow
 import calino.malinov.ski.poc.ui.components.taskNestIndent
+import calino.malinov.ski.poc.state.LocalTaskLookup
+import calino.malinov.ski.poc.state.TaskListRow
 import calino.malinov.ski.poc.state.nestWithinList
 import calino.malinov.ski.poc.data.model.JournalEntry
 import calino.malinov.ski.poc.data.model.occursOn
@@ -2585,16 +2588,28 @@ private fun DayTasksSection(
                 Modifier.offset(x = -CompactTaskCheckboxLeading),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
-                nestWithinList(dayTasks).forEach { (task, depth, nestingLines) ->
-                    CalendarTaskRow(
-                        task = task,
-                        onTaskDone = onTaskDone?.let { callback -> { done -> callback(task, done) } },
-                        onTaskClick = onTaskClick?.let { callback -> { callback(task) } },
-                        onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
-                        onTaskDrop = onTaskDrop,
-                        depth = depth,
-                        nestingLines = nestingLines,
-                    )
+                val taskLookup = LocalTaskLookup.current
+                nestWithinList(dayTasks, taskLookup).forEach { row ->
+                    when (row) {
+                        // Indented to the checkbox column, like the rows: the
+                        // rail drops from where the parent's own checkbox would
+                        // have been, not from the block's edge.
+                        is TaskListRow.AbsentParent -> AbsentParentRow(
+                            parent = row.parent,
+                            railOffset = CompactTaskCheckboxCentre,
+                            onClick = onTaskClick?.let { callback -> { callback(row.parent) } },
+                        )
+
+                        is TaskListRow.Item -> CalendarTaskRow(
+                            task = row.task,
+                            onTaskDone = onTaskDone?.let { callback -> { done -> callback(row.task, done) } },
+                            onTaskClick = onTaskClick?.let { callback -> { callback(row.task) } },
+                            onTaskAction = onTaskAction?.let { callback -> { action, target -> callback(action, target) } },
+                            onTaskDrop = onTaskDrop,
+                            depth = row.depth,
+                            nestingLines = row.nestingLines,
+                        )
+                    }
                 }
             }
         }

@@ -47,7 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.CalTask
+import calino.malinov.ski.poc.ui.components.AbsentParentRow
 import calino.malinov.ski.poc.ui.components.taskNestIndent
+import calino.malinov.ski.poc.state.LocalTaskLookup
+import calino.malinov.ski.poc.state.TaskListRow
 import calino.malinov.ski.poc.state.nestWithinList
 import calino.malinov.ski.poc.data.repository.CalinoRepository
 import calino.malinov.ski.poc.design.CalinoColors
@@ -324,31 +327,49 @@ internal fun AgendaDayBlock(
                         )
                     }
                 }
-                nestWithinList(tasks).forEach { (task, depth, nestingLines) ->
-                    var menuOpen by remember(task.id) { mutableStateOf(false) }
-                    Box {
-                        AgendaTaskRow(
-                            task = task,
-                            modifier = Modifier.taskNestIndent(depth, nestingLines),
-                            // Only a task that carries a real due *time* gets a
-                            // clock face. Formatting the due date's midnight gave
-                            // every task an identical "12:00 AM" that said nothing.
-                            time = task.dueTime?.let { timeFormat.format(it) },
-                            onClick = onTaskClick?.let { click -> { click(task) } },
-                            onCheckedChange = { done -> onTaskDone(task, done) },
-                            onLongClick = { menuOpen = true },
-                            onDragEnd = { offset ->
-                                if (kotlin.math.abs(offset.y) > 36f) {
-                                    onTaskDrop(task, day.plusDays((offset.y / 76f).roundToInt().toLong()))
-                                }
-                            },
+                val taskLookup = LocalTaskLookup.current
+                nestWithinList(tasks, taskLookup).forEach { row ->
+                    when (row) {
+                        is TaskListRow.AbsentParent -> AbsentParentRow(
+                            parent = row.parent,
+                            onClick = onTaskClick?.let { click -> { click(row.parent) } },
                         )
-                        TaskActionMenu(
-                            task = task,
-                            expanded = menuOpen,
-                            onDismiss = { menuOpen = false },
-                            onAction = { action -> onTaskAction(action, task) },
-                        )
+
+                        is TaskListRow.Item -> {
+                            val (task, depth, nestingLines) = row
+                            var menuOpen by remember(task.id) { mutableStateOf(false) }
+                            Box {
+                                AgendaTaskRow(
+                                    task = task,
+                                    // The rail has to cross this column's 6dp
+                                    // gap, or it reads as a dash beside each
+                                    // card rather than one line down the run.
+                                    modifier = Modifier.taskNestIndent(
+                                        depth,
+                                        nestingLines,
+                                        railOverhang = 6.dp,
+                                    ),
+                                    // Only a task that carries a real due *time* gets a
+                                    // clock face. Formatting the due date's midnight gave
+                                    // every task an identical "12:00 AM" that said nothing.
+                                    time = task.dueTime?.let { timeFormat.format(it) },
+                                    onClick = onTaskClick?.let { click -> { click(task) } },
+                                    onCheckedChange = { done -> onTaskDone(task, done) },
+                                    onLongClick = { menuOpen = true },
+                                    onDragEnd = { offset ->
+                                        if (kotlin.math.abs(offset.y) > 36f) {
+                                            onTaskDrop(task, day.plusDays((offset.y / 76f).roundToInt().toLong()))
+                                        }
+                                    },
+                                )
+                                TaskActionMenu(
+                                    task = task,
+                                    expanded = menuOpen,
+                                    onDismiss = { menuOpen = false },
+                                    onAction = { action -> onTaskAction(action, task) },
+                                )
+                            }
+                        }
                     }
                 }
             }

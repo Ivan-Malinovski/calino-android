@@ -563,6 +563,10 @@ private fun fixtureTasks(): List<CalTask> {
         CalTask("task-weekend", "Plan weekend trip", Green, day, done = true),
         CalTask("task-goals", "Review Q1 goals", Plum, LocalDate.of(2026, 5, 15), category = "Work"),
         CalTask("task-expense", "Submit expense report", Rose, null, category = "Finance"),
+        // Two days after their parent, so the sample carries the case the
+        // stand-in parent row exists for: subtasks on a day the parent is not.
+        CalTask("task-ferry", "Book the ferry", Green, day.plusDays(2), category = "Travel", parentTaskId = "task-weekend"),
+        CalTask("task-pack", "Pack the wetsuits", Green, day.plusDays(2), parentTaskId = "task-weekend"),
     )
 }
 
