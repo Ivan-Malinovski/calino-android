@@ -4,6 +4,21 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Event location actions — 2026-09-14
+
+The event preview/detail sheet now exposes a compact map-pin action at the far
+right of its Location row when the location is nonblank. The shared
+`ui/components/EventLocation.kt` builds a percent-encoded `geo:0,0?q=`
+`ACTION_VIEW` intent, opens it through Android's chooser, and safely no-ops
+when Android cannot launch a handler. The 44dp action lane, animated
+visibility, and unchanged row height preserve the existing edit flow. Day-sheet
+cards, agenda cards, timeline cards, and compact calendar chips remain
+unchanged.
+Pure JVM tests cover blank-location eligibility and UTF-8/query encoding. A
+focused device test checks that the action is visible and retains its 44dp
+touch lane; the detail sheet was also inspected on the API 36 emulator. No
+physical-phone validation was run for this change.
+
 ### Coupled calendar/day transition — 2026-09-14
 
 The hinged week-to-month unfold and the day rail/agenda transition now share a

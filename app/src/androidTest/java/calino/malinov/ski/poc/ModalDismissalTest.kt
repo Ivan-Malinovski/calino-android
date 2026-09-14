@@ -1,13 +1,17 @@
 package calino.malinov.ski.poc
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.compose.ui.unit.dp
 import calino.malinov.ski.poc.ui.components.SwipeDownDismissTag
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,6 +28,21 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ModalDismissalTest : CalinoUiTest() {
+
+    @Test fun eventLocationExposesATouchSizedMapAction() {
+        compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
+        awaitDescribed("Open event location in maps")
+
+        val actions = compose.onAllNodesWithContentDescription("Open event location in maps")
+        val visibleAction = actions.fetchSemanticsNodes().indexOfFirst {
+            it.boundsInRoot.left >= 0f && it.boundsInRoot.top >= 0f
+        }
+        assertTrue("no visible event location action", visibleAction >= 0)
+        actions[visibleAction]
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(44.dp)
+            .assertWidthIsAtLeast(44.dp)
+    }
 
     @Test fun aFullSwipeDownDismissesTheEditor() {
         openQuickAdd()

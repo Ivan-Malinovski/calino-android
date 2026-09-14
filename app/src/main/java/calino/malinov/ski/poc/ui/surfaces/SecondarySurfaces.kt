@@ -171,6 +171,7 @@ import calino.malinov.ski.poc.ui.components.CalinoMarkdownEditor
 import calino.malinov.ski.poc.ui.components.ModalActionPill
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
+import calino.malinov.ski.poc.ui.components.EventLocationButton
 import calino.malinov.ski.poc.ui.components.calinoLongPressDrag
 import calino.malinov.ski.poc.util.formatRecurrenceSummary
 import calino.malinov.ski.poc.util.nextOccurrences
@@ -875,7 +876,15 @@ private fun EventDetailContent(
                     }
                 }
             }
-            item { PreviewEditRow(CalinoIcon.Pin, "Location", draft.location) { draft = draft.copy(location = it) } }
+            item {
+                PreviewEditRow(
+                    CalinoIcon.Pin,
+                    "Location",
+                    draft.location.orEmpty(),
+                    onValue = { draft = draft.copy(location = it) },
+                    trailing = { EventLocationButton(draft.location) },
+                )
+            }
             if (event.recurrence != null) item { PreviewStaticRow(CalinoIcon.Repeat, "Repeats", recurrenceSummary(event)) }
             if (event.reminders.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Bell, "Reminder", event.reminders.joinToString { "${it.minutesBefore} minutes before" }) }
             event.travelTimeMinutes?.takeIf { it > 0 }?.let { minutes ->
@@ -929,13 +938,21 @@ private data class EventPreviewPillState(
 )
 
 @Composable
-private fun PreviewEditRow(icon: CalinoIcon, labelText: String, value: String, placeholder: String = "", onValue: (String) -> Unit) {
+private fun PreviewEditRow(
+    icon: CalinoIcon,
+    labelText: String,
+    value: String,
+    placeholder: String = "",
+    trailing: (@Composable () -> Unit)? = null,
+    onValue: (String) -> Unit,
+) {
     Row(Modifier.fillMaxWidth().heightIn(min = 54.dp), verticalAlignment = Alignment.CenterVertically) {
         CalinoIcon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
         TextField(value, onValue, placeholder = { if (placeholder.isNotBlank()) Text(placeholder) }, label = { Text(labelText) },
             singleLine = icon != CalinoIcon.Note, modifier = Modifier.weight(1f).semantics { contentDescription = labelText },
             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                 focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
+        trailing?.invoke()
     }
 }
 
