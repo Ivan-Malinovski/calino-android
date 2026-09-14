@@ -233,7 +233,7 @@ fun NavSidebar(
                     Column(
                         Modifier
                             .offset { IntOffset(dragX.roundToInt(), 0) }
-                            .padding(start = 12.dp, top = 12.dp, bottom = 12.dp)
+                            .padding(start = 12.dp, top = 12.dp, bottom = 18.dp)
                             .width(cardWidth)
                             .fillMaxHeight()
                             // The flat-dark rule: a drop shadow is a light-mode

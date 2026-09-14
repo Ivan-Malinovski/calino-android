@@ -10,7 +10,8 @@ Upcoming Tasks now sits directly below the compact Calendar disclosure and
 uses the same surface, border, radius, shadow, padding, chevron timing, and
 expand/collapse motion. The diamond-and-Calino brand lockup is centered as one
 unit, and the sidebar's inner scroll viewport has its own rounded clip so
-content scrolls naturally beneath the shell corners.
+content scrolls naturally beneath the shell corners. Its bottom margin is
+slightly larger than the other shell margins to clear Android's gesture pill.
 
 Validated with `test lintDebug assembleDebug` and inspected at rest on the API
 36 emulator. No physical-phone validation was run.
