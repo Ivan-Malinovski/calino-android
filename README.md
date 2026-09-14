@@ -32,8 +32,8 @@ connected.
 ## Screenshots
 
 The screenshots below use the built-in May 2026 fixture and contain no account
-data. The second group is from the API 36 emulator in portrait and light
-mode.
+data. The second group is from the API 36 emulator in the landscape tablet
+layout and light mode.
 
 <table>
   <tr>
@@ -48,12 +48,12 @@ mode.
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/calendar-day-portrait-light.png" alt="Calendar day view in portrait light mode" width="100%"></td>
-    <td><img src="docs/screenshots/range-portrait-light.png" alt="Three-day range view in portrait light mode" width="100%"></td>
+    <td><img src="docs/screenshots/calendar-day-landscape-light.png" alt="Calendar day view in landscape tablet light mode" width="100%"></td>
+    <td><img src="docs/screenshots/range-landscape-light.png" alt="Three-day range view in landscape tablet light mode" width="100%"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/event-open-portrait-light.png" alt="An event open in portrait light mode" width="100%"></td>
-    <td><img src="docs/screenshots/settings-portrait-light.png" alt="Settings in portrait light mode" width="100%"></td>
+    <td><img src="docs/screenshots/event-open-landscape-light.png" alt="An event open in the landscape tablet light layout" width="100%"></td>
+    <td><img src="docs/screenshots/settings-landscape-light.png" alt="Settings in landscape tablet light mode" width="100%"></td>
   </tr>
 </table>
 
