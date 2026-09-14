@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,11 +31,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -274,10 +277,30 @@ private fun AllDayTaskChip(
     onDone: (Boolean) -> Unit,
 ) {
     val color = eventColor(task.color)
+    // Hoisted once: draw scopes cannot read the palette's composition local.
+    val checkColor = CalinoColors.OnAccent
     val stripeColor = priorityStripeColor(task.priority)
     val shape = RoundedCornerShape(CalinoShapes.Chip)
-    val fontSize = if (density == AllDayBandDensity.Narrow) NarrowChipFontSize else WideChipFontSize
-    val glyphSize = if (density == AllDayBandDensity.Narrow) 18.dp else 28.dp
+    val narrow = density == AllDayBandDensity.Narrow
+    val fontSize = if (narrow) NarrowChipFontSize else WideChipFontSize
+    // Narrow lanes are already below the app's 44dp hit-target floor, so the
+    // checkbox itself keeps its size -- shrinking the one real tap target
+    // further to buy text width would trade accessibility for legibility.
+    // The width instead comes out of the chrome around it: tighter row
+    // padding and a tighter priority-stripe gap. The checkbox alone used to
+    // eat most of a ~45dp 7-day column and the title never got more than
+    // three or four characters before its ellipsis.
+    val glyphSize = if (narrow) 18.dp else 28.dp
+    val rowPadding = if (narrow) 2.dp else 4.dp
+    val stripeGap = if (narrow) 1.dp else 3.dp
+    // The tap target already carries its own centering padding around the
+    // dot (glyphSize is bigger than the dot itself); a second padding here on
+    // top of it is what pushed the title so far right.
+    val textStartPadding = if (narrow) 0.dp else 1.dp
+    // The dot is drawn small in the middle of a larger tap target, which
+    // leaves visible dead space on its trailing edge. Pull the title back
+    // into that space rather than starting it at the tap target's own edge.
+    val textPullLeft = if (narrow) 4.dp else 6.dp
     // Not merged with descendants: the checkbox below keeps its own,
     // independently queryable description and click target rather than being
     // folded into this row's.
@@ -293,7 +316,7 @@ private fun AllDayTaskChip(
             .border(1.dp, color.copy(alpha = .30f), shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .semantics { contentDescription = description }
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = rowPadding),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (stripeColor != null) {
@@ -304,21 +327,42 @@ private fun AllDayTaskChip(
                     .clip(RoundedCornerShape(1.dp))
                     .background(stripeColor),
             )
-            Spacer(Modifier.width(3.dp))
+            Spacer(Modifier.width(stripeGap))
         }
-        Text(
-            if (task.done) "✓" else "○",
+        // Drawn rather than set as glyph text: the "○"/"✓" characters carry
+        // uneven side bearings in the app's fonts, so centering them with
+        // `textAlign` left the dot looking off-center in its own tap target.
+        // A `Canvas` circle centers exactly on the box regardless of font.
+        Box(
             Modifier
                 .size(glyphSize)
                 .clickable { onDone(!task.done) }
                 .semantics { contentDescription = if (task.done) "Mark ${task.title} open" else "Complete ${task.title}" },
-            textAlign = TextAlign.Center,
-            fontSize = fontSize,
-            color = color,
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            val dotSize = if (narrow) 7.dp else 12.dp
+            Canvas(Modifier.size(dotSize)) {
+                if (task.done) {
+                    drawCircle(color = color)
+                    val check = Path().apply {
+                        moveTo(size.width * .26f, size.height * .55f)
+                        lineTo(size.width * .44f, size.height * .74f)
+                        lineTo(size.width * .76f, size.height * .32f)
+                    }
+                    drawPath(
+                        check,
+                        checkColor,
+                        style = Stroke(width = size.minDimension * .14f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    )
+                } else {
+                    val strokeWidth = size.minDimension * .12f
+                    drawCircle(color = color, radius = (size.minDimension - strokeWidth) / 2f, style = Stroke(strokeWidth))
+                }
+            }
+        }
         Text(
             task.title,
-            Modifier.weight(1f).padding(start = 2.dp),
+            Modifier.weight(1f).offset(x = -textPullLeft).padding(start = textStartPadding),
             fontSize = fontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
