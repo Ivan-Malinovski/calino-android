@@ -97,6 +97,8 @@ class NavigationDestinationsTest : CalinoUiTest() {
     @Test fun miniCalendarControlsKeepTheMinimumTouchLane() {
         compose.onNodeWithContentDescription("Open navigation").performClick()
         compose.waitForIdle()
+        compose.onNodeWithContentDescription("Calendar in sidebar").performClick()
+        compose.waitForIdle()
 
         listOf("Previous month in sidebar", "Next month in sidebar", "Go to today in sidebar").forEach { description ->
             compose.onNodeWithContentDescription(description)
@@ -111,6 +113,8 @@ class NavigationDestinationsTest : CalinoUiTest() {
     @Test fun miniCalendarNavigatesMonthsAndReturnsToToday() {
         compose.onNodeWithContentDescription("Open navigation").performClick()
         compose.waitForIdle()
+        compose.onNodeWithContentDescription("Calendar in sidebar").performClick()
+        compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Previous month in sidebar").performClick()
         compose.onNodeWithText("April 2026").assertIsDisplayed()
@@ -120,6 +124,36 @@ class NavigationDestinationsTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Go to today in sidebar").performClick()
         compose.onNodeWithText("September 2026").assertIsDisplayed()
         compose.onNodeWithContentDescription("Monday, September 14, 2026").assertIsDisplayed()
+    }
+
+    @Test fun miniCalendarDefaultsCollapsedAndRemembersExpansion() {
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Calendar in sidebar")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(MinimumTouchLane)
+        assertFalse(compose.hasDescribedNode("Previous month in sidebar"))
+
+        compose.onNodeWithContentDescription("Calendar in sidebar").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Previous month in sidebar").assertIsDisplayed()
+
+        compose.onNodeWithContentDescription("Dismiss").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Previous month in sidebar").assertIsDisplayed()
+
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Previous month in sidebar").assertIsDisplayed()
+
+        compose.onNodeWithContentDescription("Collapse calendar in sidebar").performClick()
+        compose.waitForIdle()
+        assertFalse(compose.hasDescribedNode("Previous month in sidebar"))
     }
 
     @Test fun returningToTheCalendarRestoresIt() {

@@ -4,6 +4,16 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Compact sidebar calendar — 2026-09-14
+
+The sidebar mini calendar is now a persisted disclosure panel, collapsed by
+default to a single 44dp `CALENDAR` row. Its chevron and month body animate in
+the same language as Upcoming Tasks, and the saved choice survives sidebar and
+Activity recreation. When expanded, disclosure, month navigation, Today and
+collapse share one 44dp header; the former standalone Today and month-heading
+rows are gone. All dates and controls retain 44dp interaction lanes and
+explicit semantics.
+
 ### Parchment navigation sidebar — 2026-09-14
 
 The root navigation sidebar now uses the warm `Canvas` step as its light-theme

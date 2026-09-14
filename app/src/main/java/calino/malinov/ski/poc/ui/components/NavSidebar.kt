@@ -355,9 +355,16 @@ private fun SidebarMiniCalendar(
     selectedDate: LocalDate,
     onDateChanged: (LocalDate) -> Unit,
 ) {
-    val weekStart = LocalCalinoPreferences.current.weekStart
+    val preferences = LocalCalinoPreferences.current
+    val weekStart = preferences.weekStart
+    val expanded = preferences.sidebarCalendarExpanded
     var miniMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     val cardShape = RoundedCornerShape(12.dp)
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = tween(CalinoMotion.ContentEnterMillis),
+        label = "sidebar calendar chevron",
+    )
     Column(
         Modifier
             .fillMaxWidth()
@@ -365,37 +372,106 @@ private fun SidebarMiniCalendar(
             .clip(cardShape)
             .background(if (CalinoColors.isDark) CalinoColors.Side else CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, cardShape)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 6.dp, vertical = 6.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = { miniMonth = miniMonth.minusMonths(1) },
-                modifier = Modifier
-                    .size(44.dp)
-                    .clearAndSetSemantics {
-                        contentDescription = "Previous month in sidebar"
-                        role = Role.Button
-                    },
+        Box(Modifier.fillMaxWidth().height(44.dp)) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !expanded,
+                enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+                exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
             ) {
-                Text("‹", fontSize = 22.sp, color = CalinoColors.Ink2)
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(7.dp))
+                        .clickable { preferences.setSidebarCalendarExpanded(true) }
+                        .semantics {
+                            contentDescription = "Calendar in sidebar"
+                            stateDescription = "Collapsed"
+                            role = Role.Button
+                        }
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "CALENDAR",
+                        style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
+                        modifier = Modifier.weight(1f),
+                    )
+                    CalinoIcon(
+                        CalinoIcon.Forward,
+                        tint = CalinoColors.Ink3,
+                        modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = chevronRotation },
+                        contentDescription = null,
+                    )
+                }
             }
-            Text(
-                miniMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)),
-                style = CalinoTypography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(
-                onClick = { miniMonth = miniMonth.plusMonths(1) },
-                modifier = Modifier
-                    .size(44.dp)
-                    .clearAndSetSemantics {
-                        contentDescription = "Next month in sidebar"
-                        role = Role.Button
-                    },
+            androidx.compose.animation.AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+                exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
             ) {
-                Text("›", fontSize = 22.sp, color = CalinoColors.Ink2)
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { miniMonth = miniMonth.minusMonths(1) },
+                        modifier = Modifier.size(44.dp).clearAndSetSemantics {
+                            contentDescription = "Previous month in sidebar"
+                            role = Role.Button
+                        },
+                    ) { Text("‹", fontSize = 22.sp, color = CalinoColors.Ink2) }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .clickable { onDateChanged(LocalDate.now()); miniMonth = YearMonth.now() }
+                            .semantics {
+                                contentDescription = "Go to today in sidebar"
+                                role = Role.Button
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "CALENDAR",
+                                style = CalinoTypography.labelSmall.copy(fontSize = 8.sp, letterSpacing = .9.sp, color = CalinoColors.Ink3),
+                            )
+                            Text(
+                                miniMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)),
+                                style = CalinoTypography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { miniMonth = miniMonth.plusMonths(1) },
+                        modifier = Modifier.size(44.dp).clearAndSetSemantics {
+                            contentDescription = "Next month in sidebar"
+                            role = Role.Button
+                        },
+                    ) { Text("›", fontSize = 22.sp, color = CalinoColors.Ink2) }
+                    IconButton(
+                        onClick = { preferences.setSidebarCalendarExpanded(false) },
+                        modifier = Modifier.size(44.dp).clearAndSetSemantics {
+                            contentDescription = "Collapse calendar in sidebar"
+                            role = Role.Button
+                        },
+                    ) {
+                        CalinoIcon(
+                            CalinoIcon.Forward,
+                            tint = CalinoColors.Ink3,
+                            modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = chevronRotation },
+                            contentDescription = null,
+                        )
+                    }
+                }
             }
         }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+            exit = shrinkVertically(tween(CalinoMotion.ContentExitMillis)) + fadeOut(tween(CalinoMotion.ContentExitMillis)),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth()) {
             weekdayLetters(weekStart).forEach {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -446,17 +522,7 @@ private fun SidebarMiniCalendar(
                 }
             }
         }
-        TextButton(
-            onClick = { onDateChanged(LocalDate.now()); miniMonth = YearMonth.now() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 44.dp)
-                .clearAndSetSemantics {
-                    contentDescription = "Go to today in sidebar"
-                    role = Role.Button
-                },
-        ) {
-            Text("Today", color = CalinoColors.Accent)
+            }
         }
     }
 }
