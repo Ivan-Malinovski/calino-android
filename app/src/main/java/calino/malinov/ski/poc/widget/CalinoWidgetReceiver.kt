@@ -59,6 +59,12 @@ class CalinoCardsWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = CalinoCardsWidget()
 }
 
+/** The task list's provider. Same reasoning as [CalinoCardsWidgetReceiver]. */
+class CalinoTasksWidgetReceiver : GlanceAppWidgetReceiver() {
+
+    override val glanceAppWidget: GlanceAppWidget = CalinoTasksWidget()
+}
+
 /** Redrawing the widgets from anywhere, including a process with no Activity. */
 object CalinoWidgets {
 
@@ -67,7 +73,7 @@ object CalinoWidgets {
      * a bound-id lookup is cheaper than a render nobody sees, and it keeps the
      * sync bridge from doing work on every publish for nothing. Both providers
      * are checked separately -- having placed the ledger is no reason to render
-     * the cards.
+     * the cards. Each provider is checked on its own for the same reason.
      */
     suspend fun update(context: Context) {
         val app = context.applicationContext
@@ -80,6 +86,9 @@ object CalinoWidgets {
         }
         if (manager.getGlanceIds(CalinoCardsWidget::class.java).isNotEmpty()) {
             CalinoCardsWidget().updateAll(app)
+        }
+        if (manager.getGlanceIds(CalinoTasksWidget::class.java).isNotEmpty()) {
+            CalinoTasksWidget().updateAll(app)
         }
     }
 }

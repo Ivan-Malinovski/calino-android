@@ -8,4 +8,5 @@
 <resources>
     <string name="calino_widget_description">Today\'s events and tasks, one line each</string>
     <string name="calino_cards_widget_description">Today\'s events and tasks as cards, with locations</string>
+    <string name="calino_tasks_widget_description">Tasks due now and next, with anything overdue</string>
 </resources>

@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,6 +68,7 @@ import java.util.Locale
  */
 abstract class CalinoAgendaWidget internal constructor(
     private val style: WidgetStyle,
+    private val content: WidgetContent = WidgetContent.Agenda,
 ) : GlanceAppWidget() {
 
     override val sizeMode = SizeMode.Responsive(
@@ -97,6 +99,7 @@ abstract class CalinoAgendaWidget internal constructor(
             // tasks only. See HANDOFF.md before deciding this is dead weight.
             journalEnabled = preferences.loadJournalEnabled(),
             contactsEnabled = preferences.loadContactsEnabled(),
+            content = content,
         )
 
         provideContent {
@@ -155,24 +158,24 @@ abstract class CalinoAgendaWidget internal constructor(
                 .padding(horizontal = style.canvasPadding, vertical = 12.dp)
                 .clickable(openAgenda(today)),
         ) {
-            Header(today)
+            Header(today, style.headerIndent)
             Spacer(GlanceModifier.height(8.dp))
             when {
                 agenda == null -> Notice("No calendar connected", "Tap to set one up")
-                agenda.empty -> Notice(WidgetNothingScheduled, null)
-                else -> Agenda(agenda, today, size)
+                agenda.empty -> Notice(emptyText, null)
+                else -> Agenda(agenda, today, size, shaped.timeFormat)
             }
         }
     }
 
     @Composable
-    private fun Header(today: LocalDate) {
+    private fun Header(today: LocalDate, indent: Dp) {
         Row(
-            modifier = GlanceModifier.fillMaxWidth(),
+            modifier = GlanceModifier.fillMaxWidth().padding(start = indent),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Today",
+                text = if (content == WidgetContent.Tasks) "Tasks" else "Today",
                 style = TextStyle(
                     color = CalinoWidgetColors.ink,
                     fontSize = 15.sp,
@@ -209,10 +212,19 @@ abstract class CalinoAgendaWidget internal constructor(
     }
 
     @Composable
-    private fun Agenda(agenda: WidgetAgenda, today: LocalDate, size: DpSize) {
+    private fun Agenda(
+        agenda: WidgetAgenda,
+        today: LocalDate,
+        size: DpSize,
+        timeFormat: CalinoTimeFormat,
+    ) {
         // Flattened before the list so a day heading and its rows scroll as one
         // stream; LazyColumn has no section concept to lean on.
         val entries = buildList {
+            if (agenda.overdue.isNotEmpty()) {
+                add(WidgetEntry.Overdue)
+                agenda.overdue.forEach { add(WidgetEntry.RowItem(it)) }
+            }
             agenda.days.forEach { day ->
                 // A future day with nothing on it is simply not shown: a
                 // heading with no rows under it reads as a loading failure, and
@@ -221,7 +233,14 @@ abstract class CalinoAgendaWidget internal constructor(
                     if (day.date == today) add(WidgetEntry.Empty)
                     return@forEach
                 }
-                if (day.date != today) add(WidgetEntry.Heading(day.date))
+                when {
+                    day.date != today -> add(WidgetEntry.Heading(day.date))
+                    // Today normally needs no heading -- the header above
+                    // already says so. It does once something sits above it:
+                    // unlabelled rows under an "Overdue" block read as more
+                    // of the same, which is the opposite of the truth.
+                    agenda.overdue.isNotEmpty() -> add(WidgetEntry.Today)
+                }
                 day.rows.forEach { add(WidgetEntry.RowItem(it)) }
             }
         }
@@ -230,8 +249,10 @@ abstract class CalinoAgendaWidget internal constructor(
             items(entries.size) { position ->
                 when (val entry = entries[position]) {
                     is WidgetEntry.Heading -> DayHeading(entry.date)
+                    is WidgetEntry.Overdue -> SectionHeading("Overdue")
+                    is WidgetEntry.Today -> SectionHeading("Today")
                     is WidgetEntry.Empty -> Text(
-                        text = WidgetNothingScheduled,
+                        text = emptyText,
                         modifier = GlanceModifier.padding(vertical = 4.dp),
                         style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
                     )
@@ -242,6 +263,7 @@ abstract class CalinoAgendaWidget internal constructor(
                             // at the very top of the list, reads as an underline.
                             ruled = entries.getOrNull(position - 1) is WidgetEntry.RowItem,
                             wide = size.width >= LargeSize.width,
+                            timeFormat = timeFormat,
                             onClick = openRecord(entry.row),
                         )
                         WidgetStyle.Cards -> CardRow(
@@ -252,6 +274,24 @@ abstract class CalinoAgendaWidget internal constructor(
                 }
             }
         }
+    }
+
+    /**
+     * A heading for a block that is not a day. Same weight as [DayHeading] and
+     * deliberately not louder: "Overdue" is a label, not an alarm, and a task
+     * list whose first row shouts sets the wrong tone every morning.
+     */
+    @Composable
+    private fun SectionHeading(label: String) {
+        Text(
+            text = label,
+            modifier = GlanceModifier.fillMaxWidth().padding(bottom = 2.dp),
+            style = TextStyle(
+                color = CalinoWidgetColors.ink3,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+        )
     }
 
     @Composable
@@ -297,9 +337,14 @@ abstract class CalinoAgendaWidget internal constructor(
 
     private sealed interface WidgetEntry {
         data class Heading(val date: LocalDate) : WidgetEntry
+        data object Overdue : WidgetEntry
+        data object Today : WidgetEntry
         data class RowItem(val row: WidgetAgendaRow) : WidgetEntry
         data object Empty : WidgetEntry
     }
+
+    private val emptyText: String
+        get() = if (content == WidgetContent.Tasks) WidgetNothingDue else WidgetNothingScheduled
 
     companion object {
         // Roughly 4x2, 4x3 and 5x4 launcher cells. Responsive picks the largest
@@ -323,4 +368,14 @@ class CalinoLedgerWidget : CalinoAgendaWidget(WidgetStyle.Ledger)
 
 /** The cards widget: one tinted chip per record, with room for a location. */
 class CalinoCardsWidget : CalinoAgendaWidget(WidgetStyle.Cards)
+
+/**
+ * The task list: the ledger's rows, tasks only, with whatever is already late
+ * gathered above today.
+ *
+ * Ledger rather than cards on purpose. A task rarely carries a location, so the
+ * second line a card buys would mostly be empty, and a list of deadlines wants
+ * the density and the aligned dates that the ruled layout gives it.
+ */
+class CalinoTasksWidget : CalinoAgendaWidget(WidgetStyle.Ledger, WidgetContent.Tasks)
 

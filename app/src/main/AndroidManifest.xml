@@ -150,5 +150,18 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/calino_cards_widget_info" />
         </receiver>
+
+        <!-- The task list. Same reasoning as the cards receiver above. -->
+        <receiver
+            android:name=".widget.CalinoTasksWidgetReceiver"
+            android:label="Calino tasks"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/calino_tasks_widget_info" />
+        </receiver>
     </application>
 </manifest>

@@ -10,6 +10,8 @@ import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.EventDateIndex
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * What the home screen widget shows, decided without any Android in scope.
@@ -59,10 +61,29 @@ data class WidgetAgendaRow(
 
 data class WidgetAgendaDay(val date: LocalDate, val rows: List<WidgetAgendaRow>)
 
+/** What a widget is for. */
+enum class WidgetContent {
+    /** Events and tasks together, as the day runs. */
+    Agenda,
+
+    /**
+     * Tasks alone, and with them everything already late. A deadline that has
+     * passed is the thing a task list exists to surface, so [WidgetContent] is
+     * what decides whether [WidgetAgenda.overdue] is gathered at all -- an
+     * agenda is a view of a day and has no business showing last Tuesday.
+     */
+    Tasks,
+}
+
 data class WidgetAgenda(
     val days: List<WidgetAgendaDay>,
     /** True when the window held nothing at all, so the widget can say so once. */
     val empty: Boolean,
+    /**
+     * Tasks due before today and not done, most overdue last so the list reads
+     * forwards in time into today. Always empty for [WidgetContent.Agenda].
+     */
+    val overdue: List<WidgetAgendaRow> = emptyList(),
 ) {
     companion object {
         val Empty = WidgetAgenda(days = emptyList(), empty = true)
@@ -84,10 +105,22 @@ data class WidgetAgendaOptions(
      */
     val journalEnabled: Boolean = false,
     val contactsEnabled: Boolean = false,
+    /** Whether this is the agenda or the task list. */
+    val content: WidgetContent = WidgetContent.Agenda,
+    /**
+     * How far back [WidgetContent.Tasks] looks for something still open. A
+     * bound rather than "everything ever": a task a year late is noise on a
+     * home screen, and the row ceiling would spend itself on history before it
+     * reached today.
+     */
+    val overdueDays: Long = 30,
 )
 
 /** The empty-day string, kept identical to the agenda surface's. */
 const val WidgetNothingScheduled = "Nothing scheduled"
+
+/** Its equivalent for a task list, which is never "scheduled". */
+const val WidgetNothingDue = "Nothing due"
 
 object WidgetAgendaBuilder {
 
@@ -115,20 +148,31 @@ object WidgetAgendaBuilder {
         val days = mutableListOf<WidgetAgendaDay>()
         var total = 0
 
+        // Spent before the window, and deliberately: a task list that pushed
+        // what is already late below the fold to make room for next Thursday
+        // would be hiding the only rows that need an answer today.
+        val overdue = overdueRows(tasks, today, options)
+        total += overdue.size
+        val keptOverdue = overdue.take(budget)
+        budget -= keptOverdue.size
+
         for (offset in 0 until options.dayCount) {
+            if (budget == 0) break
             val date = today.plusDays(offset.toLong())
             val rows = mutableListOf<WidgetAgendaRow>()
 
-            // Same ordering as AgendaScreen's day block: all-day first, then by
-            // start time, with the id as the tiebreak so a redraw cannot
-            // reshuffle two events that begin at the same minute.
-            index.eventsOn(date)
-                .sortedWith(
-                    compareBy<CalEvent> { !it.allDay }
-                        .thenBy { it.start?.toLocalTime() }
-                        .thenBy { it.id },
-                )
-                .forEach { rows += it.row(date, options) }
+            if (options.content == WidgetContent.Agenda) {
+                // Same ordering as AgendaScreen's day block: all-day first,
+                // then by start time, with the id as the tiebreak so a redraw
+                // cannot reshuffle two events that begin at the same minute.
+                index.eventsOn(date)
+                    .sortedWith(
+                        compareBy<CalEvent> { !it.allDay }
+                            .thenBy { it.start?.toLocalTime() }
+                            .thenBy { it.id },
+                    )
+                    .forEach { rows += it.row(date, options) }
+            }
 
             // Tasks after events: a task is date-only and has no place in the
             // timed ordering above.
@@ -138,10 +182,13 @@ object WidgetAgendaBuilder {
             val kept = rows.take(budget)
             budget -= kept.size
             days += WidgetAgendaDay(date, kept)
-            if (budget == 0) break
         }
 
-        return WidgetAgenda(days = markNext(days, today, now), empty = total == 0)
+        return WidgetAgenda(
+            days = markNext(days, today, now),
+            empty = total == 0,
+            overdue = keptOverdue,
+        )
     }
 
     /**
@@ -173,6 +220,38 @@ object WidgetAgendaBuilder {
 
     private fun WidgetAgendaRow.startsAfter(now: LocalTime): Boolean =
         startTime?.isAfter(now) == true
+
+    /**
+     * Open tasks whose due date has passed, oldest first.
+     *
+     * Completed ones never appear regardless of `hideCompletedTasks`: that
+     * preference is about tidying a day's list, while a finished task that was
+     * once late is simply finished, and listing it under "Overdue" would be
+     * wrong rather than merely noisy.
+     */
+    private fun overdueRows(
+        tasks: List<CalTask>,
+        today: LocalDate,
+        options: WidgetAgendaOptions,
+    ): List<WidgetAgendaRow> {
+        if (options.content != WidgetContent.Tasks) return emptyList()
+        val earliest = today.minusDays(options.overdueDays)
+        return tasks
+            .filterNot { it.done }
+            .filter { it.due != null && it.due < today && it.due >= earliest }
+            .sortedWith(compareBy({ it.due }, { it.title.lowercase(Locale.US) }, { it.id }))
+            .map { task ->
+                // The date replaces the time: "17:00" on a row that was due
+                // last Tuesday answers the wrong question.
+                task.row(task.due!!, options).copy(
+                    timeLabel = task.due!!.format(OverdueFormat),
+                    startTime = null,
+                )
+            }
+    }
+
+    /** Short enough for the ledger's time column, which is where it lands. */
+    private val OverdueFormat = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
     private fun CalEvent.row(date: LocalDate, options: WidgetAgendaOptions): WidgetAgendaRow {
         // A multi-day event keeps its own start time on its first day only; on

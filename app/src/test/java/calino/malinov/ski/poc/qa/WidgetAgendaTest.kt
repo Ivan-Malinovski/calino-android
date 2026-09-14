@@ -7,6 +7,7 @@ import calino.malinov.ski.poc.data.repository.CalinoSnapshot
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.widget.WidgetAgendaBuilder
 import calino.malinov.ski.poc.widget.WidgetAgendaOptions
+import calino.malinov.ski.poc.widget.WidgetContent
 import calino.malinov.ski.poc.widget.WidgetRowKind
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -257,6 +258,86 @@ class WidgetAgendaTest {
         assertTrue(agenda.days.single().rows.none { it.isNext })
     }
 
+    @Test
+    fun `a task widget drops the events and keeps the tasks`() {
+        val agenda = build(
+            events = listOf(event(id = "meeting", start = today.atTime(9, 0))),
+            tasks = listOf(task(id = "chore", due = today)),
+            options = options(content = WidgetContent.Tasks),
+        )
+
+        assertEquals(listOf("chore"), agenda.days.single().rows.map { it.recordId })
+    }
+
+    @Test
+    fun `overdue tasks are gathered oldest first, and only for a task widget`() {
+        val tasks = listOf(
+            task(id = "old", due = today.minusDays(9)),
+            task(id = "recent", due = today.minusDays(1)),
+            task(id = "today", due = today),
+        )
+
+        val list = build(tasks = tasks, options = options(content = WidgetContent.Tasks))
+        assertEquals(listOf("old", "recent"), list.overdue.map { it.recordId })
+        assertEquals(listOf("today"), list.days.single().rows.map { it.recordId })
+
+        // The agenda is a view of a day and never looks backwards.
+        assertTrue(build(tasks = tasks).overdue.isEmpty())
+    }
+
+    @Test
+    fun `a completed task is never overdue`() {
+        val agenda = build(
+            tasks = listOf(task(id = "done", due = today.minusDays(3), done = true)),
+            options = options(content = WidgetContent.Tasks),
+        )
+
+        assertTrue(agenda.overdue.isEmpty())
+        assertTrue(agenda.empty)
+    }
+
+    @Test
+    fun `overdue stops at the lookback bound`() {
+        val agenda = build(
+            tasks = listOf(
+                task(id = "ancient", due = today.minusDays(400)),
+                task(id = "late", due = today.minusDays(2)),
+            ),
+            options = options(content = WidgetContent.Tasks),
+        )
+
+        assertEquals(listOf("late"), agenda.overdue.map { it.recordId })
+    }
+
+    @Test
+    fun `an overdue row is labelled with its date rather than a time`() {
+        val agenda = build(
+            tasks = listOf(
+                task(id = "late", due = LocalDate.of(2026, 8, 30), dueTime = LocalTime.of(17, 0)),
+            ),
+            options = options(content = WidgetContent.Tasks),
+        )
+
+        val row = agenda.overdue.single()
+        assertEquals("Aug 30", row.timeLabel)
+        assertNull(row.startTime)
+    }
+
+    @Test
+    fun `overdue rows are spent from the same budget as the days`() {
+        val agenda = build(
+            tasks = listOf(
+                task(id = "late-a", due = today.minusDays(2)),
+                task(id = "late-b", due = today.minusDays(1)),
+                task(id = "today", due = today),
+            ),
+            options = options(content = WidgetContent.Tasks, maxRows = 2),
+        )
+
+        assertEquals(listOf("late-a", "late-b"), agenda.overdue.map { it.recordId })
+        assertTrue(agenda.days.all { it.rows.isEmpty() })
+    }
+
     private fun build(
         calendars: List<CalinoCalendar> = this.calendars,
         events: List<CalEvent> = emptyList(),
@@ -281,12 +362,14 @@ class WidgetAgendaTest {
         hideCompletedTasks: Boolean = false,
         showLocations: Boolean = true,
         timeFormat: CalinoTimeFormat = CalinoTimeFormat.TwelveHour,
+        content: WidgetContent = WidgetContent.Agenda,
     ) = WidgetAgendaOptions(
         dayCount = dayCount,
         maxRows = maxRows,
         hideCompletedTasks = hideCompletedTasks,
         showLocations = showLocations,
         timeFormat = timeFormat,
+        content = content,
     )
 
     private fun event(

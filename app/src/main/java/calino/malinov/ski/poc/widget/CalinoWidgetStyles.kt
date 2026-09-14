@@ -25,6 +25,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextDecoration
 import androidx.glance.text.TextStyle
+import calino.malinov.ski.poc.util.CalinoTimeFormat
 
 /**
  * The two shapes an agenda row can take.
@@ -91,9 +92,23 @@ internal enum class WidgetStyle {
      */
     val canvasPadding: Dp get() = if (this == Cards) 10.dp else 14.dp
 
+    /**
+     * Extra start padding for the header, on top of [canvasPadding].
+     *
+     * The canvas is rounded at 20dp, and a heading set flush to the text inset
+     * sits inside that curve rather than beside it, which reads as crowding the
+     * corner. Both styles resolve to the same absolute inset so that a ledger
+     * and a cards widget side by side start their headings on one line, even
+     * though their rows do not.
+     */
+    val headerIndent: Dp get() = HeaderInset - canvasPadding
+
     private companion object {
         val MediumHeight = 180.dp
         val LargeHeight = 280.dp
+
+        /** Clear of the canvas's 20dp corner, in both styles. */
+        val HeaderInset = 20.dp
     }
 }
 
@@ -109,6 +124,7 @@ internal fun LedgerRow(
     row: WidgetAgendaRow,
     ruled: Boolean,
     wide: Boolean,
+    timeFormat: CalinoTimeFormat,
     onClick: Action,
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
@@ -133,7 +149,7 @@ internal fun LedgerRow(
                 // Fixed width plus end alignment is what a proportional font
                 // gives instead of tabular figures: the column has one edge
                 // even though "9:30" and "11:00" are different widths.
-                modifier = GlanceModifier.width(TimeColumnWidth),
+                modifier = GlanceModifier.width(timeColumnWidth(timeFormat)),
                 style = TextStyle(
                     color = if (row.isNext) CalinoWidgetColors.accent else CalinoWidgetColors.ink2,
                     fontSize = 10.5.sp,
@@ -240,5 +256,15 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
     }
 }
 
-/** The ledger's time column. Sized for "12:30 AM", the longest label it takes. */
-private val TimeColumnWidth = 52.dp
+/**
+ * How wide the ledger's time column has to be.
+ *
+ * Sized to the widest label the column can hold, which depends on the clock:
+ * "12:30 AM" on a 12-hour clock, and on a 24-hour one "All day", since "08:00"
+ * is shorter than the words. A column sized for the 12-hour case throws away
+ * about 12dp on a 24-hour one, and because the column is end-aligned that
+ * arrives as dead space on the left -- the times end up indented twice as far
+ * from the edge as the heading above them.
+ */
+private fun timeColumnWidth(format: CalinoTimeFormat): Dp =
+    if (format == CalinoTimeFormat.TwentyFourHour) 40.dp else 48.dp
