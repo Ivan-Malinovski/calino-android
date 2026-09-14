@@ -5979,7 +5979,14 @@ internal fun HourRailContent(
                     .coerceAtLeast(24f).dp
                 // Only a block with room for a second line gets one; a
                 // half-width 30-minute event would otherwise clip its title.
-                val showMetadata = height >= 42.dp && laneWidth >= 110.dp
+                // Seven-day columns never reach the wide threshold, so they
+                // qualify on their own, smaller, budget and the card decides
+                // how many of those lines it can actually afford.
+                val showMetadata = if (compactRangeCards) {
+                    compactChipDetail(height, laneWidth, hasLocation = false) != CompactChipDetail.TitleOnly
+                } else {
+                    height >= 42.dp && laneWidth >= 110.dp
+                }
                 val cardX = if (compactRangeCards) {
                     railStart + compactCascade * slot.column
                 } else {
@@ -6434,6 +6441,31 @@ private fun TimelineDropIndicator(
     }
 }
 
+/** Compact chip line budget: a 7-day column stacks title, time, then place. */
+internal val CompactTitleLine = 11.dp
+internal val CompactMetaLine = 10.dp
+internal val CompactCardVerticalPadding = 6.dp
+internal val CompactMetadataHeight = CompactCardVerticalPadding + CompactTitleLine + CompactMetaLine
+internal val CompactMetadataWidth = 34.dp
+internal val CompactLocationWidth = 44.dp
+
+/** What a narrow 7-day chip can afford to say at a given size. */
+internal enum class CompactChipDetail { TitleOnly, Time, TimeAndPlace }
+
+/**
+ * A 7-day column is too narrow to put time and place on the title's line, so
+ * each earns its own line and only once the chip is tall and wide enough to
+ * add one without eating into the title.
+ */
+internal fun compactChipDetail(height: Dp, width: Dp, hasLocation: Boolean): CompactChipDetail = when {
+    height < CompactMetadataHeight || width < CompactMetadataWidth -> CompactChipDetail.TitleOnly
+    hasLocation &&
+        width >= CompactLocationWidth &&
+        height >= CompactCardVerticalPadding + CompactTitleLine + CompactMetaLine * 2 ->
+        CompactChipDetail.TimeAndPlace
+    else -> CompactChipDetail.Time
+}
+
 @Composable
 internal fun TimelineEventCard(
     modifier: Modifier,
@@ -6471,6 +6503,10 @@ internal fun TimelineEventCard(
         // gets the available pixels first, with a slim accent and tight
         // insets, instead of leaving only an accent rail and an ellipsis.
         val compact = maxWidth < 72.dp
+        // Measured out here: inside the Column the constraints receiver is
+        // shadowed, and the chip needs to know what it can still afford.
+        val compactLocation = event.location?.takeIf { preferences.showLocations && it.isNotBlank() }
+        val compactDetail = compactChipDetail(maxHeight, maxWidth, compactLocation != null)
         val cardShape = RoundedCornerShape(if (compact) 6.dp else 11.dp)
         Box(
             Modifier.fillMaxSize().clip(cardShape)
@@ -6510,7 +6546,29 @@ internal fun TimelineEventCard(
                     overflow = TextOverflow.Ellipsis,
                     color = colors.Ink,
                 )
-                if (showMetadata) {
+                if (showMetadata && compact) {
+                    // A narrow column cannot hold time and place on one line,
+                    // so they stack, and each line only appears once the card
+                    // is tall enough to have spent nothing the title needed.
+                    Text(
+                        timeFormat.format(event.start!!),
+                        fontSize = 8.sp,
+                        lineHeight = CompactMetaLine.value.sp,
+                        color = colors.Ink2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (compactDetail == CompactChipDetail.TimeAndPlace) {
+                        Text(
+                            compactLocation!!,
+                            fontSize = 8.sp,
+                            lineHeight = CompactMetaLine.value.sp,
+                            color = colors.Ink3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else if (showMetadata) {
                     val metadata = buildString {
                         append(timeFormat.format(event.start!!))
                         event.durationMinutes
