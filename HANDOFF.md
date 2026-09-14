@@ -21,9 +21,6 @@ system back stream. The completion handoff keeps the predictive destination
 mounted for two complete frames while the settled route takes ownership; the
 add pill stays mounted and suppresses only its paint during the gesture, so
 `AnimatedVisibility` cannot replay an enter/exit blink at the commit edge.
-The predictive preview is omitted once the settled route reaches the same
-state key, avoiding duplicate `SaveableStateHolder` ownership during that
-handoff.
 
 Validated with `test lintDebug assembleDebug`, the 24 focused tests in
 `CalendarZoomMorphTest`, `ModalDismissalTest` and `NavigationDestinationsTest`
