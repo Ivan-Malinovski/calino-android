@@ -1732,7 +1732,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     drawLayer(surfaceLayer)
                 },
         ) {
-            if (rootBackInProgress) {
+            if (rootBackInProgress && rootRoute != predictiveBackDestination) {
                 val destinationProgress = ((rootBackProgress - PredictiveBackFadeThreshold) /
                     (1f - PredictiveBackFadeThreshold)).coerceIn(0f, 1f)
                 Box(
