@@ -69,6 +69,7 @@ enum class AllDayBandDensity { Narrow, Wide }
 private val NarrowLaneHeight = 28.dp
 private val WideLaneHeight = 22.dp
 private val WideChipMinWidth = 150.dp
+private val WideChipGap = 6.dp
 private val NarrowChipFontSize = 9.sp
 private val WideChipFontSize = 13.sp
 
@@ -149,13 +150,17 @@ fun AllDayBand(
                     // first; a lone item left over on the last row still
                     // spans the full width rather than sitting stranded at
                     // half width.
+                    // The caller's columnGap is 0 here (there's only one day
+                    // column), so side-by-side chips need their own gap
+                    // rather than inheriting that.
+                    val wideGapPx = maxOf(gapPx, WideChipGap.roundToPx())
                     val itemCount = layout.placements.size
                     val itemsPerRow = (available / WideChipMinWidth.roundToPx().coerceAtLeast(1)).coerceIn(1, 2)
                     val rowCount = if (itemsPerRow > 0) (itemCount + itemsPerRow - 1) / itemsPerRow else 0
                     val rowCellWidth = IntArray(rowCount) { row ->
                         val isLast = row == rowCount - 1
                         val count = if (isLast) itemCount - row * itemsPerRow else itemsPerRow
-                        if (count <= 0) available else ((available - gapPx * (count - 1)) / count).coerceAtLeast(0)
+                        if (count <= 0) available else ((available - wideGapPx * (count - 1)) / count).coerceAtLeast(0)
                     }
                     val totalHeight = laneHeightPx * rowCount + rowGapPx * (rowCount - 1).coerceAtLeast(0)
 
@@ -171,7 +176,7 @@ fun AllDayBand(
                             val (placement, row) = pair
                             val col = placement.lane % itemsPerRow
                             val cellWidth = rowCellWidth.getOrElse(row) { available }
-                            val x = gutterPx + col * (cellWidth + gapPx)
+                            val x = gutterPx + col * (cellWidth + wideGapPx)
                             val y = row * (laneHeightPx + rowGapPx)
                             placeable.placeRelative(x, y)
                         }
