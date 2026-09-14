@@ -1,22 +1,40 @@
 # Calino Android
 
-This is a standalone Kotlin/Jetpack Compose Android application. It has no
-WebView or Capacitor dependency.
+Calino Android is a standalone Kotlin/Jetpack Compose sister project to the
+[Calino web app](https://github.com/ivan-malinovski/calino). It is a native
+Android project, with no WebView or Capacitor dependency.
+
+This repository is mostly a place to explore the Android version of Calino in
+the open. It is still a work in progress, but the app can connect to CalDAV
+and CardDAV servers and also works with a built-in fixture when no account is
+connected.
 
 ## Identity and scope
 
 - APK/application ID: `calino.malinov.ski`
 - App label: `Calino`
-- With no account connected, the app keeps its frozen May 2026 fixture. A
-  connected account uses real CalDAV/CardDAV reads and conditional writes for
-  events, tasks, journal entries, and contacts.
-- Offline or retryable writes are retained in a durable queue and can be
-  retried or discarded from the Calendars account surface. Recurring event
-  edits/deletes support THIS, FUTURE, and ALL scopes.
-- The APK can be installed alongside the existing Calino Capacitor APK.
-- The primary surfaces are reached from the animated bottom dock.
-- Reminders are delivered locally: a reminder set on an event or a task is
-  scheduled with `AlarmManager` and posted to one of two notification channels.
+- With no account connected, the app uses a frozen May 2026 fixture. A
+  connected account uses CalDAV/CardDAV for events, tasks, journal entries,
+  and contacts.
+- Offline or retryable writes stay in a durable queue. Recurring event edits
+  and deletes support THIS, FUTURE, and ALL scopes.
+- Reminders are delivered locally through `AlarmManager`.
+- AI Photo Import is opt-in and uses a bring-your-own API key. Images go
+  directly to the provider and model selected by the user; no provider key is
+  bundled here.
+
+## Screenshots
+
+The screenshots below use the built-in May 2026 fixture and contain no account
+data.
+
+![Calendar day view](docs/screenshots/calendar-day.png)
+
+![Three-day range view](docs/screenshots/range.png)
+
+![Tasks](docs/screenshots/tasks.png)
+
+![Settings](docs/screenshots/settings.png)
 
 ## If a reminder never arrives
 
@@ -38,9 +56,7 @@ Notifications screen inside the app:
 From the repository root:
 
 ```bash
-distrobox enter android-sdk
-cd <repo-root>
-./gradlew assembleDebug
+distrobox enter android-sdk -- bash -lc './gradlew assembleDebug'
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -66,5 +82,5 @@ recurrence behavior, zoom rest-state/selected-date continuity, and task bucket
 rules. Run them with:
 
 ```bash
-./gradlew test
+distrobox enter android-sdk -- bash -lc './gradlew test'
 ```

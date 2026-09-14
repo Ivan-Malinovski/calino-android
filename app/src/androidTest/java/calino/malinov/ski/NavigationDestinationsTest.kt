@@ -171,7 +171,7 @@ class NavigationDestinationsTest : CalinoUiTest() {
         compose.waitForIdle()
 
         assertFalse("Calendars should not be a navigation row", compose.hasDescribedNode("Calendars"))
-        compose.onNodeWithContentDescription("Show demo[@]example.test")
+        compose.onNodeWithContentDescription("Show Personal")
             .performScrollTo()
             .assertIsDisplayed()
 

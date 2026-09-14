@@ -101,7 +101,7 @@ class CalDavViewingTest {
             serverUrl = "https://caldav.example.test",
             username = "test-user",
             calendars = listOf(
-                CalDavCalendar("https://caldav.example.test/test-user/a/", "hellyeah", 0xFF11A602),
+                CalDavCalendar("https://caldav.example.test/test-user/a/", "fixture calendar", 0xFF11A602),
                 CalDavCalendar("https://caldav.example.test/test-user/b/", "extra calendar", 0xFFF6DC6B, enabled = false, readOnly = true),
             ),
         )

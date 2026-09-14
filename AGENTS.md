@@ -95,8 +95,8 @@ secret reaches the read cache -- it holds resource text only.
 `CalDavAccount` has no password field, and nothing secret is written to the
 account JSON. Never log a password, and never commit real credentials — the
 live test reads them from the environment.
-- Do not edit `<sibling-calino>` or the old
-  `<sibling-native-poc>` copy while working here.
+- Do not edit sibling Calino checkouts or the old `android-native-poc` copy
+  while working here.
 - Do not commit credentials, local environment files, keystores, generated
   build output, `.gradle/`, `.kotlin/`, or `local.properties`.
 
@@ -263,8 +263,8 @@ because the **debug** source set permits cleartext to three loopback addresses
 unchanged and still refuse it everywhere.
 
 The physical phone may be used only when the user explicitly requests a
-deployment or phone check. Its current wireless serial is
-`physical-device:45095`, but the address can change.
+deployment or phone check. Obtain its current wireless serial from
+`adb devices`; addresses can change.
 
 ## Testing expectations
 

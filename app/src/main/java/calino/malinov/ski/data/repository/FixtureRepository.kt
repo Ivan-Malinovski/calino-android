@@ -119,7 +119,7 @@ data class RecordWriteStatus(
 
 /** The fixture calendar set. Settings and the editor read the same list. */
 val FixtureCalendars: List<CalinoCalendar> = listOf(
-    CalinoCalendar("personal", "demo[@]example.test", 0xFFC2697F),
+    CalinoCalendar("personal", "Personal", 0xFFC2697F),
     CalinoCalendar("work", "Work", 0xFF5B7FB5),
     CalinoCalendar("travel", "Travel", 0xFFBF944E),
 )

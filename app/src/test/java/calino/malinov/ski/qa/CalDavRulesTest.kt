@@ -86,7 +86,7 @@ class CalDavRulesTest {
     fun `the same login normalizes to the same account id`() {
         assertEquals(
             accountId(completeForm()),
-            accountId(completeForm().copy(serverUrl = "HTTPS://Dav.Example.com/", username = "Ivan")),
+            accountId(completeForm().copy(serverUrl = "HTTPS://Dav.Example.com/", username = "TEST-USER")),
         )
     }
 

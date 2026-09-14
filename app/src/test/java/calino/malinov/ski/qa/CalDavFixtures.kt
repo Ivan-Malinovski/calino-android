@@ -24,5 +24,5 @@ object CalDavFixtures {
     val Recurring: String get() = read("vevent-recurring.xml")
 
     /** The collection the fixture corpus lives in. */
-    const val CalendarUrl = "https://caldav.example.test/test-user/bed21d90-1639-2490-b6f5-721e0517aee6/"
+    const val CalendarUrl = "https://caldav.example.test/test-user/fixture-calendar/"
 }

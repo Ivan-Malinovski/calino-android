@@ -1851,7 +1851,6 @@ Today button appears and targets the real date. The full
 - Commit `199a5ac` is the verified milestone. Its APK is installed and
   running on the API 36 emulator. The requested physical-phone push was
   attempted without stopping the phone app, but wireless ADB was unavailable
-  (`physical-device:5555` and the documented `:45095` endpoint both returned
   no route); do not infer physical-phone validation from this pass.
 - On the warmed API 36 `calino-poc-api36` emulator, the latest single-renderer
   slow-drag reports (0→1, 1→2, 2→1) were respectively: 76/16/16/2,
@@ -1859,9 +1858,9 @@ Today button appears and targets the real date. The full
   percentile / janky frames. These are emulator results, not physical-phone
   validation. The latest captures show one compact endpoint and no duplicate
   month/week header or grid ghosting.
-- The final debug APK was installed on both `emulator-5554` and the explicitly
-  requested phone at `physical-device:5555` without issuing a force-stop to the
-  phone. No physical-device smoothness claim is made.
+- The final debug APK was installed on both the API 36 emulator and the
+  explicitly requested phone without issuing a force-stop to the phone. No
+  physical-device smoothness claim is made.
 - The full `test lintDebug assembleDebug` handoff check passed after the final
   endpoint, ownership, and calendar-task reschedule changes. Drag-and-drop
   remains deferred.
@@ -2175,10 +2174,11 @@ label was measured at intrinsic width and rendered one character per line.
 Category bodies are swipable through the dedicated pager; the horizontal chip
 rail remains available as a direct-access and accessibility shortcut.
 
-### Bottom dock
+### Bottom dock (historical, removed)
 
-`ui/components/BottomDock.kt` provides the root navigation dock for Calendar,
-Tasks, Journal, and Settings.
+The app previously used `ui/components/BottomDock.kt` for root navigation.
+The current implementation uses `ui/components/NavSidebar.kt`; the details
+below describe the superseded dock and are retained only as historical context.
 
 - Each item has a weighted, equal-width touch slot.
 - The selected pill animates horizontally between slots.
@@ -2382,8 +2382,8 @@ The next model should review in this order:
 ### P0 — establish the real baseline
 
 - Read this file and `README.md`.
-- Confirm the working directory is `<repo-root>`, not the
-  original Calino checkout.
+- Confirm the working directory is the standalone repository, not the original
+  Calino checkout.
 - Run `git status` and confirm generated `.gradle/` and `app/build/` files are
   ignored.
 - Run `distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'`.
@@ -2857,8 +2857,9 @@ implemented counterparts are documented in the current write section above.
    been used at a time.
 8. **A task with a midnight `DUE` renders as `00:00`** in the agenda rather
    than as an all-day task. Cosmetic, seen on real data.
-9. **No instrumented tests.** There is still no `androidTest` source set, so
-   none of this is covered at the Compose layer.
+9. **Instrumented coverage is partial.** Compose tests now live under
+   `app/src/androidTest/`; run them on the API 36 emulator before claiming a
+   UI change is fully validated.
 
 ## Safe continuation rules
 
@@ -2868,9 +2869,9 @@ implemented counterparts are documented in the current write section above.
   the optimistic overlay durable.
 - Never commit credentials. `CalDavLiveTest` reads them from
   `CALINO_CALDAV_URL` / `_USER` / `_PASS` and skips when they are unset.
-- Do not edit the original `<sibling-native-poc>` copy when
-  working on this repository. The standalone repo is the source of truth from
-  this handoff onward.
+- Do not edit the original sibling `android-native-poc` copy when working on
+  this repository. The standalone repo is the source of truth from this
+  handoff onward.
 - Preserve the May 2026 fixture contract unless a task explicitly changes it.
 - Keep the app ID stable while testing installed upgrades.
 - Use `apply_patch` for source edits and keep generated build output ignored.
@@ -2880,7 +2881,7 @@ implemented counterparts are documented in the current write section above.
 ## Useful commands
 
 ```bash
-# From <repo-root>
+# From the repository root
 distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'
 
 # Emulator
