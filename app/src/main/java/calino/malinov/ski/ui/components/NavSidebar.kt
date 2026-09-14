@@ -1,5 +1,6 @@
 package calino.malinov.ski.ui.components
 
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animate
@@ -95,6 +96,8 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -158,6 +161,18 @@ fun NavSidebar(
     val axisThresholdPx = with(density) { 8.dp.toPx() }
     val travelPx = with(density) { 360.dp.toPx() }
     val scrimDragAlpha = 1f - (abs(dragX) / travelPx).coerceIn(0f, 1f)
+
+    PredictiveBackHandler(enabled = visible && !dismissing) { events ->
+        try {
+            events.collect { event -> dragX = -travelPx * event.progress.coerceIn(0f, 1f) }
+            dragX = -travelPx
+            dismissing = true
+            currentOnDismiss()
+        } catch (cancelled: CancellationException) {
+            animate(dragX, 0f, animationSpec = CalinoMotion.gestureReturn()) { value, _ -> dragX = value }
+            throw cancelled
+        }
+    }
 
     LaunchedEffect(visible) {
         if (visible) {

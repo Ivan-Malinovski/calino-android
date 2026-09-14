@@ -9,7 +9,7 @@ import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.core.content.FileProvider
@@ -17,6 +17,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.EnterTransition
@@ -83,6 +84,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
@@ -244,8 +246,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 private val DateLabel = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
+private val PredictiveBackEasing = CubicBezierEasing(0f, 0f, 0f, 1f)
+private const val PredictiveBackFadeThreshold = .35f
 
 private fun fallbackRescheduleDate(
     taskDate: LocalDate?,
@@ -821,6 +826,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var journalOpenEntryId by rememberSaveable { mutableStateOf<String?>(null) }
     var journalSearchReturn by rememberSaveable { mutableStateOf(false) }
     var sidebarVisible by rememberSaveable { mutableStateOf(false) }
+    var rootBackProgress by remember { mutableFloatStateOf(0f) }
+    var rootBackInProgress by remember { mutableStateOf(false) }
+    var predictiveRouteCommit by remember { mutableStateOf(false) }
     // The large landscape month root reserves a right-side lane for the pill,
     // even while the day pane itself is collapsed. That keeps the affordance
     // anchored when the pane opens or closes.
@@ -1297,8 +1305,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         route = next
     }
 
-    BackHandler(enabled = sidebarVisible || (route != PockRoute.Detail && route != PockRoute.TaskDetail &&
-        !journalEditorVisible && (journalReviewVisible || route != PockRoute.Day || showDayModal))) {
+    fun commitRootBack() {
         when {
             sidebarVisible -> sidebarVisible = false
             journalReviewVisible -> journalReviewVisible = false
@@ -1324,6 +1331,73 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             }
             showDayModal -> showDayModal = false
             else -> route = PockRoute.Day
+        }
+    }
+    val currentRootRoute = when (visibleRoute) {
+        PockRoute.Day -> PockRoute.Day
+        PockRoute.Range -> PockRoute.Range
+        PockRoute.Agenda -> PockRoute.Agenda
+        PockRoute.Tasks -> PockRoute.Tasks
+        PockRoute.Journal -> PockRoute.Journal
+        PockRoute.Contacts -> PockRoute.Contacts
+        PockRoute.Settings -> PockRoute.Settings
+        PockRoute.Accounts -> PockRoute.Accounts
+        PockRoute.Detail -> detailOriginRootRoute(detailOrigin, searchOriginRoute)
+        PockRoute.TaskDetail -> when (taskDetailOrigin) {
+            PocReturnTarget.Agenda -> PockRoute.Agenda
+            PocReturnTarget.Range -> PockRoute.Range
+            PocReturnTarget.Tasks -> PockRoute.Tasks
+            PocReturnTarget.Search -> searchOriginRoute
+            else -> PockRoute.Day
+        }
+        PockRoute.QuickAdd -> when (quickAddOrigin) {
+            PocReturnTarget.Agenda -> PockRoute.Agenda
+            PocReturnTarget.Range -> PockRoute.Range
+            PocReturnTarget.Tasks -> PockRoute.Tasks
+            PocReturnTarget.Journal -> PockRoute.Journal
+            PocReturnTarget.Contacts -> PockRoute.Contacts
+            PocReturnTarget.Settings -> PockRoute.Settings
+            PocReturnTarget.Detail -> detailOriginRootRoute(detailOrigin, searchOriginRoute)
+            PocReturnTarget.Search -> searchOriginRoute
+            else -> PockRoute.Day
+        }
+        PockRoute.Notifications -> PockRoute.Notifications
+    }
+    val predictiveBackDestination = when (route) {
+        PockRoute.Notifications -> if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
+        PockRoute.Accounts -> when (accountsOrigin) {
+            PocReturnTarget.Settings -> PockRoute.Settings
+            PocReturnTarget.Range -> PockRoute.Range
+            PocReturnTarget.Agenda -> PockRoute.Agenda
+            else -> PockRoute.Day
+        }
+        else -> PockRoute.Day
+    }
+    val rootPredictiveBackEnabled = !sidebarVisible && !journalReviewVisible && !journalEditorVisible &&
+        !showDayModal && route != PockRoute.Day && route != PockRoute.Detail &&
+        route != PockRoute.TaskDetail && route != PockRoute.QuickAdd
+    PredictiveBackHandler(enabled = rootPredictiveBackEnabled) { events ->
+        try {
+            rootBackInProgress = true
+            events.collect { event ->
+                rootBackProgress = PredictiveBackEasing.transform(event.progress.coerceIn(0f, 1f))
+            }
+            rootBackProgress = 1f
+            predictiveRouteCommit = true
+            commitRootBack()
+            // Snapshot writes are applied together: the departing route's
+            // final gesture frame is followed by the destination at rest,
+            // without replaying the ordinary quarter-width route animation.
+            rootBackProgress = 0f
+            rootBackInProgress = false
+        } catch (cancelled: CancellationException) {
+            androidx.compose.animation.core.animate(
+                rootBackProgress,
+                0f,
+                animationSpec = CalinoMotion.gestureReturn(),
+            ) { value, _ -> rootBackProgress = value }
+            rootBackInProgress = false
+            throw cancelled
         }
     }
 
@@ -1385,58 +1459,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             ),
     ) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
-        val rootRoute = when (visibleRoute) {
-            PockRoute.Day -> PockRoute.Day
-            PockRoute.Range -> PockRoute.Range
-            PockRoute.Agenda -> PockRoute.Agenda
-            PockRoute.Tasks -> PockRoute.Tasks
-            PockRoute.Journal -> PockRoute.Journal
-            PockRoute.Contacts -> PockRoute.Contacts
-            PockRoute.Settings -> PockRoute.Settings
-            PockRoute.Accounts -> PockRoute.Accounts
-            PockRoute.Detail -> detailOriginRootRoute(detailOrigin, searchOriginRoute)
-            PockRoute.TaskDetail -> when (taskDetailOrigin) {
-                PocReturnTarget.Agenda -> PockRoute.Agenda
-                PocReturnTarget.Range -> PockRoute.Range
-                PocReturnTarget.Tasks -> PockRoute.Tasks
-                PocReturnTarget.Search -> searchOriginRoute
-                else -> PockRoute.Day
-            }
-            PockRoute.QuickAdd -> when (quickAddOrigin) {
-                PocReturnTarget.Agenda -> PockRoute.Agenda
-                PocReturnTarget.Range -> PockRoute.Range
-                PocReturnTarget.Tasks -> PockRoute.Tasks
-                PocReturnTarget.Journal -> PockRoute.Journal
-                PocReturnTarget.Contacts -> PockRoute.Contacts
-                PocReturnTarget.Settings -> PockRoute.Settings
-                PocReturnTarget.Detail -> detailOriginRootRoute(detailOrigin, searchOriginRoute)
-                PocReturnTarget.Search -> searchOriginRoute
-                else -> PockRoute.Day
-            }
-            PockRoute.Notifications -> PockRoute.Notifications
-        }
+        val rootRoute = currentRootRoute
         // The add pill is frosted glass over whatever surface is behind it, so
         // that surface is recorded here and the pill draws a blurred copy of
         // its own patch of it. The pill is a sibling of this stack, never a
         // child, so nothing recurses.
         val surfaceLayer = rememberGraphicsLayer()
         var surfaceOrigin by remember { mutableStateOf(Offset.Zero) }
-        AnimatedContent(
-            targetState = rootRoute,
-            modifier = Modifier
-                .fillMaxSize()
-                .onGloballyPositioned { surfaceOrigin = it.positionInRoot() }
-                .drawWithContent {
-                    surfaceLayer.record { this@drawWithContent.drawContent() }
-                    drawLayer(surfaceLayer)
-                },
-            transitionSpec = {
-                val direction = if (targetState.rootOrder() >= initialState.rootOrder()) 1 else -1
-                (slideInHorizontally(tween(260)) { direction * it / 4 } + fadeIn(tween(180))) togetherWith
-                    (slideOutHorizontally(tween(210)) { -direction * it / 4 } + fadeOut(tween(140)))
-            },
-            label = "root destination transition",
-        ) { currentRoute ->
+        val rootDestination: @Composable (PockRoute) -> Unit = { currentRoute ->
             saveableStateHolder.SaveableStateProvider("root:${currentRoute.saveableKey()}") {
                 when (currentRoute) {
                     PockRoute.Day -> HomeScreen(
@@ -1694,6 +1724,66 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 }
             }
         }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { surfaceOrigin = it.positionInRoot() }
+                .drawWithContent {
+                    surfaceLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(surfaceLayer)
+                },
+        ) {
+            if (rootBackInProgress) {
+                val destinationProgress = ((rootBackProgress - PredictiveBackFadeThreshold) /
+                    (1f - PredictiveBackFadeThreshold)).coerceIn(0f, 1f)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = 1.1f - .1f * destinationProgress
+                            scaleY = scaleX
+                            alpha = destinationProgress
+                        },
+                ) {
+                    rootDestination(predictiveBackDestination)
+                }
+            }
+            AnimatedContent(
+                targetState = rootRoute,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = 1f - .1f * rootBackProgress
+                        scaleY = scaleX
+                        alpha = 1f - (rootBackProgress / PredictiveBackFadeThreshold)
+                            .coerceIn(0f, 1f)
+                        shape = RoundedCornerShape(28.dp)
+                        clip = rootBackProgress > 0f
+                    },
+                transitionSpec = {
+                    if (predictiveRouteCommit) {
+                        return@AnimatedContent EnterTransition.None togetherWith ExitTransition.None
+                    }
+                    val direction = if (targetState.rootOrder() >= initialState.rootOrder()) 1 else -1
+                    (slideInHorizontally(tween(260)) { direction * it / 4 } + fadeIn(tween(180))) togetherWith
+                        (slideOutHorizontally(tween(210)) { -direction * it / 4 } + fadeOut(tween(140)))
+                },
+                label = "root destination transition",
+            ) { currentRoute ->
+                rootDestination(currentRoute)
+            }
+            LaunchedEffect(rootRoute, predictiveRouteCommit) {
+                if (predictiveRouteCommit) {
+                    // Keep the no-transition decision stable until the new
+                    // destination has owned complete frames. Clearing this
+                    // from transitionSpec itself raced recomposition on real
+                    // devices and let the ordinary slide replay after commit.
+                    withFrameNanos {}
+                    withFrameNanos {}
+                    predictiveRouteCommit = false
+                }
+            }
+        }
 
         when (route) {
             PockRoute.Detail -> selectedEvent?.let { event ->
@@ -1941,7 +2031,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 pillLane.handingBack = false
             }
         }
-        val pillVisible = when (rootRoute) {
+        val pillVisible = !rootBackInProgress && when (rootRoute) {
             PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
             PockRoute.Range -> route == PockRoute.Range
             PockRoute.Agenda -> route == PockRoute.Agenda

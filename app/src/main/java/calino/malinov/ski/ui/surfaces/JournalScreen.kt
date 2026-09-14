@@ -1,6 +1,5 @@
 package calino.malinov.ski.ui.surfaces
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -347,9 +346,6 @@ private fun JournalEditor(
         if (isEditing && dirty) showDiscard = true else closeAnimated(onDismiss)
     }
 
-    BackHandler {
-        dismissEditor()
-    }
     LaunchedEffect(focusTitle) {
         if (focusTitle) {
             kotlinx.coroutines.delay(280)

@@ -1,6 +1,6 @@
 package calino.malinov.ski.ui.components
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -86,6 +86,8 @@ import calino.malinov.ski.state.calinoWindowClassFor
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -196,7 +198,30 @@ fun AdaptiveSurfaceHost(
     pill: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
-    BackHandler(enabled = visible, onBack = onDismiss)
+    var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
+    PredictiveBackHandler(enabled = visible) { events ->
+        try {
+            events.collect { event ->
+                predictiveBackProgress = event.progress.coerceIn(0f, 1f)
+            }
+            // Keep the final gesture frame in place while visibility is
+            // committed. AnimatedVisibility can then dispose an already
+            // departed surface instead of restarting its exit from rest.
+            predictiveBackProgress = 1f
+            onDismiss()
+        } catch (cancelled: CancellationException) {
+            val start = predictiveBackProgress
+            animate(
+                initialValue = start,
+                targetValue = 0f,
+                animationSpec = CalinoMotion.gestureReturn(),
+            ) { value, _ -> predictiveBackProgress = value }
+            throw cancelled
+        }
+    }
+    LaunchedEffect(visible) {
+        if (visible) predictiveBackProgress = 0f
+    }
     var mounted by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { mounted = true }
 
@@ -355,7 +380,7 @@ fun AdaptiveSurfaceHost(
         val backdropLayer = rememberGraphicsLayer()
         var backdropOrigin by remember { mutableStateOf(Offset.Zero) }
         StatusBarScrimExtension(
-            color = CalinoColors.scrim(scrimProgress),
+            color = CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress)),
             modifier = Modifier.align(Alignment.TopStart),
         )
         Box(
@@ -370,7 +395,7 @@ fun AdaptiveSurfaceHost(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(CalinoColors.scrim(scrimProgress))
+                .background(CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress)))
                 .clickable(enabled = visible, onClick = onDismiss)
                 .semantics { this.contentDescription = contentDescription },
         )
@@ -389,10 +414,19 @@ fun AdaptiveSurfaceHost(
             Box(Modifier.fillMaxSize()) {
                 Box(
                     panelModifier.graphicsLayer {
-                        translationX = dismissDrag.offsetX
-                        translationY = dismissDrag.offsetY
+                        val predictiveX = when (mode) {
+                            CalinoSurfaceMode.EndPanel -> size.width * predictiveBackProgress
+                            else -> 0f
+                        }
+                        val predictiveY = when (mode) {
+                            CalinoSurfaceMode.BottomSheet -> size.height * predictiveBackProgress
+                            CalinoSurfaceMode.FloatingWindow -> size.height * .09f * predictiveBackProgress
+                            else -> 0f
+                        }
+                        translationX = dismissDrag.offsetX + predictiveX
+                        translationY = dismissDrag.offsetY + predictiveY
                         dismissDrag.recordApplied(dismissDrag.offsetX, dismissDrag.offsetY)
-                        val settling = dismissDrag.progress
+                        val settling = maxOf(dismissDrag.progress, predictiveBackProgress)
                         alpha = 1f - settling * .14f
                         scaleX = 1f - settling * .018f
                         scaleY = 1f - settling * .018f

@@ -1,9 +1,10 @@
 package calino.malinov.ski.ui.surfaces
 
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -61,6 +63,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
 
 private val SearchDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
 
@@ -85,6 +89,7 @@ fun CalinoSearchSheet(
         searchCalino(snapshot, query, baseDate, contactsEnabled = contactsEnabled, options = options)
     }
     val duration = CalinoMotion.SurfaceFadeMillis
+    var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
     fun requestClose() { closeRequest += 1 }
 
     LaunchedEffect(Unit) {
@@ -101,7 +106,20 @@ fun CalinoSearchSheet(
             onDismiss()
         }
     }
-    BackHandler(onBack = ::requestClose)
+    PredictiveBackHandler { events ->
+        try {
+            events.collect { predictiveBackProgress = it.progress.coerceIn(0f, 1f) }
+            predictiveBackProgress = 1f
+            requestClose()
+        } catch (cancelled: CancellationException) {
+            animate(
+                predictiveBackProgress,
+                0f,
+                animationSpec = CalinoMotion.gestureReturn(),
+            ) { value, _ -> predictiveBackProgress = value }
+            throw cancelled
+        }
+    }
 
     Dialog(
         onDismissRequest = ::requestClose,
@@ -146,11 +164,26 @@ fun CalinoSearchSheet(
         val capsuleFill by animateColorAsState(if (expanded) CalinoColors.Panel else CalinoColors.FloatFill, tween(duration), label = "search capsule fill")
 
         AnimatedVisibility(expanded, enter = fadeIn(tween(duration)), exit = fadeOut(tween(duration))) {
-            Box(Modifier.fillMaxSize().background(CalinoColors.scrim(.18f)).clickable(onClick = ::requestClose))
+            Box(
+                Modifier.fillMaxSize()
+                    .graphicsLayer { alpha = 1f - predictiveBackProgress }
+                    .background(CalinoColors.scrim(.18f))
+                    .clickable(onClick = ::requestClose),
+            )
         }
         val searchContent: @Composable (Modifier) -> Unit = { dragModifier ->
             Surface(
-                modifier = dragModifier.width(capsuleWidth).height(capsuleHeight).clickable(onClick = {}),
+                modifier = dragModifier
+                    .width(capsuleWidth)
+                    .height(capsuleHeight)
+                    .graphicsLayer {
+                        translationY = size.height * .09f * predictiveBackProgress
+                        val predictiveScale = 1f - .06f * predictiveBackProgress
+                        scaleX = predictiveScale
+                        scaleY = predictiveScale
+                        alpha = 1f - .14f * predictiveBackProgress
+                    }
+                    .clickable(onClick = {}),
                 shape = RoundedCornerShape(capsuleRadius),
                 color = capsuleFill,
                 shadowElevation = if (CalinoColors.elevationAlpha > 0f) 14.dp else 0.dp,

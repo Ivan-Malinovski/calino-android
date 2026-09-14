@@ -4,6 +4,27 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Predictive back — 2026-09-14
+
+System edge-back now follows the finger wherever Calino owns back navigation.
+Calendar zoom consumes platform progress directly in the existing zoom state;
+adaptive detail/editor surfaces translate, scale and fade their scrim through
+their shared host; sidebar and search reuse their existing dismissal geometry;
+and root destinations track the gesture before committing without restarting
+the standard route animation. Root back keeps the actual return destination
+mounted beneath the outgoing route and follows Android's 100-to-90% exit,
+110-to-100% entrance, 35% fade-through, and decelerated progress guidance;
+it no longer exposes the bare Canvas. Cancelled gestures use the shared
+gesture-return spring. Nested journal, contact and preview callbacks that
+duplicated the adaptive host were removed so only one component owns the
+system back stream.
+
+Validated with `test lintDebug assembleDebug`, the 24 focused tests in
+`CalendarZoomMorphTest`, `ModalDismissalTest` and `NavigationDestinationsTest`
+on the API 36 emulator, and frame inspection of slow completed and cancelled
+sidebar and root-route edge gestures. The verified debug APK was installed on
+the approved Samsung phone for user motion review.
+
 ### Calino product name — 2026-09-14
 
 The launcher/application label is now simply `Calino`, backed by the shared

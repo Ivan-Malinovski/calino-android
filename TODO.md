@@ -479,3 +479,174 @@ Preferences are device-local `SharedPreferences`. The web app syncs them
 opt-in through a dedicated hidden calendar on the user's own server; the format
 is documented in the web repo at `docs/CALINOSETTINGSSYNC.md`. Match that
 format rather than inventing one, and keep it opt-in and off by default.
+
+---
+
+## Android platform integration backlog
+
+This is a separate, priority-ordered list of Android-specific work. It does not
+renumber or silently reorder the product backlog above. Work these items one at
+a time, with the same review and emulator protocol as the main list. Calendar
+Provider integration is a deliberate exception only after its product and data
+ownership implications have been reviewed; it must not become an accidental
+second synchronization path.
+
+### Android 1. Predictive-back transitions
+
+The manifest opts into predictive back, but Calino's custom navigation and
+transient surfaces currently use ordinary Compose `BackHandler` callbacks. A
+system back gesture therefore commits the navigation without letting Calino's
+own motion follow the finger.
+
+- Use `PredictiveBackHandler` where Calino owns back: the sidebar, search,
+  detail/editor surfaces, journal and contact modals, calendar zoom levels, and
+  root route changes.
+- Drive the existing surface offset, scrim, scale, and reveal state from the
+  platform gesture's progress. A cancelled gesture must return through the
+  existing gesture-return motion; a completed gesture must hand off cleanly to
+  the existing exit transition without restarting or jumping.
+- Preserve pointer ownership. System edge-back must not fight horizontal
+  calendar paging, vertical zoom, or a modal's own downward-dismiss gesture.
+- Keep plain `BackHandler` behavior as the compatibility path where predictive
+  progress is unavailable.
+- Add device coverage for completion and cancellation, and inspect slow edge
+  drags on the API 36 emulator for blank frames, double animation, clipping,
+  and route changes that commit before the visual transition.
+
+In Calino, this lets a person peek back from an event editor to its detail,
+from detail to the originating day or range, close the sidebar or search, and
+collapse calendar zoom levels with the surface visibly tracking their Android
+back gesture.
+
+**Status 2026-09-14 — [x] done.** Predictive progress now belongs to the same
+owners as each existing interaction: the calendar writes the live back fraction
+straight into its zoom continuum; `AdaptiveSurfaceHost` drives modal travel,
+scale and scrim; and the sidebar, search capsule and root route host expose
+their existing geometry to `PredictiveBackHandler`. Cancellation returns with
+`CalinoMotion.gestureReturn()`. Completion retains the final gesture frame and
+commits without replaying the ordinary exit transition from rest. The Activity
+1.11 handler supplies the ordinary callback path on Android versions where
+predictive progress is unavailable.
+
+Root transitions keep their real return destination composed beneath the
+outgoing surface and use the Android design guide's decelerated 100-to-90% /
+110-to-100% scale plus 35% fade-through. They therefore preview Calendar (or
+the actual Settings/Accounts origin) instead of revealing the bare Canvas.
+
+Redundant editor/detail handlers were removed so they cannot steal ownership
+from their shared adaptive host. Validated with `test lintDebug assembleDebug`,
+24 focused calendar/modal/navigation device tests, and API 36 emulator frame
+inspection of a 2.5-second sidebar edge drag plus a cancelled edge drag. The
+same debug APK was installed on the approved physical phone for hands-on motion
+review.
+
+### Android 2. Background CalDAV/CardDAV sync
+
+Connected accounts currently refresh on app-driven paths rather than through a
+persistent Android background schedule. Reminders and widgets can consequently
+remain based on old cached data until Calino runs again, and offline writes can
+wait unnecessarily for a foreground refresh.
+
+- Use unique, network-constrained WorkManager work for periodic incremental
+  CalDAV and CardDAV sync. Keep the cadence honest and configurable rather than
+  presenting it as exact; Android decides when periodic work actually runs.
+- Enqueue an immediate constrained retry after an offline write and when other
+  in-scope triggers establish that cached data needs reconciliation. Coalesce
+  work so opening Calino, a manual refresh, and a worker cannot run competing
+  refreshes.
+- Restore the account and encrypted credential through `CalinoContainer`; do
+  not construct parallel stores, queues, caches, or repositories in a worker.
+- Replay the durable queue using all existing conditional-write, rebase,
+  dead-letter, and move-cleanup rules, then perform incremental reads.
+- After a changed snapshot, re-plan reminder alarms and update every widget.
+  Surface the last background attempt and Android restrictions without turning
+  expected WorkManager delay into an error.
+- Resolve main backlog item 8's fetch-window policy as part of the design: a
+  background refresh of the same fixed window must not imply that older search
+  results or distant widget records are complete.
+
+In Calino, a server-side meeting change can update the agenda widget and its
+local alarm before the app is opened, while a task completed offline can leave
+the durable queue as soon as network access returns.
+
+### Android 3. Launcher shortcuts
+
+Calino only publishes the optional AI photo-import dynamic shortcut. Add
+stable, non-sensitive entry points for the actions people repeat most often.
+
+- Provide launcher shortcuts for Quick Add, Today, New event, New task, and
+  Search, respecting the launcher's supported shortcut count and ranking the
+  most useful actions first.
+- Route every shortcut through the existing single-activity intent handling and
+  return-target model. Reusing an existing Activity must not discard an open
+  draft or create a duplicate navigation stack.
+- Let a person explicitly pin a chosen view or calendar only if its identifier
+  remains stable. Disable or update pinned shortcuts when their destination is
+  removed, renamed, hidden, or loses access.
+- Keep titles and icons free of event, task, contact, or account details because
+  shortcut metadata is visible to the launcher.
+- Republish dynamic shortcuts after restore or upgrade and report usage so the
+  launcher can rank relevant actions.
+
+In Calino, long-pressing the launcher icon can jump straight into today's
+agenda, a blank event or task editor, Quick Add, or search instead of opening
+the last-used surface and navigating from there.
+
+### Android 4. Calendar Provider and system-account integration
+
+Calino's CalDAV calendars are private to Calino. They do not appear through
+Android's `CalendarContract`, so other calendar clients, system surfaces, and
+apps that read the device calendar cannot use them. Full integration would make
+Calino an Android calendar-account provider, not merely add another intent.
+
+- Begin with a product and architecture review covering account ownership,
+  permission disclosure, expected interoperability, and whether Calino or the
+  Android provider is authoritative for each local row.
+- If approved, add an account authenticator and sync-adapter projection for
+  Calino-owned accounts and calendars. Use stable mappings among Android row
+  IDs, CalDAV hrefs, UIDs, recurrence identities, and ETags.
+- Preserve Calino's existing conditional writes, three-way rebase, recurrence
+  patching, durable offline queue, move ordering, and foreign-property rules.
+  Provider edits must enter that same pipeline rather than bypass it.
+- Prevent feedback loops, duplicate calendars, duplicate alarms, and duplicate
+  writes when both Calino and another Android calendar client touch a record.
+- Define how tasks, journals, contacts, unsupported iCalendar properties, and
+  local fixture data behave; do not silently flatten or discard data the
+  Android provider cannot represent.
+- Make the feature explicit and reversible. Removing the Android account must
+  have a documented effect on Calino credentials, cached resources, queued
+  writes, and server data before implementation begins.
+
+In Calino, an opted-in CalDAV calendar could appear in Android's system calendar
+store, allowing another calendar app or an Android calendar picker to display
+and edit it while Calino remains responsible for safe synchronization with the
+CalDAV server.
+
+### Android 5. AppSearch and AppFunctions
+
+Calino has good in-app search, but downloaded records and safe actions are not
+available to Android's system search or approved agentic surfaces.
+
+- First index the locally available event, task, journal, and contact models in
+  AppSearch. Update or remove documents transactionally when a sync, local
+  mutation, calendar-visibility change, or account removal changes the
+  snapshot.
+- Default to app-private search. Any platform-visible schema or result must be
+  separately reviewed for lock-screen exposure, work-profile boundaries,
+  contact privacy, hidden calendars, and journal sensitivity.
+- Deep-link results back to the exact record and originating date using the
+  existing reminder/widget link resolution rather than creating another
+  identity scheme.
+- After the index and privacy model are proven, evaluate AppFunctions for
+  reviewed actions such as creating an event or task, opening today's agenda,
+  and searching downloaded records.
+- Agent-created changes must show a confirmation or review surface when input
+  is ambiguous and must write through `CalinoRepository` and its durable queue.
+  Never expose credentials, raw cached calendar/vCard text, or unbounded remote
+  search through an app function.
+- State result completeness honestly: AppSearch covers downloaded data and
+  remains limited by main backlog item 8 until fetch-window paging is solved.
+
+In Calino, Android search could take a person directly to a downloaded event or
+task, while an approved system agent could prepare “Dentist next Tuesday at
+10” in Calino's existing editor for confirmation and safe queued creation.

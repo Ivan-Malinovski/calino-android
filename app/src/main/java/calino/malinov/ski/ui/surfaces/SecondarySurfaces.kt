@@ -681,7 +681,6 @@ fun EventDetailSurface(
             shown = false
         }
     }
-    BackHandler(enabled = shown) { closeAfterAnimation(onBack) }
 
     val pager = rememberPagerState(
         initialPage = events.indexOfFirst { it.id == event.id }.coerceAtLeast(0),
@@ -1208,7 +1207,6 @@ fun TaskDetailSurface(
         pendingSave = save
         shown = false
     }
-    BackHandler(enabled = shown) { dismiss(false) }
 
     BottomDetailCard(
         visible = shown,

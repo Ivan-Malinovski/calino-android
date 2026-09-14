@@ -1,7 +1,7 @@
 package calino.malinov.ski.ui.home
 
 import android.os.Build
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -1177,8 +1177,24 @@ fun HomeScreen(
         }
     }
 
-    BackHandler(enabled = interactionEnabled && settledZoom > .01f) {
-        animateZoomTo(if (settledZoom.roundToInt() >= 2) 1f else 0f)
+    PredictiveBackHandler(enabled = interactionEnabled && settledZoom > .01f) { events ->
+        cancelMotion()
+        val start = settledZoom
+        val target = if (start.roundToInt() >= 2) 1f else 0f
+        try {
+            events.collect { event ->
+                zoomState.floatValue = androidx.compose.ui.util.lerp(
+                    start,
+                    target,
+                    event.progress.coerceIn(0f, 1f),
+                )
+            }
+            zoomState.floatValue = target
+            settledZoom = target
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            animateZoomTo(start)
+            throw cancelled
+        }
     }
 
     // Landscape on a wide window is a different layout, not a wider version

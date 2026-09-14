@@ -3,7 +3,6 @@ package calino.malinov.ski.ui.surfaces
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -648,7 +647,6 @@ private fun ContactEditor(
             ))
         }
     }
-    BackHandler(onBack = ::dismiss)
 
     BottomDetailCard(
         visible = shown,
