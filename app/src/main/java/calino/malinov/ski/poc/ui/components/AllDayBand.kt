@@ -67,7 +67,8 @@ import java.time.LocalDate
 enum class AllDayBandDensity { Narrow, Wide }
 
 private val NarrowLaneHeight = 28.dp
-private val WideLaneHeight = 44.dp
+private val WideLaneHeight = 22.dp
+private val WideChipMinWidth = 150.dp
 private val NarrowChipFontSize = 9.sp
 private val WideChipFontSize = 13.sp
 
@@ -139,20 +140,58 @@ fun AllDayBand(
                 val columnWidth = available / columnCount
                 val laneHeightPx = laneHeight.roundToPx()
                 val rowGapPx = rowGap.roundToPx()
-                val totalHeight = laneHeightPx * laneCount + rowGapPx * (laneCount - 1).coerceAtLeast(0)
 
-                val placed = measurables.mapIndexed { index, measurable ->
-                    val placement = layout.placements[index]
-                    val cols = (placement.endColumn - placement.startColumn + 1).coerceAtLeast(1)
-                    val width = (columnWidth * cols + gapPx * (cols - 1)).coerceAtLeast(0)
-                    measurable.measure(Constraints.fixed(width, laneHeightPx)) to placement
-                }
+                if (density == AllDayBandDensity.Wide) {
+                    // A single day is one column, but a whole phone's width --
+                    // once chips are this short, stacking every lane full-width
+                    // wastes most of it. Pack lanes two to a row instead
+                    // whenever there's room for a second chip beside the
+                    // first; a lone item left over on the last row still
+                    // spans the full width rather than sitting stranded at
+                    // half width.
+                    val itemCount = layout.placements.size
+                    val itemsPerRow = (available / WideChipMinWidth.roundToPx().coerceAtLeast(1)).coerceIn(1, 2)
+                    val rowCount = if (itemsPerRow > 0) (itemCount + itemsPerRow - 1) / itemsPerRow else 0
+                    val rowCellWidth = IntArray(rowCount) { row ->
+                        val isLast = row == rowCount - 1
+                        val count = if (isLast) itemCount - row * itemsPerRow else itemsPerRow
+                        if (count <= 0) available else ((available - gapPx * (count - 1)) / count).coerceAtLeast(0)
+                    }
+                    val totalHeight = laneHeightPx * rowCount + rowGapPx * (rowCount - 1).coerceAtLeast(0)
 
-                layout(constraints.maxWidth, totalHeight) {
-                    placed.forEach { (placeable, placement) ->
-                        val x = gutterPx + placement.startColumn * (columnWidth + gapPx)
-                        val y = placement.lane * (laneHeightPx + rowGapPx)
-                        placeable.placeRelative(x, y)
+                    val placed = measurables.mapIndexed { index, measurable ->
+                        val placement = layout.placements[index]
+                        val row = placement.lane / itemsPerRow
+                        val cellWidth = rowCellWidth.getOrElse(row) { available }
+                        measurable.measure(Constraints.fixed(cellWidth, laneHeightPx)) to (placement to row)
+                    }
+
+                    layout(constraints.maxWidth, totalHeight) {
+                        placed.forEach { (placeable, pair) ->
+                            val (placement, row) = pair
+                            val col = placement.lane % itemsPerRow
+                            val cellWidth = rowCellWidth.getOrElse(row) { available }
+                            val x = gutterPx + col * (cellWidth + gapPx)
+                            val y = row * (laneHeightPx + rowGapPx)
+                            placeable.placeRelative(x, y)
+                        }
+                    }
+                } else {
+                    val totalHeight = laneHeightPx * laneCount + rowGapPx * (laneCount - 1).coerceAtLeast(0)
+
+                    val placed = measurables.mapIndexed { index, measurable ->
+                        val placement = layout.placements[index]
+                        val cols = (placement.endColumn - placement.startColumn + 1).coerceAtLeast(1)
+                        val width = (columnWidth * cols + gapPx * (cols - 1)).coerceAtLeast(0)
+                        measurable.measure(Constraints.fixed(width, laneHeightPx)) to placement
+                    }
+
+                    layout(constraints.maxWidth, totalHeight) {
+                        placed.forEach { (placeable, placement) ->
+                            val x = gutterPx + placement.startColumn * (columnWidth + gapPx)
+                            val y = placement.lane * (laneHeightPx + rowGapPx)
+                            placeable.placeRelative(x, y)
+                        }
                     }
                 }
             }
