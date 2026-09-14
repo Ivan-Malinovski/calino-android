@@ -34,8 +34,7 @@ Credentials are `calino` / `calinopass`, throwaway and local. Override with
 
 ```bash
 eval "$(scripts/live-caldav/radicale.sh env)"
-distrobox enter android-sdk -- bash -lc \
-  './gradlew :app:testDebugUnitTest --tests "*LiveTest*"'
+./gradlew :app:testDebugUnitTest --tests "*LiveTest*"
 ```
 
 Without those variables the live tests skip themselves, which is why the suite

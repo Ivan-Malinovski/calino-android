@@ -1,7 +1,7 @@
 # Run after installing the debug APK on the API 36 emulator.
 # Uses only the emulator; never selects a physical ADB device.
 import subprocess, xml.etree.ElementTree as ET, re
-ADB = ['distrobox','enter','android-sdk','--','/opt/android-sdk/platform-tools/adb','-s','emulator-5554']
+ADB = ['adb','-s','emulator-5554']
 def adb(*args):
     return subprocess.check_output(ADB + list(args))
 def dump():

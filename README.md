@@ -56,7 +56,7 @@ Notifications screen inside the app:
 From the repository root:
 
 ```bash
-distrobox enter android-sdk -- bash -lc './gradlew assembleDebug'
+./gradlew assembleDebug
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -82,5 +82,5 @@ recurrence behavior, zoom rest-state/selected-date continuity, and task bucket
 rules. Run them with:
 
 ```bash
-distrobox enter android-sdk -- bash -lc './gradlew test'
+./gradlew test
 ```
