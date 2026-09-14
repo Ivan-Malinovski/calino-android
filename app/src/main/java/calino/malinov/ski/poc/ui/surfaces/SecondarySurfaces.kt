@@ -140,6 +140,7 @@ import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
 import calino.malinov.ski.poc.design.CalinoColors
+import calino.malinov.ski.poc.design.CalinoMotion
 import calino.malinov.ski.poc.state.FixtureNow
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
@@ -450,7 +451,7 @@ fun DayModalSurface(
             animate(
                 initialValue = 0f,
                 targetValue = 1f,
-                animationSpec = spring(dampingRatio = .86f, stiffness = 420f),
+                animationSpec = CalinoMotion.gestureReturn(),
             ) { value, _ ->
                 dragX = startX + (targetX - startX) * value
                 dragY = startY + (targetY - startY) * value

@@ -3,7 +3,6 @@ package calino.malinov.ski.poc.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -223,7 +222,7 @@ fun NavSidebar(
                                 } else {
                                     animationJob?.cancel()
                                     animationJob = scope.launch {
-                                        animate(dragX, 0f, animationSpec = spring(dampingRatio = .86f, stiffness = 420f)) { value, _ -> dragX = value }
+                                        animate(dragX, 0f, animationSpec = CalinoMotion.gestureReturn()) { value, _ -> dragX = value }
                                         animationJob = null
                                     }
                                 }

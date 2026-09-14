@@ -1,5 +1,8 @@
 package calino.malinov.ski.poc.design
 
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -361,7 +364,15 @@ val CalinoTypography = Typography(
     labelSmall = TextStyle(fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, lineHeight = 12.sp, letterSpacing = 1.2.sp),
 )
 
-/** Shared timings for the restrained, editorial motion language. */
+/**
+ * Shared specifications for Calino's restrained, editorial motion language.
+ *
+ * Effects such as color and alpha keep fixed timings. Spatial movement uses
+ * springs so an interrupted state change carries its velocity into the new
+ * target. Expressive motion is reserved for small, prominent feedback; the
+ * standard spring never overshoots, and gesture return preserves the existing
+ * cancelled-drag feel.
+ */
 object CalinoMotion {
     const val PressMillis = 90
     const val FadeThroughMillis = 120
@@ -384,6 +395,21 @@ object CalinoMotion {
      * hinge has stopped.
      */
     const val FoldMorphMillis = 320
+
+    fun <T> expressiveSpatial(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = .78f,
+        stiffness = 520f,
+    )
+
+    fun <T> standardSpatial(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+
+    fun <T> gestureReturn(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = .86f,
+        stiffness = 420f,
+    )
 }
 
 @Composable

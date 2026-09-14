@@ -400,7 +400,7 @@ fun SwipeDownDismiss(
             animate(
                 initialValue = dragY,
                 targetValue = target,
-                animationSpec = spring(dampingRatio = .86f, stiffness = 420f),
+                animationSpec = CalinoMotion.gestureReturn(),
             ) { value, _ -> publish(value) }
             publish(target)
             animationJob = null
@@ -853,8 +853,10 @@ private fun TaskCheckbox(checked: Boolean, color: Color, modifier: Modifier, cir
         // whole read as two events: the box colouring, then a mark landing.
         AnimatedVisibility(
             visible = checked,
-            enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + scaleIn(tween(CalinoMotion.ContentEnterMillis), initialScale = .7f),
-            exit = fadeOut(tween(CalinoMotion.FadeThroughMillis)) + scaleOut(tween(CalinoMotion.FadeThroughMillis), targetScale = .7f),
+            enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) +
+                scaleIn(CalinoMotion.expressiveSpatial(), initialScale = .7f),
+            exit = fadeOut(tween(CalinoMotion.FadeThroughMillis)) +
+                scaleOut(CalinoMotion.standardSpatial(), targetScale = .7f),
         ) {
             CalinoIcon(CalinoIcon.Check, tint = CalinoColors.OnAccent, modifier = Modifier.fillMaxSize().padding(2.dp), contentDescription = null)
         }
@@ -1548,7 +1550,7 @@ fun CompactSegmentedControl(
         val segmentWidth = availableWidth / options.size
         val indicatorOffset by animateDpAsState(
             targetValue = (segmentWidth + gap) * safeSelected,
-            animationSpec = tween(CalinoMotion.ContentEnterMillis),
+            animationSpec = CalinoMotion.expressiveSpatial(),
             label = "segmented selection position",
         )
 

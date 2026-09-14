@@ -14,6 +14,22 @@ collapse share one 44dp header; the former standalone Today and month-heading
 rows are gone. All dates and controls retain 44dp interaction lanes and
 explicit semantics.
 
+### Restrained expressive motion pilot — 2026-09-14
+
+`CalinoMotion` now names spatial behavior as well as effect timings. Small,
+prominent feedback may use the restrained `expressiveSpatial` spring; routine
+spatial changes use the non-overshooting `standardSpatial` spring; cancelled
+drags share `gestureReturn`, preserving their previous physics. Color, alpha,
+scrim, route and accepted-dismissal transitions remain duration-based.
+
+The first visible pilot applies the expressive spring only to the shared task
+checkmark entering and the compact segmented indicator moving. Their layout
+bounds stay fixed, removal does not overshoot, and rapid reversals remain
+interruptible. Calendar zoom, paging, headings, date geometry and multi-frame
+handoffs are deliberately unchanged: those paths remain driven by their live
+gesture/pager owner and must not gain independent animation clocks. The
+add-pill/modal morph is also unchanged pending a separate hero-motion review.
+
 ### Parchment navigation sidebar — 2026-09-14
 
 The root navigation sidebar now uses the warm `Canvas` step as its light-theme

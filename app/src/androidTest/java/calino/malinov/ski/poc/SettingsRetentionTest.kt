@@ -56,6 +56,16 @@ class SettingsRetentionTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("First day of week: Sunday").performScrollTo().assertIsSelected()
     }
 
+    /** A second selection interrupts the indicator spring without delaying state. */
+    @Test fun aSegmentedChoiceCanReverseWhileMoving() {
+        openSettingsSection(Calendar)
+        compose.onNodeWithContentDescription("First day of week: Sunday").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("First day of week: Monday").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("First day of week: Monday").assertIsSelected()
+    }
+
     @Test fun aGridToggleHoldsAcrossNavigation() {
         openSettingsSection(Calendar)
         val hideCompleted = { compose.onNodeWithContentDescription("Hide completed tasks toggle") }

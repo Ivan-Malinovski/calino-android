@@ -55,6 +55,18 @@ class TaskInteractionTest : CalinoUiTest() {
         assertFalse(compose.hasDescribedNode("$Task, completed"))
     }
 
+    /** Completion feedback may still be settling when Undo reverses the state. */
+    @Test fun completionCanBeReversedImmediately() {
+        compose.openRoute("Tasks")
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Complete $Task").performClick()
+        compose.onNodeWithContentDescription("Undo completing $Task").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Complete $Task").assertIsDisplayed()
+        assertFalse(compose.hasDescribedNode("$Task, completed"))
+    }
+
     /**
      * The window closes on its own after five seconds. Waited out rather than
      * asserted away, because "the banner eventually leaves" is the behaviour
