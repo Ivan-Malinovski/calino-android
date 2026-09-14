@@ -443,9 +443,16 @@ fun SwipeDownDismiss(
             // LazyColumn/TextField, while taps and upward child scrolling keep
             // their normal behavior. We only consume after the axis is clear.
             awaitEachGesture {
+                // Positions come back relative to this node, which the host
+                // is translating under the finger. Adding the translation
+                // actually in effect back in leaves a stationary space to
+                // measure against, the way the node itself used to be.
+                fun steady(position: Offset) =
+                    if (hostDrag == null) position else position + Offset(0f, hostDrag.appliedY)
+
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val pointerId = down.id
-                var lastPosition = down.position
+                var lastPosition = steady(down.position)
                 var totalX = 0f
                 var totalY = 0f
                 var vertical = false
@@ -466,8 +473,9 @@ fun SwipeDownDismiss(
                         break
                     }
 
-                    val amount = change.position - lastPosition
-                    lastPosition = change.position
+                    val position = steady(change.position)
+                    val amount = position - lastPosition
+                    lastPosition = position
                     totalX += amount.x
                     totalY += amount.y
                     if (!axisDecided && (abs(totalX) > axisThresholdPx || abs(totalY) > axisThresholdPx)) {

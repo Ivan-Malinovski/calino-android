@@ -109,6 +109,30 @@ class CalinoSurfaceDismissDrag {
     /** 0..1 toward the full dismissal distance; drives the fade and shrink. */
     var progress by mutableFloatStateOf(0f)
 
+    /**
+     * The translation the host's layer is actually carrying, recorded as the
+     * layer block runs.
+     *
+     * Moving the panel moves the gesture node inside it, so the pointer
+     * positions the primitive reads are measured against an origin that is
+     * itself chasing the finger -- which is the pixel vibration that
+     * translating the card in place was written to avoid. The primitive adds
+     * these back toevery position to work in a space that does not move. It has
+     * to be what the layer is carrying rather than what was last written:
+     * hit testing uses the transform from the last layer update, and a value
+     * written during this very event is not in effect yet.
+     */
+    var appliedX = 0f
+        private set
+    var appliedY = 0f
+        private set
+
+    /** Called from the host's layer block with the values it is applying. */
+    fun recordApplied(x: Float, y: Float) {
+        appliedX = x
+        appliedY = y
+    }
+
     fun clear() {
         offsetX = 0f
         offsetY = 0f
@@ -336,6 +360,7 @@ fun AdaptiveSurfaceHost(
                     panelModifier.graphicsLayer {
                         translationX = dismissDrag.offsetX
                         translationY = dismissDrag.offsetY
+                        dismissDrag.recordApplied(dismissDrag.offsetX, dismissDrag.offsetY)
                         val settling = dismissDrag.progress
                         alpha = 1f - settling * .14f
                         scaleX = 1f - settling * .018f
@@ -515,16 +540,24 @@ fun SwipeEndDismiss(
     val gestureModifier = Modifier.pointerInput(visible, dismissing, layoutDirection, allowDownwardDismiss) {
         if (visible && !dismissing) {
             awaitEachGesture {
+                // See [SwipeDownDismiss]: measure against the translation the
+                // host is carrying, not against a node moving with the finger.
+                fun steady(position: Offset) = if (hostDrag == null) {
+                    position
+                } else {
+                    position + Offset(hostDrag.appliedX, hostDrag.appliedY)
+                }
+
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val pointerId = down.id
-                var lastPosition = down.position
+                var lastPosition = steady(down.position)
                 var totalX = 0f
                 var totalY = 0f
                 var horizontal = false
                 var vertical = false
                 var axisDecided = false
                 var completed = false
-                val allowedAtDown = currentCanStartDismiss(down.position)
+                val allowedAtDown = currentCanStartDismiss(steady(down.position))
                 val downwardAllowedAtDown = allowDownwardDismiss
                 val startDistance = dragDistance
                 val startDownDistance = dragDownDistance
@@ -538,8 +571,9 @@ fun SwipeEndDismiss(
                         break
                     }
 
-                    val amount = change.position - lastPosition
-                    lastPosition = change.position
+                    val position = steady(change.position)
+                    val amount = position - lastPosition
+                    lastPosition = position
                     totalX += amount.x
                     totalY += amount.y
                     if (!axisDecided && (abs(totalX) > axisThresholdPx || abs(totalY) > axisThresholdPx)) {
