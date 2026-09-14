@@ -94,6 +94,34 @@ class NavigationDestinationsTest : CalinoUiTest() {
             .assertHeightIsAtLeast(MinimumTouchLane)
     }
 
+    @Test fun miniCalendarControlsKeepTheMinimumTouchLane() {
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+
+        listOf("Previous month in sidebar", "Next month in sidebar", "Go to today in sidebar").forEach { description ->
+            compose.onNodeWithContentDescription(description)
+                .assertIsDisplayed()
+                .assertHeightIsAtLeast(MinimumTouchLane)
+        }
+        compose.onNodeWithContentDescription("Monday, May 18, 2026")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(MinimumTouchLane)
+    }
+
+    @Test fun miniCalendarNavigatesMonthsAndReturnsToToday() {
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Previous month in sidebar").performClick()
+        compose.onNodeWithText("April 2026").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Next month in sidebar").performClick()
+        compose.onNodeWithText("May 2026").assertIsDisplayed()
+
+        compose.onNodeWithContentDescription("Go to today in sidebar").performClick()
+        compose.onNodeWithText("September 2026").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Monday, September 14, 2026").assertIsDisplayed()
+    }
+
     @Test fun returningToTheCalendarRestoresIt() {
         compose.openRoute("Tasks")
         compose.waitForIdle()

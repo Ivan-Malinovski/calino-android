@@ -4,6 +4,21 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Parchment navigation sidebar — 2026-09-14
+
+The root navigation sidebar now uses the warm `Canvas` step as its light-theme
+shell, with the mini calendar retained as a paper `Panel`. Views and Organize
+are separate matching `Side` panels with a hairline divider between them;
+Settings uses the same panel treatment. Dark mode keeps the flat
+`Panel`/`Side` elevation hierarchy. Selected-row color, icon and rail changes
+share the standard content timing, and the rail now grows into place instead
+of appearing abruptly.
+
+The mini calendar keeps its compact 26dp painted date circles but now gives
+dates, month arrows and Today at least 44dp interaction lanes. The arrows and
+Today action also expose explicit sidebar-specific accessibility descriptions.
+Device coverage pins the control bounds and previous/next/Today navigation.
+
 ### Event location actions — 2026-09-14
 
 The event preview/detail sheet now exposes a compact map-pin action at the far
