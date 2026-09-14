@@ -3712,8 +3712,10 @@ private fun StaticMonthGrid(
                         cellTop + dateTopPaddingPx + if (zoom <= 1f) hingeOffset else 0f
                     }
                 }
+                // The letters exist at both endpoints, so they travel rather
+                // than fade: this row is the one element the unfold never
+                // reveals or hides.
                 fun drawWeekdayHeadings() {
-                    val headingReveal = monthUnfoldPhase(unfoldZoom, .08f, .28f)
                     weekdayLetters(weekStart).forEachIndexed { column, _ ->
                         val layout = weekdayLayouts[column]
                         drawText(
@@ -3726,7 +3728,6 @@ private fun StaticMonthGrid(
                             color = faded(
                                 lerpColor(colors.Ink3, colors.OnSelection,
                                     (1f - abs(compactSelectorIndex - column)).coerceIn(0f, 1f) * compactProgress),
-                                headingReveal,
                             ),
                         )
                     }
