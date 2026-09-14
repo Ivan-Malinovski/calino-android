@@ -294,7 +294,7 @@ END:VCALENDAR
     }
 
     @Test
-    fun `recurring tasks are rejected before any request can rewrite the group`() = runBlocking {
+    fun `recurring task preparation patches the cached group conditionally`() = runBlocking {
         val calendar = calendar()
         val href = server.url("/cal/task.ics").toString()
         cache.save(
@@ -322,23 +322,23 @@ END:VCALENDAR
             ),
         )
 
-        val failure = runCatching {
-            CalDavWriter(cache = cache).prepareTask(
-                calendar,
-                CalTask(
-                    id = "task:1",
-                    uid = "task:1",
-                    title = "Updated",
-                    color = 0L,
-                    due = LocalDate.of(2030, 1, 2),
-                    href = href,
-                    etag = "task-version",
-                ),
-            )
-        }.exceptionOrNull()
+        val prepared = CalDavWriter(cache = cache).prepareTask(
+            calendar,
+            CalTask(
+                id = "task:1",
+                uid = "task:1",
+                title = "Updated",
+                color = 0L,
+                due = LocalDate.of(2030, 1, 2),
+                href = href,
+                etag = "task-version",
+            ),
+        )
 
-        assertTrue(failure is CalDavException)
-        assertTrue((failure as CalDavException).message.contains("Recurring tasks are read-only"))
+        assertEquals(DavPrecondition.Match("task-version"), prepared.precondition)
+        assertTrue(prepared.body.contains("SUMMARY:Updated"))
+        assertTrue(prepared.body.contains("RRULE:FREQ=DAILY"))
+        assertTrue(prepared.body.contains("DTSTART;VALUE=DATE:20300102"))
         assertEquals(0, server.requestCount)
     }
 

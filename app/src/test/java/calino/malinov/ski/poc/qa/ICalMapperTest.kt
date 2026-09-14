@@ -34,6 +34,48 @@ class ICalMapperTest {
     private val mapper = ICalMapper(zone)
 
     @Test
+    fun `recurring VTODO expands and detached completion replaces its occurrence`() {
+        val tasks = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTODO
+            UID:gym
+            DTSTART;VALUE=DATE:20260303
+            DUE;VALUE=DATE:20260303
+            SUMMARY:Exercise
+            RRULE:FREQ=WEEKLY;BYDAY=TU
+            STATUS:NEEDS-ACTION
+            PERCENT-COMPLETE:25
+            PRIORITY:2
+            END:VTODO
+            BEGIN:VTODO
+            UID:gym
+            DTSTART;VALUE=DATE:20260310
+            DUE;VALUE=DATE:20260310
+            RECURRENCE-ID;VALUE=DATE:20260310
+            SUMMARY:Exercise
+            STATUS:COMPLETED
+            PERCENT-COMPLETE:100
+            COMPLETED:20260310T180400Z
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 1), windowEnd = LocalDate.of(2026, 3, 18),
+        ).tasks.sortedBy { it.due }
+
+        assertEquals(listOf(3, 10, 17), tasks.map { it.due!!.dayOfMonth })
+        assertEquals(listOf(false, true, false), tasks.map { it.done })
+        assertEquals(25, tasks.first().percentComplete)
+        assertEquals(2, tasks.first().priority)
+        assertEquals(LocalDate.of(2026, 3, 10), tasks[1].recurrenceDate)
+        assertEquals("NEEDS-ACTION", tasks.first().status)
+        assertEquals("COMPLETED", tasks[1].status)
+        assertEquals(Instant.parse("2026-03-10T18:04:00Z"), tasks[1].completedAt)
+        assertEquals(1, tasks.count { it.due == LocalDate.of(2026, 3, 10) })
+    }
+
+    @Test
     fun `Apple travel duration maps to whole travel minutes`() {
         val parsed = mapper.parse(
             """
@@ -152,8 +194,15 @@ class ICalMapperTest {
 
     @Test
     fun `an all-day task has a due date and no due time`() {
-        val plants = tasks().single { it.title == "Water the plants" }
-        assertEquals(LocalDate.of(2026, 8, 22), plants.due)
+        // This fixture is now correctly expanded as a weekly VTODO, so title
+        // identifies the series rather than one occurrence. Select the anchor
+        // occurrence by stable UID plus recurrence identity; `single` still
+        // detects an accidental duplicate of that concrete occurrence.
+        val anchor = LocalDate.of(2026, 8, 22)
+        val plants = tasks().single {
+            it.uid == "fixture-todo-plants" && it.recurrenceDate == anchor
+        }
+        assertEquals(anchor, plants.due)
         assertNull("an all-day task must not gain a time", plants.dueTime)
     }
 

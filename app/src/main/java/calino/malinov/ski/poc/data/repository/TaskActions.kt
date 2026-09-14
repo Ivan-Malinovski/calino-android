@@ -8,6 +8,22 @@ import calino.malinov.ski.poc.data.model.RecurrenceEditScope
 import calino.malinov.ski.poc.data.model.placementDate
 import java.time.LocalDateTime
 
+/** Standards-safe recurring VTODO eligibility shared by both repositories. */
+fun recurringTaskValidation(input: NewTask, tasks: List<CalTask>, editingId: String? = null): String? {
+    if (input.recurrenceScope == RecurrenceEditScope.Future &&
+        (input.recurrence != null || input.recurrenceId != null || input.recurrenceDate != null)
+    ) {
+        return "Recurring tasks support this occurrence or the entire series, not this-and-future edits."
+    }
+    if (input.recurrence == null) return null
+    if (input.due == null) return "A repeating task needs a due date."
+    if (input.parentTaskId != null) return "A subtask cannot repeat."
+    if (editingId != null && tasks.any { it.parentTaskId == editingId }) {
+        return "A task with subtasks cannot repeat."
+    }
+    return null
+}
+
 /** Builds a complete task update so a hierarchy edit cannot drop task fields. */
 fun CalTask.asUpdate(parentTaskId: String? = this.parentTaskId, due: java.time.LocalDate? = this.due): NewTask =
     NewTask(
@@ -18,11 +34,21 @@ fun CalTask.asUpdate(parentTaskId: String? = this.parentTaskId, due: java.time.L
         dueTime = dueTime,
         notes = notes,
         reminder = reminder,
+        priority = priority,
+        percentComplete = percentComplete,
+        status = status,
+        completedAt = completedAt,
+        recurrence = recurrence,
         uid = uid,
         href = href,
         etag = etag,
         calendarId = calendarId,
         parentTaskId = parentTaskId,
+        recurrenceId = recurrenceId,
+        recurrenceDate = recurrenceDate,
+        sequence = sequence,
+        recurrenceChanged = recurrenceChanged,
+        recurrenceScope = recurrenceScope,
     )
 
 suspend fun CalinoRepository.reparentTask(task: CalTask, parentTaskId: String?): WriteResult<CalTask> {

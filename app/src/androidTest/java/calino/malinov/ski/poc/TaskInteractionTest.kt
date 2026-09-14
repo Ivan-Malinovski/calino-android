@@ -5,6 +5,7 @@ import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
@@ -94,21 +95,22 @@ class TaskInteractionTest : CalinoUiTest() {
     @Test fun theDueDateChipsRescheduleATask() {
         openTaskDetail()
         // The chip for the current due date reports itself selected first.
-        compose.onNodeWithContentDescription("Today, selected").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Today, selected").performScrollTo().assertIsDisplayed()
 
-        compose.onNodeWithContentDescription("Set due date to Tomorrow").performClick()
+        compose.onNodeWithContentDescription("Set due date to Tomorrow").performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Save task").performClick()
-        compose.waitForIdle()
 
         // The fixture "today" is 18 May, so tomorrow is 19 May.
-        compose.onNodeWithContentDescription("$DatedTask, due May 19, Work").assertIsDisplayed()
+        val rescheduledDescription = "$DatedTask, due May 19, Work"
+        awaitDescribed(rescheduledDescription)
+        compose.onNodeWithContentDescription(rescheduledDescription).assertIsDisplayed()
     }
 
     /** Abandoning the detail editor leaves the due date where it was. */
     @Test fun cancellingTheDetailKeepsTheDueDate() {
         openTaskDetail()
-        compose.onNodeWithContentDescription("Set due date to Tomorrow").performClick()
+        compose.onNodeWithContentDescription("Set due date to Tomorrow").performScrollTo().performClick()
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Cancel task editing").performClick()
@@ -122,9 +124,25 @@ class TaskInteractionTest : CalinoUiTest() {
         openTaskDetail()
 
         compose.onNodeWithContentDescription("Mark task as done").performClick()
-        compose.waitForIdle()
+        awaitDescribed("$DatedTask, completed")
 
-        compose.onNodeWithContentDescription("$DatedTask, completed").assertIsDisplayed()
+        compose.onNodeWithContentDescription("$DatedTask, completed").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun taskDetailExposesPriorityAndPartialProgressControls() {
+        openTaskDetail()
+
+        compose.onNodeWithContentDescription("None priority, selected").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("High priority").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("High priority, selected").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Task progress, 0 percent").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Save task").performClick()
+        val savedDescription = "$DatedTask, due May 18, Work, priority 1"
+        awaitDescribed(savedDescription)
+        compose.onNodeWithContentDescription(savedDescription)
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     private fun openTaskDetail() {

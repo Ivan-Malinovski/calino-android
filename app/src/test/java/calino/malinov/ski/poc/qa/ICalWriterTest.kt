@@ -41,6 +41,36 @@ class ICalWriterTest {
         mapper.parse(ics, calendarId = "cal", color = 1L, href = "https://x/e.ics")
 
     @Test
+    fun `task priority and partial progress survive write and read`() {
+        val task = CalTask(
+            id = "partial", title = "Draft", color = 1L, due = LocalDate.of(2026, 3, 5),
+            uid = "partial", priority = 3, percentComplete = 40, status = "IN-PROCESS",
+        )
+        val text = serialize(writer.writeTask(task, now = now))
+        val back = reparse(text).tasks.single()
+
+        assertEquals(3, back.priority)
+        assertEquals(40, back.percentComplete)
+        assertEquals("IN-PROCESS", back.status)
+        assertFalse(back.done)
+        assertTrue(text.contains("PRIORITY:3"))
+        assertTrue(text.contains("PERCENT-COMPLETE:40"))
+        assertFalse(text.contains("COMPLETED:"))
+    }
+
+    @Test
+    fun `recurring task writes matching DTSTART and DUE`() {
+        val task = CalTask(
+            id = "repeat", title = "Exercise", color = 1L, due = LocalDate.of(2026, 3, 3),
+            uid = "repeat", recurrence = "FREQ=WEEKLY;BYDAY=TU",
+        )
+        val text = serialize(writer.writeTask(task, now = now))
+        assertTrue(text.contains("DTSTART;VALUE=DATE:20260303"))
+        assertTrue(text.contains("DUE;VALUE=DATE:20260303"))
+        assertTrue(text.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+    }
+
+    @Test
     fun `a timed event survives a write and read`() {
         val event = CalEvent(
             id = "uid-1",

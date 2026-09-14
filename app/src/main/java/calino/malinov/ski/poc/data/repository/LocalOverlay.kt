@@ -287,12 +287,22 @@ internal class LocalOverlay {
         color = input.color,
         due = input.due,
         dueTime = input.dueTime,
-        done = done,
+        done = done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true),
+        priority = input.priority,
+        percentComplete = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) 100 else input.percentComplete.coerceIn(0, 99),
+        status = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) "COMPLETED" else input.status ?: if (input.percentComplete > 0) "IN-PROCESS" else "NEEDS-ACTION",
+        completedAt = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) input.completedAt ?: java.time.Instant.now() else null,
         category = input.category,
         notes = input.notes,
         reminder = input.reminder,
         calendarId = input.calendarId,
         parentTaskId = input.parentTaskId,
+        recurrence = input.recurrence,
+        recurrenceId = input.recurrenceId,
+        recurrenceDate = input.recurrenceDate,
+        sequence = input.sequence,
+        recurrenceChanged = input.recurrenceChanged,
+        recurrenceScope = input.recurrenceScope,
     )
 
     private fun contactFrom(id: String, input: NewContact): Contact = Contact(

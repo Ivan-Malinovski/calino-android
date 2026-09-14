@@ -1233,6 +1233,7 @@ class CalDavRepository(
     }
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
+        recurringTaskValidation(input, tasks())?.let { return WriteResult.Rejected(it) }
         val source = sourceForCreate("VTODO", preferredId = input.calendarId, href = input.href)
         writableRejection(source, "VTODO")?.let { return it }
         source ?: return WriteResult.Rejected("No calendar is connected.")
@@ -1259,6 +1260,7 @@ class CalDavRepository(
     }
 
     override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> {
+        recurringTaskValidation(input, tasks(), id)?.let { return WriteResult.Rejected(it) }
         val current = tasks().firstOrNull { it.id == id }
             ?: return WriteResult.Rejected("That task is no longer available.")
         val source = sourceForRecord(null, current.href)
@@ -1307,12 +1309,41 @@ class CalDavRepository(
         }
     }
 
-    override suspend fun deleteTask(id: String): WriteResult<Unit> {
+    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
         val current = tasks().firstOrNull { it.id == id }
             ?: return WriteResult.Applied(Unit)
         val source = sourceForRecord(null, current.href)
         writableRejection(source, "VTODO")?.let { return it }
         source ?: return WriteResult.Rejected("That task's calendar is no longer connected.")
+        if ((current.recurrence != null || current.recurrenceId != null || current.recurrenceDate != null) &&
+            scope != RecurrenceEditScope.All
+        ) {
+            val uid = current.uid ?: current.id
+            val href = resourceHref(source.calendar.url, current.href, uid)
+            return when (val result = putCalendarWithQueue(
+                source = source,
+                changeType = PendingChangeType.UPDATE,
+                eventId = current.id,
+                component = "VTODO",
+                uid = uid,
+                etag = current.etag,
+                prepare = { requestedEtag ->
+                    val resource = cache.loadResource(source.calendar.url, href)
+                        ?: throw CalDavException(CalDavErrorCode.PreconditionFailed, "The recurring task is not available in the raw cache.", status = 412)
+                    val expected = normalizeEtag(requestedEtag) ?: normalizeEtag(resource.etag)
+                        ?: throw CalDavException(CalDavErrorCode.PreconditionFailed, "The recurring task has no current server version.", status = 412)
+                    val body = recurrencePatcher.deleteTaskRecurrence(resource.ics, uid, current, scope)
+                        ?: throw CalDavException(CalDavErrorCode.NotCalDav, "The recurring task could not be patched safely.")
+                    PreparedCalendarWrite(href, body, calino.malinov.ski.poc.data.caldav.DavPrecondition.Match(expected), expected)
+                },
+                record = { Unit },
+                queuedRecord = { Unit },
+            )) {
+                is WriteResult.Applied -> result.also { overlay.deleteTask(current.id); publish() }
+                is WriteResult.Queued -> result.also { overlay.deleteTask(current.id); publish() }
+                is WriteResult.Rejected -> result
+            }
+        }
         return when (val result = deleteOnServer(source, current.id, current.uid ?: current.id, current.href, current.etag, "VTODO")) {
             is WriteResult.Applied -> result.also {
                 overlay.deleteTask(current.id)
@@ -1537,7 +1568,16 @@ class CalDavRepository(
     override suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange> {
         val before = tasks().firstOrNull { it.id == id }
             ?: return WriteResult.Rejected("That task is no longer available.")
-        return taskChange(before, before.copy(done = done), if (done) "Completed" else "Reopened")
+        return taskChange(
+            before,
+            before.copy(
+                done = done,
+                percentComplete = if (done) 100 else 0,
+                status = if (done) "COMPLETED" else "NEEDS-ACTION",
+                completedAt = if (done) Instant.now() else null,
+            ),
+            if (done) "Completed" else "Reopened",
+        )
     }
 
     override suspend fun rescheduleTask(id: String, due: LocalDate?): WriteResult<UndoableChange> {
@@ -3266,17 +3306,6 @@ class CalDavRepository(
             setWriteStatus(change.eventId, RecordWriteState.Failed, failure.message)
             return false
         }
-        if (change.component.equals("VTODO", ignoreCase = true) &&
-            recurrencePatcher.taskRequiresGroupWrite(body, change.uid ?: change.eventId) == true
-        ) {
-            val failure = PendingChangeFailure(
-                "Recurring tasks are read-only until task recurrence editing is supported.",
-            )
-            withContext(ioDispatcher) { store.markDeadLetter(change.id, failure) }
-            setWriteStatus(change.eventId, RecordWriteState.Failed, failure.message)
-            return false
-        }
-
         var prepared = PreparedCalendarWrite(
             href = href,
             body = body,

@@ -8,6 +8,7 @@ import biweekly.component.VTodo
 import biweekly.property.DateOrDateTimeProperty
 import biweekly.property.ExceptionDates
 import biweekly.property.ICalProperty
+import biweekly.util.ICalDate
 import calino.malinov.ski.poc.data.model.Attendee
 import calino.malinov.ski.poc.data.model.Availability
 import calino.malinov.ski.poc.data.model.CalEvent
@@ -127,9 +128,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
         calendars.forEach { calendar ->
             events += mapEvents(calendar, calendarId, color, href, etag, windowStart, windowEnd)
-            calendar.todos.forEach { vtodo ->
-                mapTask(vtodo, calendarId, color, href, etag)?.let(tasks::add)
-            }
+            tasks += mapTasks(calendar, calendarId, color, href, etag, windowStart, windowEnd)
             calendar.journals.forEach { vjournal ->
                 mapJournal(vjournal, href, etag)?.let(journals::add)
             }
@@ -444,6 +443,72 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
     // --- VTODO ----------------------------------------------------------------
 
+    private fun mapTasks(
+        calendar: ICalendar,
+        calendarId: String,
+        color: Long,
+        href: String,
+        etag: String?,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): List<CalTask> = calendar.todos.filter { it.uid?.value != null }.groupBy { it.uid.value }.flatMap { (_, group) ->
+        val master = group.firstOrNull { it.recurrenceId == null }
+        val overrides = group.filter { it.recurrenceId != null }
+        val detached = overrides.mapNotNull { mapTask(it, calendarId, color, href, etag) }
+        if (master == null) return@flatMap detached
+        if (master.recurrenceRule == null && master.recurrenceDates.isEmpty()) {
+            return@flatMap detached + listOfNotNull(mapTask(master, calendarId, color, href, etag))
+        }
+        val base = mapTask(master, calendarId, color, href, etag) ?: return@flatMap detached
+        val carrier = master.dateStart ?: master.dateDue ?: return@flatMap detached
+        val tz = timeZoneFor(calendar, carrier)
+        val iterationZone = tz.toZoneId()
+        // Public parse callers historically use MIN/MAX for an unbounded
+        // single-resource read. Those sentinels cannot be converted to an
+        // Instant (MAX.plusDays(1) overflows), so anchor such reads at the
+        // VTODO and retain the ordinary hard occurrence cap.
+        val anchorDay = if (carrier.isDateOnly()) {
+            carrier.toLocalDateOnly() ?: return@flatMap detached
+        } else {
+            carrier.value.toInstant().atZone(iterationZone).toLocalDate()
+        }
+        val effectiveStart = if (windowStart == LocalDate.MIN) anchorDay else windowStart
+        val effectiveEnd = if (windowEnd == LocalDate.MAX) effectiveStart.plusYears(10) else windowEnd
+        val from = effectiveStart.atStartOfDay(iterationZone).toInstant()
+        val until = effectiveEnd.plusDays(1).atStartOfDay(iterationZone).toInstant()
+        val overrideKeys = overrides.mapNotNull { it.recurrenceId?.value?.let(::recurrenceKey) }.toSet()
+        val exceptionKeys = master.getProperties(ExceptionDates::class.java)
+            .flatMap { it.values.orEmpty() }.map(::recurrenceKey).toSet()
+        val generated = mutableListOf<CalTask>()
+        val iterator = master.getDateIterator(tz)
+        iterator.advanceTo(Date.from(from))
+        while (iterator.hasNext() && generated.size < MaxOccurrencesPerSeries) {
+            val occurrence = iterator.next()
+            val instant = occurrence.toInstant()
+            if (instant >= until) break
+            val key = if (carrier.isDateOnly()) instant.atZone(iterationZone).toLocalDate().toString() else instant.toString()
+            if (key in overrideKeys || key in exceptionKeys) continue
+            val day = instant.atZone(iterationZone).toLocalDate()
+            val time = if (carrier.isDateOnly()) null else instant.atZone(zone).toLocalTime()
+            generated += base.copy(
+                id = occurrenceId(base.uid ?: base.id, instant),
+                due = day,
+                dueTime = time,
+                recurrenceDate = if (carrier.isDateOnly()) day else null,
+                recurrenceId = if (carrier.isDateOnly()) null else instant,
+                recurrenceScope = calino.malinov.ski.poc.data.model.RecurrenceEditScope.This,
+            )
+        }
+        detached + generated
+    }
+
+    private fun recurrenceKey(value: ICalDate): String = if (value.hasTime()) {
+        value.toInstant().toString()
+    } else {
+        value.rawComponents?.let { LocalDate.of(it.year, it.month, it.date).toString() }
+            ?: value.toInstant().atZone(zone).toLocalDate().toString()
+    }
+
     private fun mapTask(vtodo: VTodo, calendarId: String, color: Long, href: String, etag: String?): CalTask? {
         val uid = vtodo.uid?.value ?: return null
         val summary = vtodo.summary?.value?.trim().orEmpty().ifEmpty { "(no title)" }
@@ -472,6 +537,11 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val status = vtodo.status?.value?.uppercase()
         val percent = vtodo.percentComplete?.value ?: 0
         val done = status == "COMPLETED" || percent >= 100
+        val recurrenceDate = vtodo.recurrenceId?.takeIf { !it.value.hasTime() }?.let { rid ->
+            rid.value.rawComponents?.let { LocalDate.of(it.year, it.month, it.date) }
+                ?: rid.value.toInstant().atZone(zone).toLocalDate()
+        }
+        val recurrenceInstant = vtodo.recurrenceId?.takeIf { it.value.hasTime() }?.value?.toInstant()
 
         return CalTask(
             id = uid,
@@ -480,6 +550,10 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             due = dueDate,
             dueTime = dueTime,
             done = done,
+            priority = (vtodo.priority?.value ?: 0).coerceIn(0, 9),
+            percentComplete = percent.coerceIn(0, 100),
+            status = status ?: if (done) "COMPLETED" else "NEEDS-ACTION",
+            completedAt = vtodo.completed?.value?.toInstant(),
             category = readCategories(vtodo).firstOrNull(),
             notes = vtodo.description?.value?.trim()?.takeIf(String::isNotEmpty),
             // The model holds one task reminder, so the longest lead time wins
@@ -490,7 +564,28 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             etag = etag,
             calendarId = calendarId,
             parentTaskId = vtodo.relatedTo.firstOrNull()?.value?.trim()?.takeIf(String::isNotEmpty),
+            recurrence = recurrenceRuleText(vtodo),
+            recurrenceId = recurrenceInstant,
+            recurrenceDate = recurrenceDate,
+            sequence = vtodo.sequence?.value,
+            recurrenceScope = if (recurrenceInstant != null || recurrenceDate != null) {
+                calino.malinov.ski.poc.data.model.RecurrenceEditScope.This
+            } else {
+                calino.malinov.ski.poc.data.model.RecurrenceEditScope.All
+            },
         )
+    }
+
+    private fun recurrenceRuleText(vtodo: VTodo): String? {
+        if (vtodo.recurrenceRule == null) return null
+        val calendar = ICalendar().also { it.addComponent(vtodo.copy()) }
+        return ICalWriter.write(calendar)
+            .replace("\r\n ", "")
+            .lineSequence()
+            .firstOrNull { it.startsWith("RRULE:", ignoreCase = true) }
+            ?.substringAfter(':')
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
     }
 
     // --- VJOURNAL -------------------------------------------------------------

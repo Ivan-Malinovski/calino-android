@@ -291,6 +291,29 @@ class PocFixturesTest {
     }
 
     @Test
+    fun taskDetailCompletionPayloadCannotBeDowngradedByAStaleBoolean() = runBlocking {
+        val repository = FixtureRepository()
+        val original = repository.tasks().first { it.id == "task-inbox" }
+
+        val updated = repository.updateTask(
+            original.id,
+            NewTask(
+                title = original.title,
+                due = original.due,
+                color = original.color,
+                category = original.category,
+                percentComplete = 100,
+                status = "COMPLETED",
+            ),
+            done = false,
+        ).applied()
+
+        assertTrue(updated.done)
+        assertEquals(100, updated.percentComplete)
+        assertEquals("COMPLETED", updated.status)
+    }
+
+    @Test
     fun recurringFixture_hasReadableSummary_andHonorsEndDate() {
         val event = FixtureRepository().events().first { it.id == "evt-design" }
 

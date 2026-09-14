@@ -4,7 +4,9 @@ import calino.malinov.ski.poc.data.caldav.ICalMapper
 import calino.malinov.ski.poc.data.caldav.ICalPatcher
 import calino.malinov.ski.poc.data.caldav.ICalWriter
 import calino.malinov.ski.poc.data.model.Reminder
+import calino.malinov.ski.poc.data.model.RecurrenceEditScope
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -64,6 +66,120 @@ class ICalPatcherTest {
     private fun eventFrom(resource: String, uid: String) =
         mapper.parse(resource, calendarId = "cal", color = 1L, href = "https://x/e.ics")
             .events.first { it.uid == uid }
+
+    @Test
+    fun `all-scope task edit from an occurrence retains the master anchor`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",
+            "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Original", "X-FOREIGN:keep",
+            "STATUS:NEEDS-ACTION", "END:VTODO", "END:VCALENDAR",
+        )
+        val occurrence = mapper.parse(
+            resource, "cal", 1L, "repeat.ics",
+            windowStart = LocalDate.of(2026, 3, 9),
+            windowEnd = LocalDate.of(2026, 3, 11),
+        ).tasks.single()
+
+        val patched = patcher.patchTask(
+            resource,
+            occurrence.copy(title = "Edited series", recurrenceScope = RecurrenceEditScope.All),
+            now,
+        )!!
+
+        assertTrue(patched, patched.contains("SUMMARY:Edited series"))
+        assertTrue(patched, patched.contains("DTSTART;VALUE=DATE:20260303"))
+        assertTrue(patched, patched.contains("DUE;VALUE=DATE:20260303"))
+        assertFalse(patched, patched.contains("DTSTART;VALUE=DATE:20260310"))
+        assertTrue(patched, patched.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+        assertTrue(patched, patched.contains("X-FOREIGN:keep"))
+    }
+
+    @Test
+    fun `future-scope task edit never rewrites the master anchor from the selected date`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",
+            "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Original", "END:VTODO", "END:VCALENDAR",
+        )
+        val occurrence = mapper.parse(
+            resource, "cal", 1L, "repeat.ics",
+            windowStart = LocalDate.of(2026, 3, 9),
+            windowEnd = LocalDate.of(2026, 3, 11),
+        ).tasks.single()
+
+        val patched = patcher.patchTask(
+            resource,
+            occurrence.copy(title = "Future title", recurrenceScope = RecurrenceEditScope.Future),
+            now,
+        )!!
+
+        assertTrue(patched, patched.contains("DTSTART;VALUE=DATE:20260303"))
+        assertTrue(patched, patched.contains("DUE;VALUE=DATE:20260303"))
+        assertTrue(patched, patched.contains("RECURRENCE-ID;VALUE=DATE:20260310"))
+    }
+
+    @Test
+    fun `completing a generated task appends a detached completion and leaves master open`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:gym",
+            "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Exercise",
+            "STATUS:NEEDS-ACTION", "PERCENT-COMPLETE:20",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT1H", "DESCRIPTION:Exercise", "END:VALARM",
+            "END:VTODO", "END:VCALENDAR",
+        )
+        val occurrence = mapper.parse(
+            resource, "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 10), windowEnd = LocalDate.of(2026, 3, 10),
+        ).tasks.single()
+        assertEquals(RecurrenceEditScope.This, occurrence.recurrenceScope)
+
+        val patched = patcher.patchTask(
+            resource,
+            occurrence.copy(done = true, percentComplete = 100, status = "COMPLETED", completedAt = now),
+            now,
+        )!!
+
+        assertEquals(2, patched.split("BEGIN:VTODO").size - 1)
+        val masterText = patched.substringAfter("BEGIN:VTODO").substringBefore("END:VTODO")
+        val overrideText = patched.substringAfter("END:VTODO").substringAfter("BEGIN:VTODO").substringBefore("END:VTODO")
+        assertTrue(masterText, masterText.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+        assertTrue(masterText, masterText.contains("STATUS:NEEDS-ACTION"))
+        assertTrue(masterText, masterText.contains("PERCENT-COMPLETE:20"))
+        assertTrue(masterText, masterText.contains("BEGIN:VALARM"))
+        assertTrue(overrideText, overrideText.contains("RECURRENCE-ID;VALUE=DATE:20260310"))
+        assertTrue(overrideText, overrideText.contains("STATUS:COMPLETED"))
+        assertTrue(overrideText, overrideText.contains("PERCENT-COMPLETE:100"))
+        assertFalse(overrideText, overrideText.contains("BEGIN:VALARM"))
+    }
+
+    @Test
+    fun `all-scope title edit from completed occurrence does not complete master`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0",
+            "BEGIN:VTODO", "UID:gym", "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Exercise", "STATUS:NEEDS-ACTION", "END:VTODO",
+            "BEGIN:VTODO", "UID:gym", "DTSTART;VALUE=DATE:20260310", "DUE;VALUE=DATE:20260310",
+            "RECURRENCE-ID;VALUE=DATE:20260310", "SUMMARY:Exercise", "PERCENT-COMPLETE:100",
+            "STATUS:COMPLETED", "COMPLETED:20260310T180400Z", "END:VTODO", "END:VCALENDAR",
+        )
+        val completed = mapper.parse(
+            resource, "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 10), windowEnd = LocalDate.of(2026, 3, 10),
+        ).tasks.single()
+
+        val patched = patcher.patchTask(
+            resource,
+            completed.copy(title = "New series title", recurrenceScope = RecurrenceEditScope.All),
+            now,
+        )!!
+        val masterText = patched.substringAfter("BEGIN:VTODO").substringBefore("END:VTODO")
+        assertTrue(masterText, masterText.contains("SUMMARY:New series title"))
+        assertTrue(masterText, masterText.contains("STATUS:NEEDS-ACTION"))
+        assertFalse(masterText, masterText.contains("STATUS:COMPLETED"))
+        assertFalse(masterText, masterText.contains("COMPLETED:"))
+    }
 
     @Test
     fun `an edit preserves every property Calino does not model`() {

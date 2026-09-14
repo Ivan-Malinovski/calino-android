@@ -4,6 +4,38 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Task progress, priority, and recurring VTODOs — 2026-09-14
+
+`CalTask`, `NewTask`, and `EditorDraft` now retain RFC 5545 `PRIORITY`, partial
+`PERCENT-COMPLETE`, `STATUS`, `COMPLETED`, `RRULE`, `RECURRENCE-ID`, and
+`SEQUENCE`. A partial task remains partial: mapping no longer reduces progress
+to the old boolean, and writing emits a consistent status/progress/completion
+set. The task editor and detail surface expose priority and ten-percent progress
+controls with 44dp lanes and shared animated chips/slider semantics.
+
+Recurring VTODOs use the neighboring web app's standards-only representation.
+The mapper groups all VTODO components by UID, expands the master within the
+repository window, suppresses generated dates named by detached overrides or
+EXDATE, and keeps orphan detached components visible. Completing an expanded
+occurrence patches or appends a detached `RECURRENCE-ID` VTODO in the same raw
+resource; the master RRULE is not flattened. Patches continue from cached raw
+bytes, preserve unrelated components/properties, and queued stale-ETag writes
+use the existing component-identity three-way rebase.
+
+Generated and detached task occurrences always carry THIS write intent.
+Completing one appends or updates a same-UID `RECURRENCE-ID` VTODO and leaves
+the open master and its RRULE unchanged; detached writes never copy the
+master's VALARM. Task edits deliberately offer only This task and Entire
+series—THISANDFUTURE task overrides are not implemented. Entire-series edits
+from a completed occurrence preserve the master's anchor, completion state and
+alarms. Recurrence is rejected for undated tasks, subtasks, and tasks that own
+subtasks, matching the web app's documented interoperability restrictions.
+
+Known review risks: device tests were added but intentionally not run under the
+task's no-device constraint. `RANGE=THISANDFUTURE` remains single-occurrence as
+documented by the web format. Split-resource Nextcloud overrides are read and
+patched in their original href; consolidating them would create duplicates.
+
 ### Compact sidebar calendar — 2026-09-14
 
 The sidebar mini calendar is now a persisted disclosure panel, collapsed by

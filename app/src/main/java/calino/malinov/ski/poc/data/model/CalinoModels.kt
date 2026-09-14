@@ -113,6 +113,20 @@ data class CalTask(
     val calendarId: String = "personal",
     /** UID of the immediate parent VTODO, encoded as RELATED-TO. */
     val parentTaskId: String? = null,
+    val recurrence: String? = null,
+    val recurrenceId: Instant? = null,
+    val recurrenceDate: LocalDate? = null,
+    val sequence: Int? = null,
+    /** RFC 5545 PRIORITY (0 = undefined, 1 highest, 9 lowest). */
+    val priority: Int = 0,
+    /** RFC 5545 progress, retained between 0 and 100 instead of flattened to done/open. */
+    val percentComplete: Int = if (done) 100 else 0,
+    /** Original status, including states the UI does not originate such as CANCELLED. */
+    val status: String = if (done) "COMPLETED" else "NEEDS-ACTION",
+    val completedAt: Instant? = null,
+    /** Editor-only write intent; never serialized as a vendor property. */
+    val recurrenceChanged: Boolean = false,
+    val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,
 )
 
 data class JournalEntry(
@@ -167,6 +181,11 @@ data class NewTask(
     val dueTime: LocalTime? = null,
     val notes: String? = null,
     val reminder: Reminder? = null,
+    val priority: Int = 0,
+    val percentComplete: Int = 0,
+    val status: String? = null,
+    val completedAt: Instant? = null,
+    val recurrence: String? = null,
     /** iCalendar UID. Null for records created locally. */
     val uid: String? = null,
     /** Absolute CalDAV resource URL. Null for records created locally. */
@@ -174,6 +193,11 @@ data class NewTask(
     val etag: String? = null,
     val calendarId: String = "personal",
     val parentTaskId: String? = null,
+    val recurrenceId: Instant? = null,
+    val recurrenceDate: LocalDate? = null,
+    val sequence: Int? = null,
+    val recurrenceChanged: Boolean = false,
+    val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,
 )
 
 data class NewJournal(

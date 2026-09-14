@@ -138,7 +138,7 @@ interface CalinoRepository {
     suspend fun deleteEvent(id: String, scope: RecurrenceEditScope = RecurrenceEditScope.All): WriteResult<Unit>
     suspend fun addTask(input: NewTask): WriteResult<CalTask>
     suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask>
-    suspend fun deleteTask(id: String): WriteResult<Unit>
+    suspend fun deleteTask(id: String, scope: RecurrenceEditScope = RecurrenceEditScope.All): WriteResult<Unit>
     suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry>
     suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry>
     suspend fun deleteJournal(id: String): WriteResult<Unit>
@@ -249,19 +249,21 @@ class FixtureRepository : CalinoRepository {
         )
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
+        recurringTaskValidation(input, tasks())?.let { return WriteResult.Rejected(it) }
         val task = taskFromInput("local-task-${nextTaskId++}", input, done = false)
         update { it.copy(tasks = it.tasks + task) }
         return WriteResult.Applied(task)
     }
 
     override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> {
+        recurringTaskValidation(input, tasks(), id)?.let { return WriteResult.Rejected(it) }
         task(id)
         val updated = taskFromInput(id, input, done)
         replaceTask(updated)
         return WriteResult.Applied(updated)
     }
 
-    override suspend fun deleteTask(id: String): WriteResult<Unit> {
+    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
         if (snapshot().tasks.none { it.id == id }) return WriteResult.Applied(Unit)
         update { current -> current.copy(tasks = current.tasks.filterNot { it.id == id }) }
         return WriteResult.Applied(Unit)
@@ -272,13 +274,23 @@ class FixtureRepository : CalinoRepository {
         title = input.title,
         color = input.color,
         due = input.due,
-        done = done,
+        done = done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true),
+        priority = input.priority,
+        percentComplete = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) 100 else input.percentComplete.coerceIn(0, 99),
+        status = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) "COMPLETED" else input.status ?: if (input.percentComplete > 0) "IN-PROCESS" else "NEEDS-ACTION",
+        completedAt = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) input.completedAt ?: java.time.Instant.now() else null,
         category = input.category,
         dueTime = input.dueTime,
         notes = input.notes,
         reminder = input.reminder,
         calendarId = input.calendarId,
         parentTaskId = input.parentTaskId,
+        recurrence = input.recurrence,
+        recurrenceId = input.recurrenceId,
+        recurrenceDate = input.recurrenceDate,
+        sequence = input.sequence,
+        recurrenceChanged = input.recurrenceChanged,
+        recurrenceScope = input.recurrenceScope,
     )
 
     override suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry> {
@@ -357,7 +369,12 @@ class FixtureRepository : CalinoRepository {
 
     override suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange> {
         val current = task(id)
-        val changed = current.copy(done = done)
+        val changed = current.copy(
+            done = done,
+            percentComplete = if (done) 100 else 0,
+            status = if (done) "COMPLETED" else "NEEDS-ACTION",
+            completedAt = if (done) java.time.Instant.now() else null,
+        )
         val change = UndoableChange(
             description = if (done) "Completed ${current.title}" else "Reopened ${current.title}",
             kind = ChangeKind.Task,

@@ -82,11 +82,6 @@ class CalDavWriter(
             forceCreate = record.href == null && record.etag == null,
             build = { writer.writeTask(record, now = now()) },
             patch = { original -> patcher.patchTask(original, record, now()) },
-            validatePatch = { original ->
-                if (patcher.taskRequiresGroupWrite(original, record.uid!!) == true) {
-                    throw unsupportedRecurringTask()
-                }
-            },
             requireCachedPatch = true,
         )
     }
@@ -188,12 +183,6 @@ class CalDavWriter(
         val cached = cache.loadResource(calendar.url, resourceUrl)
         val original = cached?.takeIf { sameEtag(it.etag, expectedEtag) }
             ?: throw staleResource(resourceUrl)
-
-        if (component.equals("VTODO", ignoreCase = true) &&
-            patcher.taskRequiresGroupWrite(original.ics, uid) == true
-        ) {
-            throw unsupportedRecurringTask()
-        }
 
         when (val removal = patcher.removeComponent(original.ics, uid, component)) {
             null -> throw CalDavException(
@@ -325,11 +314,6 @@ class CalDavWriter(
         CalDavErrorCode.PreconditionFailed,
         "That item changed on the server. Refresh and try again.",
         status = 412,
-    )
-
-    private fun unsupportedRecurringTask() = CalDavException(
-        CalDavErrorCode.NotCalDav,
-        "Recurring tasks are read-only until task recurrence editing is supported.",
     )
 
     private fun sameEtag(left: String?, right: String?): Boolean =

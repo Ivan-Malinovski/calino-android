@@ -40,6 +40,10 @@ data class EditorDraft(
     val relatedTo: List<String> = emptyList(),
     /** Immediate parent when this draft creates or edits a subtask. */
     val parentTaskId: String? = null,
+    val priority: Int = 0,
+    val percentComplete: Int = 0,
+    val taskStatus: String? = null,
+    val completedAt: Instant? = null,
     val attendees: List<Attendee> = emptyList(),
     val color: Long = DefaultEventColor,
     /** Journal body; unused by the other two kinds. */
@@ -74,7 +78,10 @@ data class EditorDraft(
         }
 
     fun canSave(): Boolean = title.isNotBlank() &&
-        (kind != PocQuickAddKind.Event || allDay || startTime == null || (durationMinutes ?: DefaultDurationMinutes) > 0)
+        (kind != PocQuickAddKind.Event || allDay || startTime == null || (durationMinutes ?: DefaultDurationMinutes) > 0) &&
+        !(kind == PocQuickAddKind.Task && recurrence != null && parentTaskId != null) &&
+        !(kind == PocQuickAddKind.Task && recurrenceScope == RecurrenceEditScope.Future &&
+            (recurrence != null || recurrenceId != null || recurrenceDate != null))
 
     /** Moves the end, expressed as a duration so the rest of the app stays unchanged. */
     fun withEnd(endDate: LocalDate, endTime: LocalTime): EditorDraft {
@@ -120,6 +127,19 @@ data class EditorDraft(
         reminder = reminders.firstOrNull(),
         calendarId = calendarId,
         parentTaskId = parentTaskId,
+        priority = priority,
+        percentComplete = percentComplete,
+        status = taskStatus,
+        completedAt = completedAt,
+        recurrence = recurrence,
+        uid = uid,
+        href = href,
+        etag = etag,
+        recurrenceId = recurrenceId,
+        recurrenceDate = recurrenceDate,
+        sequence = sequence,
+        recurrenceChanged = recurrenceChanged,
+        recurrenceScope = recurrenceScope,
     )
 
     fun toNewJournal(): NewJournal = NewJournal(date = date, title = title.trim(), body = body.trim())
@@ -257,12 +277,21 @@ fun editorDraftFor(task: CalTask, fallbackDate: LocalDate): EditorDraft = Editor
     categories = listOfNotNull(task.category),
     description = task.notes,
     reminders = listOfNotNull(task.reminder),
+    priority = task.priority,
+    percentComplete = task.percentComplete,
+    taskStatus = task.status,
+    completedAt = task.completedAt,
+    recurrence = task.recurrence,
     color = task.color,
     body = task.title,
     touched = EditorField.entries.toSet(),
     uid = task.uid,
     href = task.href,
     etag = task.etag,
+    recurrenceId = task.recurrenceId,
+    recurrenceDate = task.recurrenceDate,
+    sequence = task.sequence,
+    recurrenceScope = if (task.recurrenceId != null || task.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All,
 )
 
 fun editorDraftFor(entry: JournalEntry): EditorDraft = EditorDraft(

@@ -82,6 +82,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -136,6 +137,7 @@ import calino.malinov.ski.poc.data.model.NewEvent
 import calino.malinov.ski.poc.data.model.EditorDraft
 import calino.malinov.ski.poc.data.model.blankEditorDraft
 import calino.malinov.ski.poc.data.model.RecurrenceEditScope
+import calino.malinov.ski.poc.util.formatRecurrenceRule
 import calino.malinov.ski.poc.data.repository.CalinoCalendar
 import calino.malinov.ski.poc.data.parser.PocQuickAddKind
 import calino.malinov.ski.poc.data.parser.parseQuickAdd
@@ -1154,8 +1156,11 @@ fun TaskDetailSurface(
     var notes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var due by remember(task.id) { mutableStateOf(task.due) }
     var done by remember(task.id) { mutableStateOf(task.done) }
+    var priority by remember(task.id) { mutableIntStateOf(task.priority) }
+    var percentComplete by remember(task.id) { mutableIntStateOf(task.percentComplete) }
     var shown by remember(task.id) { mutableStateOf(true) }
     var pendingSave by remember(task.id) { mutableStateOf(false) }
+    var requestedDone by remember(task.id) { mutableStateOf<Boolean?>(null) }
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
     val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
 
@@ -1163,6 +1168,11 @@ fun TaskDetailSurface(
         if (!shown) {
             delay(220)
             if (pendingSave) {
+                // Completion is latched separately from presentation state.
+                // The sheet exits before saving, and the delayed coroutine can
+                // otherwise observe the pre-click `done` value from its exit
+                // composition even though the checkmark already changed.
+                val savedDone = requestedDone ?: done
                 onSave(
                     NewTask(
                         title = title.trim(),
@@ -1172,13 +1182,21 @@ fun TaskDetailSurface(
                         dueTime = task.dueTime,
                         notes = notes.trim().ifEmpty { null },
                         reminder = task.reminder,
+                        priority = priority,
+                        percentComplete = if (savedDone) 100 else percentComplete.coerceAtMost(99),
+                        status = if (savedDone) "COMPLETED" else if (percentComplete > 0) "IN-PROCESS" else "NEEDS-ACTION",
+                        completedAt = task.completedAt,
+                        recurrence = task.recurrence,
                         uid = task.uid,
                         href = task.href,
                         etag = task.etag,
                         calendarId = task.calendarId,
                         parentTaskId = task.parentTaskId,
+                        recurrenceId = task.recurrenceId,
+                        recurrenceDate = task.recurrenceDate,
+                        sequence = task.sequence,
                     ),
-                    done,
+                    savedDone,
                 )
             } else {
                 onBack()
@@ -1215,7 +1233,15 @@ fun TaskDetailSurface(
                 primaryDescription = "Save task",
                 secondaryLabel = if (done) "Mark as open" else "Mark as done",
                 onSecondary = {
-                    done = !done
+                    val nextDone = !done
+                    requestedDone = nextDone
+                    done = nextDone
+                    // Keep the richer progress model consistent with the
+                    // primary completion action before the delayed save takes
+                    // its snapshot. This also makes completion robust if the
+                    // boolean callback and NewTask payload are observed on
+                    // adjacent recomposition frames.
+                    percentComplete = if (nextDone) 100 else 0
                     dismiss(true)
                 },
                 secondaryEnabled = canSave,
@@ -1346,6 +1372,30 @@ fun TaskDetailSurface(
                         )
                     }
                 }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    label("Priority")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0 to "None", 1 to "High", 5 to "Medium", 9 to "Low").forEach { (value, text) ->
+                            val selected = priority == value
+                            TextButton(
+                                onClick = { priority = value },
+                                modifier = Modifier.weight(1f).heightIn(min = 44.dp)
+                                    .semantics { contentDescription = "$text priority${if (selected) ", selected" else ""}" },
+                            ) { Text(text, color = if (selected) CalinoColors.Accent else CalinoColors.Ink2, fontSize = 11.sp) }
+                        }
+                    }
+                    label("Progress · $percentComplete%")
+                    androidx.compose.material3.Slider(
+                        value = percentComplete.toFloat(),
+                        onValueChange = { percentComplete = it.toInt(); done = percentComplete == 100 },
+                        valueRange = 0f..100f,
+                        steps = 9,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                            .semantics { contentDescription = "Task progress, $percentComplete percent" },
+                    )
+                    task.recurrence?.let { Text(formatRecurrenceRule(it, task.due ?: today), color = CalinoColors.Ink3, fontSize = 12.sp) }
+                }
             }
             // The pill stands in the pill lane rather than in this card, so
             // it can change shape in place; this holds its room open.
@@ -1440,6 +1490,7 @@ fun TasksSurface(
     val haptic = LocalHapticFeedback.current
     val taskScope = rememberCoroutineScope()
     var completionJobs by remember { mutableStateOf<Map<String, Job>>(emptyMap()) }
+    var previousDoneById by remember { mutableStateOf(tasks.associate { it.id to it.done }) }
     var collapsedTaskIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     val taskTree = remember(tasks) { TaskTree(tasks) }
     var draggingTaskId by remember { mutableStateOf<String?>(null) }
@@ -1449,6 +1500,24 @@ fun TasksSurface(
     // non-snapshot avoids turning every ordinary LazyColumn scroll frame into
     // a whole TasksSurface recomposition.
     val taskDropBounds = remember { mutableMapOf<String, TaskDropBounds>() }
+
+    // Completion from the detail sheet bypasses complete(), so without this
+    // transition bridge the row jumps straight from its visible date bucket
+    // to the uncomposed Completed bucket at the bottom of the LazyColumn. Keep
+    // the same short checked settle used by inline completion; after it, the
+    // row may move normally. This is presentation state only—the repository
+    // has already committed the completion.
+    LaunchedEffect(tasks) {
+        val newlyCompleted = tasks.filter { task ->
+            task.done && previousDoneById[task.id] == false && task.id !in pendingCompletionIds
+        }.map { it.id }.toSet()
+        previousDoneById = tasks.associate { it.id to it.done }
+        if (newlyCompleted.isNotEmpty()) {
+            pendingCompletionIds = pendingCompletionIds + newlyCompleted
+            delay(CompletionVisualSettleMillis)
+            pendingCompletionIds = pendingCompletionIds - newlyCompleted
+        }
+    }
 
     val recordTaskPosition: (CalTask, LayoutCoordinates) -> Unit = { task, coordinates ->
         val bounds = coordinates.boundsInRoot()
@@ -1983,6 +2052,9 @@ private fun TaskRow(
         append(task.title)
         task.due?.let { append(", due "); append(it.format(DateTimeFormatter.ofPattern("MMM d", Locale.US))) }
         task.category?.let { append(", "); append(it) }
+        if (task.priority > 0) append(", priority ${task.priority}")
+        if (!task.done && task.percentComplete > 0) append(", ${task.percentComplete} percent complete")
+        if (task.recurrence != null) append(", recurring")
         if (task.done) append(", completed")
     }
     val actionProgress = (abs(offset) / actionThresholdPx).coerceIn(0f, 1f)

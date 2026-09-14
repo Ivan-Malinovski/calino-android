@@ -17,6 +17,7 @@ import biweekly.property.Description
 import biweekly.property.LastModified
 import biweekly.property.Location
 import biweekly.property.PercentComplete
+import biweekly.property.Priority
 import biweekly.property.RecurrenceRule
 import biweekly.property.RecurrenceId
 import biweekly.property.RelatedTo
@@ -134,14 +135,18 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         vtodo.setUidValue(task.uid ?: task.id)
         vtodo.setSummaryValue(task.title)
 
-        // DUE carries the value type the reader keys off, so a task with a time
-        // is written as a date-time and one without as a bare date.
+        vtodo.removeProperties(DateStart::class.java)
         vtodo.removeProperties(DateDue::class.java)
         task.due?.let { due ->
-            val property = task.dueTime
-                ?.let { time -> DateDue(due.atTime(time).atZone(zone).toInstant().toDateTime()) }
-                ?: DateDue(due.toDateOnly())
-            vtodo.addProperty(property)
+            task.dueTime?.let { time ->
+                val value = due.atTime(time).atZone(zone).toInstant().toDateTime()
+                vtodo.addProperty(DateStart(value))
+                vtodo.addProperty(DateDue(value))
+            } ?: run {
+                val value = due.toDateOnly()
+                vtodo.addProperty(DateStart(value))
+                vtodo.addProperty(DateDue(value))
+            }
         }
 
         vtodo.replaceOrRemove(task.notes?.trim()?.takeIf(String::isNotEmpty)) { Description(it) }
@@ -150,8 +155,24 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         task.parentTaskId?.trim()?.takeIf(String::isNotEmpty)?.let { parentId ->
             vtodo.addRelatedTo(RelatedTo(parentId))
         }
-        vtodo.writeReminders(listOfNotNull(task.reminder), task.title)
-        vtodo.writeCompletion(task.done, now)
+        // Per-occurrence VALARM is deliberately unsupported. A generated
+        // occurrence inherits the master's reminder for display, but must not
+        // copy it into a detached VTODO when completed or edited.
+        if (task.recurrenceId == null && task.recurrenceDate == null) {
+            vtodo.writeReminders(listOfNotNull(task.reminder), task.title)
+        }
+        vtodo.removeProperties(Priority::class.java)
+        vtodo.addProperty(Priority(task.priority.coerceIn(0, 9)))
+        vtodo.removeProperties(RecurrenceId::class.java)
+        task.recurrenceDate?.let { vtodo.addProperty(RecurrenceId(it.toDateOnly())) }
+            ?: task.recurrenceId?.let { vtodo.addProperty(RecurrenceId(it.toDateTime())) }
+        if (task.recurrenceChanged || task.recurrence != null || original?.recurrenceRule == null) {
+            vtodo.removeProperties(RecurrenceRule::class.java)
+            if (task.recurrenceId == null && task.recurrenceDate == null) {
+                task.recurrence?.trim()?.takeIf(String::isNotEmpty)?.let(::parseRecurrenceRule)?.let(vtodo::addProperty)
+            }
+        }
+        vtodo.writeCompletion(task, now)
         vtodo.stamp(now)
         return vtodo
     }
@@ -169,23 +190,29 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
      * So a cancelled task keeps its status unless the person actually completes
      * it, which is the one signal that could not have come from the round trip.
      */
-    private fun VTodo.writeCompletion(done: Boolean, now: Instant) {
+    private fun VTodo.writeCompletion(task: CalTask, now: Instant) {
         val existing = status?.value?.uppercase()
-        if (existing == "CANCELLED" && !done) return
+        if (existing == "CANCELLED" && !task.done && task.status == "CANCELLED") return
 
         removeProperties(Status::class.java)
         removeProperties(PercentComplete::class.java)
-        if (done) {
+        val explicitReopen = !task.done && task.status.equals("COMPLETED", ignoreCase = true)
+        val percent = when {
+            task.done -> 100
+            explicitReopen -> 0
+            else -> task.percentComplete
+        }.coerceIn(0, 100)
+        if (percent > 0) addProperty(PercentComplete(percent))
+        if (percent == 100 || task.done) {
             addProperty(Status.completed())
-            addProperty(PercentComplete(100))
             // Keep the moment the task was first completed; only stamp a new one
             // when there is none, so reopening and re-closing is not required to
             // rewrite history.
-            if (getProperty(Completed::class.java) == null) {
-                addProperty(Completed(Date.from(now)))
-            }
+            removeProperties(Completed::class.java)
+            addProperty(Completed(Date.from(task.completedAt ?: now)))
         } else {
-            addProperty(Status.needsAction())
+            val preserved = task.status.uppercase().takeIf { !explicitReopen && it in setOf("NEEDS-ACTION", "IN-PROCESS", "CANCELLED") }
+            addProperty(Status(preserved ?: if (percent > 0) "IN-PROCESS" else "NEEDS-ACTION"))
             removeProperties(Completed::class.java)
         }
     }

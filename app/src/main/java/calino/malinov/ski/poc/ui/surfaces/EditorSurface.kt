@@ -286,11 +286,14 @@ fun EditorSurface(
                             categories = categories,
                             descriptionOpen = descriptionOpen,
                             remindersOpen = remindersOpen,
+                            recurrenceOpen = recurrenceOpen,
                             onDescriptionOpen = { descriptionOpen = !descriptionOpen },
                             onRemindersOpen = { remindersOpen = !remindersOpen },
+                            onRecurrenceOpen = { recurrenceOpen = !recurrenceOpen },
                             onDraft = { draft = it },
                             pickStartDate = pickStartDate,
                             pickStartTime = pickStartTime,
+                            pickUntil = pickUntil,
                         )
                         else -> JournalEditorFields(draft) { body -> draft = draft.copy(body = body) }
                     }
@@ -509,11 +512,14 @@ private fun TaskEditorFields(
     categories: List<String>,
     descriptionOpen: Boolean,
     remindersOpen: Boolean,
+    recurrenceOpen: Boolean,
     onDescriptionOpen: () -> Unit,
     onRemindersOpen: () -> Unit,
+    onRecurrenceOpen: () -> Unit,
     onDraft: (EditorDraft) -> Unit,
     pickStartDate: () -> Unit,
     pickStartTime: () -> Unit,
+    pickUntil: () -> Unit,
 ) {
     EditorValueRow(CalinoIcon.Calendar, "Due date", draft.date.format(EditorDateFormat), pickStartDate)
     EditorDivider()
@@ -523,6 +529,47 @@ private fun TaskEditorFields(
         value = draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
         onClick = pickStartTime,
     )
+    EditorDivider()
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        EditorLabel("Priority")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf(0 to "None", 1 to "High", 5 to "Medium", 9 to "Low").forEach { (value, label) ->
+                CalinoChip(
+                    text = label,
+                    selected = draft.priority == value,
+                    description = "Set task priority to ${label.lowercase(Locale.US)}",
+                    semanticsRole = Role.RadioButton,
+                    onClick = { onDraft(draft.copy(priority = value)) },
+                )
+            }
+        }
+    }
+    EditorDivider()
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        EditorLabel("Progress · ${draft.percentComplete}%")
+        androidx.compose.material3.Slider(
+            value = draft.percentComplete.toFloat(),
+            onValueChange = { onDraft(draft.copy(percentComplete = it.toInt(), taskStatus = if (it > 0f) "IN-PROCESS" else "NEEDS-ACTION")) },
+            valueRange = 0f..100f,
+            steps = 9,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).semantics { contentDescription = "Task progress, ${draft.percentComplete} percent" },
+        )
+    }
+    EditorDivider()
+    if (draft.parentTaskId == null) {
+        EditorValueRow(CalinoIcon.Repeat, "Repeat", formatRecurrenceRule(draft.recurrence, draft.date), onRecurrenceOpen)
+        EditorReveal(recurrenceOpen) { RecurrenceEditor(draft, onDraft, pickUntil) }
+    } else {
+        Text(
+            "Subtasks cannot repeat.",
+            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(vertical = 12.dp),
+            color = CalinoColors.Ink3,
+            style = CalinoTypography.bodySmall,
+        )
+    }
+    if (draft.isEditing && (draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null)) {
+        RecurrenceScopeSelector(draft, onDraft)
+    }
     EditorDivider()
     if (categories.isNotEmpty()) {
         CategoriesSection(draft, categories, single = true, onDraft = onDraft)
@@ -882,9 +929,14 @@ private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            RecurrenceEditScope.entries.forEach { scope ->
+            val scopes = if (draft.kind == PocQuickAddKind.Task) {
+                listOf(RecurrenceEditScope.This, RecurrenceEditScope.All)
+            } else {
+                RecurrenceEditScope.entries
+            }
+            scopes.forEach { scope ->
                 val label = when (scope) {
-                    RecurrenceEditScope.This -> "This event"
+                    RecurrenceEditScope.This -> if (draft.kind == PocQuickAddKind.Task) "This task" else "This event"
                     RecurrenceEditScope.Future -> "This and future"
                     RecurrenceEditScope.All -> "Entire series"
                 }

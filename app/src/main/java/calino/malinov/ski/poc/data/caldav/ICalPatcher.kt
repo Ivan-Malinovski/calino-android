@@ -9,6 +9,11 @@ import biweekly.component.VJournal
 import biweekly.component.VTodo
 import biweekly.property.ExceptionDates
 import biweekly.property.ExceptionRule
+import biweekly.property.DateDue
+import biweekly.property.DateStart
+import biweekly.property.Completed
+import biweekly.property.PercentComplete
+import biweekly.property.Status
 import biweekly.property.ICalProperty
 import biweekly.property.RecurrenceDates
 import biweekly.property.RecurrenceId
@@ -20,6 +25,9 @@ import calino.malinov.ski.poc.data.model.JournalEntry
 import java.time.LocalDate
 import java.time.Instant
 import biweekly.util.ICalDate
+import biweekly.util.DateTimeComponents
+import java.time.format.DateTimeFormatter
+import java.util.Date
 
 /**
  * Rewrites Calino's components inside a resource the server already holds.
@@ -64,17 +72,131 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
     fun patchTask(originalIcs: String, task: CalTask, now: Instant): String? =
         patch(originalIcs) { calendar ->
             val uid = task.uid ?: return@patch null
-            val existing = calendar.todos.firstOrNull { it.uid?.value == uid }
-            val written = writer.writeTask(task, existing, now)
+            val occurrenceEdit = task.recurrenceId != null || task.recurrenceDate != null
+            val existing = if (occurrenceEdit && task.recurrenceScope == calino.malinov.ski.poc.data.model.RecurrenceEditScope.All) {
+                calendar.todos.firstOrNull { it.uid?.value == uid && it.recurrenceId == null }
+            } else {
+                calendar.todos.firstOrNull { it.matches(uid, task) }
+            }
+            val masterWideEdit = occurrenceEdit &&
+                task.recurrenceScope == calino.malinov.ski.poc.data.model.RecurrenceEditScope.All &&
+                existing?.recurrenceId == null
+            val originalStart = existing?.dateStart?.copy() as? DateStart
+            val originalDue = existing?.dateDue?.copy() as? DateDue
+            val originalStatus = existing?.status?.copy() as? Status
+            val originalPercent = existing?.percentComplete?.copy() as? PercentComplete
+            val originalCompleted = existing?.completed?.copy() as? Completed
+            val originalAlarms = existing?.getComponents(VAlarm::class.java)?.map { it.copy() }.orEmpty()
+            val written = writer.writeTask(
+                if (masterWideEdit) task.copy(recurrenceId = null, recurrenceDate = null) else task,
+                existing,
+                now,
+            )
+            // An expanded occurrence carries its own generated due date. Using
+            // that value for an ALL edit would silently move the series anchor.
+            // Content and RRULE edits apply to the master, while its DTSTART
+            // and DUE remain the server's original anchor.
+            if (masterWideEdit) {
+                written.removeProperties(DateStart::class.java)
+                written.removeProperties(DateDue::class.java)
+                originalStart?.let(written::addProperty)
+                originalDue?.let(written::addProperty)
+                written.removeProperties(Status::class.java)
+                written.removeProperties(PercentComplete::class.java)
+                written.removeProperties(Completed::class.java)
+                originalStatus?.let(written::addProperty)
+                originalPercent?.let(written::addProperty)
+                originalCompleted?.let(written::addProperty)
+                written.getComponents(VAlarm::class.java).toList().forEach(written::removeComponent)
+                originalAlarms.forEach(written::addComponent)
+            }
             if (existing == null) calendar.addComponent(written)
             calendar
         }
 
+    private fun VTodo.matches(uid: String, task: CalTask): Boolean {
+        if (this.uid?.value != uid) return false
+        val rid = recurrenceId ?: return task.recurrenceId == null && task.recurrenceDate == null
+        return if (rid.value.hasTime()) {
+            task.recurrenceId == runCatching { rid.value.toInstant() }.getOrNull()
+        } else {
+            task.recurrenceDate == rid.value.rawComponents?.let { LocalDate.of(it.year, it.month, it.date) }
+        }
+    }
+
+    fun removeTaskOccurrence(originalIcs: String, uid: String, task: CalTask): PatchRemoval? {
+        val calendar = parseSingle(originalIcs) ?: return null
+        val doomed = calendar.todos.firstOrNull { it.matches(uid, task) } ?: return null
+        calendar.removeComponent(doomed)
+        val remaining = calendar.events.size + calendar.todos.size + calendar.journals.size
+        return if (remaining == 0) PatchRemoval.Emptied else PatchRemoval.Patched(write(calendar))
+    }
+
+    /** Applies VTODO THIS/FUTURE deletion without ever splitting the UID resource. */
+    fun deleteTaskRecurrence(
+        originalIcs: String,
+        uid: String,
+        task: CalTask,
+        scope: calino.malinov.ski.poc.data.model.RecurrenceEditScope,
+    ): String? = patch(originalIcs) { calendar ->
+        val matching = calendar.todos.filter { it.uid?.value == uid }
+        val master = matching.firstOrNull { it.recurrenceId == null } ?: return@patch null
+        val target = task.recurrenceDate?.toTaskDateOnly()
+            ?: task.recurrenceId?.let { ICalDate(Date.from(it), true) }
+            ?: return@patch null
+        when (scope) {
+            calino.malinov.ski.poc.data.model.RecurrenceEditScope.All -> matching.forEach(calendar::removeComponent)
+            calino.malinov.ski.poc.data.model.RecurrenceEditScope.This -> {
+                matching.filter { it !== master && sameRecurrence(it.recurrenceId?.value, target) }
+                    .forEach(calendar::removeComponent)
+                val dates = master.getProperties(ExceptionDates::class.java).firstOrNull()?.let(::ExceptionDates)
+                    ?: ExceptionDates()
+                if (dates.values.none { sameRecurrence(it, target) }) dates.values.add(target)
+                master.removeProperties(ExceptionDates::class.java)
+                master.addProperty(dates)
+            }
+            calino.malinov.ski.poc.data.model.RecurrenceEditScope.Future -> {
+                val old = master.recurrenceRule?.value?.toString() ?: return@patch null
+                val until = if (target.hasTime()) {
+                    DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
+                        .withZone(java.time.ZoneOffset.UTC).format(task.recurrenceId!!.minusMillis(1))
+                } else {
+                    task.recurrenceDate!!.minusDays(1).format(DateTimeFormatter.BASIC_ISO_DATE)
+                }
+                val next = old.split(';').filterNot { it.startsWith("UNTIL=", true) || it.startsWith("COUNT=", true) }
+                    .plus("UNTIL=$until").joinToString(";")
+                master.removeProperties(RecurrenceRule::class.java)
+                ICalWriter.parseRecurrenceRule(next)?.let(master::addProperty) ?: return@patch null
+                matching.filter { it !== master && recurrenceAtOrAfter(it.recurrenceId?.value, target) }
+                    .forEach(calendar::removeComponent)
+            }
+        }
+        calendar
+    }
+
+    private fun sameRecurrence(left: ICalDate?, right: ICalDate): Boolean = when {
+        left == null || left.hasTime() != right.hasTime() -> false
+        left.hasTime() -> left.toInstant() == right.toInstant()
+        else -> left.rawComponents == right.rawComponents
+    }
+
+    private fun recurrenceAtOrAfter(left: ICalDate?, right: ICalDate): Boolean = when {
+        left == null || left.hasTime() != right.hasTime() -> false
+        left.hasTime() -> !left.toInstant().isBefore(right.toInstant())
+        else -> {
+            val l = left.rawComponents ?: return false
+            val r = right.rawComponents ?: return false
+            LocalDate.of(l.year, l.month, l.date) >= LocalDate.of(r.year, r.month, r.date)
+        }
+    }
+
+    private fun LocalDate.toTaskDateOnly() = ICalDate(DateTimeComponents(year, monthValue, dayOfMonth, 0, 0, 0, false), false)
+
     /**
      * VTODO recurrence is a resource-level operation, just like VEVENT
-     * recurrence. The app has no task recurrence editor yet, so a task sharing
-     * its href with an override must never be rewritten or deleted as if it
-     * were a standalone task (that would discard the rest of the series).
+     * recurrence. A task sharing its href with an override must never be
+     * rewritten or deleted as if it were a standalone task (that would
+     * discard the rest of the series).
      *
      * `null` means the resource could not be parsed; callers should treat that
      * as an ordinary unsafe-cache condition rather than claiming it is a
