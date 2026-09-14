@@ -1389,7 +1389,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             // final gesture frame is followed by the destination at rest,
             // without replaying the ordinary quarter-width route animation.
             rootBackProgress = 0f
-            rootBackInProgress = false
         } catch (cancelled: CancellationException) {
             androidx.compose.animation.core.animate(
                 rootBackProgress,
@@ -1780,6 +1779,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     // devices and let the ordinary slide replay after commit.
                     withFrameNanos {}
                     withFrameNanos {}
+                    rootBackInProgress = false
                     predictiveRouteCommit = false
                 }
             }
@@ -2031,7 +2031,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 pillLane.handingBack = false
             }
         }
-        val pillVisible = !rootBackInProgress && when (rootRoute) {
+        val pillVisible = when (rootRoute) {
             PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
             PockRoute.Range -> route == PockRoute.Range
             PockRoute.Agenda -> route == PockRoute.Agenda
@@ -2102,7 +2102,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 // shadow and the glass fill. Keep the root pill measured for
                 // its handoff anchor, but let only the lane owner paint.
                 modifier = Modifier.graphicsLayer {
-                    alpha = if (pillLane.claimedByModal) 0f else 1f
+                    alpha = if (pillLane.claimedByModal || rootBackInProgress) 0f else 1f
                 },
                 backdrop = surfaceLayer,
                 backdropOrigin = { surfaceOrigin },
