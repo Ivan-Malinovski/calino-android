@@ -80,6 +80,14 @@ data class CalinoPreferences(
     /** Whether the sidebar's compact month calendar disclosure is open. */
     val sidebarCalendarExpanded: Boolean = false,
     val setSidebarCalendarExpanded: (Boolean) -> Unit = {},
+    /**
+     * Whether the day rail's "Tasks due" disclosure, under the week strip, is
+     * open. One setting for every day rather than per-day: the point is the
+     * choice the user made last time they toggled it, not a memory of which
+     * particular days they happened to leave open.
+     */
+    val dayTasksExpanded: Boolean = true,
+    val setDayTasksExpanded: (Boolean) -> Unit = {},
 )
 
 val LocalCalinoPreferences = staticCompositionLocalOf { CalinoPreferences() }
@@ -131,6 +139,8 @@ interface CalinoPreferenceStore {
     fun saveTaskRemindersEnabled(enabled: Boolean)
     fun loadSidebarCalendarExpanded(): Boolean
     fun saveSidebarCalendarExpanded(expanded: Boolean)
+    fun loadDayTasksExpanded(): Boolean
+    fun saveDayTasksExpanded(expanded: Boolean)
     /**
      * Whether the notification permission has already been asked for once.
      *
@@ -195,12 +205,15 @@ interface CalinoPreferenceStore {
         private var taskReminders = true
         private var notificationPrompt = false
         private var sidebarCalendarExpanded = false
+        private var dayTasksExpanded = true
         override fun loadEventRemindersEnabled() = eventReminders
         override fun saveEventRemindersEnabled(enabled: Boolean) { eventReminders = enabled }
         override fun loadTaskRemindersEnabled() = taskReminders
         override fun saveTaskRemindersEnabled(enabled: Boolean) { taskReminders = enabled }
         override fun loadSidebarCalendarExpanded() = sidebarCalendarExpanded
         override fun saveSidebarCalendarExpanded(expanded: Boolean) { sidebarCalendarExpanded = expanded }
+        override fun loadDayTasksExpanded() = dayTasksExpanded
+        override fun saveDayTasksExpanded(expanded: Boolean) { dayTasksExpanded = expanded }
         override fun loadNotificationPromptShown() = notificationPrompt
         override fun saveNotificationPromptShown(shown: Boolean) { notificationPrompt = shown }
     }
@@ -272,6 +285,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveTaskRemindersEnabled(enabled: Boolean) = putBoolean(TaskRemindersKey, enabled)
     override fun loadSidebarCalendarExpanded(): Boolean = prefs.getBoolean(SidebarCalendarExpandedKey, false)
     override fun saveSidebarCalendarExpanded(expanded: Boolean) = putBoolean(SidebarCalendarExpandedKey, expanded)
+    override fun loadDayTasksExpanded(): Boolean = prefs.getBoolean(DayTasksExpandedKey, true)
+    override fun saveDayTasksExpanded(expanded: Boolean) = putBoolean(DayTasksExpandedKey, expanded)
     override fun loadNotificationPromptShown(): Boolean = prefs.getBoolean(NotificationPromptKey, false)
     override fun saveNotificationPromptShown(shown: Boolean) = putBoolean(NotificationPromptKey, shown)
 
@@ -295,6 +310,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val EventRemindersKey = "event_reminders_enabled"
         const val TaskRemindersKey = "task_reminders_enabled"
         const val SidebarCalendarExpandedKey = "sidebar_calendar_expanded"
+        const val DayTasksExpandedKey = "day_tasks_expanded"
         const val NotificationPromptKey = "notification_prompt_shown"
     }
 }
@@ -328,6 +344,7 @@ fun rememberCalinoPreferences(
     var eventRemindersEnabled by remember(store) { mutableStateOf(store.loadEventRemindersEnabled()) }
     var taskRemindersEnabled by remember(store) { mutableStateOf(store.loadTaskRemindersEnabled()) }
     var sidebarCalendarExpanded by remember(store) { mutableStateOf(store.loadSidebarCalendarExpanded()) }
+    var dayTasksExpanded by remember(store) { mutableStateOf(store.loadDayTasksExpanded()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
         setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
@@ -377,6 +394,11 @@ fun rememberCalinoPreferences(
         setSidebarCalendarExpanded = { value ->
             sidebarCalendarExpanded = value
             store.saveSidebarCalendarExpanded(value)
+        },
+        dayTasksExpanded = dayTasksExpanded,
+        setDayTasksExpanded = { value ->
+            dayTasksExpanded = value
+            store.saveDayTasksExpanded(value)
         },
     )
 }

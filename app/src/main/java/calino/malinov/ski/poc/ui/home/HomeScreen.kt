@@ -2546,7 +2546,8 @@ private fun DayTasksSection(
     modifier: Modifier = Modifier,
 ) {
     if (dayTasks.isEmpty()) return
-    var expanded by rememberSaveable(day) { mutableStateOf(true) }
+    val preferences = LocalCalinoPreferences.current
+    val expanded = preferences.dayTasksExpanded
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) -90f else 90f,
         animationSpec = tween(180),
@@ -2565,7 +2566,7 @@ private fun DayTasksSection(
                     } else {
                         "Expand tasks due for ${day.format(FullDateFormatter)}"
                     },
-                ) { expanded = !expanded },
+                ) { preferences.setDayTasksExpanded(!expanded) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
