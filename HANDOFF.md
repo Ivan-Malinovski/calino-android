@@ -4,6 +4,17 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Sidebar disclosure grouping — 2026-09-14
+
+Upcoming Tasks now sits directly below the compact Calendar disclosure and
+uses the same surface, border, radius, shadow, padding, chevron timing, and
+expand/collapse motion. The diamond-and-Calino brand lockup is centered as one
+unit, and the sidebar's inner scroll viewport has its own rounded clip so
+content scrolls naturally beneath the shell corners.
+
+Validated with `test lintDebug assembleDebug` and inspected at rest on the API
+36 emulator. No physical-phone validation was run.
+
 ### Task progress, priority, and recurring VTODOs — 2026-09-14
 
 `CalTask`, `NewTask`, and `EditorDraft` now retain RFC 5545 `PRIORITY`, partial

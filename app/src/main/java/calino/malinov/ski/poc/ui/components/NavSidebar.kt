@@ -244,6 +244,7 @@ fun NavSidebar(
                             .background(if (CalinoColors.isDark) CalinoColors.Panel else CalinoColors.Canvas)
                             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
                             .padding(horizontal = 12.dp, vertical = 14.dp)
+                            .clip(RoundedCornerShape(14.dp))
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
@@ -252,7 +253,7 @@ fun NavSidebar(
                                 .fillMaxWidth()
                                 .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                         ) {
                             // Match the web sidebar brand: an 11dp accent diamond
                             // with a theme-aware accent focus ring.
@@ -280,6 +281,12 @@ fun NavSidebar(
                         SidebarMiniCalendar(
                             selectedDate = selectedDate,
                             onDateChanged = onDateChanged,
+                        )
+                        SidebarUpcomingTasks(
+                            tasks = snapshot.tasks,
+                            onTaskClick = onTaskClick,
+                            onTaskComplete = onTaskComplete,
+                            onTaskAction = onTaskAction,
                         )
                         SidebarSectionLabel("VIEWS")
                         SidebarNavGroup {
@@ -313,9 +320,6 @@ fun NavSidebar(
                             onColorCalendar = onColorCalendar,
                             onSyncAll = onSyncAll,
                             onSyncCalendar = onSyncCalendar,
-                            onTaskClick = onTaskClick,
-                            onTaskComplete = onTaskComplete,
-                            onTaskAction = onTaskAction,
                         )
                         Spacer(Modifier.height(8.dp))
                         SidebarNavGroup {
@@ -528,74 +532,33 @@ private fun SidebarMiniCalendar(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SidebarExtras(
-    snapshot: CalinoSnapshot,
-    accounts: List<CalDavAccount>,
-    onToggleCalendar: (String, String, Boolean) -> Unit,
-    onToggleCalendarTasks: (String, String, Boolean) -> Unit,
-    fixtureHiddenCalendarIds: Set<String>,
-    fixtureHiddenTaskCalendarIds: Set<String>,
-    onToggleFixtureCalendar: (String, Boolean) -> Unit,
-    onToggleFixtureCalendarTasks: (String, Boolean) -> Unit,
-    onRenameCalendar: (String, String, String) -> Unit,
-    onColorCalendar: (String, String, Long) -> Unit,
-    onSyncAll: () -> Unit,
-    onSyncCalendar: (String, String) -> Unit,
+private fun SidebarUpcomingTasks(
+    tasks: List<CalTask>,
     onTaskClick: (CalTask) -> Unit,
     onTaskComplete: (CalTask, Boolean) -> Unit,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
 ) {
-    var editingCalendarKey by remember { mutableStateOf<String?>(null) }
-    var editedCalendarName by remember { mutableStateOf("") }
-    var fixtureCalendarNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var fixtureCalendarColors by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
-    var upcomingTasksExpanded by remember { mutableStateOf(false) }
-    val upcomingChevronRotation by animateFloatAsState(
-        targetValue = if (upcomingTasksExpanded) 90f else 0f,
-        animationSpec = tween(180),
+    var expanded by remember { mutableStateOf(false) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = tween(CalinoMotion.ContentEnterMillis),
         label = "upcoming tasks chevron",
     )
-    val rows = if (accounts.isEmpty()) {
-        snapshot.calendars.map { calendar ->
-            SidebarCalendarRow(
-                accountId = null,
-                calendar = calendar.copy(
-                    name = fixtureCalendarNames[calendar.id] ?: calendar.name,
-                    color = fixtureCalendarColors[calendar.id] ?: calendar.color,
-                ),
-            )
-        }
-    } else {
-        accounts.flatMap { account ->
-            account.calendars.map { calendar ->
-                SidebarCalendarRow(
-                    accountId = account.id,
-                    calendar = CalinoCalendar(
-                        id = calendar.id,
-                        name = calendar.name,
-                        color = calendar.color,
-                        readOnly = calendar.readOnly,
-                        visible = calendar.visible,
-                        showTasksInViews = calendar.showTasksInViews,
-                    ),
-                    enabled = calendar.enabled,
-                )
-            }
-        }
-    }
-
-    val taskCardShape = RoundedCornerShape(12.dp)
-    val upcoming = snapshot.tasks
+    val upcoming = tasks
         .filter { !it.done }
         .filter { it.parentTaskId == null }
         .sortedBy { it.due ?: LocalDate.MAX }
         .take(10)
+    val cardShape = RoundedCornerShape(12.dp)
+
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(taskCardShape)
-            .background(CalinoColors.Panel)
-            .border(1.dp, CalinoColors.Line, taskCardShape)
+            .shadow(2.dp * CalinoColors.elevationAlpha, cardShape)
+            .shadow(2.dp * CalinoColors.elevationAlpha, cardShape)
+            .clip(cardShape)
+            .background(if (CalinoColors.isDark) CalinoColors.Side else CalinoColors.Panel)
+            .border(1.dp, CalinoColors.Line, cardShape)
             .padding(horizontal = 6.dp, vertical = 6.dp),
     ) {
         Row(
@@ -603,7 +566,12 @@ private fun SidebarExtras(
                 .fillMaxWidth()
                 .heightIn(min = 44.dp)
                 .clip(RoundedCornerShape(7.dp))
-                .clickable { upcomingTasksExpanded = !upcomingTasksExpanded }
+                .clickable { expanded = !expanded }
+                .semantics {
+                    contentDescription = "Upcoming tasks in sidebar"
+                    stateDescription = if (expanded) "Expanded" else "Collapsed"
+                    role = Role.Button
+                }
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -619,14 +587,14 @@ private fun SidebarExtras(
                 modifier = Modifier
                     .padding(start = 8.dp)
                     .size(16.dp)
-                    .graphicsLayer { rotationZ = upcomingChevronRotation },
+                    .graphicsLayer { rotationZ = chevronRotation },
                 contentDescription = null,
             )
         }
         AnimatedVisibility(
-            visible = upcomingTasksExpanded,
-            enter = expandVertically(tween(180)) + fadeIn(tween(140)),
-            exit = shrinkVertically(tween(140)) + fadeOut(tween(100)),
+            visible = expanded,
+            enter = expandVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+            exit = shrinkVertically(tween(CalinoMotion.ContentExitMillis)) + fadeOut(tween(CalinoMotion.ContentExitMillis)),
         ) {
             Column {
                 upcoming.forEach { task ->
@@ -655,6 +623,56 @@ private fun SidebarExtras(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
                     )
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SidebarExtras(
+    snapshot: CalinoSnapshot,
+    accounts: List<CalDavAccount>,
+    onToggleCalendar: (String, String, Boolean) -> Unit,
+    onToggleCalendarTasks: (String, String, Boolean) -> Unit,
+    fixtureHiddenCalendarIds: Set<String>,
+    fixtureHiddenTaskCalendarIds: Set<String>,
+    onToggleFixtureCalendar: (String, Boolean) -> Unit,
+    onToggleFixtureCalendarTasks: (String, Boolean) -> Unit,
+    onRenameCalendar: (String, String, String) -> Unit,
+    onColorCalendar: (String, String, Long) -> Unit,
+    onSyncAll: () -> Unit,
+    onSyncCalendar: (String, String) -> Unit,
+) {
+    var editingCalendarKey by remember { mutableStateOf<String?>(null) }
+    var editedCalendarName by remember { mutableStateOf("") }
+    var fixtureCalendarNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var fixtureCalendarColors by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    val rows = if (accounts.isEmpty()) {
+        snapshot.calendars.map { calendar ->
+            SidebarCalendarRow(
+                accountId = null,
+                calendar = calendar.copy(
+                    name = fixtureCalendarNames[calendar.id] ?: calendar.name,
+                    color = fixtureCalendarColors[calendar.id] ?: calendar.color,
+                ),
+            )
+        }
+    } else {
+        accounts.flatMap { account ->
+            account.calendars.map { calendar ->
+                SidebarCalendarRow(
+                    accountId = account.id,
+                    calendar = CalinoCalendar(
+                        id = calendar.id,
+                        name = calendar.name,
+                        color = calendar.color,
+                        readOnly = calendar.readOnly,
+                        visible = calendar.visible,
+                        showTasksInViews = calendar.showTasksInViews,
+                    ),
+                    enabled = calendar.enabled,
+                )
             }
         }
     }
