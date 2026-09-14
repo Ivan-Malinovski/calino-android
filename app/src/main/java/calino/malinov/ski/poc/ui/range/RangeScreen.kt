@@ -1,6 +1,7 @@
 package calino.malinov.ski.poc.ui.range
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -80,7 +81,8 @@ import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalTimeFormat
-import calino.malinov.ski.poc.state.tasksDueOn
+import calino.malinov.ski.poc.ui.components.AllDayBand
+import calino.malinov.ski.poc.ui.components.AllDayBandDensity
 import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
 import calino.malinov.ski.poc.ui.components.CompactSegmentedControl
 import calino.malinov.ski.poc.ui.home.CompactLaneScrim
@@ -91,6 +93,8 @@ import calino.malinov.ski.poc.ui.surfaces.EventMenuAction
 import calino.malinov.ski.poc.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.poc.util.CalinoRangeMode
 import calino.malinov.ski.poc.util.EventDateIndex
+import calino.malinov.ski.poc.util.layoutAllDayBand
+import calino.malinov.ski.poc.util.resolveAllDaySpans
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -301,7 +305,7 @@ private fun RangePagerSurface(
                         val day = rangeDropDay(
                             session.pointer.x,
                             hostWidth,
-                            with(density) { 52.dp.toPx() },
+                            with(density) { CalinoSpacing.RailGutter.toPx() },
                             visible,
                         )
                         val start = session.card.event.start
@@ -405,7 +409,7 @@ private fun RangePage(
                 }
                 .rangePinch { zoom -> onTimelineScaleChanged((timelineScale * zoom).coerceIn(.65f, 1.8f)) }
                 .verticalScroll(timelineScroll).padding(bottom = CalinoSpacing.PillClearance),
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
+            horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
         ) {
             RangeHourGutter(timelineScale)
             days.forEach { day ->
@@ -447,10 +451,15 @@ private fun RangePage(
                 }
             }
         }
+        // Animated rather than following `stripHeight` directly: that height
+        // is one frame behind its own content (measured via onSizeChanged),
+        // so an expanding band would otherwise make the scrim step instead of
+        // grow smoothly under it.
+        val scrimHeight by animateDpAsState(stripHeight + 10.dp, CalinoMotion.standardSpatial(), label = "range strip scrim height")
         CompactLaneScrim(
             source = railLayer,
             blend = { 1f },
-            modifier = Modifier.fillMaxWidth().height(stripHeight + 10.dp),
+            modifier = Modifier.fillMaxWidth().height(scrimHeight),
         )
         // Match the compact week strip: content and input sit over the same
         // translucent, blurred copy of the hour rail instead of an opaque bar.
@@ -459,55 +468,39 @@ private fun RangePage(
                 stripHeight = with(density) { size.height.toDp() }
             },
         ) {
-            Row(Modifier.fillMaxWidth().padding(start = 48.dp, end = 4.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start = CalinoSpacing.RailGutter, end = 4.dp)) {
                 days.forEach { day ->
-                    val due = remember(tasks, day, hideDone) { tasksDueOn(tasks, day).filterNot { hideDone && it.done } }
-                    val allDay = remember(eventIndex, day) { eventIndex.eventsOn(day).filter { it.allDay } }
                     Column(
-                        Modifier.weight(1f).padding(horizontal = 1.dp),
+                        Modifier.weight(1f).padding(horizontal = CalinoSpacing.RailColumnGap),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()).uppercase(), fontSize = 10.sp, color = CalinoColors.Ink3)
                         Text(day.dayOfMonth.toString(), fontSize = if (days.size == 7) 14.sp else 16.sp, fontWeight = FontWeight.SemiBold, color = CalinoColors.Ink)
-                        allDay.firstOrNull()?.let { event ->
-                            Text(
-                                event.title,
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-                                    .background(CalinoColors.AccentSoft)
-                                    .combinedClickable(
-                                        onClick = { onEventClick(day, event) },
-                                        onLongClick = { onEventAction(EventMenuAction.Edit, event) },
-                                    ).padding(2.dp),
-                                fontSize = 8.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                            )
-                        } ?: due.firstOrNull()?.let { task ->
-                            Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
-                                    .background(CalinoColors.AccentSoft)
-                                    .combinedClickable(
-                                        onClick = { onTaskClick(task) },
-                                        onLongClick = { onTaskAction(TaskMenuAction.Edit, task) },
-                                    ),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(task.title, Modifier.weight(1f).padding(start = 2.dp), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    if (task.done) "✓" else "○",
-                                    Modifier.width(28.dp).height(44.dp).clickable { onTaskDone(task, !task.done) }
-                                        .semantics { contentDescription = if (task.done) "Mark ${task.title} open" else "Complete ${task.title}" }
-                                        .padding(top = 13.dp),
-                                    textAlign = TextAlign.Center,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        }
-                        if (allDay.size + due.size > 1) Text("+${allDay.size + due.size - 1}", fontSize = 8.sp, color = CalinoColors.Ink3)
                     }
                 }
             }
+            // Filtered once, ahead of the packer, rather than per day inside
+            // it -- otherwise toggling "hide completed" would not relayout.
+            val visibleTasks = remember(tasks, hideDone) { if (hideDone) tasks.filterNot { it.done } else tasks }
+            val spans = remember(eventIndex, days) { resolveAllDaySpans(days, eventIndex::eventsOn) }
+            var bandExpanded by rememberSaveable(days.first(), days.size) { mutableStateOf(false) }
+            val bandLayout = remember(spans, visibleTasks, days, bandExpanded) {
+                layoutAllDayBand(days, spans, visibleTasks, if (bandExpanded) Int.MAX_VALUE else RangeBandLaneLimit)
+            }
+            AllDayBand(
+                days = days,
+                layout = bandLayout,
+                density = AllDayBandDensity.Narrow,
+                gutterWidth = CalinoSpacing.RailGutter,
+                columnGap = CalinoSpacing.RailColumnGap,
+                expanded = bandExpanded,
+                onExpandedChange = { bandExpanded = it },
+                onEventClick = onEventClick,
+                onEventAction = onEventAction,
+                onTaskClick = onTaskClick,
+                onTaskAction = onTaskAction,
+                onTaskDone = onTaskDone,
+            )
             Spacer(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
         }
     }
@@ -519,6 +512,9 @@ private data class RangeDragSession(
     val pointer: Offset,
     val scrollAtLift: Int,
 )
+
+/** Lanes shown at rest before the all-day band's overflow row takes over. */
+private const val RangeBandLaneLimit = 2
 
 private val RangeEdgeTurnZone = 52.dp
 private const val RangeEdgeTurnDelayMillis = 420L
@@ -651,7 +647,7 @@ private fun Modifier.rangePinch(onZoom: (Float) -> Unit): Modifier = pointerInpu
 @Composable
 private fun RangeHourGutter(timelineScale: Float) {
     val timeFormat = LocalTimeFormat
-    Box(Modifier.width(52.dp).height((62 * timelineScale * 24).dp)) {
+    Box(Modifier.width(CalinoSpacing.RailGutter).height((62 * timelineScale * 24).dp)) {
         (0..23).forEach { hour ->
             Text(
                 timeFormat.formatHour(hour),

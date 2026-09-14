@@ -19,11 +19,18 @@ class EventDateIndexTest {
             event("all-day", date = monday, allDay = true),
             event("span", date = monday.minusDays(1), endDate = monday.plusDays(1), allDay = true),
             event("weekly", start = monday.minusWeeks(2).atTime(9, 0), recurrence = "FREQ=WEEKLY;BYDAY=MO"),
+            // A recurring *multi-day* all-day span: days 2..n of a later
+            // occurrence (here, the week before `monday`) fall on dates the
+            // occurrence start alone does not predict -- the bug this guards.
+            event(
+                "weekly-span", date = monday.minusWeeks(1), endDate = monday.minusWeeks(1).plusDays(2),
+                allDay = true, recurrence = "FREQ=WEEKLY;BYDAY=MO",
+            ),
             event("detached", start = monday.atTime(12, 0), recurrence = null),
         )
         val index = EventDateIndex.build(events)
 
-        for (offset in -2L..3L) {
+        for (offset in -9L..3L) {
             val day = monday.plusDays(offset)
             assertEquals(events.filter { it.occursOn(day) }, index.eventsOn(day))
         }

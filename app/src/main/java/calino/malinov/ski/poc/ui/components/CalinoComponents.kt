@@ -159,10 +159,13 @@ import calino.malinov.ski.poc.design.CalinoShapes
 import calino.malinov.ski.poc.design.CalinoSpacing
 import calino.malinov.ski.poc.design.CalinoTypography
 import calino.malinov.ski.poc.design.eventTint
+import calino.malinov.ski.poc.design.priorityLabel
+import calino.malinov.ski.poc.design.priorityStripeColor
 import calino.malinov.ski.poc.state.LocalCalinoNow
 import calino.malinov.ski.poc.state.LocalCalinoPreferences
 import calino.malinov.ski.poc.state.LocalCalinoSync
 import calino.malinov.ski.poc.state.LocalTimeFormat
+import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.state.SyncBadge
 import calino.malinov.ski.poc.state.syncBadgeFor
 import java.time.LocalDate
@@ -1037,6 +1040,13 @@ internal fun splitMeridiem(time: String): Pair<String, String?> {
     return if (isMeridiem) time.substring(0, cut) to tail else time to null
 }
 
+/** Screen-reader description shared by every rendering of an event: title, time, location. */
+fun eventDescription(event: CalEvent, timeFormat: CalinoTimeFormat): String = buildString {
+    append(event.title)
+    event.start?.let { append(", ").append(timeFormat.format(it)) }
+    event.location?.let { append(", ").append(it) }
+}
+
 @Composable
 fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRowVariant = AgendaRowVariant.Card, onClick: (() -> Unit)? = null) {
     val timeFormat = LocalTimeFormat
@@ -1121,11 +1131,13 @@ fun AgendaRow(
     onDragEnd: ((Offset) -> Unit)? = null,
 ) {
     val color = eventColor(task.color)
+    val stripeColor = priorityStripeColor(task.priority)
     var dragOffsetY by remember(task.id) { mutableFloatStateOf(0f) }
     val description = buildString {
         append(task.title)
         if (!compact) task.due?.let { append(", due ").append(it.format(ShortDateFormat)) }
         task.category?.let { append(", ").append(it) }
+        priorityLabel(task.priority)?.let { append(", ").append(it) }
     }
     val rowPressModifier = when {
         onClick != null && onLongClick != null -> Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -1159,6 +1171,16 @@ fun AgendaRow(
             .padding(horizontal = 8.dp, vertical = if (compact) 0.dp else 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (stripeColor != null) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(if (compact) 28.dp else 34.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(stripeColor),
+            )
+            Spacer(Modifier.width(6.dp))
+        }
         val checkboxPressModifier = if (onCheckedChange != null) {
             Modifier.calinoPressable(role = Role.Checkbox) { onCheckedChange(!task.done) }
         } else {

@@ -127,7 +127,7 @@ class PocFixturesTest {
         assertEquals(listOf("evt-jun-call"), matching("Client Call · Acme Corp", LocalDate.of(2026, 6, 11)).map { it.id })
 
         assertEquals(
-            listOf("evt-design", "evt-jun-call", "evt-gym-05", "evt-yoga", "evt-manager"),
+            listOf("evt-design", "evt-jun-call", "evt-gym-05", "evt-studio-residency", "evt-yoga", "evt-manager"),
             events.filter { it.recurrence != null }.map { it.id },
         )
     }

@@ -4,6 +4,7 @@ import calino.malinov.ski.poc.data.model.CalEvent
 import calino.malinov.ski.poc.data.model.lastCoveredDate
 import calino.malinov.ski.poc.data.model.occursOn
 import calino.malinov.ski.poc.data.model.placementDate
+import calino.malinov.ski.poc.data.model.spanLengthDays
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.Locale
@@ -81,21 +82,34 @@ class EventDateIndex private constructor(
                 val byParts = fields.keys.filter { it.startsWith("BY") }
                 val simple = byParts.isEmpty() ||
                     (fields["FREQ"] == "WEEKLY" && byParts == listOf("BYDAY"))
+                // A multi-day span's later days fall on dates its own
+                // occurrence start does not predict, so a bucket keyed on the
+                // start alone must widen by the span length or miss them.
+                val spanLength = event.spanLengthDays()
                 when (fields["FREQ"].takeIf { simple }) {
                     "DAILY" -> daily += index
                     "WEEKLY" -> {
                         val days = fields["BYDAY"]?.split(',')?.mapNotNull(::dayOfWeek).orEmpty()
                             .ifEmpty { listOfNotNull(anchor?.dayOfWeek) }
                         if (days.isEmpty()) other += index
-                        else days.distinct().forEach { weekly.getOrPut(it) { mutableListOf() }.add(index) }
+                        else days.distinct().forEach { start ->
+                            for (offset in 0..spanLength) {
+                                val covered = DayOfWeek.of(((start.value - 1 + offset) % 7).toInt() + 1)
+                                weekly.getOrPut(covered) { mutableListOf() }.add(index)
+                            }
+                        }
                     }
                     // RFC 5545 skips a month too short for the anchor day
-                    // rather than clamping, so the anchor day is exact.
-                    "MONTHLY" -> anchor?.dayOfMonth?.let { monthly.getOrPut(it) { mutableListOf() }.add(index) }
+                    // rather than clamping, so the anchor day is exact -- but
+                    // only when the whole span stays inside one month.
+                    "MONTHLY" -> anchor?.dayOfMonth
+                        ?.takeIf { spanLength == 0L }
+                        ?.let { monthly.getOrPut(it) { mutableListOf() }.add(index) }
                         ?: run { other += index }
-                    "YEARLY" -> anchor?.let {
-                        yearly.getOrPut(it.monthValue) { mutableListOf() }.add(index)
-                    } ?: run { other += index }
+                    "YEARLY" -> anchor
+                        ?.takeIf { spanLength == 0L }
+                        ?.let { yearly.getOrPut(it.monthValue) { mutableListOf() }.add(index) }
+                        ?: run { other += index }
                     else -> other += index
                 }
             }

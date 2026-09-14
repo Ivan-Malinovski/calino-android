@@ -3,11 +3,14 @@ package calino.malinov.ski.poc.qa
 import androidx.compose.ui.graphics.Color
 import calino.malinov.ski.poc.design.CalinoPalette
 import calino.malinov.ski.poc.design.CalinoThemes
+import calino.malinov.ski.poc.design.priorityLabel
+import calino.malinov.ski.poc.design.priorityStripeColor
 import calino.malinov.ski.poc.state.CalinoPreferenceStore
 import calino.malinov.ski.poc.util.CalinoThemeChoice
 import calino.malinov.ski.poc.util.CalinoEventSyncRange
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -150,6 +153,33 @@ class CalinoPaletteTest {
                     )
                 }
         }
+    }
+
+    @Test
+    fun `priority 0 draws no stripe at all`() {
+        // Null, not a transparent box: a task list where every undefined
+        // priority still reserves the stripe's width reads as ragged.
+        assertEquals(null, priorityStripeColor(0, CalinoThemes.PaperLight))
+        assertNull(priorityLabel(0))
+    }
+
+    @Test
+    fun `priority bands map to distinct, named colors`() {
+        val palette = CalinoThemes.PaperLight
+        assertEquals(palette.Rose, priorityStripeColor(1, palette))
+        assertEquals(palette.Rose, priorityStripeColor(3, palette))
+        assertEquals(palette.Amber, priorityStripeColor(4, palette))
+        assertEquals(palette.Amber, priorityStripeColor(6, palette))
+        assertEquals(palette.Ink3, priorityStripeColor(7, palette))
+        assertEquals(palette.Ink3, priorityStripeColor(9, palette))
+    }
+
+    @Test
+    fun `every priority label names a band or is absent for undefined`() {
+        assertEquals("high priority", priorityLabel(1))
+        assertEquals("medium priority", priorityLabel(5))
+        assertEquals("low priority", priorityLabel(9))
+        assertNull(priorityLabel(0))
     }
 
     @Test

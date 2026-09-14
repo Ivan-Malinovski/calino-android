@@ -122,4 +122,32 @@ class RecurrenceRuleTest {
             (0..3).map { trip.occursOn(anchor.plusDays(it.toLong())) },
         )
     }
+
+    @Test
+    fun recurringMultiDaySpanCoversTheMiddleDaysOfALaterOccurrenceNotJustTheMaster() {
+        // A weekly Mon-Wed all-day trip. The master (`anchor`) is Monday; its
+        // own Tue/Wed fall inside `lastCoveredDate`'s window, but a *later*
+        // occurrence's Tue/Wed are only reachable through the recurrence rule,
+        // and `RecurrenceRules.occursOn` only answers "is this an occurrence
+        // start" -- so the fix must re-derive the span length per occurrence.
+        val trip = CalEvent(
+            id = "evt-recurring-span",
+            title = "Weekly trip",
+            color = 0xFF5B7FB5,
+            start = null,
+            durationMinutes = null,
+            allDay = true,
+            date = anchor,
+            endDate = anchor.plusDays(2),
+            recurrence = "FREQ=WEEKLY;BYDAY=MO",
+            calendarId = "personal",
+        )
+        val laterMonday = anchor.plusWeeks(3)
+
+        assertTrue(trip.occursOn(laterMonday))
+        assertTrue(trip.occursOn(laterMonday.plusDays(1)))
+        assertTrue(trip.occursOn(laterMonday.plusDays(2)))
+        assertFalse(trip.occursOn(laterMonday.plusDays(3)))
+        assertFalse(trip.occursOn(laterMonday.minusDays(1)))
+    }
 }

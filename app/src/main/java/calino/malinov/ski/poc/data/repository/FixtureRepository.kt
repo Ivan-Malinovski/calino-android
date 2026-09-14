@@ -499,7 +499,15 @@ private fun timed(
     calendarId = calendarId,
 )
 
-private fun allDay(id: String, title: String, date: LocalDate, color: Long, calendarId: String = "personal") = CalEvent(
+private fun allDay(
+    id: String,
+    title: String,
+    date: LocalDate,
+    color: Long,
+    calendarId: String = "personal",
+    endDate: LocalDate? = null,
+    recurrence: String? = null,
+) = CalEvent(
     id = id,
     title = title,
     color = color,
@@ -508,6 +516,8 @@ private fun allDay(id: String, title: String, date: LocalDate, color: Long, cale
     allDay = true,
     calendarId = calendarId,
     date = date,
+    endDate = endDate,
+    recurrence = recurrence,
 )
 
 private fun fixtureEvents(): List<CalEvent> {
@@ -544,8 +554,14 @@ private fun fixtureEvents(): List<CalEvent> {
         timed("evt-client-05-14", "Client Call · Acme Corp", may(14), Rose, LocalTime.of(11, 0), 30, location = "Google Meet", calendarId = "work"),
         timed("evt-gym-05-14", "Gym Session", may(14), Blue, LocalTime.of(7, 0), 60),
         timed("evt-lunch-mom", "Lunch with Mom", may(15), Rose, LocalTime.of(12, 30), 90, location = "The Garden"),
-        allDay("evt-design-sprint-16", "Design Sprint", may(16), Plum, "work"),
-        allDay("evt-design-sprint-17", "Design Sprint", may(17), Plum, "work"),
+        allDay("evt-design-sprint", "Design Sprint", may(16), Plum, "work", endDate = may(17)),
+        // A recurring multi-day all-day span: the emulator's coverage of the
+        // day-2..n-of-a-later-occurrence bug that `occurrenceStartCovering`
+        // fixes. Its master is April 24; the band must still show May 22-23.
+        allDay(
+            "evt-studio-residency", "Studio Residency", april(24), Plum, "work",
+            endDate = april(25), recurrence = "FREQ=WEEKLY;BYDAY=FR;UNTIL=20260630T235959Z",
+        ),
         timed("evt-st-patricks-lunch", "St. Patrick's Lunch", may(17), Amber, LocalTime.of(12, 0), 90, location = "The Green Room"),
         timed("evt-code-review", "Code Review Session", FixtureRepository.FixtureDate, Rose, LocalTime.of(14, 0), 60, calendarId = "work"),
         allDay("evt-national-day", "National Day · No Work", may(20), Amber, "work"),
@@ -553,10 +569,8 @@ private fun fixtureEvents(): List<CalEvent> {
         timed("evt-client-05-21", "Client Call · Acme Corp", may(21), Rose, LocalTime.of(11, 0), 30, location = "Google Meet", calendarId = "work"),
         timed("evt-gym-05-21", "Gym Session", may(21), Blue, LocalTime.of(7, 0), 60),
         timed("evt-planning-workshop", "Product Planning Workshop", may(22), Plum, LocalTime.of(10, 0), 120, location = "Studio", calendarId = "work"),
-        allDay("evt-family-vacation-24", "Family Vacation", may(24), Amber, "travel"),
+        allDay("evt-family-vacation", "Family Vacation", may(24), Amber, "travel", endDate = may(26)),
         timed("evt-doctor", "Doctor Checkup", may(24), Rose, LocalTime.of(9, 30), 60, location = "North Clinic"),
-        allDay("evt-family-vacation-25", "Family Vacation", may(25), Amber, "travel"),
-        allDay("evt-family-vacation-26", "Family Vacation", may(26), Amber, "travel"),
         timed("evt-brunch", "Brunch with Friends", may(27), Blue, LocalTime.of(12, 0), 120, location = "Cafe Rouge"),
         timed("evt-yoga", "Yoga Class", may(27), Blue, LocalTime.of(18, 0), 60, "FREQ=WEEKLY;BYDAY=WE;UNTIL=20260630T235959Z"),
         timed("evt-client-05-28", "Client Call · Acme Corp", may(28), Rose, LocalTime.of(11, 0), 30, location = "Google Meet", calendarId = "work"),
@@ -571,10 +585,10 @@ private fun fixtureTasks(): List<CalTask> {
     val day = FixtureRepository.FixtureDate
     return listOf(
         CalTask("task-inbox", "Review calendar notes", Green, day, category = "Work"),
-        CalTask("task-overdue", "Send itinerary", Amber, day.minusDays(2), category = "Travel"),
+        CalTask("task-overdue", "Send itinerary", Amber, day.minusDays(2), category = "Travel", priority = 1),
         CalTask("task-buy", "Buy flowers", Rose, null, category = "Personal"),
         CalTask("task-done", "Book accommodation", Blue, day.minusDays(1), done = true, category = "Travel"),
-        CalTask("task-renew", "Renew car insurance", Rose, LocalDate.of(2026, 5, 28), category = "Admin"),
+        CalTask("task-renew", "Renew car insurance", Rose, LocalDate.of(2026, 5, 28), category = "Admin", priority = 6),
         CalTask("task-dentist", "Schedule dentist appointment", Blue, LocalDate.of(2026, 5, 25)),
         CalTask("task-documentation", "Update documentation", Green, LocalDate.of(2026, 5, 20), done = true, category = "Work"),
         CalTask("task-weekend", "Plan weekend trip", Green, day, done = true),

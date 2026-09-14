@@ -4,6 +4,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /** Visual-POC data contract; server persistence and sync live in the DAV layer. */
 data class Attendee(val name: String, val email: String)
@@ -61,19 +62,38 @@ data class CalEvent(
 )
 
 /** Date-aware event matching shared by calendar and day-modal renderers. */
-fun CalEvent.occursOn(day: LocalDate): Boolean {
-    val anchor = placementDate() ?: return false
-    if (anchor == day) return true
+fun CalEvent.occursOn(day: LocalDate): Boolean = occurrenceStartCovering(day) != null
+
+/**
+ * The occurrence start date whose span covers [day], or null if none does.
+ *
+ * For a non-recurring event this is just [placementDate], once its span (via
+ * [lastCoveredDate]) is checked to actually reach [day]. For a recurring one,
+ * `RecurrenceRules` only answers "is this date an occurrence start" -- but a
+ * multi-day span's own days 2..n are not starts. So this re-derives the span
+ * length once and walks backward from [day] looking for the occurrence start
+ * that would have carried it, rather than checking [day] itself.
+ */
+fun CalEvent.occurrenceStartCovering(day: LocalDate): LocalDate? {
+    val anchor = placementDate() ?: return null
+    if (anchor == day) return anchor
     // Date-only DTEND has already been made inclusive. Timed DTEND is
     // represented as a duration; an exact midnight belongs to the previous
     // day, while any later time also occupies its ending date.
     lastCoveredDate()?.let { last ->
-        if (!day.isBefore(anchor) && !day.isAfter(last)) return true
+        if (!day.isBefore(anchor) && !day.isAfter(last)) return anchor
     }
-    val rule = recurrence ?: return false
-    if (day.isBefore(anchor)) return false
+    val rule = recurrence ?: return null
+    if (day.isBefore(anchor)) return null
     // One engine, shared with the CalDAV expander. See RecurrenceRules.
-    return RecurrenceRules.occursOn(rule, start ?: anchor.atStartOfDay(), allDay, day)
+    val anchorStart = start ?: anchor.atStartOfDay()
+    val spanLength = spanLengthDays()
+    for (offset in 0..spanLength) {
+        val candidateStart = day.minusDays(offset)
+        if (candidateStart.isBefore(anchor)) break
+        if (RecurrenceRules.occursOn(rule, anchorStart, allDay, candidateStart)) return candidateStart
+    }
+    return null
 }
 
 fun CalEvent.placementDate(): LocalDate? = if (allDay) date else start?.toLocalDate()
@@ -92,6 +112,18 @@ fun CalEvent.lastCoveredDate(): LocalDate? {
         endExclusive.toLocalDate()
     }
     return last.takeIf { it.isAfter(anchor) }
+}
+
+/**
+ * Days a span covers past its placement date: 0 for a single day, else the
+ * gap to [lastCoveredDate]. A recurring event's own [lastCoveredDate] is
+ * relative to the *master's* placement, so this is a length to re-apply at
+ * every occurrence, not a date to compare against directly.
+ */
+fun CalEvent.spanLengthDays(): Long {
+    val anchor = placementDate() ?: return 0L
+    val last = lastCoveredDate() ?: return 0L
+    return ChronoUnit.DAYS.between(anchor, last).coerceAtLeast(0L)
 }
 
 data class CalTask(

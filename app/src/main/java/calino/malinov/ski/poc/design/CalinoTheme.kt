@@ -297,6 +297,18 @@ object CalinoSpacing {
 
     /** The action pill's settled height, once it has grown out of the add shape. */
     val ActionPillHeight = 56.dp
+
+    /** Width of the hour-label gutter on the range timelines and the day rail. */
+    val RailGutter = 52.dp
+
+    /** Horizontal gap between adjacent day columns on the rail and the all-day band. */
+    val RailColumnGap = 1.dp
+
+    /** Vertical gap between lanes in the all-day band. */
+    val LaneRowGap = 4.dp
+
+    /** Trailing edge clearance for the all-day band, mirroring the rail's own margin. */
+    val LaneEdge = 20.dp
 }
 
 object CalinoShapes {
@@ -493,3 +505,31 @@ fun CalinoTheme(
 @ReadOnlyComposable
 fun eventTint(color: Color, percent: Float, over: Color = CalinoColors.Canvas): Color =
     CalinoColors.tint(color, percent, over)
+
+/**
+ * The stripe color for an RFC 5545 `PRIORITY` (0 undefined, 1 highest, 9
+ * lowest), or null for undefined.
+ *
+ * Null must draw nothing at all rather than a transparent stripe: a task
+ * list where every undefined-priority row still reserves the stripe's width
+ * reads as ragged, indented relative to nothing.
+ */
+@Composable
+@ReadOnlyComposable
+fun priorityStripeColor(priority: Int): Color? = priorityStripeColor(priority, CalinoColors)
+
+/** Non-composable core of [priorityStripeColor], directly testable against a palette. */
+fun priorityStripeColor(priority: Int, palette: CalinoPalette): Color? = when (priority) {
+    in 1..3 -> palette.Rose
+    in 4..6 -> palette.Amber
+    in 7..9 -> palette.Ink3
+    else -> null
+}
+
+/** Screen-reader label for an RFC 5545 `PRIORITY`, or null for undefined. */
+fun priorityLabel(priority: Int): String? = when (priority) {
+    in 1..3 -> "high priority"
+    in 4..6 -> "medium priority"
+    in 7..9 -> "low priority"
+    else -> null
+}

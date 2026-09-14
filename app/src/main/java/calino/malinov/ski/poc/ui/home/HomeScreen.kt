@@ -148,6 +148,8 @@ import calino.malinov.ski.poc.data.model.lastCoveredDate
 import calino.malinov.ski.poc.data.model.placementDate
 import calino.malinov.ski.poc.data.model.CalTask
 import calino.malinov.ski.poc.ui.components.AbsentParentRow
+import calino.malinov.ski.poc.ui.components.AllDayBand
+import calino.malinov.ski.poc.ui.components.AllDayBandDensity
 import calino.malinov.ski.poc.ui.components.taskNestIndent
 import calino.malinov.ski.poc.state.LocalTaskLookup
 import calino.malinov.ski.poc.state.TaskListRow
@@ -192,6 +194,7 @@ import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.util.EventDateIndex
 import calino.malinov.ski.poc.ui.components.CalinoIcons
 import calino.malinov.ski.poc.ui.components.CalinoMonthHeading
+import calino.malinov.ski.poc.ui.components.eventDescription
 import calino.malinov.ski.poc.ui.components.MenuButton
 import calino.malinov.ski.poc.ui.components.TaskRow
 import calino.malinov.ski.poc.ui.components.calinoPressable
@@ -206,6 +209,8 @@ import calino.malinov.ski.poc.util.CalinoEventDensity
 import calino.malinov.ski.poc.util.CalinoWeekStart
 import calino.malinov.ski.poc.util.DayRailSlot
 import calino.malinov.ski.poc.util.formatCalinoDuration
+import calino.malinov.ski.poc.util.layoutAllDayBand
+import calino.malinov.ski.poc.util.resolveAllDaySpans
 import calino.malinov.ski.poc.util.WashKind
 import calino.malinov.ski.poc.util.gridStart
 import calino.malinov.ski.poc.util.isoWeekNumber
@@ -5124,12 +5129,6 @@ private fun lerpInt(start: Int, stop: Int, fraction: Float): Int =
 private fun eventsFor(events: List<CalEvent>, date: LocalDate): List<CalEvent> =
     events.filter { it.occursOn(date) }
 
-private fun eventDescription(event: CalEvent, timeFormat: CalinoTimeFormat): String = buildString {
-    append(event.title)
-    event.start?.let { append(", ").append(timeFormat.format(it)) }
-    event.location?.let { append(", ").append(it) }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EventChip(
@@ -5679,6 +5678,9 @@ private fun SelectedDayAgendaPage(
     }
 }
 
+/** Lanes shown at rest before the day rail's all-day band overflow row takes over. */
+private const val DayRailBandLaneLimit = 2
+
 @Composable
 private fun DayRailPage(
     day: LocalDate,
@@ -5712,8 +5714,16 @@ private fun DayRailPage(
     // The all-day strip still never scrolls, but it is now an overlay rather
     // than a row above the rail: the rail has to start at the very top of the
     // lane for hours to pass under it and under the compact strip.
-    val allDayEvents = dayEvents.filter { it.allDay }
-    val hasHeader = dayTasks.isNotEmpty() || allDayEvents.isNotEmpty()
+    // Tasks are not passed to the packer here: the day rail keeps
+    // `DayTasksSection` for tasks, which renders a real sub-task tree that
+    // cannot survive being collapsed into a band chip. The band on this
+    // surface handles all-day events only.
+    val daySpans = remember(dayEvents, day) { resolveAllDaySpans(listOf(day)) { dayEvents } }
+    var bandExpanded by rememberSaveable(day) { mutableStateOf(false) }
+    val bandLayout = remember(daySpans, day, bandExpanded) {
+        layoutAllDayBand(listOf(day), daySpans, emptyList(), if (bandExpanded) Int.MAX_VALUE else DayRailBandLaneLimit)
+    }
+    val hasHeader = dayTasks.isNotEmpty() || bandLayout.placements.isNotEmpty() || bandLayout.overflow.isNotEmpty()
     var measuredHeader by remember { mutableStateOf(0.dp) }
     // A day with nothing above the hours gives the space straight back.
     val headerHeight = if (hasHeader) measuredHeader else 0.dp
@@ -5826,7 +5836,7 @@ private fun DayRailPage(
                     .onSizeChanged { size ->
                         measuredHeader = with(density) { size.height.toDp() }
                     }
-                    .padding(start = 52.dp, end = 20.dp, top = 5.dp, bottom = 5.dp),
+                    .padding(start = CalinoSpacing.RailGutter, end = CalinoSpacing.LaneEdge, top = 5.dp, bottom = 5.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 DayTasksSection(
@@ -5837,20 +5847,22 @@ private fun DayRailPage(
                     onTaskAction = onTaskAction,
                     onTaskDrop = onTaskDrop,
                 )
-                // Keep local birthday/anniversary reminders visible alongside
-                // the two common fixture all-day records. This is still a
-                // bounded strip, but adding a reminder must not make it look
-                // as though the event landed on the wrong day.
-                allDayEvents.take(3).forEach { event ->
-                    EventChip(
-                        event,
-                        minHeight = 40.dp,
-                        onClick = onEvent?.let { callback -> { callback(event) } },
-                        agendaStyle = true,
-                        onEventAction = onEventAction,
-                        onEventDrop = onEventDrop?.let { callback -> { _, deltaY -> callback(event, day.plusDays((deltaY / 76f).roundToInt().toLong())) } },
-                    )
-                }
+                // No silent cap here any more: past the lane limit, the band's
+                // own overflow row is the affordance to see the rest.
+                AllDayBand(
+                    days = listOf(day),
+                    layout = bandLayout,
+                    density = AllDayBandDensity.Wide,
+                    gutterWidth = 0.dp,
+                    columnGap = 0.dp,
+                    expanded = bandExpanded,
+                    onExpandedChange = { bandExpanded = it },
+                    onEventClick = { _, event -> onEvent?.invoke(event) },
+                    onEventAction = { action, event -> onEventAction?.invoke(action, event) },
+                    onTaskClick = {},
+                    onTaskAction = { _, _ -> },
+                    onTaskDone = { _, _ -> },
+                )
             }
         }
     }
