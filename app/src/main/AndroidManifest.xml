@@ -131,5 +131,24 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/calino_agenda_widget_info" />
         </receiver>
+
+        <!--
+            The second layout, offered as its own entry in the launcher's
+            picker so both can sit on one home screen. No intent-filter beyond
+            APPWIDGET_UPDATE: a date or time broadcast reaches the receiver
+            above, and CalinoWidgets.update redraws both providers, so
+            declaring those actions twice would only duplicate the work.
+        -->
+        <receiver
+            android:name=".widget.CalinoCardsWidgetReceiver"
+            android:label="Calino agenda cards"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/calino_cards_widget_info" />
+        </receiver>
     </application>
 </manifest>

@@ -1,8 +1,10 @@
 package calino.malinov.ski.poc.widget
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.glance.color.ColorProvider as dayNightColor
 import androidx.glance.unit.ColorProvider
+import calino.malinov.ski.poc.design.CalinoPalette
 import calino.malinov.ski.poc.design.CalinoThemes
 
 /**
@@ -40,11 +42,46 @@ internal object CalinoWidgetColors {
     val ink = pair(light.Ink, dark.Ink)
     val ink2 = pair(light.Ink2, dark.Ink2)
     val ink3 = pair(light.Ink3, dark.Ink3)
+    val accent = pair(light.Accent, dark.Accent)
 
     /**
-     * A record's own colour. Not a day/night pair -- a calendar's colour comes
-     * from the server and means the same thing at night, exactly as it does
-     * inside the app.
+     * The rule between ledger rows.
+     *
+     * Composited onto the canvas rather than left translucent: Glance hands the
+     * colour to a `RemoteViews` background, and a 9%-alpha fill over the
+     * launcher's wallpaper is a different colour than the same fill over the
+     * widget's own paper. Flattening it here keeps the hairline the one the
+     * palette designed.
      */
-    fun record(value: Long): ColorProvider = ColorProvider(Color(value))
+    val line = pair(
+        light.Line.compositeOver(light.Canvas),
+        dark.Line.compositeOver(dark.Canvas),
+    )
+
+    /**
+     * A record's own colour, made fit for the theme it lands in.
+     *
+     * A calendar colour is data -- whatever the server chose -- and one picked
+     * against a white calendar sinks into a dark widget. [CalinoPalette.forEvent]
+     * is the same correction every calendar surface applies, so the widget's
+     * colours are the app's colours rather than a second, brighter set.
+     */
+    fun record(value: Long): ColorProvider =
+        pair(light.forEvent(Color(value)), dark.forEvent(Color(value)))
+
+    /**
+     * A card's fill: [value] laid over the canvas at a whisper.
+     *
+     * Glance cannot blend two colours, so the mix happens here, through the
+     * palette's own [CalinoPalette.tint] -- which means dark mixes harder
+     * (`eventTintScale`) exactly as it does in the app, instead of producing a
+     * tint that vanishes into ink.
+     */
+    fun recordTint(value: Long): ColorProvider = pair(
+        light.tint(Color(value), CardTintPercent),
+        dark.tint(Color(value), CardTintPercent),
+    )
+
+    /** How far a card's fill is pushed toward its record's colour. */
+    private const val CardTintPercent = .13f
 }

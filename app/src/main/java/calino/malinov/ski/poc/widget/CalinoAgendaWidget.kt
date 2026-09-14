@@ -33,11 +33,9 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
-import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
-import androidx.glance.text.TextDecoration
 import androidx.glance.text.TextStyle
 import calino.malinov.ski.poc.MainActivity
 import calino.malinov.ski.poc.data.CalinoContainer
@@ -48,11 +46,17 @@ import calino.malinov.ski.poc.notify.ReminderDeepLinks
 import calino.malinov.ski.poc.notify.ReminderKind
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * The home screen agenda.
+ * The home screen agenda: the shell both widgets share.
+ *
+ * [CalinoLedgerWidget] and [CalinoCardsWidget] are the two the launcher offers.
+ * They differ only in [WidgetStyle] -- the row, and how many rows a size
+ * affords. Everything else is deliberately one implementation: two widgets that
+ * disagreed about which records are on today would be worse than one widget.
  *
  * Two things shape this file. First, it renders in whatever process the
  * launcher wakes -- frequently one with no Activity -- so it reads the disk
@@ -61,7 +65,9 @@ import java.util.Locale
  * plain-JUnit suite, so every decision about *what* to show was already made in
  * [WidgetAgendaBuilder]; what is left here is layout.
  */
-class CalinoAgendaWidget : GlanceAppWidget() {
+abstract class CalinoAgendaWidget internal constructor(
+    private val style: WidgetStyle,
+) : GlanceAppWidget() {
 
     override val sizeMode = SizeMode.Responsive(
         setOf(SmallSize, MediumSize, LargeSize),
@@ -127,17 +133,26 @@ class CalinoAgendaWidget : GlanceAppWidget() {
         val size = LocalSize.current
         val today = WidgetClock.today
         val shaped = options.copy(
-            dayCount = dayCountFor(size),
-            maxRows = maxRowsFor(size),
+            dayCount = style.dayCountFor(size),
+            maxRows = style.maxRowsFor(size),
         )
-        val agenda = snapshot?.let { WidgetAgendaBuilder.build(it, today, shaped) }
+        // Read straight from the clock, not from observable state. The mark is
+        // worth no more than the render it was drawn in: the widget redraws on
+        // a sync, an edit and the date roll, and there is no broadcast for "a
+        // minute passed" that a manifest receiver may declare. So the bold row
+        // is correct when something happened and drifts quietly when nothing
+        // did, which is the honest trade -- the alternative is a periodic
+        // wake-up that the backlog rules out for exactly this reason.
+        val agenda = snapshot?.let {
+            WidgetAgendaBuilder.build(it, today, shaped, now = LocalTime.now())
+        }
 
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
                 .background(CalinoWidgetColors.canvas)
                 .cornerRadius(20.dp)
-                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .padding(horizontal = style.canvasPadding, vertical = 12.dp)
                 .clickable(openAgenda(today)),
         ) {
             Header(today)
@@ -145,7 +160,7 @@ class CalinoAgendaWidget : GlanceAppWidget() {
             when {
                 agenda == null -> Notice("No calendar connected", "Tap to set one up")
                 agenda.empty -> Notice(WidgetNothingScheduled, null)
-                else -> Agenda(agenda, today)
+                else -> Agenda(agenda, today, size)
             }
         }
     }
@@ -194,7 +209,7 @@ class CalinoAgendaWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun Agenda(agenda: WidgetAgenda, today: LocalDate) {
+    private fun Agenda(agenda: WidgetAgenda, today: LocalDate, size: DpSize) {
         // Flattened before the list so a day heading and its rows scroll as one
         // stream; LazyColumn has no section concept to lean on.
         val entries = buildList {
@@ -220,7 +235,20 @@ class CalinoAgendaWidget : GlanceAppWidget() {
                         modifier = GlanceModifier.padding(vertical = 4.dp),
                         style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
                     )
-                    is WidgetEntry.RowItem -> AgendaRow(entry.row)
+                    is WidgetEntry.RowItem -> when (style) {
+                        WidgetStyle.Ledger -> LedgerRow(
+                            row = entry.row,
+                            // Only between rows. A rule under a day heading, or
+                            // at the very top of the list, reads as an underline.
+                            ruled = entries.getOrNull(position - 1) is WidgetEntry.RowItem,
+                            wide = size.width >= LargeSize.width,
+                            onClick = openRecord(entry.row),
+                        )
+                        WidgetStyle.Cards -> CardRow(
+                            row = entry.row,
+                            onClick = openRecord(entry.row),
+                        )
+                    }
                 }
             }
         }
@@ -240,42 +268,6 @@ class CalinoAgendaWidget : GlanceAppWidget() {
                 fontWeight = FontWeight.Medium,
             ),
         )
-    }
-
-    @Composable
-    private fun AgendaRow(row: WidgetAgendaRow) {
-        Row(
-            modifier = GlanceModifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-                .clickable(openRecord(row)),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = GlanceModifier
-                    .size(width = 3.dp, height = 18.dp)
-                    .cornerRadius(2.dp)
-                    .background(CalinoWidgetColors.record(row.color)),
-                contentAlignment = Alignment.Center,
-            ) {}
-            Spacer(GlanceModifier.width(8.dp))
-            Text(
-                text = row.timeLabel ?: if (row.allDay) "All day" else "Due",
-                modifier = GlanceModifier.width(58.dp),
-                style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 11.sp),
-                maxLines = 1,
-            )
-            Text(
-                text = row.title,
-                modifier = GlanceModifier.defaultWeight(),
-                style = TextStyle(
-                    color = if (row.done) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink,
-                    fontSize = 13.sp,
-                    textDecoration = if (row.done) TextDecoration.LineThrough else TextDecoration.None,
-                ),
-                maxLines = 1,
-            )
-        }
     }
 
     private fun openAgenda(date: LocalDate) =
@@ -317,18 +309,18 @@ class CalinoAgendaWidget : GlanceAppWidget() {
         private val LargeSize = DpSize(300.dp, 280.dp)
 
         private val HeaderFormat = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
-
-        private fun dayCountFor(size: DpSize): Int = when {
-            size.height < MediumSize.height -> 1
-            size.height < LargeSize.height -> 3
-            else -> 5
-        }
-
-        private fun maxRowsFor(size: DpSize): Int = when {
-            size.height < MediumSize.height -> 3
-            size.height < LargeSize.height -> 8
-            else -> 16
-        }
     }
 }
+
+/**
+ * The ledger widget: one line per record, ruled, with an aligned time column.
+ *
+ * Kept as the class [CalinoWidgetReceiver] provides so that widgets already on
+ * a home screen stay bound to their provider -- the launcher tracks the
+ * receiver, and a rename would strand every existing placement.
+ */
+class CalinoLedgerWidget : CalinoAgendaWidget(WidgetStyle.Ledger)
+
+/** The cards widget: one tinted chip per record, with room for a location. */
+class CalinoCardsWidget : CalinoAgendaWidget(WidgetStyle.Cards)
 

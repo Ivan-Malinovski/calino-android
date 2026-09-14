@@ -6,5 +6,6 @@
     a resource. Do not read it as the start of that migration.
 -->
 <resources>
-    <string name="calino_widget_description">Today\'s events and tasks</string>
+    <string name="calino_widget_description">Today\'s events and tasks, one line each</string>
+    <string name="calino_cards_widget_description">Today\'s events and tasks as cards, with locations</string>
 </resources>

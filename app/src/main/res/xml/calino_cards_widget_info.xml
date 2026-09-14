@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The cards widget. Same update policy as the ledger's provider; see
+    calino_agenda_widget_info.xml for why updatePeriodMillis is 0.
+
+    It asks for 4x3 rather than 4x2: a card is two lines and a fill, so at the
+    ledger's default height it would offer two rows and a lot of paper. It still
+    resizes down to the same minimum, because a launcher may not honour the
+    target and a widget that refuses to shrink is worse than a short one.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="3"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/calino_widget_loading"
+    android:previewLayout="@layout/calino_widget_cards_preview"
+    android:description="@string/calino_cards_widget_description"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

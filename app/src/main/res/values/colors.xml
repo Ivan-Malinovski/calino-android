@@ -11,4 +11,14 @@
     <color name="widget_ink">#2C2823</color>
     <color name="widget_ink2">#6F6A62</color>
     <color name="widget_ink3">#A39D93</color>
+    <!-- CalinoPalette.Line: Ink at 9%, flattened onto the canvas. -->
+    <color name="widget_hairline">#E7E5E0</color>
+    <!-- The cards preview's fills and rails. The fills are what
+         CalinoWidgetColors.recordTint computes at runtime: the hue at 13%
+         over the canvas, interpolated in Oklab as Compose's lerp does. The
+         rails are the hues themselves. PaperLight.Blue / .Rose. -->
+    <color name="widget_hue_blue">#5B7FB5</color>
+    <color name="widget_hue_rose">#C2697F</color>
+    <color name="widget_card_blue">#E4E8EB</color>
+    <color name="widget_card_rose">#F4E5E3</color>
 </resources>

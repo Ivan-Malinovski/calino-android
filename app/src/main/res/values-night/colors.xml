@@ -6,4 +6,12 @@
     <color name="widget_ink">#F0ECE6</color>
     <color name="widget_ink2">#A8A29A</color>
     <color name="widget_ink3">#989086</color>
+    <color name="widget_hairline">#2D2B29</color>
+    <!-- PaperDark's own hues, and its harder mix: eventTintScale is 1.6, so
+         the fill is the hue at 20.8% rather than 13%. A tint that reads as a
+         whisper over paper disappears entirely over ink. -->
+    <color name="widget_hue_blue">#7D9FD1</color>
+    <color name="widget_hue_rose">#D4877F</color>
+    <color name="widget_card_blue">#2D3138</color>
+    <color name="widget_card_rose">#3C2D29</color>
 </resources>

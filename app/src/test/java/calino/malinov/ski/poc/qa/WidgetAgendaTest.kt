@@ -190,11 +190,79 @@ class WidgetAgendaTest {
         )
     }
 
+    @Test
+    fun `the next mark falls on the earliest event today that has not begun`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "standup", start = today.atTime(9, 30)),
+                event(id = "review", start = today.atTime(11, 0)),
+                event(id = "dentist", start = today.atTime(15, 0)),
+            ),
+            now = LocalTime.of(10, 42),
+        )
+
+        assertEquals(listOf("review"), agenda.days.single().rows.filter { it.isNext }.map { it.recordId })
+    }
+
+    @Test
+    fun `an event already under way is not next, and neither is the one before it`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "running", start = today.atTime(10, 0), durationMinutes = 90),
+                event(id = "later", start = today.atTime(15, 0)),
+            ),
+            now = LocalTime.of(10, 42),
+        )
+
+        // "Next" is the next thing to start, so the meeting in progress is
+        // skipped rather than marked -- and so is nothing at all above it.
+        assertEquals(listOf("later"), agenda.days.single().rows.filter { it.isNext }.map { it.recordId })
+    }
+
+    @Test
+    fun `a task due later today is never the next thing`() {
+        val agenda = build(
+            tasks = listOf(task(id = "chore", due = today, dueTime = LocalTime.of(17, 0))),
+            now = LocalTime.of(10, 42),
+        )
+
+        assertTrue(agenda.days.single().rows.none { it.isNext })
+    }
+
+    @Test
+    fun `nothing is marked once the day's last event has started`() {
+        val agenda = build(
+            events = listOf(event(id = "standup", start = today.atTime(9, 30))),
+            now = LocalTime.of(10, 42),
+        )
+
+        assertTrue(agenda.days.single().rows.none { it.isNext })
+    }
+
+    @Test
+    fun `tomorrow's first event is not marked next`() {
+        val agenda = build(
+            events = listOf(event(id = "tomorrow", start = today.plusDays(1).atTime(9, 0))),
+            options = options(dayCount = 2),
+            now = LocalTime.of(10, 42),
+        )
+
+        assertTrue(agenda.days.flatMap { it.rows }.none { it.isNext })
+    }
+
+    @Test
+    fun `no clock means no mark`() {
+        val agenda = build(events = listOf(event(id = "review", start = today.atTime(11, 0))))
+
+        assertTrue(agenda.days.single().rows.none { it.isNext })
+    }
+
     private fun build(
         calendars: List<CalinoCalendar> = this.calendars,
         events: List<CalEvent> = emptyList(),
         tasks: List<CalTask> = emptyList(),
         options: WidgetAgendaOptions = options(),
+        now: LocalTime? = null,
     ) = WidgetAgendaBuilder.build(
         snapshot = CalinoSnapshot(
             events = events,
@@ -204,6 +272,7 @@ class WidgetAgendaTest {
         ),
         today = today,
         options = options,
+        now = now,
     )
 
     private fun options(

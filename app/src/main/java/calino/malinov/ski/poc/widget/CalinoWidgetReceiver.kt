@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
  */
 class CalinoWidgetReceiver : GlanceAppWidgetReceiver() {
 
-    override val glanceAppWidget: GlanceAppWidget = CalinoAgendaWidget()
+    override val glanceAppWidget: GlanceAppWidget = CalinoLedgerWidget()
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
@@ -44,21 +44,42 @@ class CalinoWidgetReceiver : GlanceAppWidgetReceiver() {
     }
 }
 
-/** Redrawing the widget from anywhere, including a process with no Activity. */
+/**
+ * The cards widget's provider.
+ *
+ * A separate receiver because it is a separate entry in the launcher's picker,
+ * which is how the two layouts are chosen between. It wants the same date and
+ * time broadcasts, so [CalinoWidgetReceiver] handles those for both -- a
+ * broadcast reaches every matching receiver, and [CalinoWidgets.update] already
+ * redraws both providers, so declaring the filter twice would only mean doing
+ * the same work twice.
+ */
+class CalinoCardsWidgetReceiver : GlanceAppWidgetReceiver() {
+
+    override val glanceAppWidget: GlanceAppWidget = CalinoCardsWidget()
+}
+
+/** Redrawing the widgets from anywhere, including a process with no Activity. */
 object CalinoWidgets {
 
     /**
-     * No-ops when the user has not placed a widget, which is the common case:
+     * No-ops for a widget the user has not placed, which is the common case:
      * a bound-id lookup is cheaper than a render nobody sees, and it keeps the
-     * sync bridge from doing work on every publish for nothing.
+     * sync bridge from doing work on every publish for nothing. Both providers
+     * are checked separately -- having placed the ledger is no reason to render
+     * the cards.
      */
     suspend fun update(context: Context) {
-        val widget = CalinoAgendaWidget()
         val app = context.applicationContext
         // Every update path goes through here, so this is the one place that
         // has to notice the day changed.
         WidgetClock.refresh()
-        if (GlanceAppWidgetManager(app).getGlanceIds(CalinoAgendaWidget::class.java).isEmpty()) return
-        widget.updateAll(app)
+        val manager = GlanceAppWidgetManager(app)
+        if (manager.getGlanceIds(CalinoLedgerWidget::class.java).isNotEmpty()) {
+            CalinoLedgerWidget().updateAll(app)
+        }
+        if (manager.getGlanceIds(CalinoCardsWidget::class.java).isNotEmpty()) {
+            CalinoCardsWidget().updateAll(app)
+        }
     }
 }

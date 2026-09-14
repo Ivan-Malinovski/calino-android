@@ -9,6 +9,7 @@ import calino.malinov.ski.poc.state.tasksDueOn
 import calino.malinov.ski.poc.util.CalinoTimeFormat
 import calino.malinov.ski.poc.util.EventDateIndex
 import java.time.LocalDate
+import java.time.LocalTime
 
 /**
  * What the home screen widget shows, decided without any Android in scope.
@@ -37,10 +38,23 @@ data class WidgetAgendaRow(
     val title: String,
     /** Null for an all-day event or a task with no due time. */
     val timeLabel: String?,
+    /**
+     * The occurrence's own start, unformatted. [timeLabel] is this rendered
+     * through the user's time format; the layouts need the label, and
+     * [markNext] needs the value.
+     */
+    val startTime: LocalTime? = null,
     val location: String?,
     val color: Long,
     val allDay: Boolean = false,
     val done: Boolean = false,
+    /**
+     * The next thing today that has not started yet, and the only row a layout
+     * is allowed to emphasise. False on every row when the caller passes no
+     * clock, and on every day but the first -- "next" on a future day would be
+     * that day's first event, which is not the same claim.
+     */
+    val isNext: Boolean = false,
 )
 
 data class WidgetAgendaDay(val date: LocalDate, val rows: List<WidgetAgendaRow>)
@@ -77,10 +91,16 @@ const val WidgetNothingScheduled = "Nothing scheduled"
 
 object WidgetAgendaBuilder {
 
+    /**
+     * @param now the wall clock, used only to mark [WidgetAgendaRow.isNext].
+     *   Null leaves every row unmarked, which is what the tests want unless
+     *   they are pinning that rule specifically.
+     */
     fun build(
         snapshot: CalinoSnapshot,
         today: LocalDate,
         options: WidgetAgendaOptions = WidgetAgendaOptions(),
+        now: LocalTime? = null,
     ): WidgetAgenda {
         if (options.dayCount <= 0 || options.maxRows <= 0) return WidgetAgenda.Empty
 
@@ -121,20 +141,52 @@ object WidgetAgendaBuilder {
             if (budget == 0) break
         }
 
-        return WidgetAgenda(days = days, empty = total == 0)
+        return WidgetAgenda(days = markNext(days, today, now), empty = total == 0)
     }
+
+    /**
+     * Marks the earliest event today that has not begun.
+     *
+     * Events only. A task carries a due time, not a start, and "next" against a
+     * deadline means something different enough that bolding it would be a
+     * lie. An event already under way is not next either -- it is current, and
+     * the row above it being bold while it runs reads as the widget being
+     * behind.
+     */
+    private fun markNext(
+        days: List<WidgetAgendaDay>,
+        today: LocalDate,
+        now: LocalTime?,
+    ): List<WidgetAgendaDay> {
+        if (now == null) return days
+        val first = days.firstOrNull()?.takeIf { it.date == today } ?: return days
+
+        val next = first.rows.firstOrNull { row ->
+            row.kind == WidgetRowKind.Event && !row.allDay && row.startsAfter(now)
+        } ?: return days
+
+        return days.map { day ->
+            if (day != first) day
+            else day.copy(rows = day.rows.map { if (it === next) it.copy(isNext = true) else it })
+        }
+    }
+
+    private fun WidgetAgendaRow.startsAfter(now: LocalTime): Boolean =
+        startTime?.isAfter(now) == true
 
     private fun CalEvent.row(date: LocalDate, options: WidgetAgendaOptions): WidgetAgendaRow {
         // A multi-day event keeps its own start time on its first day only; on
         // a later day the time would be a lie, so it reads as all-day there.
         val startsToday = !allDay && start?.toLocalDate() == date
+        val startsAt = start?.takeIf { startsToday }?.toLocalTime()
         return WidgetAgendaRow(
             kind = WidgetRowKind.Event,
             recordId = id,
             uid = uid,
             day = date,
             title = title.ifBlank { "(No title)" },
-            timeLabel = start?.takeIf { startsToday }?.let { options.timeFormat.format(it.toLocalTime()) },
+            timeLabel = startsAt?.let { options.timeFormat.format(it) },
+            startTime = startsAt,
             location = location?.takeIf { options.showLocations && it.isNotBlank() },
             color = color,
             allDay = !startsToday,
@@ -148,6 +200,7 @@ object WidgetAgendaBuilder {
         day = date,
         title = title.ifBlank { "(No title)" },
         timeLabel = dueTime?.let { options.timeFormat.format(it) },
+        startTime = dueTime,
         location = null,
         color = color,
         done = done,

@@ -1,0 +1,1133 @@
+<title>Calino Widget Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  /* ── Page chrome ────────────────────────────────────────────────────────
+     Committed single-theme: a dark bench. The widgets are the things being
+     judged, and they carry their own light/dark palette; a page that flipped
+     underneath them would move the ground mid-comparison. */
+  :root {
+    --bench:      #171513;
+    --bench-lift: #201D1A;
+    --bench-rise: #262220;
+    --rule:       #332E29;
+    --rule-soft:  #29241F;
+    --text:       #EDE7DF;
+    --text-2:     #A79E93;
+    --text-3:     #776F66;
+    --accent:     #C9956A;
+    --accent-dim: #7C5B3D;
+    --ok:         #6AAA85;
+    --warn:       #BF944E;
+    --hard:       #C2697F;
+
+    /* Calino Paper Light — read from CalinoThemes.PaperLight */
+    --pl-canvas: #FAF8F3;
+    --pl-panel:  #FFFFFF;
+    --pl-ink:    #2C2823;
+    --pl-ink2:   #6F6A62;
+    --pl-ink3:   #A39D93;
+    --pl-accent: #B07D4F;
+    --pl-soft:   #EFE7DB;
+    --pl-rose:   #C2697F;
+    --pl-blue:   #5B7FB5;
+    --pl-green:  #5D9A78;
+    --pl-amber:  #BF944E;
+    --pl-plum:   #8A6AA8;
+    --pl-teal:   #4A9B96;
+
+    /* Calino Paper Dark — read from CalinoThemes.PaperDark */
+    --pd-canvas: #1A1816;
+    --pd-panel:  #242220;
+    --pd-ink:    #F0ECE6;
+    --pd-ink2:   #A8A29A;
+    --pd-ink3:   #989086;
+    --pd-accent: #C9956A;
+    --pd-soft:   #33291F;
+    --pd-rose:   #D4877F;
+    --pd-blue:   #7D9FD1;
+    --pd-green:  #6AAA85;
+    --pd-amber:  #D1A863;
+    --pd-plum:   #A98BC4;
+    --pd-teal:   #5FB3AD;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bench);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    width: min(1180px, 100%);
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 0 90px;
+  }
+
+  a { color: var(--accent); }
+
+  .mono {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  /* ── Masthead ───────────────────────────────────────────────────────── */
+  .masthead { padding-block: 54px 30px; }
+
+  .eyebrow {
+    margin: 0 0 16px;
+    color: var(--accent);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    max-width: 15ch;
+    margin: 0;
+    font-family: Newsreader, Georgia, "Times New Roman", serif;
+    font-size: clamp(40px, 7vw, 68px);
+    font-weight: 400;
+    line-height: .98;
+    letter-spacing: -.035em;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 62ch;
+    margin: 20px 0 0;
+    color: var(--text-2);
+    font-size: 16px;
+  }
+
+  .standfirst strong { color: var(--text); font-weight: 500; }
+
+  /* ── Control bar ────────────────────────────────────────────────────── */
+  .controls {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 26px;
+    margin-block: 28px 46px;
+    padding-block: 14px;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    background: color-mix(in srgb, var(--bench) 92%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .control { display: flex; align-items: center; gap: 10px; }
+
+  .control > span {
+    color: var(--text-3);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--rule);
+    border-radius: 9px;
+    background: var(--bench-lift);
+  }
+
+  .seg button {
+    min-height: 30px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--text-2);
+    background: transparent;
+    cursor: pointer;
+    font: 500 12.5px/1 Inter, system-ui, sans-serif;
+    transition: color .14s ease, background-color .14s ease;
+  }
+
+  .seg button:hover { color: var(--text); }
+
+  .seg button[aria-pressed="true"] {
+    color: var(--bench);
+    background: var(--text);
+    font-weight: 600;
+  }
+
+  :is(button, a, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ── Concept section ────────────────────────────────────────────────── */
+  .concepts { display: flex; flex-direction: column; gap: 0; }
+
+  .concept {
+    display: grid;
+    grid-template-columns: minmax(0, 330px) minmax(0, 1fr);
+    gap: 40px;
+    padding-block: 46px;
+    border-top: 1px solid var(--rule-soft);
+  }
+
+  .concept:first-child { border-top: 0; padding-top: 0; }
+
+  .spec { min-width: 0; }
+
+  .spec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .spec-index {
+    color: var(--accent-dim);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .spec h2 {
+    margin: 0;
+    font-family: Newsreader, Georgia, serif;
+    font-size: 30px;
+    font-weight: 400;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+  }
+
+  .thesis {
+    margin: 10px 0 22px;
+    color: var(--text-2);
+    font-size: 14.5px;
+  }
+
+  .thesis em { color: var(--text); font-style: normal; font-weight: 500; }
+
+  dl.notes {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 9px 14px;
+    margin: 0;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule-soft);
+    font-size: 13.5px;
+  }
+
+  dl.notes dt {
+    color: var(--text-3);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    line-height: 1.9;
+    text-transform: uppercase;
+  }
+
+  dl.notes dd { margin: 0; color: var(--text-2); }
+  dl.notes dd b { color: var(--text); font-weight: 500; }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+  }
+
+  .tag.easy  { color: var(--ok);   background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .tag.some  { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .tag.hardest { color: var(--hard); background: color-mix(in srgb, var(--hard) 15%, transparent); }
+
+  /* ── Preview stage ──────────────────────────────────────────────────── */
+  .stage {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    min-width: 0;
+    padding: 30px;
+    border: 1px solid var(--rule);
+    border-radius: 20px;
+    background-color: #2A2521;
+    background-image:
+      radial-gradient(120% 90% at 22% 6%, rgba(201, 149, 106, .26), transparent 62%),
+      radial-gradient(90% 80% at 88% 96%, rgba(93, 122, 154, .22), transparent 60%),
+      linear-gradient(160deg, #35302B, #1E1B18);
+    overflow-x: auto;
+  }
+
+  .stage.paper {
+    background-color: #CFC4B4;
+    background-image:
+      radial-gradient(130% 100% at 18% 0%, rgba(255, 252, 245, .9), transparent 64%),
+      linear-gradient(165deg, #E4DACA, #B5A896);
+  }
+
+  .stage.plain {
+    background-color: #131211;
+    background-image: none;
+  }
+
+  /* The widget itself. 1dp == 1px inside here. */
+  .widget {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 14px;
+    border-radius: 20px;
+    background: var(--w-canvas);
+    color: var(--w-ink);
+    box-shadow: 0 10px 34px rgba(0, 0, 0, .28);
+    font-size: 13px;
+    overflow: hidden;
+  }
+
+  .stage[data-theme="light"] .widget {
+    --w-canvas: var(--pl-canvas); --w-panel: var(--pl-panel);
+    --w-ink: var(--pl-ink); --w-ink2: var(--pl-ink2); --w-ink3: var(--pl-ink3);
+    --w-accent: var(--pl-accent); --w-soft: var(--pl-soft);
+    --w-rose: var(--pl-rose); --w-blue: var(--pl-blue); --w-green: var(--pl-green);
+    --w-amber: var(--pl-amber); --w-plum: var(--pl-plum); --w-teal: var(--pl-teal);
+    --w-hair: rgba(44, 40, 35, .12);
+  }
+
+  .stage[data-theme="dark"] .widget {
+    --w-canvas: var(--pd-canvas); --w-panel: var(--pd-panel);
+    --w-ink: var(--pd-ink); --w-ink2: var(--pd-ink2); --w-ink3: var(--pd-ink3);
+    --w-accent: var(--pd-accent); --w-soft: var(--pd-soft);
+    --w-rose: var(--pd-rose); --w-blue: var(--pd-blue); --w-green: var(--pd-green);
+    --w-amber: var(--pd-amber); --w-plum: var(--pd-plum); --w-teal: var(--pd-teal);
+    --w-hair: rgba(240, 236, 230, .13);
+  }
+
+  .widget * { box-sizing: border-box; }
+
+  .w-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+
+  .w-today { font-size: 15px; font-weight: 500; letter-spacing: -.01em; }
+  .w-date  { color: var(--w-ink3); font-size: 12px; }
+  .w-spacer { flex: 1 1 auto; }
+
+  .w-count {
+    color: var(--w-ink3);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .w-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+  .w-empty { color: var(--w-ink3); font-size: 12px; padding-top: 6px; }
+
+  .w-dayhead {
+    margin-top: 9px;
+    color: var(--w-ink3);
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* 01 Ledger */
+  .ledger-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-block: 5px;
+    border-top: 1px solid var(--w-hair);
+  }
+
+  .ledger-row:first-child { border-top: 0; }
+
+  .ledger-time {
+    flex: 0 0 46px;
+    color: var(--w-ink2);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .ledger-dot {
+    flex: 0 0 auto;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--c);
+    transform: translateY(-1px);
+  }
+
+  .ledger-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+
+  .ledger-row.done .ledger-title { color: var(--w-ink3); text-decoration: line-through; }
+  .ledger-row.now  .ledger-title { font-weight: 600; }
+  .ledger-row.now  .ledger-time  { color: var(--w-accent); font-weight: 600; }
+
+  .ledger-where {
+    color: var(--w-ink3);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  /* 02 Spine */
+  .spine { display: flex; gap: 10px; height: 100%; padding-top: 6px; }
+
+  .spine-hours {
+    flex: 0 0 30px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    color: var(--w-ink3);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 9.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .spine-track {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    border-left: 1px solid var(--w-hair);
+    padding-left: 8px;
+  }
+
+  .spine-block {
+    position: absolute;
+    left: 8px;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 13px;
+    padding: 1px 7px;
+    border-left: 2px solid var(--c);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--c) 17%, transparent);
+    overflow: hidden;
+  }
+
+  .spine-block span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    font-weight: 500;
+  }
+
+  .spine-block small {
+    flex: 0 0 auto;
+    color: var(--w-ink2);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 9.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .spine-now {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--w-accent);
+  }
+
+  .spine-now::before {
+    content: "";
+    position: absolute;
+    left: -3px;
+    top: -2.5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--w-accent);
+  }
+
+  /* 03 Next up */
+  .nextup-lede { padding-top: 4px; }
+
+  .nextup-when {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--w-accent);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .01em;
+  }
+
+  .nextup-when i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+
+  .nextup-title {
+    margin-top: 3px;
+    font-family: Newsreader, Georgia, serif;
+    font-size: 23px;
+    font-weight: 400;
+    letter-spacing: -.02em;
+    line-height: 1.12;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nextup-meta {
+    margin-top: 2px;
+    color: var(--w-ink2);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nextup-rule {
+    height: 1px;
+    margin: 10px 0 6px;
+    background: var(--w-hair);
+  }
+
+  .queue-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding-block: 3px;
+  }
+
+  .queue-time {
+    flex: 0 0 42px;
+    color: var(--w-ink3);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .queue-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--w-ink2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  .queue-row i {
+    flex: 0 0 auto;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+
+  /* 04 Load strip */
+  .load-strip {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 4px;
+    padding-block: 8px 10px;
+  }
+
+  .load-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .load-day > b {
+    color: var(--w-ink3);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .load-bar {
+    width: 100%;
+    height: 30px;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 5px;
+    background: var(--w-soft);
+  }
+
+  .load-bar u {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--c);
+    text-decoration: none;
+  }
+
+  .load-day > em {
+    color: var(--w-ink2);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    font-style: normal;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .load-day.today > b { color: var(--w-accent); font-weight: 700; }
+  .load-day.today .load-bar { outline: 1.5px solid var(--w-accent); outline-offset: 1px; }
+
+  /* 05 Cards */
+  .cardstack { display: flex; flex-direction: column; gap: 5px; padding-top: 6px; }
+
+  .stack-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--c) 13%, var(--w-panel));
+  }
+
+  .stack-rail {
+    flex: 0 0 auto;
+    width: 3px;
+    align-self: stretch;
+    min-height: 20px;
+    border-radius: 2px;
+    background: var(--c);
+  }
+
+  .stack-text { flex: 1 1 auto; min-width: 0; }
+
+  .stack-text > b {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stack-text > span {
+    display: block;
+    color: var(--w-ink2);
+    font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stack-time {
+    flex: 0 0 auto;
+    color: var(--w-ink2);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .stack-card.tick .stack-text > b { color: var(--w-ink3); text-decoration: line-through; }
+
+  /* ── Verdict ────────────────────────────────────────────────────────── */
+  .verdict {
+    margin-top: 60px;
+    padding: 32px 34px;
+    border: 1px solid var(--rule);
+    border-radius: 20px;
+    background: var(--bench-lift);
+  }
+
+  .verdict h2 {
+    margin: 0 0 6px;
+    font-family: Newsreader, Georgia, serif;
+    font-size: 28px;
+    font-weight: 400;
+    letter-spacing: -.02em;
+  }
+
+  .verdict p { max-width: 68ch; margin: 0 0 18px; color: var(--text-2); font-size: 14.5px; }
+
+  .table-scroll { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    min-width: 560px;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+
+  th, td {
+    padding: 10px 14px 10px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  thead th {
+    color: var(--text-3);
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+
+  tbody th { color: var(--text); font-weight: 500; white-space: nowrap; }
+  tbody td { color: var(--text-2); }
+  tbody tr:last-child :is(th, td) { border-bottom: 0; }
+
+  .foot {
+    margin-top: 30px;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+
+  @media (max-width: 880px) {
+    .concept { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+    .stage { padding: 22px 18px; justify-content: flex-start; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Home screen · Glance · five directions</p>
+    <h1>Calino Widget Bench</h1>
+    <p class="standfirst">
+      Five directions for the home screen agenda, all drawn at <strong>1dp = 1px</strong> against
+      the real <code class="mono">CalinoThemes</code> palette and the day the fixtures actually
+      hold — Thursday 14 May, 10:42. Switch the size class to see what each one does when the
+      launcher gives it three rows instead of sixteen; that is where the current widget stops
+      being a POC or doesn't.
+    </p>
+  </header>
+
+  <nav class="controls" aria-label="Preview controls">
+    <div class="control">
+      <span id="lbl-size">Size class</span>
+      <div class="seg" role="group" aria-labelledby="lbl-size" id="seg-size">
+        <button type="button" id="size-small" data-size="small" aria-pressed="false">4×2 · small</button>
+        <button type="button" id="size-medium" data-size="medium" aria-pressed="true">4×3 · medium</button>
+        <button type="button" id="size-large" data-size="large" aria-pressed="false">5×4 · large</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-theme">Widget theme</span>
+      <div class="seg" role="group" aria-labelledby="lbl-theme" id="seg-theme">
+        <button type="button" id="theme-light" data-theme="light" aria-pressed="true">Paper Light</button>
+        <button type="button" id="theme-dark" data-theme="dark" aria-pressed="false">Paper Dark</button>
+      </div>
+    </div>
+    <div class="control">
+      <span id="lbl-paper">Wallpaper</span>
+      <div class="seg" role="group" aria-labelledby="lbl-paper" id="seg-paper">
+        <button type="button" id="paper-warm" data-paper="" aria-pressed="true">Warm</button>
+        <button type="button" id="paper-light" data-paper="paper" aria-pressed="false">Light</button>
+        <button type="button" id="paper-plain" data-paper="plain" aria-pressed="false">Black</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="concepts" id="concepts"></main>
+
+  <section class="verdict">
+    <h2>What each one costs</h2>
+    <p>
+      Everything here stays inside what <code class="mono">WidgetAgendaBuilder</code> already
+      decides — the rows, their order, the ceiling, the colours. The differences are layout, plus
+      in two cases one extra field on <code class="mono">WidgetAgendaRow</code>.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Direction</th>
+            <th scope="col">Builder change</th>
+            <th scope="col">Glance risk</th>
+            <th scope="col">Best size</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">01 Ledger</th>
+            <td>None</td>
+            <td>None — it is the current tree, retuned</td>
+            <td>All three</td>
+          </tr>
+          <tr>
+            <th scope="row">02 Spine</th>
+            <td>Needs end times and a day window</td>
+            <td>No absolute positioning in Glance; must be built from weighted spacers</td>
+            <td>4×3 and up</td>
+          </tr>
+          <tr>
+            <th scope="row">03 Next up</th>
+            <td>Needs "minutes until" and a now-cursor</td>
+            <td>Text goes stale between updates — pin the refresh to the next boundary</td>
+            <td>4×2 shines</td>
+          </tr>
+          <tr>
+            <th scope="row">04 Load strip</th>
+            <td>Needs per-day counts past the row ceiling</td>
+            <td>Row-of-columns only; fine</td>
+            <td>4×3 and up</td>
+          </tr>
+          <tr>
+            <th scope="row">05 Cards</th>
+            <td>None</td>
+            <td>Per-item tinted background needs a colour blend Glance can't compute — precompute in Kotlin</td>
+            <td>4×3</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="foot mono">
+    Fixture day · 2026-05-14 · palette read from CalinoThemes.PaperLight / PaperDark
+  </p>
+</div>
+
+<script>
+  /* The fixture day, as the builder would hand it over. Times in minutes from
+     midnight so the spine can place things without re-parsing strings. */
+  const NOW = 10 * 60 + 42;
+
+  const TODAY = [
+    { t: 9 * 60 + 30,  end: 9 * 60 + 45,  time: "9:30",  title: "Standup",                    where: "",              c: "blue"  },
+    { t: 11 * 60,      end: 12 * 60,      time: "11:00", title: "Design review — widget",     where: "Studio",        c: "amber", next: true },
+    { t: 13 * 60 + 15, end: 14 * 60 + 15, time: "13:15", title: "Lunch with Marta",           where: "Kødbyen",       c: "green" },
+    { t: 15 * 60,      end: 15 * 60 + 45, time: "15:00", title: "Dentist",                    where: "Vesterbrogade", c: "rose"  },
+    { t: 18 * 60 + 30, end: 20 * 60,      time: "18:30", title: "Climbing",                   where: "Blocs & Walls", c: "teal"  },
+    { t: 23 * 60 + 59, end: 23 * 60 + 59, time: "Due",   title: "Renew passport",             where: "",              c: "plum", task: true },
+    { t: 23 * 60 + 59, end: 23 * 60 + 59, time: "Due",   title: "File Q2 expenses",           where: "",              c: "plum", task: true, done: true },
+  ];
+
+  const TOMORROW = [
+    { t: 0,            end: 0,            time: "All day", title: "Team offsite",  where: "Møns Klint", c: "teal" },
+    { t: 10 * 60,      end: 11 * 60,      time: "10:00",   title: "1:1 with Nadia", where: "",          c: "blue" },
+  ];
+
+  const FRIDAY = [
+    { t: 8 * 60 + 15,  end: 9 * 60,       time: "8:15",  title: "Flight to Berlin", where: "CPH",  c: "rose" },
+    { t: 14 * 60,      end: 15 * 60,      time: "14:00", title: "Kickoff",          where: "",     c: "amber" },
+  ];
+
+  /* Per-day load for the strip: [day label, counts by colour, total]. */
+  const WEEK = [
+    { d: "Mon", bars: ["blue", "green"],                  n: 2 },
+    { d: "Tue", bars: ["amber"],                          n: 1 },
+    { d: "Wed", bars: ["blue", "rose", "teal", "green"],  n: 6 },
+    { d: "Thu", bars: ["blue", "amber", "green", "rose", "teal"], n: 7, today: true },
+    { d: "Fri", bars: ["rose", "amber"],                  n: 2 },
+    { d: "Sat", bars: [],                                 n: 0 },
+    { d: "Sun", bars: ["teal"],                           n: 1 },
+  ];
+
+  /* Launcher cell sizes, in dp. Matches the DpSize triple in
+     CalinoAgendaWidget.Companion, widened to real 4-column cells. */
+  const SIZES = {
+    small:  { w: 300, h: 132, rows: 3,  days: 1 },
+    medium: { w: 300, h: 208, rows: 8,  days: 3 },
+    large:  { w: 364, h: 322, rows: 16, days: 5 },
+  };
+
+  let size = "medium";
+  let theme = "light";
+  let paper = "";
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]
+  ));
+
+  const col = (name) => `var(--w-${name})`;
+
+  /* Rows across the day window, respecting the row ceiling the builder applies. */
+  function windowed(spec) {
+    const days = [
+      { label: "", rows: TODAY },
+      { label: "Fri, May 15", rows: TOMORROW },
+      { label: "Sat, May 16", rows: FRIDAY },
+    ].slice(0, Math.min(spec.days, 3));
+
+    let budget = spec.rows;
+    return days.map((day) => {
+      const kept = day.rows.slice(0, budget);
+      budget -= kept.length;
+      return { label: day.label, rows: kept };
+    }).filter((day, i) => i === 0 || day.rows.length);
+  }
+
+  function head(spec, countText) {
+    return `
+      <div class="w-head">
+        <span class="w-today">Today</span>
+        <span class="w-date">Thu, May 14</span>
+        <span class="w-spacer"></span>
+        ${countText ? `<span class="w-count">${esc(countText)}</span>` : ""}
+      </div>`;
+  }
+
+  /* ── 01 Ledger ───────────────────────────────────────────────────────── */
+  function ledger(spec) {
+    const groups = windowed(spec);
+    const body = groups.map((g) => {
+      const heading = g.label ? `<div class="w-dayhead">${esc(g.label)}</div>` : "";
+      const rows = g.rows.map((r) => `
+        <div class="ledger-row${r.done ? " done" : ""}${r.next ? " now" : ""}">
+          <span class="ledger-time">${esc(r.time)}</span>
+          <span class="ledger-dot" style="--c:${col(r.c)}"></span>
+          <span class="ledger-title">${esc(r.title)}</span>
+          ${r.where && spec.w > 300 ? `<span class="ledger-where">${esc(r.where)}</span>` : ""}
+        </div>`).join("");
+      return heading + rows;
+    }).join("");
+
+    const total = TODAY.filter((r) => !r.done).length;
+    return head(spec, `${total} today`) + `<div class="w-body">${body}</div>`;
+  }
+
+  /* ── 02 Spine ────────────────────────────────────────────────────────── */
+  function spine(spec) {
+    const first = 8 * 60, last = 21 * 60;
+    const span = last - first;
+    const trackH = spec.h - 64;
+    const at = (m) => ((Math.min(Math.max(m, first), last) - first) / span) * trackH;
+
+    const timed = TODAY.filter((r) => !r.task);
+    const blocks = timed.map((r) => {
+      const top = at(r.t);
+      const h = Math.max(15, at(r.end) - top);
+      return `
+        <div class="spine-block" style="--c:${col(r.c)}; top:${top}px; height:${h}px">
+          <span>${esc(r.title)}</span><small>${esc(r.time)}</small>
+        </div>`;
+    }).join("");
+
+    const hours = [];
+    for (let h = first; h <= last; h += 3 * 60) hours.push(`${h / 60}`);
+
+    const tasks = TODAY.filter((r) => r.task && !r.done).length;
+
+    return head(spec, `${tasks} due`) + `
+      <div class="w-body">
+        <div class="spine">
+          <div class="spine-hours">${hours.map((h) => `<span>${h}</span>`).join("")}</div>
+          <div class="spine-track" style="height:${trackH}px">
+            ${blocks}
+            <div class="spine-now" style="top:${at(NOW)}px"></div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /* ── 03 Next up ──────────────────────────────────────────────────────── */
+  function nextup(spec) {
+    const lede = TODAY.find((r) => r.next);
+    const mins = lede.t - NOW;
+    const rest = TODAY.filter((r) => r.t > lede.t);
+    const queue = rest.slice(0, spec.rows).map((r) => `
+      <div class="queue-row">
+        <span class="queue-time">${esc(r.time)}</span>
+        <i style="--c:${col(r.c)}"></i>
+        <span class="queue-title">${esc(r.title)}</span>
+      </div>`).join("");
+
+    const laterCount = rest.length - Math.min(rest.length, spec.rows);
+
+    return head(spec, "") + `
+      <div class="w-body">
+        <div class="nextup-lede">
+          <div class="nextup-when" style="--c:${col(lede.c)}">
+            <i></i> In ${mins} minutes
+          </div>
+          <div class="nextup-title">${esc(lede.title)}</div>
+          <div class="nextup-meta">11:00 – 12:00 · ${esc(lede.where)}</div>
+        </div>
+        ${spec.rows > 3 ? `<div class="nextup-rule"></div>${queue}` : ""}
+        ${laterCount > 0 ? `<div class="queue-row"><span class="queue-time"></span><span class="queue-title">+${laterCount} later</span></div>` : ""}
+      </div>`;
+  }
+
+  /* ── 04 Load strip ───────────────────────────────────────────────────── */
+  function loadstrip(spec) {
+    const strip = WEEK.map((d) => `
+      <div class="load-day${d.today ? " today" : ""}">
+        <b>${esc(d.d)}</b>
+        <div class="load-bar">
+          ${d.bars.map((c) => `<u style="--c:${col(c)}"></u>`).join("")}
+        </div>
+        <em>${d.n || "—"}</em>
+      </div>`).join("");
+
+    const listRows = Math.max(2, spec.rows - 3);
+    const rows = TODAY.slice(0, listRows).map((r) => `
+      <div class="ledger-row${r.done ? " done" : ""}">
+        <span class="ledger-time">${esc(r.time)}</span>
+        <span class="ledger-dot" style="--c:${col(r.c)}"></span>
+        <span class="ledger-title">${esc(r.title)}</span>
+      </div>`).join("");
+
+    return head(spec, "This week") + `
+      <div class="w-body">
+        <div class="load-strip">${strip}</div>
+        ${rows}
+      </div>`;
+  }
+
+  /* ── 05 Cards ────────────────────────────────────────────────────────── */
+  function cards(spec) {
+    const rows = TODAY.slice(0, Math.max(2, spec.rows - 1)).map((r) => `
+      <div class="stack-card${r.done ? " tick" : ""}" style="--c:${col(r.c)}">
+        <span class="stack-rail"></span>
+        <span class="stack-text">
+          <b>${esc(r.title)}</b>
+          ${r.where ? `<span>${esc(r.where)}</span>` : ""}
+        </span>
+        <span class="stack-time">${esc(r.time)}</span>
+      </div>`).join("");
+
+    return head(spec, "") + `<div class="w-body"><div class="cardstack">${rows}</div></div>`;
+  }
+
+  const CONCEPTS = [
+    {
+      id: "ledger",
+      name: "Ledger",
+      render: ledger,
+      thesis: "The current widget, but <em>set</em> rather than stacked: a right-aligned tabular time column, a hairline between rows instead of a coloured bar beside each one, and the next event the only thing in bold.",
+      notes: [
+        ["Reads as", "A printed day sheet. Quietest of the five, and the only one that survives at 4×2 with a real day on it."],
+        ["Wins", "Times align, so the eye scans one column. Colour drops to a 5dp dot, which stops seven calendars from looking like a paint chart."],
+        ["Costs", "Nothing new. This is <b>CalinoAgendaWidget</b>'s tree with different padding and a moved colour swatch."],
+      ],
+      tag: ["easy", "Ships today"],
+    },
+    {
+      id: "spine",
+      name: "Spine",
+      render: spine,
+      thesis: "An 8-to-21 hour rail with events placed and sized by their real duration, and a now-line that moves. It shows the <em>shape</em> of the day — where the gaps are — which a list can never do.",
+      notes: [
+        ["Reads as", "The day column from the app, shrunk. Most distinctive of the five, and the one that earns a large widget."],
+        ["Wins", "A free afternoon is visible without reading a word. The now-line gives the widget a pulse between updates."],
+        ["Costs", "Glance has no <b>Box</b> offset: the rail has to be a Column of weighted Spacers, recomputed per size. Needs end times on the row."],
+      ],
+      tag: ["hardest", "Real work"],
+    },
+    {
+      id: "nextup",
+      name: "Next up",
+      render: nextup,
+      thesis: "One thing, large, in Newsreader — the next event and how long until it — with the rest of the day demoted to a thin queue underneath. At 4×2 the queue disappears entirely and <em>only</em> the next thing remains.",
+      notes: [
+        ["Reads as", "A glance, not a list. The only direction that answers the question people actually ask their home screen."],
+        ["Wins", "Legible at arm's length. Degrades into the small size instead of being crushed by it."],
+        ["Costs", "\"In 18 minutes\" is stale the moment it's drawn — the refresh has to be pinned to the next minute boundary, not the 30-minute default."],
+      ],
+      tag: ["some", "One new field"],
+    },
+    {
+      id: "loadstrip",
+      name: "Load strip",
+      render: loadstrip,
+      thesis: "A seven-day bar across the top, one stacked mark per event, coloured by calendar — then today's rows beneath it. The widget stops being a list of today and becomes <em>a read on the week</em>.",
+      notes: [
+        ["Reads as", "A density chart with an agenda attached. Answers \"is Friday clear?\" without opening anything."],
+        ["Wins", "Uses the width a 4-column widget already has. Tapping a bar can deep-link that day — <b>AgendaDeepLinks.uri</b> already takes a date."],
+        ["Costs", "The builder caps rows, so per-day counts have to be gathered before that ceiling is applied."],
+      ],
+      tag: ["some", "Builder tweak"],
+    },
+    {
+      id: "cards",
+      name: "Cards",
+      render: cards,
+      thesis: "Each row becomes a softly tinted chip in its own calendar's colour, with the location on a second line. The most <em>material</em> of the five — it reads as objects you could pick up.",
+      notes: [
+        ["Reads as", "Closest to the app's own event pills, so the home screen and the agenda feel like one product."],
+        ["Wins", "Two lines per row means locations finally fit. Touch targets are honest — the whole chip is the tap."],
+        ["Costs", "Roughly half the rows of Ledger in the same space. Each tint is a blend of calendar colour over canvas, which Kotlin must compute — Glance can't."],
+      ],
+      tag: ["easy", "Precompute tints"],
+    },
+  ];
+
+  function renderAll() {
+    const spec = SIZES[size];
+    const host = document.getElementById("concepts");
+
+    host.innerHTML = CONCEPTS.map((c, i) => {
+      const notes = c.notes.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("");
+      return `
+        <section class="concept">
+          <div class="spec">
+            <div class="spec-head">
+              <span class="spec-index">0${i + 1}</span>
+              <h2>${esc(c.name)}</h2>
+            </div>
+            <p class="thesis">${c.thesis}</p>
+            <span class="tag ${c.tag[0]}">${esc(c.tag[1])}</span>
+            <dl class="notes">${notes}</dl>
+          </div>
+          <div class="stage ${paper}" data-theme="${theme}">
+            <div class="widget" style="width:${spec.w}px; height:${spec.h}px">
+              ${c.render(spec)}
+            </div>
+          </div>
+        </section>`;
+    }).join("");
+  }
+
+  function bindSeg(id, attr, apply) {
+    const group = document.getElementById(id);
+    group.addEventListener("click", (e) => {
+      const button = e.target.closest("button");
+      if (!button) return;
+      [...group.querySelectorAll("button")].forEach((b) => {
+        b.setAttribute("aria-pressed", String(b === button));
+      });
+      apply(button.dataset[attr]);
+      renderAll();
+    });
+  }
+
+  bindSeg("seg-size", "size", (v) => { size = v; });
+  bindSeg("seg-theme", "theme", (v) => { theme = v; });
+  bindSeg("seg-paper", "paper", (v) => { paper = v; });
+
+  renderAll();
+</script>
