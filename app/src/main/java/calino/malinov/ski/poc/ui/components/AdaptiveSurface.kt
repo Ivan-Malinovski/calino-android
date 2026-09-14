@@ -10,6 +10,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -215,8 +217,20 @@ fun AdaptiveSurfaceHost(
         val exit = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
                 slideOutVertically(tween(240)) { it } + fadeOut(tween(160))
+            // A centred card has nowhere to slide off to, so its exit is the
+            // only one without travel. Scale alone at this size is close to
+            // invisible and the card reads as cut rather than dismissed, so
+            // the fade is stretched over the whole exit and given a short
+            // downward drift to carry it.
             CalinoSurfaceMode.FloatingWindow ->
-                scaleOut(tween(180), targetScale = .94f) + fadeOut(tween(150))
+                scaleOut(
+                    tween(FloatingExitMillis, easing = FastOutLinearInEasing),
+                    targetScale = .965f,
+                ) + slideOutVertically(
+                    tween(FloatingExitMillis, easing = FastOutLinearInEasing),
+                ) { (it * .045f).roundToInt() } + fadeOut(
+                    tween(FloatingExitMillis, easing = LinearEasing),
+                )
             CalinoSurfaceMode.EndPanel ->
                 slideOutHorizontally(tween(220)) { it } + fadeOut(tween(150))
         }
@@ -359,6 +373,12 @@ private fun RootAnchoredPill(anchor: Rect, content: @Composable () -> Unit) {
         }
     }
 }
+
+/**
+ * Just inside the host's own unmount delay, so the card finishes leaving
+ * before its caller takes it out of the composition.
+ */
+private const val FloatingExitMillis = 200
 
 /** The pill's distance from the bottom of its lane, shared with the root pill. */
 private val PillLaneInset = 20.dp
@@ -525,7 +545,16 @@ fun DetailCardSurface(
     }
     Column(
         modifier
-            .shadow(18.dp * if (mode == CalinoSurfaceMode.EndPanel) CalinoColors.elevationAlpha else 0f, shape, clip = false)
+            // A floating card is surrounded by scrim on every side; without a
+            // shadow its edge is a hard cut against it, going and coming.
+            .shadow(
+                when (mode) {
+                    CalinoSurfaceMode.BottomSheet -> 0.dp
+                    else -> 18.dp * CalinoColors.elevationAlpha
+                },
+                shape,
+                clip = false,
+            )
             .clip(shape)
             .background(CalinoColors.Canvas),
     ) {
