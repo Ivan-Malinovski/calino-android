@@ -87,6 +87,39 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+/**
+ * The live translation of a surface being dragged toward dismissal.
+ *
+ * The drag is measured by the gesture primitive wrapped around the card, but
+ * it has to be *applied* by the host: the card itself sits inside whatever
+ * container its surface uses -- for the previews, a pager, which clips its
+ * pages -- so a card that moved itself would be cut off at that container's
+ * edge and could never reach the bottom of the window. The host's panel box
+ * is the outermost thing that belongs to this one surface, and nothing clips
+ * it.
+ *
+ * The values are plain mutable state read from a `graphicsLayer` lambda, so a
+ * drag frame re-layers without recomposing anything.
+ */
+@androidx.compose.runtime.Stable
+class CalinoSurfaceDismissDrag {
+    var offsetX by mutableFloatStateOf(0f)
+    var offsetY by mutableFloatStateOf(0f)
+
+    /** 0..1 toward the full dismissal distance; drives the fade and shrink. */
+    var progress by mutableFloatStateOf(0f)
+
+    fun clear() {
+        offsetX = 0f
+        offsetY = 0f
+        progress = 0f
+    }
+}
+
+/** Set by [AdaptiveSurfaceHost] for the gesture primitive inside it. */
+val LocalCalinoSurfaceDismissDrag =
+    androidx.compose.runtime.compositionLocalOf<CalinoSurfaceDismissDrag?> { null }
+
 /** The mode currently used by the nearest adaptive surface host. */
 val LocalCalinoSurfaceMode = androidx.compose.runtime.staticCompositionLocalOf {
     CalinoSurfaceMode.BottomSheet
@@ -133,6 +166,10 @@ fun AdaptiveSurfaceHost(
         }
         DisposableEffect(lane) { onDispose { lane.release() } }
     }
+
+    // Owned by the host rather than by the card, so the card's own container
+    // cannot clip the travel. See [CalinoSurfaceDismissDrag].
+    val dismissDrag = remember { CalinoSurfaceDismissDrag() }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val windowClass = calinoWindowClassFor(maxWidth.value.roundToInt())
@@ -295,9 +332,19 @@ fun AdaptiveSurfaceHost(
             // parent or CenterEnd/Center would be ignored and the child could
             // be measured at the full window width.
             Box(Modifier.fillMaxSize()) {
-                Box(panelModifier) {
+                Box(
+                    panelModifier.graphicsLayer {
+                        translationX = dismissDrag.offsetX
+                        translationY = dismissDrag.offsetY
+                        val settling = dismissDrag.progress
+                        alpha = 1f - settling * .14f
+                        scaleX = 1f - settling * .018f
+                        scaleY = 1f - settling * .018f
+                    },
+                ) {
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalCalinoSurfaceMode provides mode,
+                        LocalCalinoSurfaceDismissDrag provides dismissDrag,
                     ) {
                         content(Modifier.fillMaxSize())
                     }
@@ -400,6 +447,7 @@ fun SwipeEndDismiss(
     allowDownwardDismiss: Boolean = false,
     content: @Composable (Modifier) -> Unit,
 ) {
+    val hostDrag = LocalCalinoSurfaceDismissDrag.current
     var dragDistance by remember { mutableFloatStateOf(0f) }
     var dragDownDistance by remember { mutableFloatStateOf(0f) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
@@ -413,6 +461,16 @@ fun SwipeEndDismiss(
     val dismissThresholdPx = with(density) { dismissThreshold.toPx() }
     val dismissDistancePx = with(density) { dismissDistance.toPx() }
     val axisThresholdPx = with(density) { 8.dp.toPx() }
+
+    // As in [SwipeDownDismiss]: the host applies the translation, because the
+    // panel this card sits in is the only box nothing else clips.
+    fun publish(x: Float, y: Float) {
+        dragDistance = x
+        dragDownDistance = y
+        hostDrag?.offsetX = x * outwardSign
+        hostDrag?.offsetY = y
+        hostDrag?.progress = (maxOf(x, y) / dismissDistancePx).coerceIn(0f, 1f)
+    }
 
     fun animateOffsetTo(
         targetX: Float,
@@ -428,15 +486,18 @@ fun SwipeEndDismiss(
                 targetValue = 1f,
                 animationSpec = spring(dampingRatio = .86f, stiffness = 420f),
             ) { value, _ ->
-                dragDistance = startX + (targetX - startX) * value
-                dragDownDistance = startY + (targetY - startY) * value
+                publish(
+                    startX + (targetX - startX) * value,
+                    startY + (targetY - startY) * value,
+                )
             }
-            dragDistance = targetX
-            dragDownDistance = targetY
+            publish(targetX, targetY)
             animationJob = null
             onFinished?.invoke()
         }
     }
+
+    DisposableEffect(hostDrag) { onDispose { hostDrag?.clear() } }
 
     LaunchedEffect(visible, resetKey) {
         if (visible) {
@@ -489,12 +550,10 @@ fun SwipeEndDismiss(
                     val outwardTravel = totalX * outwardSign
                     if (axisDecided && horizontal && allowedAtDown && outwardTravel > 0f) {
                         change.consume()
-                        dragDistance = (startDistance + outwardTravel).coerceAtMost(dismissDistancePx)
-                        dragDownDistance = 0f
+                        publish((startDistance + outwardTravel).coerceAtMost(dismissDistancePx), 0f)
                     } else if (axisDecided && vertical && downwardAllowedAtDown && totalY > 0f) {
                         change.consume()
-                        dragDistance = 0f
-                        dragDownDistance = (startDownDistance + totalY).coerceAtMost(dismissDistancePx)
+                        publish(0f, (startDownDistance + totalY).coerceAtMost(dismissDistancePx))
                     }
                 }
 
@@ -514,18 +573,22 @@ fun SwipeEndDismiss(
 
     Box(modifier.testTag(SwipeEndDismissTag).then(gestureModifier)) {
         content(
-            modifier
-                .offset {
-                    IntOffset(
-                        (dragDistance * outwardSign).roundToInt(),
-                        dragDownDistance.roundToInt(),
-                    )
-                }
-                .graphicsLayer {
-                    alpha = 1f - progress * .14f
-                    scaleX = 1f - progress * .018f
-                    scaleY = 1f - progress * .018f
-                },
+            if (hostDrag != null) {
+                modifier
+            } else {
+                modifier
+                    .offset {
+                        IntOffset(
+                            (dragDistance * outwardSign).roundToInt(),
+                            dragDownDistance.roundToInt(),
+                        )
+                    }
+                    .graphicsLayer {
+                        alpha = 1f - progress * .14f
+                        scaleX = 1f - progress * .018f
+                        scaleY = 1f - progress * .018f
+                    }
+            },
         )
     }
 }

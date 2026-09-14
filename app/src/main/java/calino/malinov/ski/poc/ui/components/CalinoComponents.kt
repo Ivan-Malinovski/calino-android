@@ -371,6 +371,10 @@ fun SwipeDownDismiss(
     canStartDismiss: () -> Boolean = { true },
     content: @Composable (Modifier) -> Unit,
 ) {
+    // Published to the host, which owns the translation: a card that moved
+    // itself would be clipped by its own container (the previews sit in a
+    // pager) and could never travel past that container's edge.
+    val hostDrag = LocalCalinoSurfaceDismissDrag.current
     var dragY by remember { mutableFloatStateOf(0f) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentCanStartDismiss by rememberUpdatedState(canStartDismiss)
@@ -382,6 +386,14 @@ fun SwipeDownDismiss(
     val dismissDistancePx = with(density) { dismissDistance.toPx() }
     val axisThresholdPx = with(density) { 8.dp.toPx() }
 
+    // Written outside composition, and read by the host from a graphicsLayer
+    // lambda, so following the finger costs a re-layer and not a recomposition.
+    fun publish(value: Float) {
+        dragY = value
+        hostDrag?.offsetY = value
+        hostDrag?.progress = (value / dismissDistancePx).coerceIn(0f, 1f)
+    }
+
     fun animateOffsetTo(target: Float, onFinished: (() -> Unit)? = null) {
         animationJob?.cancel()
         animationJob = scope.launch {
@@ -389,8 +401,8 @@ fun SwipeDownDismiss(
                 initialValue = dragY,
                 targetValue = target,
                 animationSpec = spring(dampingRatio = .86f, stiffness = 420f),
-            ) { value, _ -> dragY = value }
-            dragY = target
+            ) { value, _ -> publish(value) }
+            publish(target)
             animationJob = null
             onFinished?.invoke()
         }
@@ -424,6 +436,7 @@ fun SwipeDownDismiss(
         SideEffect { lane.dismissDrag = pillRelease }
     }
     DisposableEffect(lane) { onDispose { lane.dismissDrag = 0f } }
+    DisposableEffect(hostDrag) { onDispose { hostDrag?.clear() } }
     val gestureModifier = Modifier.pointerInput(visible, dismissing) {
         if (visible && !dismissing) {
             // Observe in Initial so a downward dismissal can begin over a
@@ -463,7 +476,7 @@ fun SwipeDownDismiss(
                     }
                     if (axisDecided && vertical && totalY > 0f && dismissAllowedAtDown) {
                         change.consume()
-                        dragY = (startDragY + totalY).coerceAtMost(dismissDistancePx)
+                        publish((startDragY + totalY).coerceAtMost(dismissDistancePx))
                     }
                 }
 
@@ -492,13 +505,17 @@ fun SwipeDownDismiss(
     // this node, and there is no other handle on the pointer stream.
     Box(modifier.testTag(SwipeDownDismissTag).then(gestureModifier)) {
         content(
-            modifier
-                .offset { IntOffset(0, dragY.roundToInt()) }
-                .graphicsLayer {
-                    alpha = 1f - progress * .14f
-                    scaleX = 1f - progress * .018f
-                    scaleY = 1f - progress * .018f
-                },
+            if (hostDrag != null) {
+                modifier
+            } else {
+                modifier
+                    .offset { IntOffset(0, dragY.roundToInt()) }
+                    .graphicsLayer {
+                        alpha = 1f - progress * .14f
+                        scaleX = 1f - progress * .018f
+                        scaleY = 1f - progress * .018f
+                    }
+            },
         )
     }
 }
