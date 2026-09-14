@@ -36,6 +36,66 @@ fun dominantAxis(dx: Float, dy: Float, dominanceRatio: Float = 1.15f): GestureAx
 fun zoomAfterVerticalDrag(zoom: Float, dragDeltaDp: Float, stepDp: Float = 280f): Float =
     (zoom + dragDeltaDp / stepDp.coerceAtLeast(1f)).coerceIn(0f, 2f)
 
+/**
+ * The one rendering contract for the compact-week, split-month and day-surface
+ * transition. Every value is derived from the live zoom sample, so reversing a
+ * drag produces the exact reverse frame instead of waiting for another state
+ * holder to catch up.
+ */
+data class CalendarTransitionFrame(
+    val zoom: Float,
+    val compactProgress: Float,
+    val detailProgress: Float,
+    val unfoldProgress: Float,
+    val railVisible: Boolean,
+    val agendaVisible: Boolean,
+)
+
+private const val CalendarUnfoldStart = .20f
+private const val CalendarUnfoldEnd = .84f
+
+fun calendarTransitionFrame(zoom: Float): CalendarTransitionFrame {
+    val clamped = zoom.coerceIn(0f, 2f)
+    val compactZoom = clamped.coerceIn(0f, 1f)
+    val unfold = monthUnfoldPhase(compactZoom, CalendarUnfoldStart, CalendarUnfoldEnd)
+    return CalendarTransitionFrame(
+        zoom = clamped,
+        compactProgress = smoothStep01(1f - compactZoom),
+        detailProgress = smoothStep01((clamped - 1f).coerceIn(0f, 1f)),
+        unfoldProgress = unfold,
+        railVisible = unfold < 1f,
+        agendaVisible = unfold > 0f && clamped < 1.99f,
+    )
+}
+
+/** Input ownership follows the shared visual frame with hysteresis. */
+fun agendaOwnsCalendarInput(
+    frame: CalendarTransitionFrame,
+    currentlyOwns: Boolean,
+    hysteresis: Float = .08f,
+): Boolean = when {
+    !frame.railVisible && !frame.agendaVisible -> false
+    !frame.railVisible -> true
+    !frame.agendaVisible -> false
+    currentlyOwns -> frame.unfoldProgress >= .5f - hysteresis
+    else -> frame.unfoldProgress > .5f + hysteresis
+}
+
+/**
+ * A horizontally moving week page may replace the canvas only while that week
+ * pager is actually mounted at the compact endpoint.
+ */
+fun monthCanvasVisibleDuringWeekPreview(
+    zoom: Float,
+    weekPreviewActive: Boolean,
+    endpointHandoff: Float = .18f,
+): Boolean = !weekPreviewActive || zoom >= endpointHandoff
+
+private fun smoothStep01(value: Float): Float {
+    val t = value.coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
 /** A reversible, finger-driven phase within the compact-week to month morph. */
 fun monthUnfoldPhase(zoom: Float, start: Float, end: Float): Float {
     if (end <= start) return if (zoom >= end) 1f else 0f

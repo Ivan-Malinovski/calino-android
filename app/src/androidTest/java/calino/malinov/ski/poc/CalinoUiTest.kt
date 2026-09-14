@@ -10,6 +10,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import calino.malinov.ski.poc.data.CalinoContainer
 import calino.malinov.ski.poc.state.SharedPreferencesPreferenceStore
+import calino.malinov.ski.poc.util.CalinoDefaultView
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.rules.ExternalResource
@@ -36,9 +37,11 @@ import org.junit.rules.RuleChain
  * - `PagerEpoch` in `HomeScreen.kt` is the same date, so all three calendar
  *   pagers start on their centre page.
  */
-abstract class CalinoUiTest {
+abstract class CalinoUiTest(
+    defaultView: CalinoDefaultView = CalinoDefaultView.Default,
+) {
 
-    private val reset = CalinoResetRule()
+    private val reset = CalinoResetRule(defaultView)
 
     protected val compose: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeRule()
@@ -112,7 +115,9 @@ abstract class CalinoUiTest {
 }
 
 /** Returns the app to a first-launch state: default preferences, no account, fixture data. */
-class CalinoResetRule : ExternalResource() {
+class CalinoResetRule(
+    private val defaultView: CalinoDefaultView = CalinoDefaultView.Default,
+) : ExternalResource() {
     override fun before() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         listOf(PreferencesFile, AccountsFile).forEach { name ->
@@ -123,7 +128,10 @@ class CalinoResetRule : ExternalResource() {
         // flag, which would let the notification permission prompt fire on the
         // second resume. That is a system dialog: no Compose matcher can see it
         // and no test can dismiss it. Claim it as already shown instead.
-        SharedPreferencesPreferenceStore(context).saveNotificationPromptShown(true)
+        SharedPreferencesPreferenceStore(context).apply {
+            saveNotificationPromptShown(true)
+            saveDefaultView(defaultView)
+        }
         CalinoContainer.get(context).fixtureRepository.resetToFixtures()
     }
 

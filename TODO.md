@@ -286,6 +286,41 @@ first-run frame deterministic and restore one shared transition contract.
   coupled day-surface transition, then validate slow/fast gestures on the API
   36 emulator and the approved physical phone.
 
+**Status 2026-09-14 — [x] done.** The
+week/month unfold and the day rail/agenda reveal now consume one pure transition
+frame derived from the live zoom value. Cold entries seed input ownership from
+the stored endpoint instead of publishing the wrong owner until a launched
+effect catches up. The accordion rows and selected-date morph remain draw-time,
+finger-driven work; no second animation clock was added.
+
+Pure tests cover cold endpoints, reversible shared progress and cancellation
+hysteresis. Dedicated device tests launch directly into the split and detailed
+month defaults. `test lintDebug assembleDebug` and all 67 API 36 emulator tests
+pass; slow and fast expand/reverse gestures plus a short settle-back were
+recorded without blank, duplicate or superimposed calendar/day content. The
+verified APK was deployed to the approved phone for animation-feel review.
+
+The first phone review rejected that build: the level 2 → 1 path could still
+blank the full month, and a week swipe still moved ahead of the title and
+timeline. The follow-up fixes the actual owners: a background week preview can
+hide the month canvas only inside the compact endpoint where the week strip is
+mounted, while the month title and outgoing/incoming day rails now use the live
+week-pager offset. The blanking rule has direct unit coverage; emulator frame
+captures cover level 2 → 1 and a cross-month week swipe. This remains awaiting
+the second phone review.
+
+The next phone review found one final settle race: removing the translated week
+preview briefly exposed the previous day before the day pager synchronized.
+The settle now requests the destination day page before committing the selected
+date and releasing week ownership, using the same atomic handoff as month
+paging. Emulator frame review and the focused paging device suite pass.
+
+A subsequent phone review caught a one-frame layer-swap blink after the date
+was already correct. The settled preview is now retained until the real day
+pager has reached the destination and rendered two frames underneath it, then
+removed without animation. A 15-fps settle review, focused paging tests and lint
+pass. Ivan accepted the final behavior on the physical phone.
+
 ## 8. Fetch-window paging
 
 `CalDavRepository.DefaultWindowMonths` is today ±6 months and does not extend.

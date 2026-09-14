@@ -47,6 +47,66 @@ class HomeGestureRulesTest {
     }
 
     @Test
+    fun calendarTransition_isDeterministicAtEveryColdEntryLevel() {
+        val week = calendarTransitionFrame(0f)
+        assertEquals(0f, week.unfoldProgress, 0.001f)
+        assertTrue(week.railVisible)
+        assertEquals(false, week.agendaVisible)
+        assertEquals(false, agendaOwnsCalendarInput(week, currentlyOwns = false))
+
+        val split = calendarTransitionFrame(1f)
+        assertEquals(1f, split.unfoldProgress, 0.001f)
+        assertEquals(false, split.railVisible)
+        assertTrue(split.agendaVisible)
+        assertTrue(agendaOwnsCalendarInput(split, currentlyOwns = false))
+
+        val detail = calendarTransitionFrame(2f)
+        assertEquals(1f, detail.unfoldProgress, 0.001f)
+        assertEquals(false, detail.railVisible)
+        assertEquals(false, detail.agendaVisible)
+        assertEquals(false, agendaOwnsCalendarInput(detail, currentlyOwns = true))
+    }
+
+    @Test
+    fun calendarAndDaySurface_shareOneReversibleProgress() {
+        val forward = listOf(.2f, .35f, .5f, .7f, .84f).map(::calendarTransitionFrame)
+        assertTrue(forward.zipWithNext().all { (left, right) ->
+            left.unfoldProgress <= right.unfoldProgress
+        })
+        forward.reversed().zipWithNext().forEach { (left, right) ->
+            assertTrue(left.unfoldProgress >= right.unfoldProgress)
+        }
+        forward.forEach { frame ->
+            assertEquals(
+                monthUnfoldPhase(frame.zoom, .20f, .84f),
+                frame.unfoldProgress,
+                0.001f,
+            )
+        }
+    }
+
+    @Test
+    fun calendarInputOwnership_hasStableHysteresisDuringCancelledSettles() {
+        val middle = calendarTransitionFrame(.52f)
+        assertEquals(false, agendaOwnsCalendarInput(middle, currentlyOwns = false))
+        assertTrue(agendaOwnsCalendarInput(middle, currentlyOwns = true))
+        assertEquals(
+            false,
+            agendaOwnsCalendarInput(calendarTransitionFrame(.2f), currentlyOwns = true),
+        )
+        assertTrue(agendaOwnsCalendarInput(calendarTransitionFrame(.84f), currentlyOwns = false))
+    }
+
+    @Test
+    fun backgroundWeekPreview_neverBlanksTheSplitMonthSettle() {
+        assertEquals(false, monthCanvasVisibleDuringWeekPreview(.1f, weekPreviewActive = true))
+        assertTrue(monthCanvasVisibleDuringWeekPreview(.18f, weekPreviewActive = true))
+        assertTrue(monthCanvasVisibleDuringWeekPreview(.5f, weekPreviewActive = true))
+        assertTrue(monthCanvasVisibleDuringWeekPreview(1f, weekPreviewActive = true))
+        assertTrue(monthCanvasVisibleDuringWeekPreview(.1f, weekPreviewActive = false))
+    }
+
+    @Test
     fun dayRailExpansionOnlyStartsOnDownwardPullAtTop() {
         assertEquals(true, shouldExpandFromDayRail(dragDeltaY = 24f, railScrollValue = 0))
         assertEquals(false, shouldExpandFromDayRail(dragDeltaY = 24f, railScrollValue = 1))

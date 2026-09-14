@@ -4,6 +4,57 @@ This document is the working handoff for the standalone native Android app in
 this repository. It is written for the next coding model or engineer who will
 continue the UI work.
 
+### Coupled calendar/day transition — 2026-09-14
+
+The hinged week-to-month unfold and the day rail/agenda transition now share a
+single `CalendarTransitionFrame`, calculated directly from the live zoom value
+in `PocStateRules.kt`. Mounting, clipping, reveal progress and input ownership
+therefore reverse together with the finger; there is still no independent
+animation state machine on this path. The staggered accordion rows and selected
+date shape retain their local phases inside that contract.
+
+Cold entry no longer starts `agendaOwnsInput` at an unconditional false value
+and repairs it after composition. It is seeded synchronously from the stored
+zoom endpoint, so Week, split Month and detailed Month publish the correct
+surface on their first idle frame. The instrumented reset rule can now seed a
+specific default view, and dedicated cold-entry tests cover both month levels.
+
+Validated with the pure transition tests, `test lintDebug assembleDebug`, and
+all 67 device tests on the API 36 emulator. Slow and fast expand/reverse plus a
+short settle-back were recorded and inspected for blank frames, duplicate
+content, clipping and superimposed text. The same verified APK was deployed to
+the approved physical phone for hands-on animation-feel review.
+
+The first phone review rejected that pass and exposed two narrower ownership
+bugs the initial emulator recording had missed. During a level 2 → 1 settle,
+an independently syncing week pager could set the *entire* month canvas alpha
+to zero anywhere below zoom `.999`, even though its replacement week strip is
+only mounted below `.18`; the month canvas may now hand off only inside that
+actual compact endpoint. During a horizontal week swipe, only the strip used
+the live week-pager offset while the month title and timeline waited for the
+settled selected-date commit. The heading now reads the same pager directly,
+and the outgoing/incoming day rails translate with that pager offset. Emulator
+recordings now explicitly cover the level 2 → 1 path and a May → June week
+swipe. A second phone review is required for acceptance.
+
+That second review found the remaining settle handoff: when the week pager
+stopped, its translated rail preview was removed before the real day pager had
+followed the newly committed date, exposing the previous day and then animating
+forward again. The week settle collector now calls
+`dayPagerState.requestScrollToPage()` before publishing `selectedEpoch` and
+releasing pager ownership, matching the already-established month-pager atomic
+handoff. A 12-fps frame review of the swipe and settle shows no old-day bounce;
+`CalendarPagingTest` passes on the emulator.
+
+The following review caught a subtler blink at the same seam: even with both
+layers on the correct day, the translated preview was removed in the frame the
+real pager first composed its destination. `weekRailHandoffDay` now retains the
+identical settled preview until the destination pager reports current and
+settled on that page and two render frames have elapsed. A new gesture clears
+any stale handoff immediately. A 15-fps frame review shows a continuous settle;
+the focused paging suite and lint pass. Ivan accepted the final behavior on the
+physical phone.
+
 ### Modal pill RenderThread crash — 2026-09-13
 
 Opening a journal entry on the Android 17 Samsung cover display exposed a
