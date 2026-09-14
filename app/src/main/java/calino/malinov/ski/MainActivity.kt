@@ -85,6 +85,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
@@ -1363,7 +1364,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
         PockRoute.Notifications -> PockRoute.Notifications
     }
-    val predictiveBackDestination = when (route) {
+    fun computePredictiveBackDestination() = when (route) {
         PockRoute.Notifications -> if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
         PockRoute.Accounts -> when (accountsOrigin) {
             PocReturnTarget.Settings -> PockRoute.Settings
@@ -1373,12 +1374,22 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
         else -> PockRoute.Day
     }
+    // Captured once per gesture, at its first frame, and held there through
+    // the whole drag and the settle handoff below -- never re-derived from
+    // `route` after `commitRootBack()` changes it. `route` itself is what
+    // the destination formula above switches on, so recomputing live after
+    // commit can name a *different* screen (e.g. back from Notifications
+    // lands on Settings, whose own back destination is Day): the movable
+    // content keyed on this value would then be recreated mid-handoff,
+    // reintroducing the exact jump this is meant to prevent.
+    var predictiveBackDestination by remember { mutableStateOf<PockRoute>(PockRoute.Day) }
     val rootPredictiveBackEnabled = !sidebarVisible && !journalReviewVisible && !journalEditorVisible &&
         !showDayModal && route != PockRoute.Day && route != PockRoute.Detail &&
         route != PockRoute.TaskDetail && route != PockRoute.QuickAdd
     PredictiveBackHandler(enabled = rootPredictiveBackEnabled) { events ->
         try {
             rootBackInProgress = true
+            predictiveBackDestination = computePredictiveBackDestination()
             events.collect { event ->
                 rootBackProgress = PredictiveBackEasing.transform(event.progress.coerceIn(0f, 1f))
             }
@@ -1724,6 +1735,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 }
             }
         }
+        // The predictive-back destination is composed once, through a movable
+        // reference, and only ever migrates between the live preview below
+        // and the settled AnimatedContent slot -- never disposed and
+        // recreated between them. Two separate `rootDestination(...)` call
+        // sites here would each mount their own composition of "the same"
+        // screen: `remember` state built up while the preview tracked the
+        // finger (scroll position, in-flight layout) would be discarded the
+        // instant the gesture committed and a fresh instance took over,
+        // which read as a one-frame jump, and dragged the header controls
+        // (menu button) along with it since they live inside that subtree.
+        val predictiveDestinationContent = remember(predictiveBackDestination) {
+            movableContentOf { rootDestination(predictiveBackDestination) }
+        }
         Box(
             Modifier
                 .fillMaxSize()
@@ -1745,7 +1769,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             alpha = destinationProgress
                         },
                 ) {
-                    rootDestination(predictiveBackDestination)
+                    predictiveDestinationContent()
                 }
             }
             AnimatedContent(
@@ -1770,7 +1794,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 },
                 label = "root destination transition",
             ) { currentRoute ->
-                rootDestination(currentRoute)
+                if (currentRoute == predictiveBackDestination) {
+                    predictiveDestinationContent()
+                } else {
+                    rootDestination(currentRoute)
+                }
             }
             LaunchedEffect(rootRoute, predictiveRouteCommit) {
                 if (predictiveRouteCommit) {
@@ -2031,7 +2059,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 pillLane.handingBack = false
             }
         }
-        val pillVisible = !rootBackInProgress && when (rootRoute) {
+        val pillVisible = when (rootRoute) {
             PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
             PockRoute.Range -> route == PockRoute.Range
             PockRoute.Agenda -> route == PockRoute.Agenda
@@ -2040,6 +2068,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Contacts -> route == PockRoute.Contacts && selectedContactId == null
             else -> false
         }
+        // A predictive-back gesture fades the pill continuously with the
+        // outgoing surface instead of toggling `pillVisible`: the origin and
+        // destination routes are both pill-eligible almost every time this
+        // gesture runs, so a boolean gate never actually changes value across
+        // the gesture -- it only flips once, right as the gesture completes,
+        // which made `AnimatedVisibility` replay a full slide/fade entrance
+        // at the exact moment everything else had already settled. Deriving
+        // the alpha straight from `rootBackProgress` keeps it locked to the
+        // same frame-by-frame value the content behind it already fades on.
+        val predictiveBackPillAlpha = 1f - (rootBackProgress / PredictiveBackFadeThreshold).coerceIn(0f, 1f)
         // A modal's pill takes this lane over and morphs out of this pill's
         // shape, so the handoff in both directions has to be silent: sliding
         // this one away under the modal's, or back in under its returning
@@ -2068,7 +2106,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(bottom = 20.dp),
+                .padding(bottom = 20.dp)
+                .graphicsLayer { alpha = predictiveBackPillAlpha },
             label = "add pill visibility",
         ) {
             // In the large landscape split the pill rides in the right-side

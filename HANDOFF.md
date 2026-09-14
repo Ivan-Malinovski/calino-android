@@ -25,6 +25,51 @@ on the API 36 emulator, and frame inspection of slow completed and cancelled
 sidebar and root-route edge gestures. The verified debug APK was installed on
 the approved Samsung phone for user motion review.
 
+### Predictive back settle handoff — 2026-09-14
+
+The phone review above caught a blink of the add pill and the header's menu
+button, plus a slight jump of the screen, right as a root-route gesture
+settled. Two earlier attempts at this (`Smooth predictive back settle
+handoff`, `Prevent duplicate predictive destination state`) were reverted
+before this session started; both delayed clearing `rootBackInProgress` by
+two frames after commit, which only moved the pill's abrupt alpha snap later
+rather than removing it.
+
+Root cause was structural: the predictive-back destination was composed
+through two independent call sites -- a live preview `Box` during the drag,
+and `AnimatedContent`'s own slot once `commitRootBack()` landed -- both
+`rootDestination(...)`, each mounting its own composition of "the same"
+screen. `remember` state built up while the preview tracked the finger
+(scroll position, in-flight layout, the header's own state) was discarded the
+instant the gesture committed and a fresh instance took over, which read as
+the jump and dragged the menu button along with it. The add pill's blink was
+separate: `pillVisible` included `!rootBackInProgress`, so `AnimatedVisibility`
+replayed a full slide/fade entrance right as the gesture completed, instead of
+tracking the gesture continuously.
+
+The destination is now composed once, through `remember(predictiveBackDestination)
+{ movableContentOf { rootDestination(predictiveBackDestination) } }`, and only
+ever migrates between the live preview and the settled `AnimatedContent` slot
+in the same recomposition -- never disposed and recreated. `predictiveBackDestination`
+itself is captured once per gesture (in the `PredictiveBackHandler` body, not
+recomputed from `route` after `commitRootBack()` changes it), because the
+formula it uses switches on `route`: recomputing live after commit can name a
+different screen (back from Notifications lands on Settings, whose own back
+destination is Day), which would recreate the movable content mid-handoff.
+The add pill no longer gates on `rootBackInProgress` at all; its alpha is
+derived continuously from `rootBackProgress`, the same fade curve the content
+behind it already uses, so it never animates independently of the gesture.
+
+Validated with `test lintDebug assembleDebug`, all 24 `NavigationDestinationsTest`
+and all 7 `ModalDismissalTest` cases on the API 36 emulator, and frame-by-frame
+inspection (`adb shell screenrecord` at 30/60fps, diffed to locate the settle
+frame) of a real edge-swipe gesture from Tasks back to Day: the destination
+content, header and add pill are already fully formed in the same frame the
+system's predictive-back indicator releases, with no visible pop or jump
+across the following frames. **No physical-phone re-review has been done for
+this specific fix** -- the phone that caught the original bug has not
+re-verified it.
+
 ### Calino product name — 2026-09-14
 
 The launcher/application label is now simply `Calino`, backed by the shared
