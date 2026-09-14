@@ -9,13 +9,19 @@ the open. It is still a work in progress, but the app can connect to CalDAV
 and CardDAV servers and also works with a built-in fixture when no account is
 connected.
 
-## Identity and scope
+## What’s here
 
 - APK/application ID: `calino.malinov.ski`
 - App label: `Calino`
 - With no account connected, the app uses a frozen May 2026 fixture. A
   connected account uses CalDAV/CardDAV for events, tasks, journal entries,
   and contacts.
+- Adaptive layouts cover compact phones, medium and expanded tablet windows,
+  and landscape split panes. Foldable posture and hinge awareness is
+  preliminary, including a keep-out band and an early tabletop/book layout.
+- Home-screen widgets include resizable agenda, cards, and tasks variants.
+  They read cached account data, update as the repository syncs, and link back
+  into the app.
 - Offline or retryable writes stay in a durable queue. Recurring event edits
   and deletes support THIS, FUTURE, and ALL scopes.
 - Reminders are delivered locally through `AlarmManager`.
@@ -26,15 +32,30 @@ connected.
 ## Screenshots
 
 The screenshots below use the built-in May 2026 fixture and contain no account
-data.
+data. The second group is from the API 36 emulator in landscape and light
+mode.
 
-![Calendar day view](docs/screenshots/calendar-day.png)
+<table>
+  <tr>
+    <td><img src="docs/screenshots/calendar-day.png" alt="Calendar day view" width="100%"></td>
+    <td><img src="docs/screenshots/range.png" alt="Three-day range view" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/tasks.png" alt="Tasks" width="100%"></td>
+    <td><img src="docs/screenshots/settings.png" alt="Settings" width="100%"></td>
+  </tr>
+</table>
 
-![Three-day range view](docs/screenshots/range.png)
-
-![Tasks](docs/screenshots/tasks.png)
-
-![Settings](docs/screenshots/settings.png)
+<table>
+  <tr>
+    <td><img src="docs/screenshots/calendar-day-landscape-light.png" alt="Calendar day view in landscape light mode" width="100%"></td>
+    <td><img src="docs/screenshots/range-landscape-light.png" alt="Three-day range view in landscape light mode" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/settings-landscape-light.png" alt="Settings in landscape light mode" width="100%"></td>
+    <td></td>
+  </tr>
+</table>
 
 ## If a reminder never arrives
 
