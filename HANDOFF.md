@@ -19,6 +19,10 @@ dates, month arrows and Today at least 44dp interaction lanes. The arrows and
 Today action also expose explicit sidebar-specific accessibility descriptions.
 Device coverage pins the control bounds and previous/next/Today navigation.
 
+The sidebar scrim also paints the status-bar inset slice above its inset host,
+so Android's transparent edge-to-edge notification bar dims continuously with
+the drawer and its drag progress instead of remaining a bright strip.
+
 ### Event location actions — 2026-09-14
 
 The event preview/detail sheet now exposes a compact map-pin action at the far
