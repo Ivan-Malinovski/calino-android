@@ -2210,9 +2210,17 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             onColorCalendar = pocViewModel::onCalendarColorChanged,
             onSyncAll = { pocViewModel.refresh() },
             onSyncCalendar = { _, _ -> pocViewModel.refresh() },
-            onTaskClick = { task -> openTaskDetail(task, PocReturnTarget.Tasks) },
+            onTaskClick = { task ->
+                sidebarVisible = false
+                openTaskDetail(task, PocReturnTarget.Tasks)
+            },
             onTaskComplete = { task, done -> launchWrite({ repository.setTaskDone(task.id, done) }) },
-            onTaskAction = ::handleTaskAction,
+            onTaskAction = { action, task ->
+                if (action == TaskMenuAction.Edit || action == TaskMenuAction.AddSubtask) {
+                    sidebarVisible = false
+                }
+                handleTaskAction(action, task)
+            },
         )
     }
     }

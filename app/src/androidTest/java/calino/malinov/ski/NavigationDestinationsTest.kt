@@ -166,6 +166,21 @@ class NavigationDestinationsTest : CalinoUiTest() {
         compose.assertDaySelected(CalinoTestActions.WeekPager, CalinoTestActions.FixtureDate)
     }
 
+    @Test fun openingAnUpcomingTaskDismissesTheSidebar() {
+        compose.onNodeWithContentDescription("Open navigation").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Upcoming tasks in sidebar").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Buy flowers, Personal")
+            .performScrollTo()
+            .performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Save task").assertIsDisplayed()
+        assertFalse(compose.hasDescribedNode("Dismiss"))
+    }
+
     @Test fun calendarManagementMovesFromTheSidebarToSettings() {
         compose.onNodeWithContentDescription("Open navigation").performClick()
         compose.waitForIdle()
