@@ -454,17 +454,22 @@ private fun AllDayOverflowRow(
             .fillMaxWidth()
             .padding(start = gutterWidth, end = CalinoSpacing.LaneEdge)
             .heightIn(min = rowHeight, max = rowHeight)
-            .clip(RoundedCornerShape(8.dp))
             .clickable { onToggle() }
             .semantics(mergeDescendants = true) { contentDescription = description },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, Modifier.weight(1f), fontSize = 11.sp, color = CalinoColors.Ink3)
+        val contentOffset = if (density == AllDayBandDensity.Narrow) (-0.5).dp else 0.dp
+        Text(
+            label,
+            Modifier.weight(1f).offset(y = contentOffset),
+            fontSize = 11.sp,
+            color = CalinoColors.Ink3,
+        )
         Icon(
             CalinoIcons.ChevronRight,
             contentDescription = null,
             tint = CalinoColors.Ink3,
-            modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = chevronRotation },
+            modifier = Modifier.size(16.dp).offset(y = contentOffset).graphicsLayer { rotationZ = chevronRotation },
         )
     }
 }
