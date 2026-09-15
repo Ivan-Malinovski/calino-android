@@ -1689,6 +1689,7 @@ private const val FloatingPillFillAlpha = .68f
 private fun Modifier.floatingPillSurface(
     backdrop: GraphicsLayer?,
     backdropOrigin: () -> Offset,
+    backdropBase: Color? = null,
 ): Modifier {
     val blurred = rememberGraphicsLayer()
     val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -1698,7 +1699,16 @@ private fun Modifier.floatingPillSurface(
     return this
         .onGloballyPositioned { origin = it.positionInRoot() }
         .drawBehind {
-            if (backdrop != null && canBlur) {
+            // A modal layer contains the moving card but deliberately omits
+            // the scrim. Give its transparent area the undimmed surface the
+            // root pill was sampling; the card naturally paints over it as
+            // it arrives behind the morphing pill.
+            backdropBase?.let { drawRect(it) }
+            // A newly published modal layer exists before it has recorded its
+            // first frame. Blurring that empty layer produces a dark flash at
+            // the collapsed end of the pill morph; use the transparent
+            // fallback until there is real backdrop content to sample.
+            if (backdrop != null && backdrop.size != IntSize.Zero && canBlur) {
                 blurred.renderEffect = BlurEffect(24f, 24f, TileMode.Clamp)
                 val offset = origin - backdropOrigin()
                 blurred.record {
@@ -2692,6 +2702,7 @@ fun ModalActionPill(
             .floatingPillSurface(
                 backdrop = if (inPillLane) lane.backdrop else null,
                 backdropOrigin = { lane.backdropOrigin },
+                backdropBase = if (inPillLane) CalinoColors.Canvas else null,
             )
             .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill)),
     ) { (addMeasurables, actionMeasurables), constraints ->

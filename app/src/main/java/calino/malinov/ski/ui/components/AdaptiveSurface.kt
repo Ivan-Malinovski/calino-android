@@ -398,9 +398,10 @@ fun AdaptiveSurfaceHost(
                     .height(sideHeight)
         }
 
-        // Everything the pill floats over is recorded here so the pill can
-        // blur its own patch of it. The pill is drawn as a sibling of this
-        // box, never inside it, so the layer cannot recurse.
+        // The scrim is already visible behind the pill. Keep it outside the
+        // recorded layer: drawing a recording that also contained the scrim
+        // over the real scrim applied the dimming twice until the arriving
+        // card reached the pill (and again while it left).
         val backdropLayer = rememberGraphicsLayer()
         var backdropOrigin by remember { mutableStateOf(Offset.Zero) }
         StatusBarScrimExtension(
@@ -410,20 +411,22 @@ fun AdaptiveSurfaceHost(
         Box(
             Modifier
                 .fillMaxSize()
+                .background(CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress)))
+                .clickable(enabled = visible, onClick = onDismiss)
+                .semantics { this.contentDescription = contentDescription },
+        )
+
+        // Only the card is recorded for the pill's blur. Transparent space in
+        // this layer reveals the one real scrim already drawn above.
+        Box(
+            Modifier
+                .fillMaxSize()
                 .onGloballyPositioned { backdropOrigin = it.positionInRoot() }
                 .drawWithContent {
                     backdropLayer.record { this@drawWithContent.drawContent() }
                     drawLayer(backdropLayer)
                 },
         ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress)))
-                .clickable(enabled = visible, onClick = onDismiss)
-                .semantics { this.contentDescription = contentDescription },
-        )
-
         AnimatedVisibility(
             visible = mounted && visible,
             enter = enter,
@@ -470,7 +473,10 @@ fun AdaptiveSurfaceHost(
         if (pill != null) {
             DisposableEffect(lane, backdropLayer, backdropOrigin) {
                 lane.setBackdrop(backdropLayer, backdropOrigin)
-                onDispose { lane.setBackdrop(null, Offset.Zero) }
+                // Retain the last valid modal frame until the root pill's
+                // SideEffect replaces it. Clearing here creates an unblurred
+                // frame at the collapsed end of the return morph.
+                onDispose { }
             }
         }
 
