@@ -1,34 +1,54 @@
 # Calino Android
 
-Calino Android is a standalone Kotlin/Jetpack Compose sister project to the
-[Calino web app](https://github.com/ivan-malinovski/calino). It is a native
-Android project, with no WebView or Capacitor dependency.
+Calino is a native Android calendar for people who want to keep their calendar
+and contacts on a standards-based server. It is written in Kotlin and Jetpack
+Compose and connects directly to CalDAV and CardDAV services, with no WebView
+or Capacitor layer.
 
-This repository is mostly a place to explore the Android version of Calino in
-the open. It is still a work in progress, but the app can connect to CalDAV
-and CardDAV servers and also works with a built-in fixture when no account is
-connected.
+This is the standalone Android sister project to the
+[Calino web app](https://github.com/ivan-malinovski/calino). It is under active
+development rather than presented as a finished release. A built-in sample
+dataset keeps the interface explorable without connecting a server.
 
-## What’s here
+## Features
 
-- Release APK/application ID: `calino.malinov.ski`
-- Debug APK/application ID: `calino.malinov.ski.nativeDebug` (installable beside release)
-- App label: `Calino`
-- With no account connected, the app uses a frozen May 2026 fixture. A
-  connected account uses CalDAV/CardDAV for events, tasks, journal entries,
-  and contacts.
-- Adaptive layouts cover compact phones, medium and expanded tablet windows,
-  and landscape split panes. Foldable posture and hinge awareness is
-  preliminary, including a keep-out band and an early tabletop/book layout.
-- Home-screen widgets include resizable agenda, cards, and tasks variants.
-  They read cached account data, update as the repository syncs, and link back
-  into the app.
-- Offline or retryable writes stay in a durable queue. Recurring event edits
-  and deletes support THIS, FUTURE, and ALL scopes.
-- Reminders are delivered locally through `AlarmManager`.
-- AI Photo Import is opt-in and uses a bring-your-own API key. Images go
-  directly to the provider and model selected by the user; no provider key is
-  bundled here.
+- Month, day, 3-day, 7-day, and agenda calendar views, with fluid paging and
+  zoom transitions.
+- Event, task, and journal creation and editing, including recurrence,
+  reminders, attendees, categories, travel time, priorities, and completion.
+- Contact browsing and editing through CardDAV.
+- Global search and Quick Add for getting to records or creating them with
+  less navigation.
+- Local reminder notifications with event and task actions, deep links, exact
+  alarm support, and an inexact fallback where Android requires it.
+- Resizable agenda, calendar-card, and task home-screen widgets backed by the
+  same local cache as the app.
+- Android calendar intents, `.ics` import and sharing, map intents, and dynamic
+  launcher shortcuts.
+- Adaptive layouts for phones, tablets, and landscape split panes. Early
+  foldable posture and hinge handling is also included.
+- Optional AI Photo Import using a provider and API key chosen by the user.
+  Images are sent directly to that provider; Calino does not bundle a key.
+
+## How it works
+
+Calino talks directly to CalDAV and CardDAV servers; it does not require a
+Calino account, companion service, or hosted backend. Server resources are
+cached locally for reading, and retryable edits stay in a durable queue until
+the connection returns.
+
+Writes use ETags and conditional requests. When server data has changed,
+Calino rebases the fields it edits while preserving properties it does not
+understand. Recurring events remain recurring series and can be edited for one
+occurrence, this and future occurrences, or the entire series.
+
+The interface and its platform integrations are native Android. Credentials
+are stored with Android Keystore, cached calendar data never contains account
+passwords, and the app does not include telemetry.
+
+With no account connected, Calino uses a frozen May 2026 fixture. Once an
+account is connected, CalDAV and CardDAV data replaces the fixture across the
+relevant screens.
 
 ## Screenshots
 
