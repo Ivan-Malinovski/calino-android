@@ -426,6 +426,30 @@ END:VCALENDAR
     }
 
     @Test
+    fun `startup cache can be published before setSources returns`() = runBlocking {
+        val cache = FakeCache()
+        cache.entries[calendar().url] = CachedCalendar(
+            calendarUrl = calendar().url,
+            fetchedAt = Instant.parse("2026-09-07T09:00:00Z"),
+            windowStart = LocalDate.of(2026, 3, 1),
+            windowEnd = LocalDate.of(2027, 3, 1),
+            resources = listOf(CalendarResource("/cal/cached.ics", "e", CachedIcs)),
+        )
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest) =
+                MockResponse().setResponseCode(500)
+        }
+
+        val repository = repository(cache)
+        repository.setSources(listOf(source()), restoreCacheImmediately = true)
+
+        assertTrue(
+            "the first UI snapshot must already contain the disk cache",
+            repository.snapshot().events.any { it.title == "Cached lunch" },
+        )
+    }
+
+    @Test
     fun `a cached copy survives a launch with no network`() = runBlocking {
         val cache = FakeCache()
         val repository = repository(cache)

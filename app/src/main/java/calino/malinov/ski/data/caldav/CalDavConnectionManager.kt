@@ -133,7 +133,7 @@ class CalDavConnectionManager(
                 )
             }
         }
-        applySources()
+        applySources(restoreCacheImmediately = true)
         return accounts
     }
 
@@ -200,7 +200,7 @@ class CalDavConnectionManager(
         if (merged != account.addressBooks) accountStore.replaceAddressBooks(account.id, merged)
     }
 
-    private fun applySources() {
+    private fun applySources(restoreCacheImmediately: Boolean = false) {
         val calendarSources = accountStore.accounts().flatMap { account ->
             val credentials = credentialStore.load(account.id) ?: return@flatMap emptyList()
             val enabled = account.calendars.filter { it.enabled }.map { it.id }.toSet()
@@ -234,7 +234,11 @@ class CalDavConnectionManager(
                     )
                 }
         }
-        repository.setSources(calendarSources, cardSources)
+        repository.setSources(
+            calendarSources,
+            cardSources,
+            restoreCacheImmediately = restoreCacheImmediately,
+        )
     }
 
     /** Persists and adopts the cursor only after the repository accepted it. */

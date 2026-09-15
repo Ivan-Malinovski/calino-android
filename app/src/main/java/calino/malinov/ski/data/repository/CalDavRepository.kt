@@ -211,11 +211,14 @@ class CalDavRepository(
      * An unchanged set is a no-op. This is called twice on a cold start --
      * once from the persisted account list, once when rediscovery confirms it
      * -- and the second call must not discard the loaded cache or refetch for
-     * nothing.
+     * nothing. Persisted startup sources request immediate cache restoration
+     * so Compose never observes an artificial empty snapshot first; network
+     * reads and every non-startup cache reload remain asynchronous.
      */
     fun setSources(
         sources: List<CalDavSource>,
         addressBookSources: List<CardDavSource> = this.addressBookSources,
+        restoreCacheImmediately: Boolean = false,
     ) {
         // Discovery can keep the same collection URLs while changing the
         // ctag, read-only privilege, supported components, display name, or
@@ -246,7 +249,7 @@ class CalDavRepository(
         } else {
             cache.evictExcept(sources.map { it.calendar.url }.toSet())
             cache.evictAddressBooksExcept(addressBookSources.map { it.addressBook.url }.toSet())
-            reload(useCache = true)
+            reload(useCache = true, restoreCacheImmediately = restoreCacheImmediately)
             drainPendingWrites()
         }
     }
@@ -301,26 +304,20 @@ class CalDavRepository(
         reload(useCache = true)
     }
 
-    private fun reload(useCache: Boolean) {
+    private fun reload(useCache: Boolean, restoreCacheImmediately: Boolean = false) {
         if (sources.isEmpty() && addressBookSources.isEmpty()) return
         val token = ++generation
         val start = today().withDayOfMonth(1).minusMonths(windowMonths)
         val end = today().withDayOfMonth(1).plusMonths(windowMonths)
         syncState = SyncState.Loading(cachedAt = lastReadAt.takeUnless { fetched.isEmpty() })
         publish()
+        if (useCache && restoreCacheImmediately) {
+            publishCache(token, loadCache(start, end))
+        }
         scope.launch {
-            if (useCache) {
+            if (useCache && !restoreCacheImmediately) {
                 val cached = withContext(ioDispatcher) { loadCache(start, end) }
-                // Only if nothing newer has arrived, and only if the cache
-                // actually held something -- publishing an empty cache would
-                // blank a calendar that a concurrent refresh is filling.
-                if (token == generation && cached != null && !cached.data.isEmpty()) {
-                    fetched = cached.data
-                    lastReadAt = cached.fetchedAt
-                    syncState = SyncState.Loading(cachedAt = cached.fetchedAt)
-                    restoreQueuedOverlays()
-                    publish()
-                }
+                publishCache(token, cached)
             }
             runCatching { loadAll(start, end) }
                 .onSuccess { loaded ->
@@ -366,6 +363,18 @@ class CalDavRepository(
                     publish()
                 }
         }
+    }
+
+    private fun publishCache(token: Long, cached: CacheLoad?) {
+        // Only if nothing newer has arrived, and only if the cache actually
+        // held something -- publishing an empty cache would blank a calendar
+        // that a concurrent refresh is filling.
+        if (token != generation || cached == null || cached.data.isEmpty()) return
+        fetched = cached.data
+        lastReadAt = cached.fetchedAt
+        syncState = SyncState.Loading(cachedAt = cached.fetchedAt)
+        restoreQueuedOverlays()
+        publish()
     }
 
     /**
