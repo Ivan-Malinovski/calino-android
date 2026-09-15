@@ -2192,8 +2192,13 @@ private fun DirectionalPillLabel(label: String, direction: Int) {
         AnimatedContent(
             targetState = label.drop(prefix.length),
             transitionSpec = {
-                (slideInVertically(CalinoMotion.expressiveSpatial()) { direction * it } togetherWith
-                    slideOutVertically(CalinoMotion.expressiveSpatial()) { -direction * it }) using
+                // Match the horizontal pager label's soft edge departure: a
+                // date loses opacity while it travels out instead of staying
+                // fully painted until the pill clips it at the boundary.
+                (slideInVertically(CalinoMotion.expressiveSpatial()) { direction * it } +
+                    fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith
+                    slideOutVertically(CalinoMotion.expressiveSpatial()) { -direction * it } +
+                    fadeOut(tween(CalinoMotion.FadeThroughMillis))) using
                     SizeTransform(clip = false) { _, _ ->
                         spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
