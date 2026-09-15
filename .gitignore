@@ -2,6 +2,7 @@
 .gradle/
 .kotlin/
 local.properties
+/keystore/
 .idea/
 build/
 app/build/

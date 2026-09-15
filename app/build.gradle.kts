@@ -1,6 +1,18 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 val repositoryVersion = providers.gradleProperty("appVersionName").orElse("0.1.0").get()
+
+// Release signing key lives outside git at keystore/release.keystore so it never
+// gets silently regenerated (that's what desynced the phone's installed signature
+// from a freshly generated ~/.android/debug.keystore before). Missing the
+// properties file is a hard error rather than falling back to an ad hoc key.
+val releaseKeystoreProperties = Properties().apply {
+    val propsFile = rootProject.file("keystore/release.keystore.properties")
+    if (propsFile.exists()) {
+        propsFile.inputStream().use { load(it) }
+    }
+}
 
 plugins {
     id("com.android.application")
@@ -29,6 +41,16 @@ android {
     kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
     buildFeatures { compose = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    signingConfigs {
+        if (releaseKeystoreProperties.containsKey("storeFile")) {
+            create("release") {
+                storeFile = rootProject.file("keystore/${releaseKeystoreProperties["storeFile"]}")
+                storePassword = releaseKeystoreProperties["storePassword"] as String
+                keyAlias = releaseKeystoreProperties["keyAlias"] as String
+                keyPassword = releaseKeystoreProperties["keyPassword"] as String
+            }
+        }
+    }
     buildTypes {
         getByName("debug") {
             // Keep the signed debug app installable beside the production
@@ -43,6 +65,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (releaseKeystoreProperties.containsKey("storeFile")) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
