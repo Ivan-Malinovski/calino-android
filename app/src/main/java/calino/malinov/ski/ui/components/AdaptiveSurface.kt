@@ -335,11 +335,14 @@ fun AdaptiveSurfaceHost(
 
         val enter = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
-                slideInVertically(tween(240)) { it } + fadeIn(tween(180))
+                slideInVertically(CalinoMotion.expressiveSpatial()) { it } +
+                    fadeIn(tween(CalinoMotion.ContentEnterMillis))
             CalinoSurfaceMode.FloatingWindow ->
-                scaleIn(tween(220), initialScale = .94f) + fadeIn(tween(180))
+                scaleIn(CalinoMotion.expressiveSpatial(), initialScale = .94f) +
+                    fadeIn(tween(CalinoMotion.ContentEnterMillis))
             CalinoSurfaceMode.EndPanel ->
-                slideInHorizontally(tween(240)) { it } + fadeIn(tween(180))
+                slideInHorizontally(CalinoMotion.expressiveSpatial()) { it } +
+                    fadeIn(tween(CalinoMotion.ContentEnterMillis))
         }
         val exit = when (mode) {
             CalinoSurfaceMode.BottomSheet ->

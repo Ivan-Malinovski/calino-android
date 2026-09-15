@@ -393,11 +393,11 @@ object CalinoMotion {
     const val SurfaceFadeMillis = 220
 
     /**
-     * The add pill changing shape into a modal's actions, and back. It has to
-     * finish inside [SurfaceFadeMillis] on the way out, so the pill has
-     * settled into its add form by the time the card it belonged to is gone.
+     * The add pill changing back from a modal's actions. Arrival uses
+     * [expressiveSpatial], matching the sliding selector; departure has to
+     * finish inside [SurfaceFadeMillis], so the pill has settled into its add
+     * form by the time the card it belonged to is gone.
      */
-    const val PillMorphMillis = 260
     const val PillUnmorphMillis = 200
 
     /**

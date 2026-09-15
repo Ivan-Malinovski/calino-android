@@ -2547,7 +2547,9 @@ fun ModalActionPill(
     // A drag toward dismissal returns the pill to its add shape as it goes,
     // and re-expands it if the card springs back, so the shape always states
     // where releasing now would leave things.
-    val dragged = if (canMorph && inPillLane) minOf(morph.value, 1f - lane.dismissDrag) else morph.value
+    val dragged = (
+        if (canMorph && inPillLane) minOf(morph.value, 1f - lane.dismissDrag) else morph.value
+    ).coerceIn(0f, 1f)
     // What the pill last showed. Releasing a committed drag hands the shape
     // from the finger back to the animation, and those two do not agree for a
     // frame: the drag is reset the moment the card is let go, while the morph
@@ -2569,14 +2571,17 @@ fun ModalActionPill(
             // speed the gesture had.
             val from = if (target == 0f) minOf(morph.value, lastShown) else morph.value
             if (from != morph.value) morph.snapTo(from)
-            val full = if (target == 1f) CalinoMotion.PillMorphMillis else CalinoMotion.PillUnmorphMillis
             val remaining = abs(target - morph.value)
             morph.animateTo(
                 target,
-                tween(
-                    durationMillis = (full * remaining).roundToInt().coerceAtLeast(1),
-                    easing = FastOutSlowInEasing,
-                ),
+                if (target == 1f) {
+                    CalinoMotion.expressiveSpatial()
+                } else {
+                    tween(
+                        durationMillis = (CalinoMotion.PillUnmorphMillis * remaining).roundToInt().coerceAtLeast(1),
+                        easing = FastOutSlowInEasing,
+                    )
+                },
             )
         }
     }
