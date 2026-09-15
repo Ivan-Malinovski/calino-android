@@ -1883,6 +1883,10 @@ fun AddPill(
     destinationLabel: (Int) -> String? = { null },
     onSwipe: (Int) -> Unit = {},
     onSearch: () -> Unit = {},
+    confirmationActive: Boolean = false,
+    confirmationLabel: String = "Are you sure?",
+    onConfirmationExpired: () -> Unit = {},
+    onConfirmed: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     var dragX by remember { mutableFloatStateOf(0f) }
@@ -1893,6 +1897,8 @@ fun AddPill(
     val currentDestinationLabel by rememberUpdatedState(destinationLabel)
     val currentOnSearch by rememberUpdatedState(onSearch)
     val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnConfirmationExpired by rememberUpdatedState(onConfirmationExpired)
+    val currentOnConfirmed by rememberUpdatedState(onConfirmed)
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     // A modal pill takes over this lane and has to start from the shape the
@@ -1904,6 +1910,16 @@ fun AddPill(
     val saveState = lane.saveState
     val writeKind = lane.writeKind
     val saveTrace = rememberPillSaveTrace()
+    val deleteCountdown = remember { Animatable(0f) }
+    val haptics = LocalHapticFeedback.current
+    LaunchedEffect(confirmationActive) {
+        deleteCountdown.snapTo(0f)
+        if (confirmationActive) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            deleteCountdown.animateTo(1f, tween(PillDeleteConfirmationMillis, easing = LinearEasing))
+            currentOnConfirmationExpired()
+        }
+    }
     val commitPx = with(density) { 56.dp.toPx() }
     // A refused direction still moves, but only enough to read as a limit.
     val maxTravelPx = with(density) { 88.dp.toPx() }
@@ -1956,6 +1972,11 @@ fun AddPill(
                 // Above the pill's own fill and border, so the trace reads as
                 // something running along the edge rather than under it.
                 .pillSaveTrace(saveTrace)
+                .pillDeleteCountdown(
+                    progress = deleteCountdown.value,
+                    active = confirmationActive,
+                    color = CalinoColors.Rose,
+                )
                 .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
                 .clip(RoundedCornerShape(CalinoShapes.Pill))
                 // Carries the pill's shape where the fill is too close to the
@@ -1989,6 +2010,9 @@ fun AddPill(
                     onClick = {
                         if (suppressClickAfterDrag) {
                             suppressClickAfterDrag = false
+                        } else if (confirmationActive) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            currentOnConfirmed()
                         } else {
                             currentOnClick()
                         }
@@ -2000,6 +2024,10 @@ fun AddPill(
                     detectDragGestures(
                         onDragStart = { horizontal = false; vertical = false },
                         onDragEnd = {
+                            if (confirmationActive) {
+                                settle()
+                                return@detectDragGestures
+                            }
                             if (vertical && dragY <= -commitPx) currentOnSearch()
                             if (horizontal) {
                                 val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
@@ -2009,6 +2037,7 @@ fun AddPill(
                         },
                         onDragCancel = { settle() },
                     ) { change, amount ->
+                        if (confirmationActive) return@detectDragGestures
                         if (!horizontal && !vertical) {
                             horizontal = abs(amount.x) >= abs(amount.y)
                             vertical = !horizontal
@@ -2029,7 +2058,7 @@ fun AddPill(
                     contentDescription = when (saveState) {
                         PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) "Removing" else "Saving"
                         PillSaveState.Saved -> if (writeKind == PillWriteKind.Remove) "Removed" else "Saved"
-                        PillSaveState.Idle -> "$label. Swipe up to search"
+                        PillSaveState.Idle -> if (confirmationActive) "Confirm delete event" else "$label. Swipe up to search"
                     }
                 }
                 .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
@@ -2040,7 +2069,7 @@ fun AddPill(
             // first of them is the page the calendar is actually on -- so the
             // pill never has to be told when to stop showing one day and start
             // showing the other. It shows both, positioned by the page.
-            val shownLabel = swipeLabels?.first ?: label
+            val shownLabel = if (confirmationActive) confirmationLabel else swipeLabels?.first ?: label
             // Whether a swipe owns the label motion travels *in* the state,
             // not beside it. Held in a state the effects write after the fact,
             // transitionSpec would read the previous composition's value and
@@ -2106,19 +2135,21 @@ fun AddPill(
                             modifier = Modifier.size(19.dp),
                             contentDescription = null,
                         )
-                        PillSaveState.Idle -> CalinoIcon(
-                            CalinoIcon.Plus,
-                            tint = CalinoColors.OnFloat,
-                            modifier = Modifier.size(19.dp),
-                            contentDescription = null,
-                        )
+                        PillSaveState.Idle -> if (!confirmationActive) {
+                            CalinoIcon(
+                                CalinoIcon.Plus,
+                                tint = CalinoColors.OnFloat,
+                                modifier = Modifier.size(19.dp),
+                                contentDescription = null,
+                            )
+                        }
                     }
                     val pillText = when (state) {
                         PillSaveState.Saving -> if (kind == PillWriteKind.Remove) "Removing" else "Saving"
                         PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
                         PillSaveState.Idle -> text
                     }
-                    if (state == PillSaveState.Idle && swipeLabels != null) {
+                    if (state == PillSaveState.Idle && swipeLabels != null && !confirmationActive) {
                         // Only the part that actually differs moves. Both
                         // labels are "Add on <day>", and sliding the whole
                         // string sends "Add on" out of the pill and back for
@@ -2333,6 +2364,10 @@ fun ModalActionPill(
     primaryDescription: String = primaryLabel,
     secondaryDescription: String = secondaryLabel ?: "",
     cancelDescription: String = cancelLabel ?: "Cancel",
+    primaryConfirmationActive: Boolean = false,
+    primaryConfirmationLabel: String = "Are you sure?",
+    onPrimaryConfirmationChange: (Boolean) -> Unit = {},
+    primaryHoldToConfirm: Boolean = false,
 ) {
     val hasCancel = cancelLabel != null && onCancel != null
     val hasSecondary = secondaryLabel != null && onSecondary != null
@@ -2341,7 +2376,34 @@ fun ModalActionPill(
     // do it early enough in the frame to matter; this reads the lane for the
     // things only the pill needs -- its backdrop and the dismissal drag.
     val lane = LocalCalinoPillLane.current
+    val haptics = LocalHapticFeedback.current
     val saveTrace = rememberPillSaveTrace()
+    val primaryInteraction = remember { MutableInteractionSource() }
+    val primaryPressed by primaryInteraction.collectIsPressedAsState()
+    var longPressCommitted by remember { mutableStateOf(false) }
+    val confirmationCountdown = remember { Animatable(0f) }
+    val holdCountdown = remember { Animatable(0f) }
+    val currentPrimary by rememberUpdatedState(onPrimary)
+    val currentConfirmationChange by rememberUpdatedState(onPrimaryConfirmationChange)
+    LaunchedEffect(primaryConfirmationActive) {
+        confirmationCountdown.snapTo(0f)
+        if (primaryConfirmationActive) {
+            confirmationCountdown.animateTo(1f, tween(PillDeleteConfirmationMillis, easing = LinearEasing))
+            currentConfirmationChange(false)
+        }
+    }
+    LaunchedEffect(primaryPressed, primaryHoldToConfirm, primaryConfirmationActive) {
+        if (primaryPressed && primaryHoldToConfirm && !primaryConfirmationActive) {
+            longPressCommitted = false
+            holdCountdown.snapTo(0f)
+            holdCountdown.animateTo(1f, tween(PillDeleteHoldMillis, easing = LinearEasing))
+            longPressCommitted = true
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            currentPrimary()
+        } else {
+            holdCountdown.snapTo(0f)
+        }
+    }
     // In the lane, the add shape is the root pill's, not a description of it:
     // its live label, and the size that label actually measured. A modal that
     // names its own add label there hands the lane back to a pill that says
@@ -2438,9 +2500,28 @@ fun ModalActionPill(
 
     val actionsForm: @Composable () -> Unit = {
         val actions = buildList {
-            if (hasCancel) add(ModalPillAction(cancelLabel!!, onCancel!!, true, cancelDescription))
-            if (hasSecondary) add(ModalPillAction(secondaryLabel!!, onSecondary!!, secondaryEnabled, secondaryDescription))
-            add(ModalPillAction(primaryLabel, onPrimary, primaryEnabled, primaryDescription))
+            if (!primaryConfirmationActive && hasCancel) add(ModalPillAction(cancelLabel!!, onCancel!!, true, cancelDescription))
+            if (!primaryConfirmationActive && hasSecondary) add(ModalPillAction(secondaryLabel!!, onSecondary!!, secondaryEnabled, secondaryDescription))
+            add(
+                ModalPillAction(
+                    label = if (primaryConfirmationActive) primaryConfirmationLabel else primaryLabel,
+                    onClick = {
+                        if (longPressCommitted) {
+                            longPressCommitted = false
+                        } else if (primaryConfirmationActive) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onPrimary()
+                        } else if (primaryHoldToConfirm) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onPrimaryConfirmationChange(true)
+                        } else {
+                            onPrimary()
+                        }
+                    },
+                    enabled = primaryEnabled,
+                    description = if (primaryConfirmationActive) "Confirm $primaryDescription" else primaryDescription,
+                )
+            )
         }
         Row(
             Modifier
@@ -2458,19 +2539,26 @@ fun ModalActionPill(
                     // cannot yet read.
                     enabled = action.enabled && actionsLive,
                     onClick = action.onClick,
+                    interactionSource = if (index == actions.lastIndex && primaryHoldToConfirm) primaryInteraction else null,
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
                         .semantics { contentDescription = action.description },
                     contentPadding = PaddingValues(horizontal = 10.dp),
                 ) {
-                    Text(
-                        action.label,
-                        color = CalinoColors.OnFloat.copy(alpha = if (action.enabled) 1f else .45f),
-                        style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    AnimatedContent(
+                        targetState = action.label,
+                        transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
+                        label = "pill action label",
+                    ) { label ->
+                        Text(
+                            label,
+                            color = CalinoColors.OnFloat.copy(alpha = if (action.enabled) 1f else .45f),
+                            style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -2483,6 +2571,11 @@ fun ModalActionPill(
             // morphing back, so the trace runs on whatever shape is in the
             // lane rather than waiting for the root pill to take it over.
             .pillSaveTrace(saveTrace)
+            .pillDeleteCountdown(
+                progress = maxOf(confirmationCountdown.value, holdCountdown.value),
+                active = primaryConfirmationActive || (primaryPressed && primaryHoldToConfirm),
+                color = CalinoColors.Rose,
+            )
             .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
             .clip(RoundedCornerShape(CalinoShapes.Pill))
             // The same glass the root pill is made of. The lane records the
@@ -2535,6 +2628,21 @@ fun ModalActionPill(
         }
     }
 }
+
+private fun Modifier.pillDeleteCountdown(progress: Float, active: Boolean, color: Color) = drawWithContent {
+    drawContent()
+    if (active && progress > 0f) {
+        drawPillEdge(
+            color = color,
+            start = .75f,
+            sweep = progress.coerceIn(0f, 1f),
+            strokeWidthPx = 3.dp.toPx(),
+        )
+    }
+}
+
+private const val PillDeleteConfirmationMillis = 3_600
+private const val PillDeleteHoldMillis = 900
 
 /**
  * The destination preview revealed by an [AddPill] drag. Below the commit

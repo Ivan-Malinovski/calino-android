@@ -4,12 +4,15 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.down
+import androidx.compose.ui.test.up
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.ui.unit.dp
 import calino.malinov.ski.ui.components.SwipeDownDismissTag
@@ -28,6 +31,40 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ModalDismissalTest : CalinoUiTest() {
+
+    @Test fun eventDeleteConfirmationStaysOnThePill() {
+        compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
+        awaitDescribed("Delete event")
+
+        // Keep the test clock inside the real 3.6-second confirmation window;
+        // auto-advance would legitimately run its timeout before we can assert.
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithContentDescription("Delete event").performClick()
+        compose.mainClock.advanceTimeBy(200L)
+        compose.onNodeWithContentDescription("Confirm Delete event")
+            .assertExists()
+            .assertWidthIsAtLeast(280.dp)
+        compose.onNodeWithContentDescription("Open event").assertDoesNotExist()
+        compose.onNodeWithText("Remove this event?").assertDoesNotExist()
+
+        compose.onNodeWithContentDescription("Confirm Delete event").performClick()
+        compose.mainClock.autoAdvance = true
+        awaitNoDescribed("Close event preview")
+    }
+
+    @Test fun holdingTheDeletePillSkipsConfirmation() {
+        compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
+        awaitDescribed("Delete event")
+
+        compose.onNodeWithContentDescription("Delete event").performTouchInput {
+            down(center)
+            advanceEventTime(1_050L)
+            up()
+        }
+
+        awaitNoDescribed("Close event preview")
+        assertFalse("hold-to-delete stopped at confirmation", compose.hasDescribedNode("Confirm Delete event"))
+    }
 
     @Test fun eventLocationExposesATouchSizedMapAction() {
         compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()

@@ -236,7 +236,7 @@ import calino.malinov.ski.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.ui.surfaces.EventMenuAction
 import calino.malinov.ski.ui.surfaces.AiCandidateReview
 import calino.malinov.ski.ui.surfaces.AiProcessingOverlay
-import calino.malinov.ski.ui.surfaces.EventDeleteSheet
+import calino.malinov.ski.ui.surfaces.defaultEventDeleteScope
 import calino.malinov.ski.ui.surfaces.updateAiShortcut
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -2164,6 +2164,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     ?.takeIf { rootRoute == PockRoute.Day || rootRoute == PockRoute.Range }
                     ?.let { "Add on ${it.from.format(DateLabel)}" to "Add on ${it.to.format(DateLabel)}" },
                 swipeTravel = { swipeLabelTravel() },
+                confirmationActive = pendingEventDelete != null,
+                onConfirmationExpired = { pendingEventDelete = null },
+                onConfirmed = {
+                    val target = pendingEventDelete ?: return@AddPill
+                    pendingEventDelete = null
+                    launchWrite(
+                        { repository.deleteEvent(target.id, defaultEventDeleteScope(target)) },
+                        indicate = PillWriteKind.Remove,
+                    )
+                },
                 onClick = {
                     when (rootRoute) {
                         PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)
@@ -2262,15 +2272,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             onDismiss = { journalReviewVisible = false },
         )
     }
-
-    EventDeleteSheet(
-        event = pendingEventDelete,
-        onDismiss = { pendingEventDelete = null },
-        onDelete = { target, scope ->
-            pendingEventDelete = null
-            launchWrite({ repository.deleteEvent(target.id, scope) }, indicate = PillWriteKind.Remove)
-        },
-    )
 
     importBatch?.let { batch ->
         val writable = snapshot.calendars.filter { !it.readOnly && it.accepts("VEVENT") }

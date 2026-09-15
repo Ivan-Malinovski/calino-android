@@ -716,7 +716,7 @@ fun EventDetailSurface(
             (if (sizingEvent.reminders.isNotEmpty()) 54 else 0) +
             (if (sizingEvent.travelTimeMinutes != null) 54 else 0)
         ).coerceAtMost(560).dp
-    var pillState by remember { mutableStateOf(EventPreviewPillState(false, {}, {}, {})) }
+    var pillState by remember { mutableStateOf(EventPreviewPillState(false, false, {}, {}, {}, {})) }
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
@@ -739,6 +739,9 @@ fun EventDetailSurface(
                     primaryLabel = if (state.dirty) "Save" else "Delete",
                     onPrimary = if (state.dirty) state.onSave else state.onDelete,
                     primaryDescription = if (state.dirty) "Save event changes" else "Delete event",
+                    primaryConfirmationActive = !state.dirty && state.confirmingDelete,
+                    onPrimaryConfirmationChange = if (state.dirty) ({}) else state.onDeletePromptChanged,
+                    primaryHoldToConfirm = !state.dirty,
             )
         },
     ) { overlayModifier ->
@@ -837,9 +840,10 @@ private fun EventDetailContent(
     }
     val openAction = { if (!saving) { if (dirty) save(true) else onPrimary() } }
     val saveAction = { if (!saving) save(false) }
-    val deleteAction = { confirmDelete = true }
-    LaunchedEffect(dirty, saving, active) {
-        if (active) onPillState(EventPreviewPillState(dirty, openAction, saveAction, deleteAction))
+    val deleteAction = { onDeleteEvent(event, deleteScope) }
+    val deletePromptChanged: (Boolean) -> Unit = { confirmDelete = it }
+    LaunchedEffect(dirty, saving, active, confirmDelete, deleteScope) {
+        if (active) onPillState(EventPreviewPillState(dirty, confirmDelete, openAction, saveAction, deleteAction, deletePromptChanged))
     }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().height(52.dp).background(tint)) {
@@ -913,18 +917,26 @@ private fun EventDetailContent(
             }
         }
         AnimatedVisibility(
-            visible = confirmDelete,
+            visible = confirmDelete && isRecurringEvent(event),
             enter = expandVertically(tween(180)) + fadeIn(tween(150)),
             exit = shrinkVertically(tween(150)) + fadeOut(tween(110)),
         ) {
-            EventDeleteConfirmBody(
-                event = event,
-                scope = deleteScope,
-                onScope = { deleteScope = it },
-                onCancel = { confirmDelete = false },
-                onConfirm = { onDeleteEvent(event, deleteScope) },
-                modifier = Modifier.padding(horizontal = 22.dp, vertical = 4.dp),
-            )
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Choose which part of the series to remove.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    RecurrenceEditScope.entries.forEach { option ->
+                        val label = when (option) {
+                            RecurrenceEditScope.This -> "This event"
+                            RecurrenceEditScope.Future -> "This and future"
+                            RecurrenceEditScope.All -> "Entire series"
+                        }
+                        CalinoChip(label, deleteScope == option, "Delete scope $label", semanticsRole = Role.RadioButton, onClick = { deleteScope = option })
+                    }
+                }
+            }
         }
         // This compact card's pill is 56dp high and sits close to the card
         // edge; the global 96dp editor clearance needlessly hid the final row.
@@ -934,9 +946,11 @@ private fun EventDetailContent(
 
 private data class EventPreviewPillState(
     val dirty: Boolean,
+    val confirmingDelete: Boolean,
     val onOpen: () -> Unit,
     val onSave: () -> Unit,
     val onDelete: () -> Unit,
+    val onDeletePromptChanged: (Boolean) -> Unit,
 )
 
 @Composable
