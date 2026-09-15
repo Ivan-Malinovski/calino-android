@@ -285,6 +285,7 @@ fun NavSidebar(
                             Text(
                                 "Calino",
                                 style = CalinoTypography.titleLarge.copy(fontSize = 22.sp),
+                                modifier = Modifier.offset(y = 1.dp),
                             )
                         }
                         SidebarMiniCalendar(
@@ -380,7 +381,6 @@ private fun SidebarMiniCalendar(
     Column(
         Modifier
             .fillMaxWidth()
-            .shadow(2.dp * CalinoColors.elevationAlpha, cardShape)
             .clip(cardShape)
             .background(if (CalinoColors.isDark) CalinoColors.Side else CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, cardShape)
@@ -563,8 +563,6 @@ private fun SidebarUpcomingTasks(
     Column(
         Modifier
             .fillMaxWidth()
-            .shadow(2.dp * CalinoColors.elevationAlpha, cardShape)
-            .shadow(2.dp * CalinoColors.elevationAlpha, cardShape)
             .clip(cardShape)
             .background(if (CalinoColors.isDark) CalinoColors.Side else CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, cardShape)
