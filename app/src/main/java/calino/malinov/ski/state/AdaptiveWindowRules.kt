@@ -80,19 +80,41 @@ fun calinoFloatsInEndLane(kind: CalinoSurfaceKind): Boolean =
  */
 const val BookPostureSplitMinWidthDp = 600
 
+enum class CalinoLayoutMode { Single, SideBySide, HorizontalKeepOut }
+
+data class CalinoPaneBounds(
+    val leftDp: Float,
+    val topDp: Float,
+    val rightDp: Float,
+    val bottomDp: Float,
+) {
+    val widthDp: Float get() = (rightDp - leftDp).coerceAtLeast(0f)
+    val heightDp: Float get() = (bottomDp - topDp).coerceAtLeast(0f)
+}
+
 /**
  * One answer for "what shape is this window", so the surface rules and the
  * month root cannot disagree about the same device.
  */
 data class CalinoLayoutSpec(
     val windowClass: CalinoWindowClass,
-    val splitPanes: Boolean,
-    val hingeStartDp: Float?,
-    val hingeEndDp: Float?,
+    val mode: CalinoLayoutMode,
+    val startPane: CalinoPaneBounds,
+    val endPane: CalinoPaneBounds?,
+    val hinge: CalinoPaneBounds?,
 ) {
+    val splitPanes: Boolean get() = mode == CalinoLayoutMode.SideBySide
+    val hingeStartDp: Float?
+        get() = hinge?.takeIf { mode == CalinoLayoutMode.SideBySide }?.leftDp
+    val hingeEndDp: Float?
+        get() = hinge?.takeIf { mode == CalinoLayoutMode.SideBySide }?.rightDp
     /** Width of the band no content should straddle; zero when there is none. */
     val hingeBandDp: Float
-        get() = if (hingeStartDp != null && hingeEndDp != null) hingeEndDp - hingeStartDp else 0f
+        get() = hinge?.let { if (mode == CalinoLayoutMode.SideBySide) it.widthDp else it.heightDp } ?: 0f
+
+    val preferredContentPane: CalinoPaneBounds get() = startPane
+    val preferredTransientPane: CalinoPaneBounds
+        get() = endPane ?: startPane
 }
 
 fun calinoLayoutSpec(
@@ -101,13 +123,31 @@ fun calinoLayoutSpec(
     posture: CalinoFoldPosture = CalinoFoldPosture.None,
 ): CalinoLayoutSpec {
     val bookSplit = posture.isBookPosture && widthDp >= BookPostureSplitMinWidthDp
-    // The keep-out band is only meaningful across a vertical hinge in the pose
-    // where the crease is a real edge. Flat, the fold is just a seam.
-    val separating = posture.isBookPosture
+    val sideBySide = shouldSplit(widthDp, heightDp) || bookSplit
+    val full = CalinoPaneBounds(0f, 0f, widthDp.toFloat(), heightDp.toFloat())
+    if (posture.isTabletopPosture) {
+        val top = posture.hingeStartDp!!.coerceIn(0f, heightDp.toFloat())
+        val bottom = posture.hingeEndDp!!.coerceIn(top, heightDp.toFloat())
+        return CalinoLayoutSpec(
+            windowClass = calinoWindowClassFor(widthDp),
+            mode = CalinoLayoutMode.HorizontalKeepOut,
+            startPane = CalinoPaneBounds(0f, 0f, widthDp.toFloat(), top),
+            endPane = CalinoPaneBounds(0f, bottom, widthDp.toFloat(), heightDp.toFloat()),
+            hinge = CalinoPaneBounds(0f, top, widthDp.toFloat(), bottom),
+        )
+    }
+    val realHinge = posture.takeIf { it.isBookPosture }?.let {
+        val left = it.hingeStartDp!!.coerceIn(0f, widthDp.toFloat())
+        val right = it.hingeEndDp!!.coerceIn(left, widthDp.toFloat())
+        CalinoPaneBounds(left, 0f, right, heightDp.toFloat())
+    }
+    val splitAt = realHinge?.leftDp ?: (widthDp - EndLaneWidthDp).coerceAtLeast(1).toFloat()
+    val endAt = realHinge?.rightDp ?: splitAt
     return CalinoLayoutSpec(
         windowClass = calinoWindowClassFor(widthDp),
-        splitPanes = shouldSplit(widthDp, heightDp) || bookSplit,
-        hingeStartDp = if (separating) posture.hingeStartDp else null,
-        hingeEndDp = if (separating) posture.hingeEndDp else null,
+        mode = if (sideBySide) CalinoLayoutMode.SideBySide else CalinoLayoutMode.Single,
+        startPane = if (sideBySide) CalinoPaneBounds(0f, 0f, splitAt, heightDp.toFloat()) else full,
+        endPane = if (sideBySide) CalinoPaneBounds(endAt, 0f, widthDp.toFloat(), heightDp.toFloat()) else null,
+        hinge = realHinge,
     )
 }

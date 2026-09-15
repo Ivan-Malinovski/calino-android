@@ -10,6 +10,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
  */
 enum class CalinoFoldState { Flat, HalfOpen }
 
+enum class CalinoHingeOrientation { Vertical, Horizontal }
+
 /**
  * What the window knows about the hinge, reduced to the few numbers the layout
  * rules actually use. [hingeStartDp]/[hingeEndDp] are only set when the hinge
@@ -28,6 +30,12 @@ data class CalinoFoldPosture(
     /** True for the tabletop/book pose the displacement rules care about. */
     val isBookPosture: Boolean
         get() = state == CalinoFoldState.HalfOpen && isVerticalHinge && isSeparating
+
+    val isTabletopPosture: Boolean
+        get() = state == CalinoFoldState.HalfOpen && !isVerticalHinge && isSeparating
+
+    val orientation: CalinoHingeOrientation
+        get() = if (isVerticalHinge) CalinoHingeOrientation.Vertical else CalinoHingeOrientation.Horizontal
 
     companion object {
         /** A phone, a tablet, or a foldable lying flat: no hinge to dodge. */

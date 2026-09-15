@@ -7,12 +7,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -57,7 +59,10 @@ import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoSpacing
+import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.state.LocalCalinoPreferences
+import calino.malinov.ski.state.LocalFoldPosture
+import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.tasksDueOn
 import calino.malinov.ski.ui.components.AgendaRow
 import calino.malinov.ski.ui.components.AgendaRowVariant
@@ -161,7 +166,12 @@ fun AgendaScreen(
         onDateChanged(next)
     }
 
-    Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+        val layoutSpec = calinoLayoutSpec(maxWidth.value.toInt(), maxHeight.value.toInt(), LocalFoldPosture.current)
+        val split = layoutSpec.splitPanes
+        val preferences = LocalCalinoPreferences.current
+        val monthContent: @Composable (Modifier) -> Unit = { contentModifier ->
+            Column(contentModifier) {
         CalinoMonthHeading(
             day = selected,
             onOpenMenu = onOpenMenu,
@@ -197,6 +207,27 @@ fun AgendaScreen(
                 onAddOn = onAddOn,
             )
         }
+            }
+        }
+        if (split) {
+            val selectedEvents = remember(events, selected, preferences.weekStart) { monthEventIndex(events, YearMonth.from(selected), preferences.weekStart)[selected].orEmpty() }
+            val selectedTasks = remember(tasks, selected, preferences.hideCompletedTasks) { tasksDueOn(tasks.filterNot { preferences.hideCompletedTasks && it.done }, selected) }
+            Row(Modifier.fillMaxSize()) {
+                monthContent(Modifier.width(layoutSpec.startPane.widthDp.dp).fillMaxHeight())
+                if (layoutSpec.hingeBandDp > 0f) Spacer(Modifier.width(layoutSpec.hingeBandDp.dp).fillMaxHeight().background(CalinoColors.Canvas))
+                else Box(Modifier.width(1.dp).fillMaxHeight().background(CalinoColors.Line))
+                Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 16.dp, vertical = 18.dp)) {
+                    Text("Selected day", style = CalinoTypography.titleMedium, color = CalinoColors.Ink2)
+                    Spacer(Modifier.height(8.dp))
+                    AgendaDayBlock(
+                        day = selected, events = selectedEvents, tasks = selectedTasks,
+                        onEventClick = onEventClick, onEventAction = onEventAction, onEventDrop = onEventDrop,
+                        onTaskClick = onTaskClick, onTaskAction = onTaskAction, onTaskDrop = onTaskDrop,
+                        onTaskDone = onTaskDone, onAdd = { onAddOn(selected) },
+                    )
+                }
+            }
+        } else monthContent(Modifier.fillMaxSize())
     }
 }
 

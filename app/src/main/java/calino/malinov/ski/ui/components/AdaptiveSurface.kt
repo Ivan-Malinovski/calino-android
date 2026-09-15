@@ -79,6 +79,8 @@ import calino.malinov.ski.state.LocalHingeOpenness
 import calino.malinov.ski.state.foldSplitProgress
 import calino.malinov.ski.state.CalinoSurfaceMode
 import calino.malinov.ski.state.EndLaneWidthDp
+import calino.malinov.ski.state.LocalFoldPosture
+import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.calinoEndLaneActive
 import calino.malinov.ski.state.calinoFloatsInEndLane
 import calino.malinov.ski.state.calinoSurfaceModeFor
@@ -248,13 +250,33 @@ fun AdaptiveSurfaceHost(
     val dismissDrag = remember { CalinoSurfaceDismissDrag() }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
-        val windowClass = calinoWindowClassFor(maxWidth.value.roundToInt())
-        val endLane = calinoEndLaneActive(maxWidth.value.roundToInt(), maxHeight.value.roundToInt())
+        val layoutSpec = calinoLayoutSpec(
+            maxWidth.value.roundToInt(),
+            maxHeight.value.roundToInt(),
+            LocalFoldPosture.current,
+        )
+        val windowClass = layoutSpec.windowClass
+        val endLane = layoutSpec.splitPanes
         val mode = calinoSurfaceModeFor(windowClass, kind, endLane)
         // A floating card that keeps its own size but sits under the pill
         // instead of in the middle of the window.
         val inLane = endLane && calinoFloatsInEndLane(kind)
-        val laneWidth = minOf(EndLaneWidthDp.dp, maxWidth)
+        val targetPane = layoutSpec.preferredTransientPane
+        // WindowManager only publishes the separating bounds once the device
+        // reaches its stable pose. Follow the hinge sensor in the gap so a
+        // transient card never waits until the last frame to leave the crease.
+        val hingeOpenness = LocalHingeOpenness.current
+        val splitProgress by remember(hingeOpenness) {
+            derivedStateOf { foldSplitProgress(hingeOpenness?.value ?: 1f) }
+        }
+        val intermediateFold = !layoutSpec.splitPanes && splitProgress > 0f
+        val paneWidth = if (intermediateFold) {
+            lerpDp(maxWidth, ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp), splitProgress)
+        } else targetPane.widthDp.dp.coerceAtLeast(1.dp)
+        val paneHeight = targetPane.heightDp.dp.coerceAtLeast(1.dp)
+        val paneLeft = if (intermediateFold) maxWidth - paneWidth else targetPane.leftDp.dp
+        val paneTop = targetPane.topDp.dp
+        val laneWidth = minOf(EndLaneWidthDp.dp, paneWidth)
         val scrimProgress by animateFloatAsState(
             targetValue = if (mounted && visible) scrimAlpha else 0f,
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
@@ -262,26 +284,11 @@ fun AdaptiveSurfaceHost(
         )
         val surfaceWidthCap = kind.widthCapDp.dp
         val surfaceHeightCap = minOf(kind.heightCapDp.dp, preferredSurfaceHeight ?: kind.heightCapDp.dp)
-        // Bending the device halves the room a transient surface may take, in
-        // step with the hinge, so a sheet or a panel does not end up lying
-        // across the crease while the calendar behind it has already parted.
-        val hingeOpenness = LocalHingeOpenness.current
-        val splitProgress by remember(hingeOpenness) {
-            derivedStateOf {
-                val openness = hingeOpenness?.value ?: return@derivedStateOf 0f
-                (foldSplitProgress(openness) * 100f).roundToInt() / 100f
-            }
-        }
-        val foldWidthCap = lerpDp(
-            maxWidth,
-            ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp),
-            splitProgress,
-        )
         val laneInnerWidth = (laneWidth - 32.dp).coerceAtLeast(1.dp)
-        val laneWidthCap = if (inLane) laneInnerWidth else maxWidth
+        val laneWidthCap = if (inLane) laneInnerWidth else paneWidth
         val floatingWidthTarget =
-            minOf((maxWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap, foldWidthCap, laneWidthCap)
-        val floatingHeightTarget = minOf((maxHeight - 32.dp).coerceAtLeast(1.dp), surfaceHeightCap)
+            minOf((paneWidth - 32.dp).coerceAtLeast(1.dp), surfaceWidthCap, laneWidthCap)
+        val floatingHeightTarget = minOf((paneHeight - 32.dp).coerceAtLeast(1.dp), surfaceHeightCap)
         val floatingWidth by animateDpAsState(
             targetValue = floatingWidthTarget,
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
@@ -295,23 +302,21 @@ fun AdaptiveSurfaceHost(
         // Capped to the lane as well, so the panel and the pill riding above it
         // share one centre line instead of being a gutter's width apart.
         val settledSideWidth by animateDpAsState(
-            targetValue = minOf((maxWidth * .46f).coerceAtLeast(1.dp), surfaceWidthCap, laneInnerWidth),
+            targetValue = minOf((paneWidth * .92f).coerceAtLeast(1.dp), surfaceWidthCap, laneInnerWidth),
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
             label = "adaptive side panel width",
         )
-        // The animation is for a window-size change. The fold cap is applied
-        // after it, so the panel tracks the hinge instead of chasing it.
-        val sideWidth = minOf(settledSideWidth, foldWidthCap)
-        val sideHeight = (maxHeight - 24.dp).coerceAtLeast(1.dp)
+        val sideWidth = settledSideWidth
+        val sideHeight = (paneHeight - 24.dp).coerceAtLeast(1.dp)
         val bottomHeightTarget = when {
-            maxHeight < 520.dp -> maxHeight * .96f
-            kind == CalinoSurfaceKind.CompactPreview -> minOf(maxHeight * .5f, surfaceHeightCap)
+            paneHeight < 520.dp -> paneHeight * .96f
+            kind == CalinoSurfaceKind.CompactPreview -> minOf(paneHeight * .5f, surfaceHeightCap)
             // The foldable cover display is shorter in dp than the emulator;
             // half-height there clips the final editable row. This remains a
             // compact card but reaches its content cap when the screen allows.
-            kind == CalinoSurfaceKind.EventPreviewCompact -> minOf(maxHeight * .86f, surfaceHeightCap)
-            kind == CalinoSurfaceKind.Preview -> minOf(maxHeight * .68f, surfaceHeightCap)
-            else -> maxHeight * .86f
+            kind == CalinoSurfaceKind.EventPreviewCompact -> minOf(paneHeight * .86f, surfaceHeightCap)
+            kind == CalinoSurfaceKind.Preview -> minOf(paneHeight * .68f, surfaceHeightCap)
+            else -> paneHeight * .86f
         }
         val bottomHeight by animateDpAsState(
             targetValue = bottomHeightTarget,
@@ -350,26 +355,37 @@ fun AdaptiveSurfaceHost(
         val panelModifier: Modifier = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
                 Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(Alignment.TopStart)
+                    .absoluteOffset(x = paneLeft, y = paneTop + (paneHeight - bottomHeight).coerceAtLeast(0.dp))
                     .padding(vertical = 8.dp)
-                    .fillMaxWidth()
+                    .width(paneWidth)
                     .height(bottomHeight)
             CalinoSurfaceMode.FloatingWindow -> if (inLane) {
                 Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = ((laneWidth - floatingWidth) / 2f).coerceAtLeast(16.dp))
+                    .align(Alignment.TopStart)
+                    .absoluteOffset(
+                        x = paneLeft + (paneWidth - floatingWidth) / 2f,
+                        y = paneTop + (paneHeight - floatingHeight) / 2f,
+                    )
                     .width(floatingWidth)
                     .height(floatingHeight)
             } else {
                 Modifier
-                    .align(Alignment.Center)
+                    .align(Alignment.TopStart)
+                    .absoluteOffset(
+                        x = paneLeft + (paneWidth - floatingWidth) / 2f,
+                        y = paneTop + (paneHeight - floatingHeight) / 2f,
+                    )
                     .width(floatingWidth)
                     .height(floatingHeight)
             }
             CalinoSurfaceMode.EndPanel ->
                 Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(vertical = 12.dp, horizontal = 16.dp)
+                    .align(Alignment.TopStart)
+                    .absoluteOffset(
+                        x = paneLeft + (paneWidth - sideWidth - 16.dp).coerceAtLeast(0.dp),
+                        y = paneTop + 12.dp,
+                    )
                     .width(sideWidth)
                     .height(sideHeight)
         }

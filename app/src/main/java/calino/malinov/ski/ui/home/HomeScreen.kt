@@ -1258,7 +1258,14 @@ fun HomeScreen(
     var lastSplit by remember { mutableStateOf<Boolean?>(null) }
     var lastContentWidth by remember { mutableFloatStateOf(0f) }
     // Width the grid itself gets: the window, less the pane when there is one.
-    val contentWidth = (maxWidth.value - if (splitLayout) SplitPaneWidthDp.toFloat() else 0f)
+    // A physical hinge may put the split somewhere other than the conventional
+    // 360dp day lane. The month grid's transition math must use the pane it
+    // actually receives or it visibly scales through the crease.
+    val contentWidth = if (splitLayout && layoutSpec.splitPanes) {
+        layoutSpec.startPane.widthDp
+    } else {
+        maxWidth.value - if (splitLayout) SplitPaneWidthDp.toFloat() else 0f
+    }
         .coerceAtLeast(1f)
     LaunchedEffect(splitLayout, contentWidth) {
         val previousSplit = lastSplit

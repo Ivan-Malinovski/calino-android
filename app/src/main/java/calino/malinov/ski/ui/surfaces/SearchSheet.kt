@@ -57,6 +57,8 @@ import calino.malinov.ski.state.foldSplitProgress
 import calino.malinov.ski.state.CalinoSurfaceMode
 import calino.malinov.ski.state.calinoSurfaceModeFor
 import calino.malinov.ski.state.calinoWindowClassFor
+import calino.malinov.ski.state.LocalFoldPosture
+import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.data.repository.SyncState
 import java.time.LocalDate
@@ -126,37 +128,30 @@ fun CalinoSearchSheet(
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
     BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
+        val layoutSpec = calinoLayoutSpec(
+            maxWidth.value.roundToInt(), maxHeight.value.roundToInt(), LocalFoldPosture.current,
+        )
+        val searchPane = layoutSpec.preferredTransientPane
+        val paneWidth = searchPane.widthDp.dp.coerceAtLeast(1.dp)
+        val paneHeight = searchPane.heightDp.dp.coerceAtLeast(1.dp)
         val mode = calinoSurfaceModeFor(
-            calinoWindowClassFor(maxWidth.value.roundToInt()),
+            layoutSpec.windowClass,
             CalinoSurfaceKind.Search,
+            layoutSpec.splitPanes,
         )
         val compact = mode == CalinoSurfaceMode.BottomSheet
-        // Same rule as the other transient surfaces: a fold in progress halves
-        // the room, so search does not straddle the crease.
-        val hingeOpenness = LocalHingeOpenness.current
-        val splitProgress by remember(hingeOpenness) {
-            derivedStateOf {
-                val openness = hingeOpenness?.value ?: return@derivedStateOf 0f
-                (foldSplitProgress(openness) * 100f).roundToInt() / 100f
-            }
-        }
-        val foldWidthCap = lerpDp(
-            maxWidth,
-            ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp),
-            splitProgress,
-        )
         val resultCount = groupsCount(results)
         val filterHeight = if (filtersVisible) 214 else 0
         val expandedHeight = if (query.isBlank() && !filtersVisible) 190.dp else minOf(680.dp, (150 + filterHeight + resultCount * 66).dp)
         val expandedWidth = if (compact) {
-            (maxWidth - 24.dp).coerceAtLeast(1.dp)
+            (paneWidth - 24.dp).coerceAtLeast(1.dp)
         } else {
-            minOf((maxWidth - 48.dp).coerceAtLeast(1.dp), CalinoSurfaceKind.Search.widthCapDp.dp, foldWidthCap)
+            minOf((paneWidth - 48.dp).coerceAtLeast(1.dp), CalinoSurfaceKind.Search.widthCapDp.dp)
         }
         val expandedHeightTarget = if (compact) {
-            minOf(maxHeight * .72f, expandedHeight)
+            minOf(paneHeight * .72f, expandedHeight)
         } else {
-            minOf((maxHeight - 48.dp).coerceAtLeast(1.dp), expandedHeight, CalinoSurfaceKind.Search.heightCapDp.dp)
+            minOf((paneHeight - 48.dp).coerceAtLeast(1.dp), expandedHeight, CalinoSurfaceKind.Search.heightCapDp.dp)
         }
         val capsuleWidth by animateDpAsState(if (expanded) expandedWidth else 224.dp, tween(duration), label = "search capsule width")
         val capsuleHeight by animateDpAsState(if (expanded) expandedHeightTarget else 54.dp, tween(duration), label = "search capsule height")
@@ -245,13 +240,27 @@ fun CalinoSearchSheet(
             }
         }
         if (compact) {
-            SwipeDownDismiss(visible = expanded, onDismiss = ::requestClose, modifier = Modifier.padding(bottom = 20.dp), content = searchContent)
+            SwipeDownDismiss(
+                visible = expanded,
+                onDismiss = ::requestClose,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = searchPane.leftDp.dp, y = searchPane.topDp.dp + (paneHeight - capsuleHeight - 20.dp).coerceAtLeast(0.dp))
+                    .width(paneWidth)
+                    .padding(bottom = 20.dp),
+                content = searchContent,
+            )
         } else {
             AnimatedVisibility(
                 visible = expanded,
                 enter = scaleIn(tween(duration), initialScale = .94f) + fadeIn(tween(duration)),
                 exit = scaleOut(tween(duration), targetScale = .94f) + fadeOut(tween(duration)),
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(
+                        x = searchPane.leftDp.dp + (paneWidth - capsuleWidth) / 2f,
+                        y = searchPane.topDp.dp + (paneHeight - capsuleHeight) / 2f,
+                    ),
             ) {
                 SwipeDownDismiss(
                     visible = expanded,

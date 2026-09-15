@@ -3,6 +3,7 @@ package calino.malinov.ski.qa
 import calino.malinov.ski.state.CalinoFoldState
 import calino.malinov.ski.state.CalinoFoldPosture
 import calino.malinov.ski.state.CalinoWindowClass
+import calino.malinov.ski.state.CalinoLayoutMode
 import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.foldPostureOf
 import calino.malinov.ski.state.hingeOpenness
@@ -52,6 +53,32 @@ class FoldPostureTest {
             hingeEndDp = 340f,
         )
         assertFalse(posture.isBookPosture)
+        assertTrue(posture.isTabletopPosture)
+    }
+
+    @Test
+    fun `tabletop posture reports top and bottom usable panes`() {
+        val tabletop = foldPostureOf(
+            isVerticalHinge = false,
+            isHalfOpen = true,
+            isSeparating = true,
+            hingeStartDp = 360f,
+            hingeEndDp = 392f,
+        )
+        val spec = calinoLayoutSpec(720, 900, tabletop)
+        assertEquals(CalinoLayoutMode.HorizontalKeepOut, spec.mode)
+        assertEquals(360f, spec.startPane.heightDp, .001f)
+        assertEquals(508f, spec.endPane!!.heightDp, .001f)
+        assertEquals(32f, spec.hingeBandDp, .001f)
+    }
+
+    @Test
+    fun `wide layouts provide stable synthetic master detail panes`() {
+        val spec = calinoLayoutSpec(900, 560)
+        assertEquals(CalinoLayoutMode.SideBySide, spec.mode)
+        assertTrue(spec.startPane.widthDp > 0f)
+        assertTrue(spec.endPane!!.widthDp > 0f)
+        assertEquals(0f, spec.hingeBandDp, .001f)
     }
 
     @Test

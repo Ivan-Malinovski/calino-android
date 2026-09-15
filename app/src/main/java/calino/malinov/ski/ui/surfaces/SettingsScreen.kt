@@ -97,7 +97,8 @@ import androidx.compose.ui.platform.testTag
 import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.systemSettingsIntent
 import calino.malinov.ski.state.LocalCalinoPreferences
-import calino.malinov.ski.state.shouldSplit
+import calino.malinov.ski.state.LocalFoldPosture
+import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.ui.components.CompactSegmentedControl
 import calino.malinov.ski.util.CalinoDefaultDuration
 import calino.malinov.ski.util.CalinoDefaultReminder
@@ -187,7 +188,12 @@ fun SettingsSurface(
     // phone turned sideways is still too narrow to carry a rail beside the
     // settings card.
     BoxWithConstraints(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
-        val sideRail = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt())
+        val layoutSpec = calinoLayoutSpec(
+            maxWidth.value.toInt(),
+            maxHeight.value.toInt(),
+            LocalFoldPosture.current,
+        )
+        val sideRail = layoutSpec.splitPanes
 
         // The burger sits beside the title, as on Journal and Contacts, so the
         // header costs one line rather than a third of a phone screen.
@@ -221,7 +227,7 @@ fun SettingsSurface(
             Row(Modifier.fillMaxSize()) {
                 Column(
                     Modifier
-                        .width(SettingsRailWidth)
+                        .width(minOf(SettingsRailWidth, layoutSpec.startPane.widthDp.dp))
                         .fillMaxHeight()
                         .background(CalinoColors.Side),
                 ) {
@@ -242,7 +248,11 @@ fun SettingsSurface(
                         }
                     }
                 }
-                Box(Modifier.fillMaxHeight().width(1.dp).background(CalinoColors.Line))
+                if (layoutSpec.hingeBandDp > 0f) {
+                    Spacer(Modifier.fillMaxHeight().width(layoutSpec.hingeBandDp.dp).background(CalinoColors.Canvas))
+                } else {
+                    Box(Modifier.fillMaxHeight().width(1.dp).background(CalinoColors.Line))
+                }
                 pager(Modifier.weight(1f).fillMaxHeight())
             }
         } else {
