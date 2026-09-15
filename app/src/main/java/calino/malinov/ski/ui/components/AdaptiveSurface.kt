@@ -331,6 +331,7 @@ fun AdaptiveSurfaceHost(
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
             label = "adaptive bottom sheet height",
         )
+        val bottomSheetSpareHeight = (paneHeight - bottomHeight).coerceAtLeast(0.dp)
 
         val enter = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
@@ -364,13 +365,13 @@ fun AdaptiveSurfaceHost(
             CalinoSurfaceMode.BottomSheet ->
                 Modifier
                     .align(Alignment.TopStart)
-                    // Keep the sheet's existing size, but lift it through
-                    // part of the spare vertical room. Bottom-anchoring put
-                    // its tail almost against Android's gesture pill; fully
-                    // centring that allowance made the card sit too high.
+                    // Keep the sheet's existing size and give its tail a
+                    // small, fixed clearance from Android's gesture pill.
+                    // A fraction of the spare height moved short detail cards
+                    // much farther than tall editor cards on physical phones.
                     .absoluteOffset(
                         x = paneLeft,
-                        y = paneTop + (paneHeight - bottomHeight).coerceAtLeast(0.dp) * .70f,
+                        y = paneTop + bottomSheetSpareHeight - minOf(bottomSheetSpareHeight, BottomSheetLift),
                     )
                     .padding(vertical = 8.dp)
                     .width(paneWidth)
@@ -553,6 +554,9 @@ private fun RootAnchoredPill(anchor: Rect, content: @Composable () -> Unit) {
  * before its caller takes it out of the composition.
  */
 private const val FloatingExitMillis = 200
+
+/** A height-independent lift keeps compact and tall bottom cards aligned. */
+private val BottomSheetLift = 36.dp
 
 /** The pill's distance from the bottom of its lane, shared with the root pill. */
 private val PillLaneInset = 20.dp
