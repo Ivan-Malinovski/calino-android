@@ -3380,11 +3380,15 @@ class CalDavRepository(
             val refreshError = refreshed.exceptionOrNull()
             when {
                 refreshError == null && resource != null && sameQueuedPayload(resource.ics, body) -> {
-                    withContext(ioDispatcher) { store.acknowledge(change.id) }
                     updateOverlayIdentity(
                         change,
                         WrittenCalendarResource(resource.href, resource.etag, resource.ics),
                     )
+                    // Publish the confirmed identity before removing the
+                    // durable work item. A queue observer must not see an
+                    // empty queue while the visible overlay still has the
+                    // pre-recovery identity.
+                    withContext(ioDispatcher) { store.acknowledge(change.id) }
                     clearWriteStatus(change.eventId)
                     return true
                 }
@@ -3579,8 +3583,12 @@ class CalDavRepository(
             val refreshError = refreshed.exceptionOrNull()
             when {
                 refreshError == null && resource != null && sameQueuedPayload(resource.vcf, body) -> {
-                    withContext(ioDispatcher) { store.acknowledge(change.id) }
                     updateContactOverlayIdentity(change, resource)
+                    // Publish the confirmed identity before removing the
+                    // durable work item. A queue observer must not see an
+                    // empty queue while the visible overlay still has the
+                    // pre-recovery identity.
+                    withContext(ioDispatcher) { store.acknowledge(change.id) }
                     clearWriteStatus(change.eventId)
                     return true
                 }
