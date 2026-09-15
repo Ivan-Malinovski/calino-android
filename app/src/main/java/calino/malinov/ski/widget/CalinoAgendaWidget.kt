@@ -45,6 +45,7 @@ import calino.malinov.ski.notify.AgendaDeepLinks
 import calino.malinov.ski.notify.ReminderDeepLink
 import calino.malinov.ski.notify.ReminderDeepLinks
 import calino.malinov.ski.notify.ReminderKind
+import calino.malinov.ski.state.CalinoDeviceDefaults
 import calino.malinov.ski.util.CalinoTimeFormat
 import java.time.LocalDate
 import java.time.LocalTime
@@ -91,10 +92,11 @@ abstract class CalinoAgendaWidget internal constructor(
         }
 
         val preferences = container.preferenceStore
+        val deviceDefaults = CalinoDeviceDefaults.from(context)
         val options = WidgetAgendaOptions(
             hideCompletedTasks = preferences.loadHideCompletedTasks(),
             showLocations = preferences.loadShowLocations(),
-            timeFormat = preferences.loadTimeFormat(),
+            timeFormat = preferences.loadTimeFormat().resolved(deviceDefaults.timeFormat),
             // Read, and gating nothing today: the widget shows events and
             // tasks only. See HANDOFF.md before deciding this is dead weight.
             journalEnabled = preferences.loadJournalEnabled(),
@@ -378,4 +380,3 @@ class CalinoCardsWidget : CalinoAgendaWidget(WidgetStyle.Cards)
  * the density and the aligned dates that the ruled layout gives it.
  */
 class CalinoTasksWidget : CalinoAgendaWidget(WidgetStyle.Ledger, WidgetContent.Tasks)
-

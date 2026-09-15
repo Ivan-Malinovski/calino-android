@@ -11,6 +11,8 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule
 import calino.malinov.ski.data.CalinoContainer
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.util.CalinoDefaultView
+import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.CalinoWeekStart
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.rules.ExternalResource
@@ -131,6 +133,10 @@ class CalinoResetRule(
         SharedPreferencesPreferenceStore(context).apply {
             saveNotificationPromptShown(true)
             saveDefaultView(defaultView)
+            // Device defaults are exercised by unit tests; UI tests stay
+            // deterministic across emulator images with different locales.
+            saveTimeFormat(CalinoTimeFormat.TwelveHour)
+            saveWeekStart(CalinoWeekStart.Monday)
         }
         CalinoContainer.get(context).fixtureRepository.resetToFixtures()
     }

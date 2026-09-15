@@ -21,6 +21,8 @@ private val RecurrenceUntilDateTimeFormat = DateTimeFormatter.ofPattern("yyyyMMd
  * each surface carrying its own `h:mm a` pattern.
  */
 enum class CalinoTimeFormat(val label: String, pattern: String) {
+    /** Follow Android's clock setting; the formatter itself falls back to 12h in JVM-only code. */
+    System("System", "h:mm a"),
     TwelveHour("12h", "h:mm a"),
     TwentyFourHour("24h", "HH:mm"),
     ;
@@ -30,17 +32,21 @@ enum class CalinoTimeFormat(val label: String, pattern: String) {
     fun format(time: LocalTime): String = formatter.format(time)
     fun format(time: LocalDateTime): String = formatter.format(time)
 
+    fun resolved(deviceDefault: CalinoTimeFormat): CalinoTimeFormat =
+        if (this == System) deviceDefault else this
+
     /**
      * The gutter label for a whole hour. The day rail's hour column is narrow,
      * so the 12-hour clock drops the ":00" rather than being clipped.
      */
     fun formatHour(hour: Int): String = when (this) {
-        TwelveHour -> HourFormat.format(LocalTime.of(hour % 24, 0))
+        System, TwelveHour -> HourFormat.format(LocalTime.of(hour % 24, 0))
         TwentyFourHour -> format(LocalTime.of(hour % 24, 0))
     }
 
     companion object {
-        val Default = TwelveHour
+        /** A fresh install follows the Android clock until the user overrides it. */
+        val Default = System
 
         fun fromName(name: String?): CalinoTimeFormat =
             entries.firstOrNull { it.name == name } ?: Default

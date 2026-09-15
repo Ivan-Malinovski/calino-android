@@ -26,8 +26,9 @@ import calino.malinov.ski.util.CalinoWeekStart
  * from one composition local means every surface that writes a time --
  * agenda, day rail, editor, event detail -- follows the choice.
  *
- * Every default here is what the app did before the setting existed, so a fresh
- * install behaves exactly as it used to.
+ * User-facing defaults that can be derived from Android use a System choice;
+ * the effective values are resolved once at the app shell against the current
+ * device profile. Other defaults remain explicit product defaults.
  */
 @Immutable
 data class CalinoPreferences(
@@ -37,7 +38,10 @@ data class CalinoPreferences(
      */
     val themeChoice: CalinoThemeChoice = CalinoThemeChoice.Default,
     val setThemeChoice: (CalinoThemeChoice) -> Unit = {},
-    val timeFormat: CalinoTimeFormat = CalinoTimeFormat.Default,
+    /** The effective clock used by every surface. */
+    val timeFormat: CalinoTimeFormat = CalinoTimeFormat.TwelveHour,
+    /** The stored choice, which may be [CalinoTimeFormat.System]. */
+    val timeFormatChoice: CalinoTimeFormat = CalinoTimeFormat.Default,
     val setTimeFormat: (CalinoTimeFormat) -> Unit = {},
     /**
      * Whether the calendar shows the pull bar between the grid and the day
@@ -46,7 +50,10 @@ data class CalinoPreferences(
      */
     val showZoomHandle: Boolean = true,
     val setShowZoomHandle: (Boolean) -> Unit = {},
-    val weekStart: CalinoWeekStart = CalinoWeekStart.Default,
+    /** The effective week start used by every grid and pager. */
+    val weekStart: CalinoWeekStart = CalinoWeekStart.Monday,
+    /** The stored choice, which may be [CalinoWeekStart.System]. */
+    val weekStartChoice: CalinoWeekStart = CalinoWeekStart.Default,
     val setWeekStart: (CalinoWeekStart) -> Unit = {},
     val eventDensity: CalinoEventDensity = CalinoEventDensity.Default,
     val setEventDensity: (CalinoEventDensity) -> Unit = {},
@@ -322,13 +329,14 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 @Composable
 fun rememberCalinoPreferences(
     store: CalinoPreferenceStore,
+    deviceDefaults: CalinoDeviceDefaults = CalinoDeviceDefaults.Fallback,
     /** Called when a reminder preference changes, so the schedule is re-planned. */
     onRemindersChanged: () -> Unit = {},
 ): CalinoPreferences {
     var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
-    var timeFormat by remember(store) { mutableStateOf(store.loadTimeFormat()) }
+    var timeFormatChoice by remember(store) { mutableStateOf(store.loadTimeFormat()) }
     var showZoomHandle by remember(store) { mutableStateOf(store.loadShowZoomHandle()) }
-    var weekStart by remember(store) { mutableStateOf(store.loadWeekStart()) }
+    var weekStartChoice by remember(store) { mutableStateOf(store.loadWeekStart()) }
     var eventDensity by remember(store) { mutableStateOf(store.loadEventDensity()) }
     var showWeekNumbers by remember(store) { mutableStateOf(store.loadShowWeekNumbers()) }
     var defaultView by remember(store) { mutableStateOf(store.loadDefaultView()) }
@@ -348,12 +356,14 @@ fun rememberCalinoPreferences(
     return CalinoPreferences(
         themeChoice = themeChoice,
         setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
-        timeFormat = timeFormat,
-        setTimeFormat = { value -> timeFormat = value; store.saveTimeFormat(value) },
+        timeFormat = timeFormatChoice.resolved(deviceDefaults.timeFormat),
+        timeFormatChoice = timeFormatChoice,
+        setTimeFormat = { value -> timeFormatChoice = value; store.saveTimeFormat(value) },
         showZoomHandle = showZoomHandle,
         setShowZoomHandle = { value -> showZoomHandle = value; store.saveShowZoomHandle(value) },
-        weekStart = weekStart,
-        setWeekStart = { value -> weekStart = value; store.saveWeekStart(value) },
+        weekStart = weekStartChoice.resolved(deviceDefaults.weekStart),
+        weekStartChoice = weekStartChoice,
+        setWeekStart = { value -> weekStartChoice = value; store.saveWeekStart(value) },
         eventDensity = eventDensity,
         setEventDensity = { value -> eventDensity = value; store.saveEventDensity(value) },
         showWeekNumbers = showWeekNumbers,

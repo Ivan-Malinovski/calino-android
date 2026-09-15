@@ -97,6 +97,7 @@ import androidx.compose.ui.platform.testTag
 import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.systemSettingsIntent
 import calino.malinov.ski.state.LocalCalinoPreferences
+import calino.malinov.ski.state.LocalCalinoDeviceDefaults
 import calino.malinov.ski.state.LocalFoldPosture
 import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.ui.components.CompactSegmentedControl
@@ -108,6 +109,7 @@ import calino.malinov.ski.util.CalinoEventSyncRange
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.time.LocalDate
 
 /** The mobile settings sections mirror the eight-section web handoff. */
 enum class SettingsSection(val title: String, val shortTitle: String) {
@@ -401,22 +403,27 @@ private fun SettingsPage(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun GeneralSettings() = SettingsPage("General") {
     val preferences = LocalCalinoPreferences.current
+    val deviceDefaults = LocalCalinoDeviceDefaults.current
     SettingsGroup("Regional defaults") {
-        PlannedRow("Timezone", "Used for event times and reminders", value = "Copenhagen")
-        PlannedRow("Date format", "How dates are written across Calino", value = "18 May 2026")
+        PlannedRow("Timezone", "Used for event times and reminders", value = deviceDefaults.timeZone.id)
+        PlannedRow(
+            "Date format",
+            "How dates are written across Calino",
+            value = deviceDefaults.formatDate(LocalDate.of(2026, 5, 18)),
+        )
         SettingRow("Time format", "Choose the clock that feels natural", controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
             // Unlike its neighbours this one is wired through: it drives every
             // clock face in the app, not just its own segmented control.
             val preferences = LocalCalinoPreferences.current
             CompactSegmentedControl(
                 options = CalinoTimeFormat.entries.map { it.label },
-                selectedIndex = preferences.timeFormat.ordinal,
+                selectedIndex = preferences.timeFormatChoice.ordinal,
                 onSelected = { preferences.setTimeFormat(CalinoTimeFormat.entries[it]) },
                 modifier = Modifier.fillMaxWidth(),
                 semanticLabel = "Time format",
             )
         }
-        PlannedRow("Language", "The interface language", value = "English")
+        PlannedRow("Language", "The interface language", value = deviceDefaults.languageDisplayName)
     }
     SettingsGroup("Surfaces") {
         SettingToggleRow(
@@ -437,6 +444,7 @@ private fun GeneralSettings() = SettingsPage("General") {
 @Composable
 private fun AppearanceSettings() {
     val preferences = LocalCalinoPreferences.current
+    val deviceDefaults = LocalCalinoDeviceDefaults.current
     SettingsPage("Appearance") {
         SettingsGroup("Theme") {
             Column(Modifier.padding(18.dp)) {
@@ -480,7 +488,11 @@ private fun AppearanceSettings() {
                 }
             }
             SettingDivider()
-            PlannedRow("Font size", "Tune the reading scale", value = "Default")
+            PlannedRow(
+                "Font size",
+                "Tune the reading scale",
+                value = "${(deviceDefaults.fontScale * 100).toInt()}%",
+            )
         }
     }
 }
@@ -502,7 +514,7 @@ private fun CalendarSettings() {
                 label = "First day of week",
                 description = "Where every calendar grid begins",
                 options = CalinoWeekStart.entries,
-                selected = preferences.weekStart,
+                selected = preferences.weekStartChoice,
                 labelOf = { it.label },
                 onSelected = preferences.setWeekStart,
             )

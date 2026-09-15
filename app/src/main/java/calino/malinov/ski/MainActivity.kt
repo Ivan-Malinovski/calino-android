@@ -13,7 +13,6 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.core.content.FileProvider
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
@@ -193,6 +192,8 @@ import calino.malinov.ski.state.LocalCalinoNow
 import calino.malinov.ski.state.CalinoSyncStatus
 import calino.malinov.ski.state.LocalCalinoSync
 import calino.malinov.ski.state.LocalCalinoPreferences
+import calino.malinov.ski.state.LocalCalinoDeviceDefaults
+import calino.malinov.ski.state.rememberCalinoDeviceDefaults
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.state.rememberCalinoPreferences
 import calino.malinov.ski.state.rememberCalinoNow
@@ -597,10 +598,12 @@ fun CalinoApp() {
     // The clock runs for real once an account is connected; with only the
     // fixture data it stays frozen so the sample stays deterministic.
     val now by rememberCalinoNow(live = pocViewModel.hasAccounts)
+    val deviceDefaults = rememberCalinoDeviceDefaults()
     // Read before the theme, not inside it: the palette is a function of a
     // preference, so the preference has to exist first.
     val preferences = rememberCalinoPreferences(
         store = pocViewModel.preferenceStore,
+        deviceDefaults = deviceDefaults,
         // A reminder switched off must stop arriving now, not after the next
         // sync happens to publish something.
         onRemindersChanged = { pocViewModel.replanReminders() },
@@ -610,7 +613,7 @@ fun CalinoApp() {
         pocViewModel.setEventWindowMonths(preferences.eventSyncRange.months)
     }
     val dark = when (preferences.themeChoice) {
-        CalinoThemeChoice.System -> isSystemInDarkTheme()
+        CalinoThemeChoice.System -> deviceDefaults.isDarkMode
         CalinoThemeChoice.Light -> false
         CalinoThemeChoice.Dark -> true
     }
@@ -619,6 +622,7 @@ fun CalinoApp() {
         CompositionLocalProvider(
             LocalCalinoNow provides now,
             LocalCalinoPreferences provides preferences,
+            LocalCalinoDeviceDefaults provides deviceDefaults,
             LocalNotificationPermission provides notificationPermission,
             LocalFoldPosture provides rememberFoldPosture(),
             LocalHingeOpenness provides rememberHingeOpenness(),

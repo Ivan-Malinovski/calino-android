@@ -12,16 +12,22 @@ import java.time.temporal.TemporalAdjusters
  * than each renderer carrying its own `with(DayOfWeek.MONDAY)`.
  */
 enum class CalinoWeekStart(val label: String, val dayOfWeek: DayOfWeek) {
+    /** Follow the device region; the effective value is resolved by the app shell. */
+    System("System", DayOfWeek.MONDAY),
     Monday("Monday", DayOfWeek.MONDAY),
     Sunday("Sunday", DayOfWeek.SUNDAY),
     ;
 
     companion object {
-        val Default = Monday
+        /** A fresh install follows the device region until the user overrides it. */
+        val Default = System
 
         fun fromName(name: String?): CalinoWeekStart =
             entries.firstOrNull { it.name == name } ?: Default
     }
+
+    fun resolved(deviceDefault: CalinoWeekStart): CalinoWeekStart =
+        if (this == System) deviceDefault else this
 }
 
 /** The days washed as weekend, whichever day the week is set to begin on. */
