@@ -116,12 +116,19 @@ class CalDavWriterLiveTest {
                 CalTask(
                     id = taskUid,
                     uid = taskUid,
-                    title = "Calino live task",
+                    title = "Calino live undated task",
                     color = 0L,
-                    due = LocalDate.of(2030, 1, 3),
+                    due = null,
                 ),
             )
             assertTrue(task!!.ics.contains("UID:$taskUid"))
+            assertEquals(null, ICalMapper().mapAll(
+                listOf(CalendarResource(task!!.href, task!!.etag, task!!.ics)),
+                scratchUrl,
+                0L,
+                LocalDate.of(2029, 12, 1),
+                LocalDate.of(2030, 2, 1),
+            ).tasks.single().due)
 
             val journalUid = "calino-live-journal-$suffix"
             journal = writer.putJournal(

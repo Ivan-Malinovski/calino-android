@@ -1193,6 +1193,8 @@ fun TaskDetailSurface(
                         color = task.color,
                         category = category.trim().ifEmpty { null },
                         dueTime = task.dueTime,
+                        startDate = task.startDate,
+                        startTime = task.startTime,
                         notes = notes.trim().ifEmpty { null },
                         reminder = task.reminder,
                         priority = priority,

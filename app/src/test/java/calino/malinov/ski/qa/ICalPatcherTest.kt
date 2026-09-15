@@ -96,6 +96,22 @@ class ICalPatcherTest {
     }
 
     @Test
+    fun `title-only task edit preserves distinct DTSTART and DUE`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:window",
+            "DTSTART:20260303T090000Z", "DUE:20260303T170000Z",
+            "SUMMARY:Original", "STATUS:NEEDS-ACTION", "END:VTODO", "END:VCALENDAR",
+        )
+        val task = mapper.parse(resource, "cal", 1L, "window.ics").tasks.single()
+
+        val patched = patcher.patchTask(resource, task.copy(title = "Edited"), now)!!
+
+        assertTrue(patched, patched.contains("DTSTART:20260303T090000Z"))
+        assertTrue(patched, patched.contains("DUE:20260303T170000Z"))
+        assertTrue(patched, patched.contains("SUMMARY:Edited"))
+    }
+
+    @Test
     fun `future-scope task edit never rewrites the master anchor from the selected date`() {
         val resource = ics(
             "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",

@@ -287,6 +287,8 @@ internal class LocalOverlay {
         color = input.color,
         due = input.due,
         dueTime = input.dueTime,
+        startDate = input.startDate,
+        startTime = input.startTime,
         done = done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true),
         priority = input.priority,
         percentComplete = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) 100 else input.percentComplete.coerceIn(0, 99),

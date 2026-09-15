@@ -62,6 +62,9 @@ data class EditorDraft(
     val sequence: Int? = null,
     val recurrenceChanged: Boolean = false,
     val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,
+    /** Hidden VTODO DTSTART fields retained while the editor changes DUE. */
+    val taskStartDate: LocalDate? = null,
+    val taskStartTime: LocalTime? = null,
 ) {
     val isEditing: Boolean get() = editingId != null
 
@@ -123,6 +126,8 @@ data class EditorDraft(
         color = color,
         category = categories.firstOrNull(),
         dueTime = startTime,
+        startDate = taskStartDate,
+        startTime = taskStartTime,
         notes = description?.trim()?.ifEmpty { null },
         reminder = reminders.firstOrNull(),
         calendarId = calendarId,
@@ -291,6 +296,8 @@ fun editorDraftFor(task: CalTask, fallbackDate: LocalDate): EditorDraft = Editor
     recurrenceId = task.recurrenceId,
     recurrenceDate = task.recurrenceDate,
     sequence = task.sequence,
+    taskStartDate = task.startDate,
+    taskStartTime = task.startTime,
     recurrenceScope = if (task.recurrenceId != null || task.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All,
 )
 

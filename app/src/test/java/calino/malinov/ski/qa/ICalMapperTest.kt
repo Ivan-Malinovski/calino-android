@@ -76,6 +76,88 @@ class ICalMapperTest {
     }
 
     @Test
+    fun `detached VTODO occurrences have stable distinct ids`() {
+        val tasks = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTODO
+            UID:gym
+            DTSTART;VALUE=DATE:20260303
+            DUE;VALUE=DATE:20260303
+            RRULE:FREQ=WEEKLY
+            SUMMARY:Exercise
+            END:VTODO
+            BEGIN:VTODO
+            UID:gym
+            RECURRENCE-ID;VALUE=DATE:20260310
+            DTSTART;VALUE=DATE:20260310
+            DUE;VALUE=DATE:20260310
+            SUMMARY:Exercise
+            STATUS:COMPLETED
+            END:VTODO
+            BEGIN:VTODO
+            UID:gym
+            RECURRENCE-ID;VALUE=DATE:20260317
+            DTSTART;VALUE=DATE:20260317
+            DUE;VALUE=DATE:20260317
+            SUMMARY:Exercise
+            STATUS:COMPLETED
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 1), windowEnd = LocalDate.of(2026, 3, 24),
+        ).tasks
+
+        assertEquals(tasks.size, tasks.map { it.id }.toSet().size)
+        assertTrue(tasks.any { it.id == "gym@2026-03-10" })
+        assertTrue(tasks.any { it.id == "gym@2026-03-17" })
+    }
+
+    @Test
+    fun `timed recurring VTODO preserves DTSTART to DUE offset`() {
+        val tasks = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTODO
+            UID:shifted
+            DTSTART:20260303T090000Z
+            DUE:20260303T170000Z
+            RRULE:FREQ=WEEKLY
+            SUMMARY:Shifted deadline
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "shifted.ics",
+            windowStart = LocalDate.of(2026, 3, 9), windowEnd = LocalDate.of(2026, 3, 11),
+        ).tasks.single()
+
+        assertEquals(LocalDate.of(2026, 3, 10), tasks.startDate)
+        assertEquals(LocalTime.of(10, 0), tasks.startTime)
+        assertEquals(LocalDate.of(2026, 3, 10), tasks.due)
+        assertEquals(LocalTime.of(18, 0), tasks.dueTime)
+    }
+
+    @Test
+    fun `undated VTODO remains visible`() {
+        val task = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTODO
+            UID:inbox
+            SUMMARY:Someday
+            STATUS:NEEDS-ACTION
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "inbox.ics",
+        ).tasks.single()
+
+        assertNull(task.due)
+        assertNull(task.dueTime)
+    }
+
+    @Test
     fun `Apple travel duration maps to whole travel minutes`() {
         val parsed = mapper.parse(
             """

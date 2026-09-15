@@ -135,16 +135,29 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         vtodo.setUidValue(task.uid ?: task.id)
         vtodo.setSummaryValue(task.title)
 
+        val originalStart = vtodo.dateStart?.copy() as? DateStart
         vtodo.removeProperties(DateStart::class.java)
         vtodo.removeProperties(DateDue::class.java)
+        val occurrence = task.recurrenceId != null || task.recurrenceDate != null
+        val derivedStart = task.startDate == null && task.due != null && (task.recurrence != null || occurrence)
+        val startDate = task.startDate ?: task.due?.takeIf { derivedStart }
+        val startTime = task.startTime ?: task.dueTime?.takeIf { derivedStart }
+        if (startDate == null && originalStart != null && task.due != null && original?.recurrenceRule != null) {
+            // Legacy callers may not yet carry the separately modelled DTSTART.
+            // Retaining the recurring master's raw property is safer than
+            // dropping its recurrence anchor on an unrelated edit.
+            vtodo.addProperty(originalStart)
+        } else startDate?.let { date ->
+            val value = startTime?.let { date.atTime(it).atZone(zone).toInstant().toDateTime() }
+                ?: date.toDateOnly()
+            vtodo.addProperty(DateStart(value))
+        }
         task.due?.let { due ->
             task.dueTime?.let { time ->
                 val value = due.atTime(time).atZone(zone).toInstant().toDateTime()
-                vtodo.addProperty(DateStart(value))
                 vtodo.addProperty(DateDue(value))
             } ?: run {
                 val value = due.toDateOnly()
-                vtodo.addProperty(DateStart(value))
                 vtodo.addProperty(DateDue(value))
             }
         }

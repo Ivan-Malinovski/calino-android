@@ -476,6 +476,13 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val effectiveEnd = if (windowEnd == LocalDate.MAX) effectiveStart.plusYears(10) else windowEnd
         val from = effectiveStart.atStartOfDay(iterationZone).toInstant()
         val until = effectiveEnd.plusDays(1).atStartOfDay(iterationZone).toInstant()
+        val dueOffset = if (
+            !carrier.isDateOnly() && master.dateStart?.value?.hasTime() == true && master.dateDue?.value?.hasTime() == true
+        ) {
+            Duration.between(master.dateStart.value.toInstant(), master.dateDue.value.toInstant())
+        } else {
+            Duration.ZERO
+        }
         val overrideKeys = overrides.mapNotNull { it.recurrenceId?.value?.let(::recurrenceKey) }.toSet()
         val exceptionKeys = master.getProperties(ExceptionDates::class.java)
             .flatMap { it.values.orEmpty() }.map(::recurrenceKey).toSet()
@@ -490,10 +497,13 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             if (key in overrideKeys || key in exceptionKeys) continue
             val day = instant.atZone(iterationZone).toLocalDate()
             val time = if (carrier.isDateOnly()) null else instant.atZone(zone).toLocalTime()
+            val dueLocal = if (carrier.isDateOnly()) null else toLocalDateTime(instant.plus(dueOffset))
             generated += base.copy(
-                id = occurrenceId(base.uid ?: base.id, instant),
-                due = day,
-                dueTime = time,
+                id = taskOccurrenceId(base.uid ?: base.id, if (carrier.isDateOnly()) day else null, instant),
+                due = dueLocal?.toLocalDate() ?: day,
+                dueTime = dueLocal?.toLocalTime(),
+                startDate = master.dateStart?.let { day },
+                startTime = master.dateStart?.takeUnless { carrier.isDateOnly() }?.let { time },
                 recurrenceDate = if (carrier.isDateOnly()) day else null,
                 recurrenceId = if (carrier.isDateOnly()) null else instant,
                 recurrenceScope = calino.malinov.ski.data.model.RecurrenceEditScope.This,
@@ -522,16 +532,23 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val typeCarrier = start ?: due
         val dateOnly = typeCarrier?.isDateOnly() ?: true
 
-        val anchor = due ?: start ?: return null
-        val dueDate: LocalDate
+        val anchor = due ?: start
+        val dueDate: LocalDate?
         val dueTime: LocalTime?
-        if (dateOnly) {
+        if (anchor == null) {
+            dueDate = null
+            dueTime = null
+        } else if (dateOnly) {
             dueDate = anchor.toLocalDateOnly() ?: return null
             dueTime = null
         } else {
             val local = toLocalDateTime(anchor.value.toInstant())
             dueDate = local.toLocalDate()
             dueTime = local.toLocalTime()
+        }
+        val startLocal = start?.let { property ->
+            if (property.isDateOnly()) property.toLocalDateOnly()?.let { it to null }
+            else toLocalDateTime(property.value.toInstant()).let { it.toLocalDate() to it.toLocalTime() }
         }
 
         val status = vtodo.status?.value?.uppercase()
@@ -544,11 +561,17 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val recurrenceInstant = vtodo.recurrenceId?.takeIf { it.value.hasTime() }?.value?.toInstant()
 
         return CalTask(
-            id = uid,
+            id = if (recurrenceDate != null || recurrenceInstant != null) {
+                taskOccurrenceId(uid, recurrenceDate, recurrenceInstant)
+            } else {
+                uid
+            },
             title = summary,
             color = color,
             due = dueDate,
             dueTime = dueTime,
+            startDate = startLocal?.first,
+            startTime = startLocal?.second,
             done = done,
             priority = (vtodo.priority?.value ?: 0).coerceIn(0, 9),
             percentComplete = percent.coerceIn(0, 100),
@@ -643,6 +666,9 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
          * names the series for editing.
          */
         fun occurrenceId(uid: String, instant: Instant): String = "$uid@$instant"
+
+        fun taskOccurrenceId(uid: String, date: LocalDate?, instant: Instant?): String =
+            "$uid@${date?.toString() ?: requireNotNull(instant)}"
     }
 }
 

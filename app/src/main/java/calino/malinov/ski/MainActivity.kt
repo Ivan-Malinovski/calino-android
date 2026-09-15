@@ -864,6 +864,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // The overflow menu can act on one occurrence of a series, so its delete
     // asks for a scope instead of defaulting to the whole series.
     var pendingEventDelete by remember { mutableStateOf<CalEvent?>(null) }
+    var pendingTaskDelete by remember { mutableStateOf<CalTask?>(null) }
     val writeScope = androidx.compose.runtime.rememberCoroutineScope()
     // The lane the add pill lives in, so a deliberate save can be reported on
     // the pill that started it.
@@ -1192,7 +1193,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             TaskMenuAction.ToggleDone -> launchWrite({ repository.setTaskDone(task.id, !task.done) }) { showUndo(it) }
             TaskMenuAction.Duplicate -> launchWrite({ repository.duplicateTask(task) })
             TaskMenuAction.ConvertToEvent -> launchWrite({ repository.convertTaskToEvent(task) })
-            TaskMenuAction.Delete -> launchWrite({ repository.deleteTask(task.id) }, indicate = PillWriteKind.Remove)
+            TaskMenuAction.Delete -> pendingTaskDelete = task
         }
     }
 
@@ -2175,15 +2176,26 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     ?.takeIf { rootRoute == PockRoute.Day || rootRoute == PockRoute.Range }
                     ?.let { "Add on ${it.from.format(DateLabel)}" to "Add on ${it.to.format(DateLabel)}" },
                 swipeTravel = { swipeLabelTravel() },
-                confirmationActive = pendingEventDelete != null,
-                onConfirmationExpired = { pendingEventDelete = null },
-                onConfirmed = {
-                    val target = pendingEventDelete ?: return@AddPill
+                confirmationActive = pendingEventDelete != null || pendingTaskDelete != null,
+                onConfirmationExpired = {
                     pendingEventDelete = null
-                    launchWrite(
-                        { repository.deleteEvent(target.id, defaultEventDeleteScope(target)) },
-                        indicate = PillWriteKind.Remove,
-                    )
+                    pendingTaskDelete = null
+                },
+                onConfirmed = {
+                    val event = pendingEventDelete
+                    val task = pendingTaskDelete
+                    pendingEventDelete = null
+                    pendingTaskDelete = null
+                    when {
+                        event != null -> launchWrite(
+                            { repository.deleteEvent(event.id, defaultEventDeleteScope(event)) },
+                            indicate = PillWriteKind.Remove,
+                        )
+                        task != null -> launchWrite(
+                            { repository.deleteTask(task.id, task.recurrenceScope) },
+                            indicate = PillWriteKind.Remove,
+                        )
+                    }
                 },
                 onClick = {
                     when (rootRoute) {
@@ -2227,7 +2239,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             },
             onTaskComplete = { task, done -> launchWrite({ repository.setTaskDone(task.id, done) }) },
             onTaskAction = { action, task ->
-                if (action == TaskMenuAction.Edit || action == TaskMenuAction.AddSubtask) {
+                if (action == TaskMenuAction.Edit || action == TaskMenuAction.AddSubtask || action == TaskMenuAction.Delete) {
                     sidebarVisible = false
                 }
                 handleTaskAction(action, task)

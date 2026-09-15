@@ -134,6 +134,9 @@ data class CalTask(
     val done: Boolean = false,
     val category: String? = null,
     val dueTime: LocalTime? = null,
+    /** Original DTSTART, retained separately from DUE for CalDAV round-tripping. */
+    val startDate: LocalDate? = null,
+    val startTime: LocalTime? = null,
     val notes: String? = null,
     val reminder: Reminder? = null,
     /** iCalendar UID. Null for records created locally. */
@@ -211,6 +214,9 @@ data class NewTask(
     val color: Long = 0xFF5D9A78,
     val category: String? = null,
     val dueTime: LocalTime? = null,
+    /** Existing DTSTART. The task UI edits DUE but must not erase a foreign start. */
+    val startDate: LocalDate? = null,
+    val startTime: LocalTime? = null,
     val notes: String? = null,
     val reminder: Reminder? = null,
     val priority: Int = 0,
