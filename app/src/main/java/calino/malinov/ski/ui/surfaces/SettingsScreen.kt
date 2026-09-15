@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -129,10 +130,14 @@ private val SettingsNavLaneHeight = 44.dp
 /** The landscape rail: wide enough for the longest section name and no wider. */
 private val SettingsRailWidth = 232.dp
 private val SettingsNavPillHeight = 28.dp
-private val SettingsRowVerticalPadding = 6.dp
+private val SettingsContentMaxWidth = 720.dp
+private val SettingsRowHorizontalPadding = 18.dp
+private val SettingsRowVerticalPadding = 14.dp
+private val SettingsGroupSpacing = 20.dp
 
 private enum class SettingRowControlLayout {
     Inline,
+    AdaptiveTrailing,
     AdaptiveSegmented,
 }
 
@@ -385,23 +390,34 @@ private fun SettingsSectionContent(
 }
 
 @Composable
-private fun SettingsPage(title: String, content: @Composable () -> Unit) {
+private fun SettingsPage(content: @Composable () -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         // Keep the last setting group comfortably scrollable rather than
         // letting it finish against the screen edge.
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = CalinoSpacing.PillClearance),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        contentPadding = PaddingValues(
+            start = CalinoSpacing.Screen,
+            end = CalinoSpacing.Screen,
+            top = 18.dp,
+            bottom = CalinoSpacing.PillClearance,
+        ),
     ) {
         item {
-            Text(title, style = CalinoTypography.headlineMedium)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .wrapContentWidth(Alignment.CenterHorizontally)
+                    .widthIn(max = SettingsContentMaxWidth),
+                verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing),
+            ) {
+                content()
+            }
         }
-        item { content() }
     }
 }
 
 @Composable
-private fun GeneralSettings() = SettingsPage("General") {
+private fun GeneralSettings() = SettingsPage {
     val preferences = LocalCalinoPreferences.current
     val deviceDefaults = LocalCalinoDeviceDefaults.current
     SettingsGroup("Regional defaults") {
@@ -445,7 +461,7 @@ private fun GeneralSettings() = SettingsPage("General") {
 private fun AppearanceSettings() {
     val preferences = LocalCalinoPreferences.current
     val deviceDefaults = LocalCalinoDeviceDefaults.current
-    SettingsPage("Appearance") {
+    SettingsPage {
         SettingsGroup("Theme") {
             Column(Modifier.padding(18.dp)) {
                 Text("Appearance", style = CalinoTypography.labelLarge)
@@ -500,7 +516,7 @@ private fun AppearanceSettings() {
 @Composable
 private fun CalendarSettings() {
     val preferences = LocalCalinoPreferences.current
-    SettingsPage("Calendar") {
+    SettingsPage {
         SettingsGroup("Display") {
             SettingChoiceRow(
                 label = "Default view",
@@ -555,7 +571,7 @@ private fun CalendarSettings() {
 @Composable
 private fun EventSettings() {
     val preferences = LocalCalinoPreferences.current
-    SettingsPage("Events") {
+    SettingsPage {
         SettingsGroup("New event defaults") {
             SettingChoiceRow(
                 label = "Default duration",
@@ -600,7 +616,7 @@ private fun CategoriesSettings() {
     var categories by remember { mutableStateOf(FixtureCategories) }
     var adding by rememberSaveable { mutableStateOf(false) }
     val colors = listOf(CalinoColors.Blue, CalinoColors.Rose, CalinoColors.Amber, CalinoColors.Plum, CalinoColors.Green)
-    SettingsPage("Categories") {
+    SettingsPage {
         SettingsGroup("Labels used by your records") {
             val existingCategories = if (adding) categories.dropLast(1) else categories
             existingCategories.forEachIndexed { index, category ->
@@ -648,7 +664,7 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
     val preferences = LocalCalinoPreferences.current
     val permission = LocalNotificationPermission.current
     val context = LocalContext.current
-    SettingsPage("Notifications") {
+    SettingsPage {
         if (!permission.granted) {
             SettingsGroup("Permission") {
                 SettingActionRow(
@@ -716,7 +732,7 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
 @Composable
 private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean, String?) -> Unit) {
     val preferences = LocalCalinoPreferences.current
-    SettingsPage("Sync") {
+    SettingsPage {
         SettingsGroup("Connected accounts") {
             SettingActionRow(
                 title = "Calendars and accounts",
@@ -775,7 +791,7 @@ private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean
 }
 
 @Composable
-private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) = SettingsPage("Data") {
+private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) = SettingsPage {
     SettingsGroup("Import & export") {
         SettingActionRow("Export calendar", "Save a local .ics copy of one calendar", "Export", enabled = true, onClick = onExport)
         SettingDivider()
@@ -796,7 +812,18 @@ private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(CalinoShapes.Card)).background(CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card)),
     ) {
-        Text(title.uppercase(), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(horizontal = 18.dp, vertical = 15.dp))
+        Text(
+            title.uppercase(),
+            style = CalinoTypography.labelSmall,
+            color = CalinoColors.Ink3,
+            modifier = Modifier.padding(
+                start = SettingsRowHorizontalPadding,
+                end = SettingsRowHorizontalPadding,
+                top = 16.dp,
+                bottom = 12.dp,
+            ),
+        )
+        SettingDivider()
         content()
     }
 }
@@ -809,10 +836,10 @@ private fun SettingRow(
     controlLayout: SettingRowControlLayout = SettingRowControlLayout.Inline,
     control: @Composable () -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = SettingsRowVerticalPadding)
+            .padding(horizontal = SettingsRowHorizontalPadding, vertical = SettingsRowVerticalPadding)
             .alphaIfDisabled(enabled)
             // Dimming alone used to leave the control live, so a row that meant
             // nothing could still be toggled -- and a screen reader was offered
@@ -822,17 +849,25 @@ private fun SettingRow(
         // Only a segmented control takes a line of its own; it needs the full
         // width to stay legible. Switches, value pills and tags stay inline on
         // the right, where the label's weight keeps them from starving it.
-        val stacked = controlLayout == SettingRowControlLayout.AdaptiveSegmented
+        val stacked = controlLayout == SettingRowControlLayout.AdaptiveSegmented ||
+            (controlLayout == SettingRowControlLayout.AdaptiveTrailing && maxWidth < 360.dp)
         if (stacked) {
             Column(
                 Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // Without an explicit width, Column measures this child at
                 // its intrinsic width; long labels then wrap one character
                 // per line on the phone-sized Settings card.
                 SettingRowLabel(label, description, Modifier.fillMaxWidth())
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { control() }
+                Box(
+                    Modifier.fillMaxWidth(),
+                    contentAlignment = if (controlLayout == SettingRowControlLayout.AdaptiveSegmented) {
+                        Alignment.Center
+                    } else {
+                        Alignment.CenterEnd
+                    },
+                ) { control() }
             }
         } else {
             Row(
@@ -892,6 +927,7 @@ private fun PlannedRow(label: String, description: String, value: String? = null
     label = label,
     description = description,
     enabled = false,
+    controlLayout = SettingRowControlLayout.AdaptiveTrailing,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         value?.let { SettingValue(it) }
@@ -915,6 +951,7 @@ private fun PlannedToggleRow(label: String, description: String, checked: Boolea
     label = label,
     description = description,
     enabled = false,
+    controlLayout = SettingRowControlLayout.AdaptiveTrailing,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PlannedTag()
@@ -1069,29 +1106,64 @@ private fun SettingActionRow(
     actionContentDescription: String? = null,
     onClick: () -> Unit = {},
 ) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(end = 10.dp)) {
-            Text(title, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-            Text(description, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 2.dp))
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().padding(
+            horizontal = SettingsRowHorizontalPadding,
+            vertical = SettingsRowVerticalPadding,
+        ),
+    ) {
+        val stackAction = maxWidth < 300.dp
+        val arrangement = if (stackAction) Arrangement.spacedBy(12.dp) else Arrangement.spacedBy(0.dp)
+        Column(Modifier.fillMaxWidth(), verticalArrangement = arrangement) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = if (stackAction) 0.dp else 12.dp)) {
+                    Text(title, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                    Text(description, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
+                }
+                if (!stackAction) {
+                    SettingActionButton(action, danger, enabled, actionContentDescription, onClick)
+                }
+            }
+            if (stackAction) {
+                SettingActionButton(
+                    action,
+                    danger,
+                    enabled,
+                    actionContentDescription,
+                    onClick,
+                    Modifier.align(Alignment.End),
+                )
+            }
         }
-        OutlinedButton(
-            enabled = enabled,
-            onClick = onClick,
-            modifier = Modifier
-                .heightIn(min = 44.dp)
-                .then(
-                    if (actionContentDescription != null) {
-                        Modifier.semantics { contentDescription = actionContentDescription }
-                    } else {
-                        Modifier
-                    },
-                ),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (danger) CalinoColors.Rose else CalinoColors.Ink2),
-            border = androidx.compose.foundation.BorderStroke(1.dp, if (danger) CalinoColors.Rose.copy(.3f) else CalinoColors.Line),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-        ) { Text(action, fontSize = 12.sp) }
     }
+}
+
+@Composable
+private fun SettingActionButton(
+    action: String,
+    danger: Boolean,
+    enabled: Boolean,
+    actionContentDescription: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedButton(
+        enabled = enabled,
+        onClick = onClick,
+        modifier = modifier
+            .heightIn(min = 44.dp)
+            .then(
+                if (actionContentDescription != null) {
+                    Modifier.semantics { contentDescription = actionContentDescription }
+                } else {
+                    Modifier
+                },
+            ),
+        shape = RoundedCornerShape(10.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = if (danger) CalinoColors.Rose else CalinoColors.Ink2),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (danger) CalinoColors.Rose.copy(.3f) else CalinoColors.Line),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+    ) { Text(action, fontSize = 12.sp) }
 }
 
 @Composable
