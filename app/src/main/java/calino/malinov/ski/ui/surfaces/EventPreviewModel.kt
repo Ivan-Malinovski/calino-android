@@ -6,20 +6,6 @@ import calino.malinov.ski.data.model.RecurrenceEditScope
 import java.time.LocalDate
 import java.time.LocalTime
 
-enum class EventPreviewDecoration { Mountain, Celebration, Travel, Food, Fitness }
-
-fun eventPreviewDecoration(title: String): EventPreviewDecoration? {
-    val words = title.lowercase().split(Regex("[^a-z0-9]+"))
-    return when {
-        words.any { it in setOf("climb", "climbing", "hike", "hiking", "mountain", "trail") } -> EventPreviewDecoration.Mountain
-        words.any { it in setOf("birthday", "party", "celebration", "anniversary") } -> EventPreviewDecoration.Celebration
-        words.any { it in setOf("flight", "travel", "trip", "vacation", "train") } -> EventPreviewDecoration.Travel
-        words.any { it in setOf("lunch", "dinner", "breakfast", "coffee", "restaurant") } -> EventPreviewDecoration.Food
-        words.any { it in setOf("gym", "run", "running", "workout", "yoga", "fitness") } -> EventPreviewDecoration.Fitness
-        else -> null
-    }
-}
-
 data class EventPreviewDraft(
     val title: String,
     val date: LocalDate,

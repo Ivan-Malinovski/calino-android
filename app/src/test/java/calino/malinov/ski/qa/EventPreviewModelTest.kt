@@ -5,8 +5,6 @@ import calino.malinov.ski.data.model.Availability
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.model.Reminder
-import calino.malinov.ski.ui.surfaces.EventPreviewDecoration
-import calino.malinov.ski.ui.surfaces.eventPreviewDecoration
 import calino.malinov.ski.ui.surfaces.eventPreviewDraft
 import calino.malinov.ski.ui.surfaces.toNewEvent
 import calino.malinov.ski.ui.surfaces.validationError
@@ -25,13 +23,6 @@ class EventPreviewModelTest {
         reminders = listOf(Reminder(15)), travelTimeMinutes = 20, relatedTo = listOf("task"),
         url = "calino:local", uid = "uid", href = "https://dav/event.ics", etag = "etag", sequence = 4,
     )
-
-    @Test fun keywordArtworkIsStable() {
-        assertEquals(EventPreviewDecoration.Mountain, eventPreviewDecoration("Evening climbing session"))
-        assertEquals(EventPreviewDecoration.Celebration, eventPreviewDecoration("Birthday party"))
-        assertNull(eventPreviewDecoration("Design review"))
-        assertNull(eventPreviewDecoration("Climbington meeting"))
-    }
 
     @Test fun conversionPreservesUntouchedFieldsAndScope() {
         val input = eventPreviewDraft(event).copy(title = "Bouldering").toNewEvent(event, RecurrenceEditScope.Future)

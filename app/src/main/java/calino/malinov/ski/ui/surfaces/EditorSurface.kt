@@ -226,6 +226,7 @@ fun EditorSurface(
                 onDismiss = dismiss,
                 onPhoto = onPhoto,
             )
+            HorizontalDivider(color = CalinoColors.Ink.copy(alpha = .09f))
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 Column(

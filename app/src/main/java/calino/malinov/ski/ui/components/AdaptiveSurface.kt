@@ -323,7 +323,7 @@ fun AdaptiveSurfaceHost(
             // half-height there clips the final editable row. This remains a
             // compact card but reaches its content cap when the screen allows.
             kind == CalinoSurfaceKind.EventPreviewCompact -> minOf(paneHeight * .86f, surfaceHeightCap)
-            kind == CalinoSurfaceKind.Preview -> minOf(paneHeight * .68f, surfaceHeightCap)
+            kind == CalinoSurfaceKind.Preview -> minOf(paneHeight * .76f, surfaceHeightCap)
             else -> paneHeight * .86f
         }
         val bottomHeight by animateDpAsState(

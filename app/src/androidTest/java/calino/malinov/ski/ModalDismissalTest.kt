@@ -6,11 +6,13 @@ import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.down
 import androidx.compose.ui.test.up
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -79,6 +81,23 @@ class ModalDismissalTest : CalinoUiTest() {
             .assertIsDisplayed()
             .assertHeightIsAtLeast(44.dp)
             .assertWidthIsAtLeast(44.dp)
+    }
+
+    @Test fun scrollingBackThroughEventDetailsDoesNotDismissTheModal() {
+        compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
+        awaitDescribed("Close event preview")
+
+        val detailLists = compose.onAllNodesWithTag("event-detail-list")
+        val visibleList = detailLists.fetchSemanticsNodes().indexOfFirst {
+            it.boundsInRoot.left >= 0f && it.boundsInRoot.top >= 0f
+        }
+        assertTrue("no visible event detail list", visibleList >= 0)
+        detailLists[visibleList].performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        detailLists[visibleList].performTouchInput { swipeDown() }
+        compose.waitForIdle()
+
+        assertTrue("event preview dismissed while scrolling back", compose.hasDescribedNode("Close event preview"))
     }
 
     @Test fun aFullSwipeDownDismissesTheEditor() {

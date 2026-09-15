@@ -22,7 +22,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -56,6 +55,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -100,7 +100,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -113,6 +112,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
@@ -753,12 +753,14 @@ fun EventDetailSurface(
             modifier = overlayModifier,
         ) { page ->
             val pageEvent = events[page]
+            val detailListState = rememberLazyListState()
             Box(Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
                 AdaptiveDetailCard(
                     visible = shown,
                     onDismiss = { closeAfterAnimation(onBack) },
                     modifier = Modifier.fillMaxSize(),
                     dismissDistance = 980.dp,
+                    canStartDismiss = { !detailListState.canScrollBackward },
                     handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
                     allowDownwardDismissInEndPanel = true,
                 ) { cardModifier ->
@@ -770,6 +772,7 @@ fun EventDetailSurface(
                         },
                         onInlineSave = onInlineSave,
                         active = page == pager.currentPage,
+                        listState = detailListState,
                         onPillState = { pillState = it },
                     )
                 }
@@ -786,6 +789,7 @@ private fun EventDetailContent(
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean,
     active: Boolean,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     onPillState: (EventPreviewPillState) -> Unit,
 ) {
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
@@ -847,9 +851,8 @@ private fun EventDetailContent(
     }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().height(52.dp).background(tint)) {
-            EventPreviewArtwork(eventPreviewDecoration(draft.title), Modifier.matchParentSize().alpha(.22f))
             Row(
-                Modifier.fillMaxSize().padding(start = 20.dp, end = 8.dp),
+                Modifier.fillMaxSize().padding(start = 32.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(Modifier.size(10.dp).background(eventColor(event), CircleShape))
@@ -863,7 +866,12 @@ private fun EventDetailContent(
                 IconButtonGlyph("×", "Close event preview", onBack)
             }
         }
-        LazyColumn(Modifier.weight(1f).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        HorizontalDivider(color = CalinoColors.Ink.copy(alpha = .09f))
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).padding(horizontal = 18.dp).testTag("event-detail-list"),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             item { PreviewEditRow(CalinoIcon.Calendar, "Date", dateText) {
                 dateText = it; runCatching { LocalDate.parse(it) }.getOrNull()?.let { value -> draft = draft.copy(date = value) }
             } }
@@ -977,25 +985,6 @@ private fun PreviewStaticRow(icon: CalinoIcon, labelText: String, value: String)
     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
         CalinoIcon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
         Column(Modifier.padding(start = 16.dp)) { label(labelText); Text(value, style = CalinoTypography.bodyLarge) }
-    }
-}
-
-@Composable
-private fun EventPreviewArtwork(decoration: EventPreviewDecoration?, modifier: Modifier = Modifier) {
-    if (decoration == null) return
-    val ink = CalinoColors.Ink.copy(alpha = .55f)
-    Canvas(modifier) {
-        when (decoration) {
-            EventPreviewDecoration.Mountain -> {
-                drawLine(ink, Offset(size.width * .55f, size.height * .86f), Offset(size.width * .72f, size.height * .3f), 4f, StrokeCap.Round)
-                drawLine(ink, Offset(size.width * .72f, size.height * .3f), Offset(size.width * .94f, size.height * .86f), 4f, StrokeCap.Round)
-                drawLine(ink, Offset(size.width * .73f, size.height * .45f), Offset(size.width * .79f, size.height * .58f), 3f, StrokeCap.Round)
-            }
-            else -> {
-                drawCircle(ink, radius = size.minDimension * .18f, center = Offset(size.width * .78f, size.height * .52f), style = androidx.compose.ui.graphics.drawscope.Stroke(4f))
-                drawLine(ink, Offset(size.width * .65f, size.height * .75f), Offset(size.width * .91f, size.height * .3f), 3f, StrokeCap.Round)
-            }
-        }
     }
 }
 
@@ -1174,6 +1163,7 @@ fun TaskDetailSurface(
     var shown by remember(task.id) { mutableStateOf(true) }
     var pendingSave by remember(task.id) { mutableStateOf(false) }
     var requestedDone by remember(task.id) { mutableStateOf<Boolean?>(null) }
+    val detailScrollState = rememberScrollState()
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
     val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
 
@@ -1229,6 +1219,7 @@ fun TaskDetailSurface(
         onDismiss = { dismiss(false) },
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 980.dp,
+        canStartDismiss = { !detailScrollState.canScrollBackward },
         surfaceKind = CalinoSurfaceKind.Preview,
         handleColor = headerTint,
         pill = {
@@ -1268,9 +1259,9 @@ fun TaskDetailSurface(
                 .fillMaxSize()
                 .background(CalinoColors.Canvas),
         ) {
-            Box(Modifier.fillMaxWidth().heightIn(min = 70.dp).background(headerTint)) {
+            Box(Modifier.fillMaxWidth().height(52.dp).background(headerTint)) {
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
+                    Modifier.fillMaxSize().padding(start = 32.dp, end = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CalinoIcon(
@@ -1284,8 +1275,7 @@ fun TaskDetailSurface(
                         onValueChange = { title = it },
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 70.dp)
-                            .padding(horizontal = 14.dp, vertical = 18.dp)
+                            .padding(horizontal = 14.dp)
                             .semantics { contentDescription = "Task title" },
                         textStyle = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink),
                         singleLine = true,
@@ -1300,10 +1290,11 @@ fun TaskDetailSurface(
                     )
                 }
             }
+            HorizontalDivider(color = CalinoColors.Ink.copy(alpha = .09f))
             Column(
                 Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(detailScrollState)
                     .padding(horizontal = 20.dp),
             ) {
                 PreviewEditRow(CalinoIcon.Filter, "Category", category, "Add category") { category = it }
@@ -1410,10 +1401,10 @@ fun TaskDetailSurface(
                     )
                     task.recurrence?.let { Text(formatRecurrenceRule(it, task.due ?: today), color = CalinoColors.Ink3, fontSize = 12.sp) }
                 }
+                // The floating pill overlaps the card, so reserve its lane as
+                // scrollable content rather than as a fixed blank footer.
+                Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
-            // The pill stands in the pill lane rather than in this card, so
-            // it can change shape in place; this holds its room open.
-            Spacer(Modifier.height(CalinoSpacing.PillClearance))
         }
     }
 }
@@ -1924,7 +1915,7 @@ private fun SegmentedFilter(selected: TaskFilter, onSelected: (TaskFilter) -> Un
         onSelected = { onSelected(TaskFilter.entries[it]) },
         modifier = Modifier.fillMaxWidth(),
         semanticLabel = "Task filter",
-        maxControlWidth = 360.dp,
+        maxControlWidth = androidx.compose.ui.unit.Dp.Infinity,
     )
 }
 

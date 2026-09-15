@@ -133,6 +133,9 @@ class TaskInteractionTest : CalinoUiTest() {
         openTaskDetail()
 
         compose.onNodeWithContentDescription("None priority, selected").performScrollTo().assertIsDisplayed()
+        // Bring the end of the form above the floating pill before selecting
+        // a priority; the pill clearance is intentionally scrollable content.
+        compose.onNodeWithContentDescription("Task progress, 0 percent").performScrollTo()
         compose.onNodeWithContentDescription("High priority").performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("High priority, selected").performScrollTo().assertIsDisplayed()
