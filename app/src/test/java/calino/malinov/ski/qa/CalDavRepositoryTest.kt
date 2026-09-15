@@ -58,12 +58,16 @@ class CalDavRepositoryTest {
         server.shutdown()
     }
 
-    private fun repository(cache: CalendarCache = CalendarCache.None) = CalDavRepository(
+    private fun repository(
+        cache: CalendarCache = CalendarCache.None,
+        windowMonths: Long = CalDavRepository.DefaultWindowMonths,
+    ) = CalDavRepository(
         fetcher = CalDavFetcher(DavHttp()),
         scope = scope,
         cache = cache,
         mapper = ICalMapper(ZoneId.of("Europe/Copenhagen")),
         today = { LocalDate.of(2026, 9, 8) },
+        windowMonths = windowMonths,
     )
 
     /** A cache held in memory, so the repository's use of it is observable. */
@@ -393,6 +397,28 @@ END:VCALENDAR
         assertTrue(entry.resources.all { it.ics.contains("BEGIN:VCALENDAR") })
         assertEquals(LocalDate.of(2024, 9, 1), entry.windowStart)
         assertEquals(LocalDate.of(2028, 9, 1), entry.windowEnd)
+    }
+
+    @Test
+    fun `navigation beyond the event report boundary extends the cached window`() = runBlocking {
+        val cache = FakeCache()
+        val repository = repository(cache, windowMonths = 6)
+        enqueueAll()
+        repository.setSources(listOf(source()))
+        repository.awaitSync()
+
+        // CalDAV time-range ends are exclusive. March 1 is the first day
+        // outside the initial [2026-03-01, 2027-03-01) event report.
+        assertTrue(repository.extendWindowToInclude(LocalDate.of(2027, 3, 1)))
+        repository.awaitSync()
+
+        val extended = cache.entries.getValue(calendar().url)
+        assertEquals(LocalDate.of(2026, 2, 1), extended.windowStart)
+        assertEquals(LocalDate.of(2027, 4, 1), extended.windowEnd)
+        assertFalse(
+            "a date already covered by the widened report must not refetch",
+            repository.extendWindowToInclude(LocalDate.of(2027, 3, 1)),
+        )
     }
 
     @Test

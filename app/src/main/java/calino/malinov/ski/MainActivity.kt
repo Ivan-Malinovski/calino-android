@@ -574,6 +574,10 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     fun setEventWindowMonths(months: Long) = container.calDavRepository.setWindowMonths(months)
 
+    /** Starts a wider CalDAV read when calendar navigation reaches an unseen month. */
+    fun extendEventWindowToInclude(date: LocalDate): Boolean =
+        if (container.hasAccounts) container.calDavRepository.extendWindowToInclude(date) else false
+
     suspend fun exportCalendarEvents(calendarId: String): String =
         container.calDavRepository.exportCalendarEvents(calendarId)
 
@@ -805,6 +809,17 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             selectedDate = LocalDate.now()
         }
     }
+
+    /**
+     * Calendar navigation is the point at which an out-of-range one-off can
+     * become visible. Keep the local route state responsive, then let the
+     * connected repository widen its server window in the background.
+     */
+    fun selectCalendarDate(date: LocalDate) {
+        selectedDate = date
+        pocViewModel.extendEventWindowToInclude(date)
+    }
+
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             // Every foreground is an explicit retry opportunity in addition
@@ -1163,7 +1178,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     LaunchedEffect(activity.pendingAgendaDate) {
         val date = activity.pendingAgendaDate ?: return@LaunchedEffect
         if (activity.pendingReminderLink != null) return@LaunchedEffect
-        selectedDate = date
+        selectCalendarDate(date)
         route = PockRoute.Day
         activity.consumeAgendaDate()
     }
@@ -1517,10 +1532,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         interactionEnabled = route == PockRoute.Day && !showDayModal && !journalReviewVisible,
                         initialDate = selectedDate,
                         onOpenMenu = { sidebarVisible = true },
-                        onDateChanged = { selectedDate = it },
+                        onDateChanged = ::selectCalendarDate,
                         onSwipeLabelDaysChanged = { swipeLabelDays = it },
                         onSwipeLabelTravel = { swipeLabelTravel = it },
-                        onDayClick = { date -> selectedDate = date; showDayModal = true; route = PockRoute.Day },
+                        onDayClick = { date -> selectCalendarDate(date); showDayModal = true; route = PockRoute.Day },
                         onEventClick = { event ->
                             selectedEventId = event.id
                             selectedEventOccurrenceDay = selectedDate.toEpochDay()
@@ -1532,7 +1547,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onEventDrop = ::handleEventDrop,
                         onEventTimeDrop = ::handleEventTimeDrop,
                         onCreateEventAt = { start ->
-                            selectedDate = start.toLocalDate()
+                            selectCalendarDate(start.toLocalDate())
                             openQuickAdd(
                                 QuickAddKind.Event,
                                 PocReturnTarget.Calendar,
@@ -1557,7 +1572,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         initialDate = selectedDate,
                         modifier = Modifier.fillMaxSize(),
                         onOpenMenu = { sidebarVisible = true },
-                        onDateChanged = { selectedDate = it },
+                        onDateChanged = ::selectCalendarDate,
                         onEventClick = { day, event ->
                             selectedEventId = event.id
                             selectedEventOccurrenceDay = day.toEpochDay()
@@ -1568,7 +1583,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onEventDrop = ::handleEventDrop,
                         onEventTimeDrop = ::handleEventTimeDrop,
                         onCreateEventAt = { start ->
-                            selectedDate = start.toLocalDate()
+                            selectCalendarDate(start.toLocalDate())
                             openQuickAdd(
                                 QuickAddKind.Event,
                                 PocReturnTarget.Range,
@@ -1592,7 +1607,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = {
                             agendaPillLabelDirection = it.compareTo(selectedDate)
-                            selectedDate = it
+                            selectCalendarDate(it)
                         },
                         onEventClick = { day, event ->
                             selectedEventId = event.id
@@ -1613,7 +1628,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
                         },
                         onAddOn = { date ->
-                            selectedDate = date
+                            selectCalendarDate(date)
                             openQuickAdd(QuickAddKind.Event, PocReturnTarget.Agenda)
                         },
                     )
@@ -1922,7 +1937,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 date = selectedDate,
                 events = calendarEvents,
                 journals = snapshot.journals,
-                onDateChanged = { selectedDate = it },
+                onDateChanged = ::selectCalendarDate,
                 onDismiss = { showDayModal = false; route = PockRoute.Day },
                 onAdd = {
                     // Unmount the day sheet while Quick Add owns the
@@ -2218,7 +2233,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             snapshot = snapshot,
             accounts = calDavAccounts,
             selectedDate = selectedDate,
-            onDateChanged = { selectedDate = it },
+            onDateChanged = ::selectCalendarDate,
             onToggleCalendar = pocViewModel::onCalendarVisibilityChanged,
             onToggleCalendarTasks = pocViewModel::onCalendarTasksChanged,
             fixtureHiddenCalendarIds = fixtureHiddenCalendarIds,

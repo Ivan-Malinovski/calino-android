@@ -41,6 +41,7 @@ import biweekly.component.VEvent
 import java.io.Closeable
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
@@ -302,6 +303,34 @@ class CalDavRepository(
         if (windowMonths == months) return
         windowMonths = months
         reload(useCache = true)
+    }
+
+    /**
+     * Includes a date reached through calendar navigation in the next server
+     * read. The event REPORT's end is exclusive, so the upper boundary needs
+     * one additional month to include a date on that boundary.
+     *
+     * This intentionally grows the existing, today-anchored preference rather
+     * than replacing it with a narrow moving window. That keeps both sides of
+     * a person's navigation readable and gives a later refresh the same full
+     * snapshot/cache coverage. [loadAll] sees the wider interval and declines
+     * incremental sync, because a delta cannot discover an unseen one-off.
+     *
+     * @return true when a wider fetch was started.
+     */
+    fun extendWindowToInclude(date: LocalDate): Boolean {
+        val anchor = YearMonth.from(today())
+        val currentStart = anchor.minusMonths(windowMonths).atDay(1)
+        val currentEnd = anchor.plusMonths(windowMonths).atDay(1)
+        if (date >= currentStart && date < currentEnd) return false
+        val target = YearMonth.from(date)
+        val requiredMonths = kotlin.math.abs(
+            java.time.temporal.ChronoUnit.MONTHS.between(anchor, target),
+        ) + 1
+        if (requiredMonths <= windowMonths) return false
+        windowMonths = requiredMonths
+        reload(useCache = true)
+        return true
     }
 
     private fun reload(useCache: Boolean, restoreCacheImmediately: Boolean = false) {
