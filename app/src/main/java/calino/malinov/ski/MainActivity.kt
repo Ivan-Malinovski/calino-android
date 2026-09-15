@@ -237,7 +237,7 @@ import calino.malinov.ski.ui.surfaces.EventMenuAction
 import calino.malinov.ski.ui.surfaces.AiCandidateReview
 import calino.malinov.ski.ui.surfaces.AiProcessingOverlay
 import calino.malinov.ski.ui.surfaces.defaultEventDeleteScope
-import calino.malinov.ski.ui.surfaces.updateAiShortcut
+import calino.malinov.ski.ui.surfaces.updateLauncherShortcuts
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.LocalDate
@@ -344,6 +344,8 @@ class MainActivity : ComponentActivity() {
         private set
     var aiShortcutRequest by mutableIntStateOf(0)
         private set
+    var searchShortcutPending by mutableStateOf(false)
+        private set
 
     /**
      * A notification tap, waiting for a snapshot that can resolve it.
@@ -368,6 +370,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ReminderChannels.ensure(this)
+        consumeLauncherShortcut(intent)
         consumeAiIntent(intent)
         consumeReminderIntent(intent)
         consumeInteropIntent(intent)
@@ -378,6 +381,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        consumeLauncherShortcut(intent)
         consumeAiIntent(intent)
         consumeReminderIntent(intent)
         consumeInteropIntent(intent)
@@ -392,6 +396,12 @@ class MainActivity : ComponentActivity() {
     fun consumeReminderLink() { pendingReminderLink = null }
 
     fun consumeAgendaDate() { pendingAgendaDate = null }
+
+    fun consumeSearchShortcut() { searchShortcutPending = false }
+
+    private fun consumeLauncherShortcut(intent: Intent?) {
+        if (intent?.action == ActionSearch) searchShortcutPending = true
+    }
 
     private fun consumeReminderIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
@@ -449,6 +459,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private companion object {
+        const val ActionSearch = "calino.malinov.ski.action.SEARCH"
     }
 }
 
@@ -855,7 +869,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val activity = LocalActivity.current as? MainActivity ?: return
     val aiSettingsStore = remember { AiVisionSettingsStore(activity) }
     val aiClient = remember { AiVisionClient() }
-    LaunchedEffect(Unit) { updateAiShortcut(activity, aiSettingsStore.load().hasApiKey) }
+    LaunchedEffect(Unit) { updateLauncherShortcuts(activity, aiSettingsStore.load().hasApiKey) }
     var aiCandidates by remember { mutableStateOf<List<AiEventCandidate>?>(null) }
     var aiQueue by remember { mutableStateOf<List<AiEventCandidate>>(emptyList()) }
     var aiDraft by remember { mutableStateOf<EditorDraft?>(null) }
@@ -1007,6 +1021,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         quickAddKind = kind
         quickAddOrigin = origin
         route = PockRoute.QuickAdd
+    }
+
+    LaunchedEffect(activity.searchShortcutPending) {
+        if (!activity.searchShortcutPending) return@LaunchedEffect
+        activity.consumeSearchShortcut()
+        searchOriginRoute = route
+        sidebarVisible = false
+        searchVisible = true
     }
 
     /** The same editor, seeded from a record that already exists. */

@@ -58,6 +58,7 @@ class ReminderScheduleStoreTest {
         occurrenceDay = occurrenceDay,
         title = "Design review",
         subtitle = "10:00 · Studio",
+        location = "Studio, Copenhagen",
         minutesBefore = 10,
         anchor = at.plusSeconds(600),
     )
@@ -74,6 +75,17 @@ class ReminderScheduleStoreTest {
         assertEquals(firings, reloaded.firings)
         assertEquals(zone.id, reloaded.zoneId)
         assertEquals(now, reloaded.generatedAt)
+    }
+
+    @Test
+    fun `a schedule written before locations were stored still decodes`() {
+        val legacy = ReminderScheduleJson.encode(
+            ReminderSchedule(now, zone.id, listOf(firing("a", now.plusSeconds(3600)))),
+        ).replace("\"location\":\"Studio, Copenhagen\",", "")
+
+        val decoded = ReminderScheduleJson.decode(legacy)
+        assertEquals(1, decoded?.firings?.size)
+        assertNull(decoded?.firings?.single()?.location)
     }
 
     @Test

@@ -57,6 +57,17 @@ class ReminderPlannerTest {
         assertEquals(instantAt(start.toLocalDate(), LocalTime.of(10, 0)), firing.anchor)
         assertEquals(start.toLocalDate().toEpochDay(), firing.occurrenceDay)
         assertEquals(10, firing.minutesBefore)
+        assertEquals("Studio", firing.location)
+    }
+
+    @Test
+    fun `blank event locations do not produce a directions target`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val firing = plan(
+            events = listOf(event(start = start, location = "  ", reminders = listOf(Reminder(10)))),
+        ).single()
+
+        assertEquals(null, firing.location)
     }
 
     @Test
@@ -230,6 +241,7 @@ class ReminderPlannerTest {
         date: LocalDate? = null,
         recurrence: String? = null,
         calendarId: String = "work",
+        location: String? = "Studio",
         reminders: List<Reminder> = emptyList(),
     ) = CalEvent(
         id = id,
@@ -240,7 +252,7 @@ class ReminderPlannerTest {
         allDay = allDay,
         date = date,
         recurrence = recurrence,
-        location = "Studio",
+        location = location,
         calendarId = calendarId,
         reminders = reminders,
         uid = id.substringBefore('@'),

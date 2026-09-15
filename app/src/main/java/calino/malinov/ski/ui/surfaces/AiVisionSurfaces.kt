@@ -119,7 +119,7 @@ fun AiVisionSettingsPage() {
         store.saveConfig(settings.provider, settings.baseUrl, settings.model)
         if (keyDraft.isNotBlank()) { store.saveApiKey(keyDraft); keyDraft = "" }
         settings = store.load()
-        updateAiShortcut(context, settings.hasApiKey)
+        updateLauncherShortcuts(context, settings.hasApiKey)
     }
     fun fetchModels() {
         persist()
@@ -154,7 +154,7 @@ fun AiVisionSettingsPage() {
                 }
                 TextField(settings.baseUrl, { settings = settings.copy(baseUrl = it) }, label = { Text("Base URL") }, supportingText = { Text("Full API root including /v1; used exactly as entered") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 TextField(keyDraft, { keyDraft = it }, label = { Text("API key") }, placeholder = { Text(if (settings.hasApiKey) "••••••••••••" else "Enter API key") }, visualTransformation = if (revealKey) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { TextButton(onClick = { revealKey = !revealKey }) { Text(if (revealKey) "Hide" else "Show") } }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                if (settings.hasApiKey) TextButton(onClick = { store.clearApiKey(); updateAiShortcut(context, false); settings = store.load(); status = "API key cleared" }) { Text("Clear saved key") }
+                if (settings.hasApiKey) TextButton(onClick = { store.clearApiKey(); updateLauncherShortcuts(context, false); settings = store.load(); status = "API key cleared" }) { Text("Clear saved key") }
                 Text("Model", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) {
@@ -579,11 +579,32 @@ private fun aiDateLabel(item: AiEventCandidate, timeFormat: CalinoTimeFormat, ki
     return (if (kind == "task") "Due " else "") + "$startText – $endText"
 }
 
-fun updateAiShortcut(context: Context, enabled: Boolean) {
+fun updateLauncherShortcuts(context: Context, aiPhotoImportEnabled: Boolean) {
     val manager = context.getSystemService(ShortcutManager::class.java) ?: return
-    if (!enabled) { manager.removeDynamicShortcuts(listOf("ai-photo-import")); return }
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("calino.malinov.ski://ai-photo-import"), context, MainActivity::class.java)
-    val shortcut = ShortcutInfo.Builder(context, "ai-photo-import").setShortLabel("Photo import").setLongLabel("Import event from photo")
-        .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_camera)).setIntent(intent).build()
-    manager.dynamicShortcuts = listOf(shortcut)
+    val shortcuts = mutableListOf(
+        ShortcutInfo.Builder(context, "new-event")
+            .setShortLabel("New event")
+            .setLongLabel("Create a new event")
+            .setIcon(Icon.createWithResource(context, android.R.drawable.ic_input_add))
+            .setIntent(Intent(Intent.ACTION_INSERT, null, context, MainActivity::class.java))
+            .setRank(0)
+            .build(),
+        ShortcutInfo.Builder(context, "search")
+            .setShortLabel("Search")
+            .setLongLabel("Search Calino")
+            .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_search))
+            .setIntent(Intent("calino.malinov.ski.action.SEARCH", null, context, MainActivity::class.java))
+            .setRank(1)
+            .build(),
+    )
+    if (aiPhotoImportEnabled) {
+        shortcuts += ShortcutInfo.Builder(context, "ai-photo-import")
+            .setShortLabel("Photo import")
+            .setLongLabel("Import event from photo")
+            .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_camera))
+            .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("calino.malinov.ski://ai-photo-import"), context, MainActivity::class.java))
+            .setRank(2)
+            .build()
+    }
+    manager.dynamicShortcuts = shortcuts
 }

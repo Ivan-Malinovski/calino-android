@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import calino.malinov.ski.MainActivity
 import calino.malinov.ski.R
+import calino.malinov.ski.ui.components.eventLocationIntent
 
 /**
  * Posting a reminder, and taking it away again.
@@ -44,6 +45,10 @@ class ReminderNotifier(private val context: Context) {
             .setAutoCancel(true)
             .setContentIntent(openIntent(firing))
             .addAction(0, "Snooze 5 min", actionIntent(firing, ReminderActions.Snooze))
+
+        directionsIntent(firing)?.let { intent ->
+            builder.addAction(0, "Directions", intent)
+        }
 
         if (firing.kind == ReminderKind.Task) {
             builder
@@ -132,7 +137,22 @@ class ReminderNotifier(private val context: Context) {
         )
     }
 
+    private fun directionsIntent(firing: ReminderFiring): PendingIntent? {
+        if (firing.kind != ReminderKind.Event) return null
+        val mapIntent = eventLocationIntent(firing.location) ?: return null
+        val chooser = Intent.createChooser(mapIntent, "Open location in maps").apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        return PendingIntent.getActivity(
+            context,
+            (firing.notificationId + DirectionsRequestKey.hashCode()) and 0x7fffffff,
+            chooser,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
     private companion object {
         const val ConfirmationTimeoutMillis = 8_000L
+        const val DirectionsRequestKey = "directions"
     }
 }

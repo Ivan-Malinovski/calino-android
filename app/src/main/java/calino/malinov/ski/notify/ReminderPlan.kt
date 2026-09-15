@@ -48,6 +48,8 @@ data class ReminderFiring(
     val occurrenceDay: Long? = null,
     val title: String,
     val subtitle: String,
+    /** Event LOCATION, retained so a receiver can offer directions after process death. */
+    val location: String? = null,
     val minutesBefore: Int,
     val anchor: Instant,
 ) {
@@ -154,6 +156,7 @@ object ReminderPlanner {
                     occurrenceDay = start.toLocalDate().toEpochDay(),
                     title = title,
                     subtitle = eventSubtitle(start, zone),
+                    location = location?.trim()?.takeIf { it.isNotEmpty() },
                     minutesBefore = reminder.minutesBefore,
                     anchor = anchor,
                 )
