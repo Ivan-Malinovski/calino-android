@@ -24,6 +24,8 @@ data class CalinoFoldPosture(
     val isVerticalHinge: Boolean,
     val hingeStartDp: Float?,
     val hingeEndDp: Float?,
+    /** True only when WindowManager has identified a physical folding feature. */
+    val hasFoldingFeature: Boolean = false,
 ) {
     val isSeparating: Boolean get() = hingeStartDp != null && hingeEndDp != null
 
@@ -61,6 +63,7 @@ fun foldPostureOf(
         isVerticalHinge = isVerticalHinge,
         hingeStartDp = if (separating) hingeStartDp else null,
         hingeEndDp = if (separating) hingeEndDp else null,
+        hasFoldingFeature = true,
     )
 }
 

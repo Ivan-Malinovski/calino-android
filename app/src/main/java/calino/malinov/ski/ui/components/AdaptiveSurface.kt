@@ -269,7 +269,15 @@ fun AdaptiveSurfaceHost(
         val splitProgress by remember(hingeOpenness) {
             derivedStateOf { foldSplitProgress(hingeOpenness?.value ?: 1f) }
         }
-        val intermediateFold = !layoutSpec.splitPanes && splitProgress > 0f
+        // Some ordinary phones expose a hinge-angle sensor (or report a
+        // stale zero reading) without WindowManager reporting a folding
+        // feature. The sensor alone is not layout authority: otherwise every
+        // portrait sheet is moved into a phantom right pane. It only smooths
+        // the transition on a window WindowManager has identified as foldable.
+        val intermediateFold =
+            layoutSpec.mode == calino.malinov.ski.state.CalinoLayoutMode.Single &&
+                LocalFoldPosture.current.hasFoldingFeature &&
+                splitProgress > 0f
         val paneWidth = if (intermediateFold) {
             lerpDp(maxWidth, ((maxWidth - 44.dp) / 2f).coerceAtLeast(1.dp), splitProgress)
         } else targetPane.widthDp.dp.coerceAtLeast(1.dp)

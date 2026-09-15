@@ -36,6 +36,12 @@ class FoldPostureTest {
         assertEquals(CalinoFoldState.Flat, posture.state)
         assertNull(posture.hingeStartDp)
         assertFalse(posture.isBookPosture)
+        assertTrue(posture.hasFoldingFeature)
+    }
+
+    @Test
+    fun `a normal phone posture has no folding feature`() {
+        assertFalse(CalinoFoldPosture.None.hasFoldingFeature)
     }
 
     @Test
