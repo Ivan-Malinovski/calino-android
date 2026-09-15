@@ -30,6 +30,12 @@ android {
     buildFeatures { compose = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     buildTypes {
+        getByName("debug") {
+            // Keep the signed debug app installable beside the production
+            // application instead of having one replace the other.
+            applicationIdSuffix = ".nativeDebug"
+            versionNameSuffix = "-debug"
+        }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true

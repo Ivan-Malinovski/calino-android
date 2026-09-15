@@ -11,7 +11,8 @@ connected.
 
 ## What’s here
 
-- APK/application ID: `calino.malinov.ski`
+- Release APK/application ID: `calino.malinov.ski`
+- Debug APK/application ID: `calino.malinov.ski.nativeDebug` (installable beside release)
 - App label: `Calino`
 - With no account connected, the app uses a frozen May 2026 fixture. A
   connected account uses CalDAV/CardDAV for events, tasks, journal entries,
@@ -81,7 +82,11 @@ From the repository root:
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The generated APK is `app/build/outputs/apk/debug/app-debug.apk`.
+The generated debug APK is `app/build/outputs/apk/debug/app-debug.apk` and is
+labelled **Calino Debug**. Release remains `calino.malinov.ski`; debug is
+`calino.malinov.ski.nativeDebug`, so both can be installed at once. Release signing
+is not configured yet, so `assembleRelease` produces an unsigned release APK
+until a release key is added.
 
 The app is routinely validated on the `calino-poc-api36` API 36 emulator for
 build, unit tests, install/launch, and accessibility hierarchy. Live CalDAV and

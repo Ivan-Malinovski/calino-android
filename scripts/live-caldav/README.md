@@ -97,7 +97,7 @@ END:VCALENDAR
 Then watch the device side:
 
 ```bash
-adb -s emulator-5554 shell run-as calino.malinov.ski cat files/reminder-schedule.json
-adb -s emulator-5554 shell dumpsys alarm | grep -A3 calino.malinov.ski
+adb -s emulator-5554 shell run-as calino.malinov.ski.nativeDebug cat files/reminder-schedule.json
+adb -s emulator-5554 shell dumpsys alarm | grep -A3 calino.malinov.ski.nativeDebug
 adb -s emulator-5554 shell cmd notification list | grep -i calino
 ```
