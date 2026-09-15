@@ -66,8 +66,13 @@ import java.time.LocalDate
 /** Narrow: the range surfaces, 3-7 columns share the width. Wide: the single-day rail. */
 enum class AllDayBandDensity { Narrow, Wide }
 
-private val NarrowLaneHeight = 28.dp
+// Range view only: keep the all-day/task shelf subordinate to the timed grid.
+// 20dp is ~30% shorter than the old 28dp lanes; the wide day rail retains its
+// roomier sizing below.
+private val NarrowLaneHeight = 20.dp
 private val WideLaneHeight = 22.dp
+private val NarrowOverflowHeight = 16.dp
+private val WideOverflowHeight = 44.dp
 private val WideChipMinWidth = 150.dp
 private val WideChipGap = 6.dp
 private val NarrowChipFontSize = 9.sp
@@ -208,6 +213,7 @@ fun AllDayBand(
                 overflowEventCount = layout.overflowEventCount,
                 overflowTaskCount = layout.overflowTaskCount,
                 gutterWidth = gutterWidth,
+                density = density,
                 onToggle = { onExpandedChange(!expanded) },
             )
         }
@@ -345,7 +351,7 @@ private fun AllDayTaskChip(
     // The dot is drawn small in the middle of a larger tap target, which
     // leaves visible dead space on its trailing edge. Pull the title back
     // into that space rather than starting it at the tap target's own edge.
-    val textPullLeft = if (narrow) 4.dp else 6.dp
+    val textPullLeft = if (narrow) 3.5.dp else 6.dp
     // Not merged with descendants: the checkbox below keeps its own,
     // independently queryable description and click target rather than being
     // folded into this row's.
@@ -407,7 +413,10 @@ private fun AllDayTaskChip(
         }
         Text(
             task.title,
-            Modifier.weight(1f).offset(x = -textPullLeft).padding(start = textStartPadding),
+            Modifier
+                .weight(1f)
+                .offset(x = -textPullLeft, y = if (narrow) (-0.5).dp else 0.dp)
+                .padding(start = textStartPadding),
             fontSize = fontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -423,6 +432,7 @@ private fun AllDayOverflowRow(
     overflowEventCount: Int,
     overflowTaskCount: Int,
     gutterWidth: Dp,
+    density: AllDayBandDensity,
     onToggle: () -> Unit,
 ) {
     val chevronRotation by animateFloatAsState(
@@ -437,12 +447,13 @@ private fun AllDayOverflowRow(
     }.joinToString(", ")
     val label = if (expanded) "Show less" else "$overflowTotal more · $summary"
     val description = if (expanded) "Show fewer all-day items" else "Show $overflowTotal more all-day items"
+    val rowHeight = if (density == AllDayBandDensity.Narrow) NarrowOverflowHeight else WideOverflowHeight
 
     Row(
         Modifier
             .fillMaxWidth()
             .padding(start = gutterWidth, end = CalinoSpacing.LaneEdge)
-            .heightIn(min = 44.dp)
+            .heightIn(min = rowHeight, max = rowHeight)
             .clip(RoundedCornerShape(8.dp))
             .clickable { onToggle() }
             .semantics(mergeDescendants = true) { contentDescription = description },
