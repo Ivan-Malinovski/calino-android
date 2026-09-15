@@ -364,7 +364,14 @@ fun AdaptiveSurfaceHost(
             CalinoSurfaceMode.BottomSheet ->
                 Modifier
                     .align(Alignment.TopStart)
-                    .absoluteOffset(x = paneLeft, y = paneTop + (paneHeight - bottomHeight).coerceAtLeast(0.dp))
+                    // Keep the sheet's existing size, but lift it through
+                    // part of the spare vertical room. Bottom-anchoring put
+                    // its tail almost against Android's gesture pill; fully
+                    // centring that allowance made the card sit too high.
+                    .absoluteOffset(
+                        x = paneLeft,
+                        y = paneTop + (paneHeight - bottomHeight).coerceAtLeast(0.dp) * .70f,
+                    )
                     .padding(vertical = 8.dp)
                     .width(paneWidth)
                     .height(bottomHeight)
