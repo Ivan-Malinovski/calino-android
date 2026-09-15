@@ -2596,6 +2596,15 @@ fun ModalActionPill(
     val addAlpha = ((.55f - progress) / .55f).coerceIn(0f, 1f)
     val actionsAlpha = ((progress - .45f) / .55f).coerceIn(0f, 1f)
     val actionsLive = progress > .5f
+    // Keep layout and backdrop sampling inside their stable 0..1 bounds, but
+    // let the spring's first overshoot show as a small rendered settle. Using
+    // the raw spring only here makes the bounce readable without briefly
+    // widening the blur footprint (which changes the pill's apparent tone).
+    val arrivalScale = if (expanded) {
+        1f + ((morph.value - 1f) * 1.5f).coerceIn(0f, .025f)
+    } else {
+        1f
+    }
 
     val addForm: @Composable () -> Unit = {
         Row(
@@ -2690,6 +2699,10 @@ fun ModalActionPill(
     Layout(
         contents = listOf(addForm, actionsForm),
         modifier = modifier
+            .graphicsLayer {
+                scaleX = arrivalScale
+                scaleY = arrivalScale
+            }
             // A record saved from a modal is written while this pill is still
             // morphing back, so the trace runs on whatever shape is in the
             // lane rather than waiting for the root pill to take it over.
