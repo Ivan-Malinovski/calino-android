@@ -1703,7 +1703,10 @@ private fun Modifier.floatingPillSurface(
                     translate(-offset.x, -offset.y) { drawLayer(backdrop) }
                 }
                 drawLayer(blurred)
-                drawRect(fill.copy(alpha = .86f))
+                // Keep the recorded surface legible through the glass. The
+                // wider undo state made the old near-opaque wash read as a
+                // solid bar rather than as the same translucent add pill.
+                drawRect(fill.copy(alpha = .68f))
             } else {
                 drawRect(fill)
             }
