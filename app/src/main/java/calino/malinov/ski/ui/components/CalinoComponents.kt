@@ -1683,6 +1683,8 @@ fun SectionLabel(text: String, count: Int? = null, modifier: Modifier = Modifier
  * The caller records [backdrop]; the pill must be a sibling of that recording,
  * never a child, or the layer would recurse into itself.
  */
+private const val FloatingPillFillAlpha = .68f
+
 @Composable
 private fun Modifier.floatingPillSurface(
     backdrop: GraphicsLayer?,
@@ -1706,9 +1708,13 @@ private fun Modifier.floatingPillSurface(
                 // Keep the recorded surface legible through the glass. The
                 // wider undo state made the old near-opaque wash read as a
                 // solid bar rather than as the same translucent add pill.
-                drawRect(fill.copy(alpha = .68f))
+                drawRect(fill.copy(alpha = FloatingPillFillAlpha))
             } else {
-                drawRect(fill)
+                // The backdrop is deliberately unavailable for the brief
+                // root/modal ownership handoff (and blur is unavailable
+                // before API 31). Keep the wash at the same opacity so those
+                // frames do not flash darker than the surrounding glass.
+                drawRect(fill.copy(alpha = FloatingPillFillAlpha))
             }
         }
 }
