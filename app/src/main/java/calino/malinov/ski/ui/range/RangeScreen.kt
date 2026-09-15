@@ -468,10 +468,13 @@ private fun RangePage(
                 stripHeight = with(density) { size.height.toDp() }
             },
         ) {
-            Row(Modifier.fillMaxWidth().padding(start = CalinoSpacing.RailGutter, end = 4.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = CalinoSpacing.RailGutter + CalinoSpacing.RailColumnGap),
+                horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
+            ) {
                 days.forEach { day ->
                     Column(
-                        Modifier.weight(1f).padding(horizontal = CalinoSpacing.RailColumnGap),
+                        Modifier.weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()).uppercase(), fontSize = 10.sp, color = CalinoColors.Ink3)
@@ -491,8 +494,9 @@ private fun RangePage(
                 days = days,
                 layout = bandLayout,
                 density = AllDayBandDensity.Narrow,
-                gutterWidth = CalinoSpacing.RailGutter,
+                gutterWidth = CalinoSpacing.RailGutter + CalinoSpacing.RailColumnGap,
                 columnGap = CalinoSpacing.RailColumnGap,
+                edgeWidth = 0.dp,
                 expanded = bandExpanded,
                 onExpandedChange = { bandExpanded = it },
                 onEventClick = onEventClick,

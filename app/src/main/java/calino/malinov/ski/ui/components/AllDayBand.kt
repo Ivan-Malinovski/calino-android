@@ -91,6 +91,7 @@ fun AllDayBand(
     density: AllDayBandDensity,
     gutterWidth: Dp,
     columnGap: Dp,
+    edgeWidth: Dp = CalinoSpacing.LaneEdge,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onEventClick: (LocalDate, CalEvent) -> Unit,
@@ -134,7 +135,7 @@ fun AllDayBand(
                 modifier = Modifier.fillMaxWidth(),
             ) { measurables, constraints ->
                 val gutterPx = gutterWidth.roundToPx()
-                val edgePx = CalinoSpacing.LaneEdge.roundToPx()
+                val edgePx = edgeWidth.roundToPx()
                 val gapPx = columnGap.roundToPx()
                 val columnCount = days.size.coerceAtLeast(1)
                 val available = (constraints.maxWidth - gutterPx - edgePx - gapPx * (columnCount - 1)).coerceAtLeast(0)

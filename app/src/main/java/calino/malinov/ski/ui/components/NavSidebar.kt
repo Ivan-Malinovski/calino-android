@@ -262,7 +262,7 @@ fun NavSidebar(
                                 .fillMaxWidth()
                                 .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.Start),
                         ) {
                             // Match the web sidebar brand: an 11dp accent diamond
                             // with a theme-aware accent focus ring.

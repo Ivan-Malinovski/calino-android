@@ -1338,7 +1338,6 @@ fun CalinoMonthHeading(
                 }
             }
         }
-        trailingContent?.invoke()
         CalendarSyncBadge()
         if (showTodayButton) {
             val todayAlpha by animateFloatAsState(
@@ -1360,6 +1359,7 @@ fun CalinoMonthHeading(
                     ),
             ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
         }
+        trailingContent?.invoke()
         if (showNavigationArrows) {
             IconButton(
                 onClick = onNextMonth,
