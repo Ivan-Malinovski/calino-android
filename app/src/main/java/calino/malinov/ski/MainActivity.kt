@@ -855,9 +855,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var splitMonthLayoutVisible by remember { mutableStateOf(false) }
     var journalEntryRequest by rememberSaveable { mutableIntStateOf(0) }
     var contactRequest by rememberSaveable { mutableIntStateOf(0) }
-    var pendingUndo by remember { mutableStateOf<UndoableChange?>(null) }
-    var displayedUndo by remember { mutableStateOf<UndoableChange?>(null) }
-    var undoNonce by remember { mutableIntStateOf(0) }
     var writeError by remember { mutableStateOf<String?>(null) }
     var importBatch by remember { mutableStateOf<IcsImportBatch?>(null) }
     var importCalendarId by remember { mutableStateOf<String?>(null) }
@@ -993,9 +990,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         else -> route
     }
 
-    LaunchedEffect(pendingUndo) {
-        pendingUndo?.let { displayedUndo = it }
-    }
     LaunchedEffect(writeError) {
         val message = writeError ?: return@LaunchedEffect
         delay(5_000)
@@ -1106,8 +1100,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     }
 
     fun showUndo(change: UndoableChange) {
-        pendingUndo = change
-        undoNonce += 1
+        // Named on the add pill rather than a banner of its own: the pill
+        // already narrates the deliberate saves it starts, and an undoable
+        // change from elsewhere on screen is the same kind of outcome.
+        savePillLane.showUndo(change.description, writeScope) {
+            launchWrite({ repository.undo(change) })
+        }
     }
 
     fun openTaskDetail(task: CalTask, origin: PocReturnTarget) {
@@ -2052,24 +2050,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     )
                 }
             }
-            androidx.compose.animation.AnimatedVisibility(
-                visible = pendingUndo != null,
-                enter = slideInVertically(tween(200), initialOffsetY = { it / 2 }) + fadeIn(tween(170)),
-                exit = slideOutVertically(tween(170), targetOffsetY = { it / 2 }) + fadeOut(tween(130)),
-            ) {
-                displayedUndo?.let { change ->
-                    PocUndoBanner(
-                        change = change,
-                        nonce = undoNonce,
-                        onUndo = {
-                            launchWrite({ repository.undo(change) }) {
-                                pendingUndo = null
-                            }
-                        },
-                        onExpired = { if (pendingUndo == change) pendingUndo = null },
-                    )
-                }
-            }
         }
 
         // The add affordance floats over the surfaces instead of taking
@@ -2430,37 +2410,6 @@ private fun rememberRepositorySnapshot(repository: CalinoRepository): CalinoSnap
         onDispose { subscription.close() }
     }
     return snapshot
-}
-
-/**
- * The global undo banner, addressed by tag.
- *
- * Its message is written by the repository rather than by the UI, so a device
- * test cannot assert "a banner is showing" from a literal without pinning a
- * string that is not this file's to keep.
- */
-const val UndoBannerTag = "undo-banner"
-
-@Composable
-private fun PocUndoBanner(
-    change: UndoableChange,
-    nonce: Int,
-    onUndo: () -> Unit,
-    onExpired: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    LaunchedEffect(nonce) {
-        delay(5_000)
-        onExpired()
-    }
-    CalinoToast(
-        message = change.description,
-        icon = CalinoIcon.Check,
-        actionLabel = "Undo",
-        actionDescription = "Undo: ${change.description}",
-        onAction = onUndo,
-        modifier = modifier.testTag(UndoBannerTag),
-    )
 }
 
 @Composable

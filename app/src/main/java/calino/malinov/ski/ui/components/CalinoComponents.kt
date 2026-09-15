@@ -1833,6 +1833,8 @@ private data class PillLabelState(
     val kind: PillWriteKind,
     val text: String,
     val previewing: Boolean,
+    /** What an undo offer standing in the lane names, or null when none is. */
+    val undo: String? = null,
 )
 
 /** The add pill's own text style, shared by the label and its swipe pair. */
@@ -1911,6 +1913,17 @@ fun AddPill(
     // "Saved" for a beat. Nothing new appears above the lane to say so.
     val saveState = lane.saveState
     val writeKind = lane.writeKind
+    val laneUndo = lane.undo
+    val currentOnUndo by rememberUpdatedState(laneUndo?.onUndo)
+    // swipeLabels names both days even at rest, where they're the same day
+    // twice -- only a live drag actually makes them differ, and that's the
+    // hand-on-the-pill case an undo offer has to yield to.
+    val swipePreviewing = swipeLabels != null && swipeLabels.first != swipeLabels.second
+    // An undo offer only takes the label over when nothing else already
+    // owns it: a deliberate save narrates its own outcome, a live swipe or
+    // an armed delete confirmation is the person's hand still on the pill.
+    val undoActive = laneUndo != null && saveState == PillSaveState.Idle &&
+        !confirmationActive && !swipePreviewing
     val saveTrace = rememberPillSaveTrace()
     val deleteCountdown = remember { Animatable(0f) }
     val haptics = LocalHapticFeedback.current
@@ -2015,6 +2028,12 @@ fun AddPill(
                         } else if (confirmationActive) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             currentOnConfirmed()
+                        } else if (undoActive) {
+                            // The body of the pill is inert while it is
+                            // naming an undoable change -- only the Undo
+                            // word itself, below, acts -- so a stray tap
+                            // reading it can't launch the add sheet.
+                            Unit
                         } else {
                             currentOnClick()
                         }
@@ -2026,7 +2045,7 @@ fun AddPill(
                     detectDragGestures(
                         onDragStart = { horizontal = false; vertical = false },
                         onDragEnd = {
-                            if (confirmationActive) {
+                            if (confirmationActive || undoActive) {
                                 settle()
                                 return@detectDragGestures
                             }
@@ -2039,7 +2058,7 @@ fun AddPill(
                         },
                         onDragCancel = { settle() },
                     ) { change, amount ->
-                        if (confirmationActive) return@detectDragGestures
+                        if (confirmationActive || undoActive) return@detectDragGestures
                         if (!horizontal && !vertical) {
                             horizontal = abs(amount.x) >= abs(amount.y)
                             vertical = !horizontal
@@ -2056,11 +2075,19 @@ fun AddPill(
                         }
                     }
                 }
-                .semantics(mergeDescendants = true) {
-                    contentDescription = when (saveState) {
-                        PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) "Removing" else "Saving"
-                        PillSaveState.Saved -> if (writeKind == PillWriteKind.Remove) "Removed" else "Saved"
-                        PillSaveState.Idle -> if (confirmationActive) "Confirm delete event" else "$label. Swipe up to search"
+                // Undo needs two independently reachable things -- the
+                // outcome, announced as it lands, and a separately focusable
+                // Undo button -- so it stops merging the row into the one
+                // node every other state collapses into.
+                .semantics(mergeDescendants = !undoActive) {
+                    if (undoActive) {
+                        liveRegion = LiveRegionMode.Polite
+                    } else {
+                        contentDescription = when (saveState) {
+                            PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) "Removing" else "Saving"
+                            PillSaveState.Saved -> if (writeKind == PillWriteKind.Remove) "Removed" else "Saved"
+                            PillSaveState.Idle -> if (confirmationActive) "Confirm delete event" else "$label. Swipe up to search"
+                        }
                     }
                 }
                 .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
@@ -2073,7 +2100,7 @@ fun AddPill(
             // showing the other. It shows both, positioned by the page.
             val shownLabel = if (confirmationActive) confirmationLabel else swipeLabels?.first ?: label
             val directionalLabel = saveState == PillSaveState.Idle &&
-                !confirmationActive && swipeLabels == null && labelSlideDirection != 0
+                !confirmationActive && swipeLabels == null && !undoActive && labelSlideDirection != 0
             // Whether a swipe owns the label motion travels *in* the state,
             // not beside it. Held in a state the effects write after the fact,
             // transitionSpec would read the previous composition's value and
@@ -2090,6 +2117,7 @@ fun AddPill(
                     writeKind,
                     if (directionalLabel) DirectionalPillLabelKey else shownLabel,
                     previewing = swipeLabels != null && swipeLabels.first != swipeLabels.second,
+                    undo = if (undoActive) laneUndo?.message else null,
                 ),
                 transitionSpec = {
                     val sameState = initialState.save == targetState.save &&
@@ -2123,7 +2151,7 @@ fun AddPill(
                     }
                 },
                 label = "add pill label",
-            ) { (state, kind, text) ->
+            ) { (state, kind, text, _, undoMessage) ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2139,7 +2167,17 @@ fun AddPill(
                             modifier = Modifier.size(19.dp),
                             contentDescription = null,
                         )
-                        PillSaveState.Idle -> if (!confirmationActive) {
+                        PillSaveState.Idle -> if (undoMessage != null) {
+                            // The same outcome icon a deliberate save lands
+                            // in Saved -- this is that same kind of report,
+                            // just started somewhere else on screen.
+                            CalinoIcon(
+                                CalinoIcon.Check,
+                                tint = CalinoColors.Green,
+                                modifier = Modifier.size(19.dp),
+                                contentDescription = null,
+                            )
+                        } else if (!confirmationActive) {
                             CalinoIcon(
                                 CalinoIcon.Plus,
                                 tint = CalinoColors.OnFloat,
@@ -2153,7 +2191,31 @@ fun AddPill(
                         PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
                         PillSaveState.Idle -> text
                     }
-                    if (state == PillSaveState.Idle && swipeLabels != null && !confirmationActive) {
+                    if (state == PillSaveState.Idle && undoMessage != null) {
+                        PillLabelText(
+                            undoMessage,
+                            // Capped rather than weighted: this row is not
+                            // itself width-constrained -- the pill sizes to
+                            // it -- so an uncapped title would grow the
+                            // pill to match instead of giving way to Undo.
+                            modifier = Modifier.widthIn(max = 240.dp),
+                        )
+                        Text(
+                            "Undo",
+                            color = CalinoColors.Accent,
+                            fontSize = 15.sp,
+                            lineHeight = 20.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .calinoPressable(pressedScale = .92f, role = Role.Button) {
+                                    currentOnUndo?.invoke()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 10.dp)
+                                .semantics { contentDescription = "Undo: $undoMessage" },
+                        )
+                    } else if (state == PillSaveState.Idle && swipeLabels != null && !confirmationActive) {
                         // Only the part that actually differs moves. Both
                         // labels are "Add on <day>", and sliding the whole
                         // string sends "Add on" out of the pill and back for

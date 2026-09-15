@@ -154,6 +154,11 @@ class CalinoPillLane {
      * restarting the trace.
      */
     fun saveStarted(kind: PillWriteKind = PillWriteKind.Save) {
+        // A deliberate save is the more urgent thing happening on the pill.
+        // An undo offer from elsewhere on screen folds away rather than
+        // fighting it for the same label.
+        undoJob?.cancel()
+        undo = null
         settleJob?.cancel()
         settleJob = null
         writesInFlight += 1
@@ -192,6 +197,35 @@ class CalinoPillLane {
         }
     }
 
+    /**
+     * An outcome from elsewhere on screen -- a task checked off, an event
+     * reopened -- named on the add pill instead of a floating banner, with
+     * the one way back for [UndoHoldMillis] before it settles into whatever
+     * the pill would otherwise be showing.
+     */
+    var undo by mutableStateOf<PillUndoState?>(null)
+        private set
+
+    private var undoJob: Job? = null
+
+    /**
+     * Shows [message] on the pill with an Undo action. A second call
+     * replaces whatever the pill currently names rather than queuing behind
+     * it -- only the most recent change is ever one tap away, matching the
+     * banner this replaced.
+     */
+    fun showUndo(message: String, scope: CoroutineScope, onUndo: () -> Unit) {
+        undoJob?.cancel()
+        undo = PillUndoState(message) {
+            undo = null
+            onUndo()
+        }
+        undoJob = scope.launch {
+            delay(UndoHoldMillis)
+            undo = null
+        }
+    }
+
     internal fun claim() {
         claims += 1
         handingBack = false
@@ -218,6 +252,9 @@ class CalinoPillLane {
 /** Where a write is in the lane's one-object report on it. */
 enum class PillSaveState { Idle, Saving, Saved }
 
+/** An undo offer standing in the lane: what to say, and the one way back. */
+data class PillUndoState(val message: String, val onUndo: () -> Unit)
+
 /**
  * What the write is doing to the record, which is all that separates the two
  * reports: same trace, same timing, different word and different colour on the
@@ -234,6 +271,9 @@ const val MinSavingMillis = 450L
 
 /** How long the pill holds its outcome before turning back into "Add event". */
 const val SavedHoldMillis = 1600L
+
+/** How long an undo offer stands in the lane before it withdraws itself. */
+const val UndoHoldMillis = 5_000L
 
 /** The lane the surrounding screen provides; a default keeps previews working. */
 val LocalCalinoPillLane = staticCompositionLocalOf { CalinoPillLane() }
