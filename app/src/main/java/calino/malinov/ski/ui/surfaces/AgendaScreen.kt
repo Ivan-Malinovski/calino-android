@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -195,6 +196,13 @@ fun AgendaScreen(
             AgendaMonthPage(
                 month = monthForPage(page),
                 selected = selected,
+                reportsFocusedDate = page == pagerState.settledPage && !pagerState.isScrollInProgress,
+                onFocusedDateChanged = { day ->
+                    if (day.toEpochDay() != currentSelectedEpoch.value) {
+                        selectedEpoch = day.toEpochDay()
+                        onDateChanged(day)
+                    }
+                },
                 events = events,
                 tasks = tasks,
                 onEventClick = onEventClick,
@@ -235,6 +243,8 @@ fun AgendaScreen(
 private fun AgendaMonthPage(
     month: YearMonth,
     selected: LocalDate,
+    reportsFocusedDate: Boolean,
+    onFocusedDateChanged: (LocalDate) -> Unit,
     events: List<CalEvent>,
     tasks: List<CalTask>,
     onEventClick: ((LocalDate, CalEvent) -> Unit)?,
@@ -255,6 +265,36 @@ private fun AgendaMonthPage(
         days.associateWith { day -> tasksDueOn(visible, day) }.filterValues { it.isNotEmpty() }
     }
     val listState = rememberLazyListState()
+    var initialPositioningComplete by remember(month) { mutableStateOf(false) }
+    val focusedDay by remember(listState, days) {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            val visible = layout.visibleItemsInfo
+            if (visible.isEmpty()) return@derivedStateOf null
+
+            val viewportStart = layout.viewportStartOffset
+            val viewportEnd = layout.viewportEndOffset
+            val focusLine = viewportStart + ((viewportEnd - viewportStart) * AgendaFocusLineFromTop).roundToInt()
+            val focusedIndex = visible.firstOrNull { item ->
+                focusLine >= item.offset && focusLine < item.offset + item.size
+            }?.index ?: visible.minByOrNull { item ->
+                when {
+                    focusLine < item.offset -> item.offset - focusLine
+                    focusLine >= item.offset + item.size -> focusLine - (item.offset + item.size)
+                    else -> 0
+                }
+            }?.index
+            focusedIndex?.let(days::getOrNull)
+        }
+    }
+
+    val currentOnFocusedDateChanged = rememberUpdatedState(onFocusedDateChanged)
+    LaunchedEffect(listState, reportsFocusedDate, initialPositioningComplete) {
+        if (!reportsFocusedDate || !initialPositioningComplete) return@LaunchedEffect
+        snapshotFlow { focusedDay }
+            .distinctUntilChanged()
+            .collect { day -> day?.let(currentOnFocusedDateChanged.value) }
+    }
 
     // Entering the agenda from a chosen date should land on that date rather
     // than on the first of the month. Only the page that owns it scrolls.
@@ -262,11 +302,14 @@ private fun AgendaMonthPage(
         if (YearMonth.from(selected) == month && selected.dayOfMonth > 1) {
             listState.scrollToItem(selected.dayOfMonth - 1)
         }
+        initialPositioningComplete = true
     }
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .then(if (reportsFocusedDate) Modifier.testTag("agenda-month-list") else Modifier),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = CalinoSpacing.PillClearance),
     ) {
         items(days.size, key = { days[it].toEpochDay() }) { index ->
@@ -291,6 +334,9 @@ private fun AgendaMonthPage(
         }
     }
 }
+
+/** The reading line sits 70% upward from the bottom of the list viewport. */
+private const val AgendaFocusLineFromTop = .30f
 
 /**
  * One day's agenda content: the day header, then its events and due tasks, or

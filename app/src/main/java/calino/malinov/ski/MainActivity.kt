@@ -789,6 +789,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // the commit. Only chrome that merely names the day reads this; the
     // calendar itself still follows the committed [selectedDate].
     var swipeLabelDays by remember { mutableStateOf<PillSwipeDays?>(null) }
+    var agendaPillLabelDirection by remember { mutableIntStateOf(0) }
     // Where between them it is. A lambda rather than a value, and held in its
     // own state: the pill reads it inside its own draw and measure passes, so
     // a drag moves the label without recomposing this screen per frame.
@@ -1586,7 +1587,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         modifier = Modifier.fillMaxSize(),
                         initialDate = selectedDate,
                         onOpenMenu = { sidebarVisible = true },
-                        onDateChanged = { selectedDate = it },
+                        onDateChanged = {
+                            agendaPillLabelDirection = it.compareTo(selectedDate)
+                            selectedDate = it
+                        },
                         onEventClick = { day, event ->
                             selectedEventId = event.id
                             selectedEventOccurrenceDay = day.toEpochDay()
@@ -2179,6 +2183,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     searchVisible = true
                 },
                 label = addPillLabel,
+                labelSlideDirection = if (rootRoute == PockRoute.Agenda) agendaPillLabelDirection else 0,
                 // A swipe names both of the days it is between and lets the
                 // pill carry them across the gesture, rather than renaming
                 // itself once everything has settled.

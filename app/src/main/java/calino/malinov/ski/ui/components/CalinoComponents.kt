@@ -1864,6 +1864,8 @@ private val PillLabelSwipeGap = 18.dp
 fun AddPill(
     label: String,
     modifier: Modifier = Modifier,
+    /** Direction for a settled label change: positive enters from below, negative from above. */
+    labelSlideDirection: Int = 0,
     /**
      * The two labels a live swipe has the pill between, drawn as one strip and
      * positioned by [swipeTravel]. Null whenever the plain [label] is the
@@ -2070,6 +2072,8 @@ fun AddPill(
             // pill never has to be told when to stop showing one day and start
             // showing the other. It shows both, positioned by the page.
             val shownLabel = if (confirmationActive) confirmationLabel else swipeLabels?.first ?: label
+            val directionalLabel = saveState == PillSaveState.Idle &&
+                !confirmationActive && swipeLabels == null && labelSlideDirection != 0
             // Whether a swipe owns the label motion travels *in* the state,
             // not beside it. Held in a state the effects write after the fact,
             // transitionSpec would read the previous composition's value and
@@ -2084,13 +2088,13 @@ fun AddPill(
                 targetState = PillLabelState(
                     saveState,
                     writeKind,
-                    shownLabel,
+                    if (directionalLabel) DirectionalPillLabelKey else shownLabel,
                     previewing = swipeLabels != null && swipeLabels.first != swipeLabels.second,
                 ),
                 transitionSpec = {
                     val sameState = initialState.save == targetState.save &&
                         initialState.kind == targetState.kind
-                    if (sameState && (initialState.previewing || targetState.previewing)) {
+                    if (sameState && (initialState.previewing || targetState.previewing || directionalLabel)) {
                         // The pair is already drawing both days at their drag
                         // positions, and sizing itself to them as it goes.
                         // Anything here would be a second, slower copy of the
@@ -2166,12 +2170,40 @@ fun AddPill(
                                 progress = swipeTravel,
                             )
                         }
+                    } else if (state == PillSaveState.Idle && directionalLabel) {
+                        DirectionalPillLabel(shownLabel, labelSlideDirection)
                     } else {
                         PillLabelText(pillText)
                     }
                 }
             }
         }
+    }
+}
+
+private const val DirectionalPillLabelKey = "__directional_pill_label__"
+
+/** A settled Agenda relabel keeps the shared sentence still and moves only its date. */
+@Composable
+private fun DirectionalPillLabel(label: String, direction: Int) {
+    val prefix = "Add on ".takeIf(label::startsWith).orEmpty()
+    Row(horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+        if (prefix.isNotEmpty()) PillLabelText(prefix)
+        AnimatedContent(
+            targetState = label.drop(prefix.length),
+            transitionSpec = {
+                (slideInVertically(CalinoMotion.expressiveSpatial()) { direction * it } togetherWith
+                    slideOutVertically(CalinoMotion.expressiveSpatial()) { -direction * it }) using
+                    SizeTransform(clip = false) { _, _ ->
+                        spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                            visibilityThreshold = IntSize.VisibilityThreshold,
+                        )
+                    }
+            },
+            label = "add pill focused date",
+        ) { date -> PillLabelText(date) }
     }
 }
 
