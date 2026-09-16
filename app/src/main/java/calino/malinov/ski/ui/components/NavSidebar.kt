@@ -205,7 +205,8 @@ fun NavSidebar(
         )
         AnimatedVisibility(
             visible = visible,
-            enter = slideInHorizontally(tween(240)) { -it } + fadeIn(tween(180)),
+            enter = slideInHorizontally(CalinoMotion.expressiveSpatial()) { -it } +
+                fadeIn(tween(CalinoMotion.ContentEnterMillis)),
             exit = slideOutHorizontally(tween(200)) { -it } + fadeOut(tween(150)),
             modifier = Modifier.align(Alignment.CenterStart),
         ) {
