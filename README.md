@@ -112,6 +112,19 @@ The app is routinely validated on the `calino-poc-api36` API 36 emulator for
 build, unit tests, install/launch, and accessibility hierarchy. Live CalDAV and
 CardDAV write probes are opt-in and use only environment-provided credentials.
 
+This AVD has previously accumulated debug builds of the unrelated Capacitor
+Calino project (`calino.malinov.ski.debug`, `calino.malinov.ski.poc`), which
+declare the same launcher category and `image/*` share intent filters as this
+app. When both are installed, Android can silently route a share/launch
+intent to the stale Capacitor build instead of the native one you just
+installed. Keep the emulator free of those packages:
+
+```bash
+adb -s emulator-5554 shell pm list packages | grep calino.malinov.ski
+adb -s emulator-5554 uninstall calino.malinov.ski.debug   # if present
+adb -s emulator-5554 uninstall calino.malinov.ski.poc     # if present
+```
+
 ## Emulator
 
 Start the documented API 36 emulator with:
