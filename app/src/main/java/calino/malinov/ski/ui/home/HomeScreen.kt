@@ -171,7 +171,6 @@ import calino.malinov.ski.qa.edgeScrollDirection
 import calino.malinov.ski.qa.timelineScaleAfterPinch
 import calino.malinov.ski.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.qa.zoomSettleLevel
-import calino.malinov.ski.qa.agendaOwnsCalendarInput
 import calino.malinov.ski.qa.calendarTransitionFrame
 import calino.malinov.ski.qa.monthRowHingeOffset
 import calino.malinov.ski.qa.monthRowReveal
@@ -503,44 +502,6 @@ fun HomeScreen(
     val density = LocalDensity.current
     val preferences = LocalCalinoPreferences.current
     val weekStart = preferences.weekStart
-    val railScroll = rememberScrollState(
-        initial = with(density) {
-            (DaytimeScrollHour * TimelineBaseHourHeightDp).dp.roundToPx()
-        },
-    )
-    // The timeline density is independent from the calendar's month/detail
-    // zoom. It survives day changes so a user can choose a comfortable hour
-    // scale once and keep it while paging through days.
-    val timelineScale = rememberSaveable { mutableFloatStateOf(1f) }
-    var timelineScrollTarget by remember { mutableStateOf<Int?>(null) }
-    // A scale change can increase the content's max scroll after this frame.
-    // Apply the anchor after remeasurement so a pinch near the bottom does not
-    // get clamped against the old, shorter rail.
-    LaunchedEffect(timelineScale.floatValue, timelineScrollTarget) {
-        val target = timelineScrollTarget ?: return@LaunchedEffect
-        withFrameNanos { }
-        railScroll.scrollTo(target.coerceIn(0, railScroll.maxValue))
-        if (timelineScrollTarget == target) timelineScrollTarget = null
-    }
-
-    fun requestTimelineScale(scaleFactor: Float, anchorY: Float, laneHeight: Dp) {
-        val previousScale = timelineScale.floatValue
-        val nextScale = timelineScaleAfterPinch(
-            scale = previousScale,
-            pinchFactor = scaleFactor,
-            minScale = TimelineMinScale,
-            maxScale = TimelineMaxScale,
-        )
-        if (abs(nextScale - previousScale) < .0001f) return
-        val laneHeightPx = with(density) { laneHeight.toPx() }
-        // Keep the hour under the pinch centroid fixed. The lane/header is
-        // unscaled; only the hour rail below it changes density.
-        val railCoordinate = (railScroll.value + anchorY - laneHeightPx).coerceAtLeast(0f)
-        timelineScale.floatValue = nextScale
-        timelineScrollTarget = (
-            laneHeightPx + railCoordinate * (nextScale / previousScale) - anchorY
-            ).roundToInt().coerceAtLeast(0)
-    }
     // A week page is an offset from an epoch week, and that offset does not
     // survive a change of week start: for a Sunday it shifts by one, for every
     // other day it does not. A pager left on the old index reads back a date a
@@ -566,9 +527,9 @@ fun HomeScreen(
     var compactBoundaryDay by remember { mutableStateOf<LocalDate?>(null) }
     var blockedBoundaryDay by remember { mutableStateOf<LocalDate?>(null) }
     var weekUserGestureActive by remember { mutableStateOf(false) }
-    // Holds the already-arrived rail above the real day pager for the two
+    // Holds the already-arrived agenda above the real day pager for the two
     // frames that pager needs to publish its destination after a week settle.
-    var weekRailHandoffDay by remember { mutableStateOf<LocalDate?>(null) }
+    var weekAgendaHandoffDay by remember { mutableStateOf<LocalDate?>(null) }
     var zoomJob by remember { mutableStateOf<Job?>(null) }
     var weekRollbackJob by remember { mutableStateOf<Job?>(null) }
     val currentZoom = zoomState
@@ -729,7 +690,7 @@ fun HomeScreen(
                     // pager before publishing the committed date or releasing
                     // week ownership, so the preview cannot uncover the day
                     // being left for one frame and then animate forward again.
-                    weekRailHandoffDay = targetDate
+                    weekAgendaHandoffDay = targetDate
                     dayPagerState.requestScrollToPage(dayPageFor(targetDate))
                     compactSelectorHandoff = targetDate.weekdayColumn(weekStart).toFloat()
                     selectedEpoch = targetDate.toEpochDay()
@@ -739,8 +700,8 @@ fun HomeScreen(
             }
     }
 
-    LaunchedEffect(weekRailHandoffDay, dayPagerState) {
-        val handoffDay = weekRailHandoffDay ?: return@LaunchedEffect
+    LaunchedEffect(weekAgendaHandoffDay, dayPagerState) {
+        val handoffDay = weekAgendaHandoffDay ?: return@LaunchedEffect
         val targetPage = dayPageFor(handoffDay)
         snapshotFlow {
             dayPagerState.currentPage == targetPage &&
@@ -751,7 +712,7 @@ fun HomeScreen(
         // the identical preview until that page has survived layout and draw.
         withFrameNanos { }
         withFrameNanos { }
-        if (weekRailHandoffDay == handoffDay) weekRailHandoffDay = null
+        if (weekAgendaHandoffDay == handoffDay) weekAgendaHandoffDay = null
     }
 
     // A cancelled tap/drag can return to the current week without changing
@@ -1139,31 +1100,8 @@ fun HomeScreen(
     val weekStripDay = compactBoundaryDay ?: selected
     val isDayPagerBoundaryTransition = compactBoundaryDay != null
 
-    // The day rail and selected-day agenda crossfade through an overlap. Keep
-    // one stable owner for taps, scrolling, and accessibility while the
-    // visual layers overlap. The hysteresis prevents ownership from changing
-    // back and forth when the two alpha curves are nearly equal.
-    // Seed ownership from the same frame that is painted. Starting from false
-    // made a cold entry at either month level publish the rail as interactive
-    // for one composition before the collector corrected it.
-    var agendaOwnsInput by remember(initialZoom) {
-        mutableStateOf(
-            agendaOwnsCalendarInput(
-                calendarTransitionFrame(initialZoom),
-                currentlyOwns = false,
-            ),
-        )
-    }
-    LaunchedEffect(interactionEnabled) {
-        snapshotFlow { zoomState.floatValue }.collect { currentZoom ->
-            val frame = calendarTransitionFrame(currentZoom)
-            val nextOwner = interactionEnabled &&
-                agendaOwnsCalendarInput(frame, agendaOwnsInput)
-            if (nextOwner != agendaOwnsInput) agendaOwnsInput = nextOwner
-        }
-    }
-    val dayRailOwnsInput = interactionEnabled && !agendaOwnsInput
-    val agendaOwnsInputNow = interactionEnabled && agendaOwnsInput
+    val agendaOwnsInputNow = interactionEnabled &&
+        calendarTransitionFrame(zoomState.floatValue).agendaVisible
 
     val zoomLevel by remember(zoomState) {
         derivedStateOf { zoomState.floatValue.roundToInt().coerceIn(0, 2) }
@@ -1540,21 +1478,6 @@ fun HomeScreen(
                                 ) {
                                     break
                                 }
-                                // At the compact/week endpoint the time rail
-                                // must own its vertical stream. The one
-                                // intentional exception is a downward pull at
-                                // the rail's top, which expands the calendar.
-                                // Decide this once, at axis lock, so a child
-                                // scroll cannot be stolen halfway through.
-                                if (startedOnDaySurface &&
-                                    !calendarTransitionFrame(zoomState.value).agendaVisible &&
-                                    !shouldExpandFromDayRail(
-                                        dragDeltaY = travel.y,
-                                        railScrollValue = railScroll.value,
-                                    )
-                                ) {
-                                    break
-                                }
                                 owned = true
                                 cancelMotion()
                                 anchorLevel = zoomState.floatValue.roundToInt().coerceIn(0, 2)
@@ -1626,7 +1549,7 @@ fun HomeScreen(
                         gestureModifier = Modifier,
                         interactionEnabled = interactionEnabled,
                             onUserSwipeStart = {
-                                weekRailHandoffDay = null
+                                weekAgendaHandoffDay = null
                                 weekRollbackJob?.cancel()
                                 weekRollbackJob = null
                                 weekUserGestureActive = true
@@ -1831,43 +1754,37 @@ fun HomeScreen(
                             }.coerceIn(0, WeekPagerPageCount - 1)
                         }
                     }
-                    val liveWeekRailPreview = !headingUsesMonthPager && dayRailOwnsInput &&
+                    val liveWeekAgendaPreview = !headingUsesMonthPager && agendaOwnsInputNow &&
                         isUserSettle(weekPagerState) && weekPreviewPage != selectedWeekPage
-                    val weekRailPreviewDay = when {
-                        liveWeekRailPreview -> weekStartForPage(weekPreviewPage, weekStart)
+                    val weekAgendaPreviewDay = when {
+                        liveWeekAgendaPreview -> weekStartForPage(weekPreviewPage, weekStart)
                             .plusDays(selected.weekdayColumn(weekStart).toLong())
-                        weekRailHandoffDay != null -> weekRailHandoffDay
+                        weekAgendaHandoffDay != null -> weekAgendaHandoffDay
                         else -> null
                     }
-                    val weekRailPreview = !headingUsesMonthPager && dayRailOwnsInput &&
-                        weekRailPreviewDay != null
+                    val weekAgendaPreview = !headingUsesMonthPager && agendaOwnsInputNow &&
+                        weekAgendaPreviewDay != null
                     DayPagerSurface(
                         state = dayPagerState,
                         events = events,
                         eventDateIndex = eventDateIndex,
                         tasksByDueDate = tasksByDueDate,
-                        scrollState = railScroll,
                         modifier = Modifier.fillMaxSize().graphicsLayer {
                             translationX = when {
                                 monthAgendaPreview -> monthPagerState
                                     .getOffsetDistanceInPages(selectedMonthPage) * size.width
-                                liveWeekRailPreview -> weekPagerState
+                                liveWeekAgendaPreview -> weekPagerState
                                     .getOffsetDistanceInPages(selectedWeekPage) * size.width
                                 else -> 0f
                             }
                         },
                         interactionEnabled = interactionEnabled,
                         zoomState = currentZoom,
-                        timelineScale = timelineScale.floatValue,
                         laneOverlap = laneOverlap,
-                        dayRailOwnsInput = dayRailOwnsInput,
                         agendaOwnsInput = agendaOwnsInputNow,
-                        onTimelinePinch = ::requestTimelineScale,
                         onEvent = onEventClick,
                         onEventAction = onEventAction,
                         onEventDrop = onEventDrop,
-                        onEventTimeDrop = onEventTimeDrop,
-                        onCreateEventAt = onCreateEventAt,
                         onTaskDone = onTaskDone,
                         onTaskClick = onTaskClick,
                         onTaskAction = onTaskAction,
@@ -1901,11 +1818,11 @@ fun HomeScreen(
                             )
                         }
                     }
-                    if (weekRailPreview) {
-                        val previewDay = checkNotNull(weekRailPreviewDay)
+                    if (weekAgendaPreview) {
+                        val previewDay = checkNotNull(weekAgendaPreviewDay)
                         Box(
                             Modifier.fillMaxSize().graphicsLayer {
-                                translationX = if (liveWeekRailPreview) {
+                                translationX = if (liveWeekAgendaPreview) {
                                     weekPagerState
                                         .getOffsetDistanceInPages(weekPreviewPage) * size.width
                                 } else {
@@ -1913,30 +1830,21 @@ fun HomeScreen(
                                 }
                             }.background(CalinoColors.Canvas),
                         ) {
-                            DayRailPage(
+                            SelectedDayAgendaPage(
                                 day = previewDay,
                                 dayEvents = remember(eventDateIndex, previewDay) {
                                     eventDateIndex.eventsOn(previewDay)
                                 },
                                 dayTasks = tasksByDueDate[previewDay].orEmpty(),
-                                scrollState = railScroll,
                                 active = false,
-                                scrollEnabled = false,
-                                laneOverlap = laneOverlap,
-                                timelineScale = timelineScale.floatValue,
-                                onTimelinePinch = { _, _, _ -> },
-                                laneBlend = { 1f },
                                 onEvent = null,
                                 onEventAction = null,
                                 onEventDrop = null,
-                                draggingCardKey = null,
-                                onCardBounds = null,
-                                onCardGone = null,
                                 onTaskDone = null,
                                 onTaskClick = null,
                                 onTaskAction = null,
                                 onTaskDrop = null,
-                                onLaneHeight = {},
+                                onOpenDay = null,
                             )
                         }
                     }
@@ -5257,8 +5165,68 @@ private fun EventChip(
     }
 }
 
+/**
+ * The Home day surface is deliberately agenda-only. The hour timeline remains
+ * available to the dedicated Range page, where its pinch, create and drag
+ * gestures have an unambiguous owner.
+ */
 @Composable
 private fun DayPagerSurface(
+    state: PagerState,
+    events: List<CalEvent>,
+    eventDateIndex: EventDateIndex,
+    tasksByDueDate: Map<LocalDate, List<CalTask>>,
+    modifier: Modifier,
+    interactionEnabled: Boolean,
+    zoomState: androidx.compose.runtime.State<Float>,
+    laneOverlap: Dp,
+    agendaOwnsInput: Boolean,
+    onEvent: ((CalEvent) -> Unit)?,
+    onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
+    onEventDrop: ((CalEvent, LocalDate) -> Unit)?,
+    onTaskDone: ((CalTask, Boolean) -> Unit)?,
+    onTaskClick: ((CalTask) -> Unit)?,
+    onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
+    onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
+    onOpenDay: ((LocalDate) -> Unit)?,
+) {
+    HorizontalPager(
+        state = state,
+        modifier = modifier.clipToBounds().testTag("day-pager"),
+        beyondViewportPageCount = 0,
+        userScrollEnabled = interactionEnabled,
+        key = { page -> dateForDayPage(page).toEpochDay() },
+    ) { page ->
+        val pageDay = dateForDayPage(page)
+        val dayEvents = remember(eventDateIndex, pageDay) { eventDateIndex.eventsOn(pageDay) }
+        val dayTasks = tasksByDueDate[pageDay].orEmpty()
+        Box(
+            Modifier.fillMaxSize().padding(top = laneOverlap).graphicsLayer {
+                alpha = 1f - calendarTransitionFrame(zoomState.value).detailProgress
+            }.drawWithContent {
+                if (calendarTransitionFrame(zoomState.value).agendaVisible) drawContent()
+            },
+        ) {
+            SelectedDayAgendaPage(
+                day = pageDay,
+                dayEvents = dayEvents,
+                dayTasks = dayTasks,
+                active = agendaOwnsInput,
+                onEvent = if (agendaOwnsInput) onEvent else null,
+                onEventAction = if (agendaOwnsInput) onEventAction else null,
+                onEventDrop = if (agendaOwnsInput) onEventDrop else null,
+                onTaskDone = if (agendaOwnsInput) onTaskDone else null,
+                onTaskClick = if (agendaOwnsInput) onTaskClick else null,
+                onTaskAction = if (agendaOwnsInput) onTaskAction else null,
+                onTaskDrop = if (agendaOwnsInput) onTaskDrop else null,
+                onOpenDay = if (agendaOwnsInput) onOpenDay else null,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LegacyDayPagerSurface(
     state: PagerState,
     events: List<CalEvent>,
     eventDateIndex: EventDateIndex,

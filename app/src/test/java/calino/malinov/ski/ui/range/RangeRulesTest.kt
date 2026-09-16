@@ -9,6 +9,13 @@ import org.junit.Test
 class RangeRulesTest {
     private val wednesday = LocalDate.of(2026, 9, 16)
 
+    @Test fun `one day range is the selected date`() {
+        assertEquals(
+            listOf(wednesday),
+            rangeDays(wednesday, CalinoRangeMode.OneDay, CalinoWeekStart.Monday),
+        )
+    }
+
     @Test fun `three day range rolls from selected date`() {
         assertEquals(
             listOf(wednesday, wednesday.plusDays(1), wednesday.plusDays(2)),
@@ -29,6 +36,7 @@ class RangeRulesTest {
     }
 
     @Test fun `paging advances by active range width`() {
+        assertEquals(wednesday.plusDays(1), rangeAnchorForPage(wednesday, RangePagerCenter + 1, CalinoRangeMode.OneDay))
         assertEquals(wednesday.plusDays(3), rangeAnchorForPage(wednesday, RangePagerCenter + 1, CalinoRangeMode.ThreeDay))
         assertEquals(wednesday.minusDays(7), rangeAnchorForPage(wednesday, RangePagerCenter - 1, CalinoRangeMode.SevenDay))
     }

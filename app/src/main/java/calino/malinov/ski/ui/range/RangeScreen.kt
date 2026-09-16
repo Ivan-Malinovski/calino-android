@@ -160,7 +160,11 @@ fun RangeScreen(
     }
 
     val visibleDays = rangeDays(anchor, mode, weekStart)
-    val subtitle = "${visibleDays.first().format(RangeDate)} – ${visibleDays.last().format(RangeDate)}"
+    val subtitle = if (visibleDays.size == 1) {
+        visibleDays.single().format(RangeDate)
+    } else {
+        "${visibleDays.first().format(RangeDate)} – ${visibleDays.last().format(RangeDate)}"
+    }
     Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         CalinoMonthHeading(
             day = visibleDays.first(),
@@ -179,11 +183,11 @@ fun RangeScreen(
             showTodayButton = true,
             trailingContent = {
                 CompactSegmentedControl(
-                    options = listOf("3", "7"),
+                    options = listOf("1", "3", "7"),
                     selectedIndex = CalinoRangeMode.entries.indexOf(mode),
                     onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
                     semanticLabel = "Range size in days",
-                    modifier = Modifier.width(112.dp),
+                    modifier = Modifier.width(144.dp),
                 )
             },
         )

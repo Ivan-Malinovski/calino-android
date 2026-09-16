@@ -50,9 +50,9 @@ class HomeGestureRulesTest {
     fun calendarTransition_isDeterministicAtEveryColdEntryLevel() {
         val week = calendarTransitionFrame(0f)
         assertEquals(0f, week.unfoldProgress, 0.001f)
-        assertTrue(week.railVisible)
-        assertEquals(false, week.agendaVisible)
-        assertEquals(false, agendaOwnsCalendarInput(week, currentlyOwns = false))
+        assertEquals(false, week.railVisible)
+        assertTrue(week.agendaVisible)
+        assertTrue(agendaOwnsCalendarInput(week, currentlyOwns = false))
 
         val split = calendarTransitionFrame(1f)
         assertEquals(1f, split.unfoldProgress, 0.001f)
@@ -82,18 +82,17 @@ class HomeGestureRulesTest {
                 frame.unfoldProgress,
                 0.001f,
             )
+            assertEquals(false, frame.railVisible)
+            assertTrue(frame.agendaVisible)
         }
     }
 
     @Test
-    fun calendarInputOwnership_hasStableHysteresisDuringCancelledSettles() {
+    fun agendaOwnsInputThroughoutWeekToPartialMonthTransition() {
         val middle = calendarTransitionFrame(.52f)
-        assertEquals(false, agendaOwnsCalendarInput(middle, currentlyOwns = false))
+        assertTrue(agendaOwnsCalendarInput(middle, currentlyOwns = false))
         assertTrue(agendaOwnsCalendarInput(middle, currentlyOwns = true))
-        assertEquals(
-            false,
-            agendaOwnsCalendarInput(calendarTransitionFrame(.2f), currentlyOwns = true),
-        )
+        assertTrue(agendaOwnsCalendarInput(calendarTransitionFrame(.2f), currentlyOwns = true))
         assertTrue(agendaOwnsCalendarInput(calendarTransitionFrame(.84f), currentlyOwns = false))
     }
 

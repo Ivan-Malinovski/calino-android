@@ -63,8 +63,8 @@ fun calendarTransitionFrame(zoom: Float): CalendarTransitionFrame {
         compactProgress = smoothStep01(1f - compactZoom),
         detailProgress = smoothStep01((clamped - 1f).coerceIn(0f, 1f)),
         unfoldProgress = unfold,
-        railVisible = unfold < 1f,
-        agendaVisible = unfold > 0f && clamped < 1.99f,
+        railVisible = false,
+        agendaVisible = clamped < 1.99f,
     )
 }
 

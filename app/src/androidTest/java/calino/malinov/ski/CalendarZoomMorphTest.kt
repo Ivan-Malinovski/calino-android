@@ -1,6 +1,7 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
@@ -29,6 +30,14 @@ class CalendarZoomMorphTest : CalinoUiTest() {
     @Test fun opensOnTheWeekLevel() {
         // CalinoDefaultView.Default is Week, which is zoom 0 -- level 1 of 3.
         assertEquals(0, currentZoomLevel())
+        compose.onNodeWithContentDescription("Agenda for Monday, May 18").assertIsDisplayed()
+        assertFalse(compose.exists(hasContentDescription("Timeline, pinch to resize")))
+    }
+
+    @Test fun agendaRemainsMountedAcrossWeekToSplitMonthZoom() {
+        compose.onNodeWithContentDescription("Agenda for Monday, May 18").assertIsDisplayed()
+        zoomTo(1)
+        compose.onNodeWithContentDescription("Agenda for Monday, May 18").assertIsDisplayed()
     }
 
     @Test fun handleStepsUpThroughEveryLevel() {

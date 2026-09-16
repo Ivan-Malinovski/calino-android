@@ -46,4 +46,26 @@ class RangeInteractionTest : CalinoUiTest() {
         compose.onNodeWithText("May 18 – May 20").assertIsDisplayed()
         assertFalse(compose.exists(hasContentDescription("Go to today")))
     }
+
+    @Test fun oneDayModePagesByOneDayAndPersists() {
+        compose.openRoute("Range")
+        compose.onNodeWithContentDescription("Range size in days: 1").performClick()
+        compose.onNodeWithText("May 18").assertIsDisplayed()
+
+        compose.onNodeWithTag(RangePagerTag).performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        compose.onNodeWithText("May 19").assertIsDisplayed()
+
+        compose.openRoute("Agenda")
+        compose.openRoute("Range")
+        compose.onNodeWithContentDescription("Range size in days: 1").assertIsDisplayed()
+        compose.onNodeWithText("May 19").assertIsDisplayed()
+    }
+
+    @Test fun rangeOffersOneThreeAndSevenDayModes() {
+        compose.openRoute("Range")
+        listOf("1", "3", "7").forEach { option ->
+            compose.onNodeWithContentDescription("Range size in days: $option").assertIsDisplayed()
+        }
+    }
 }

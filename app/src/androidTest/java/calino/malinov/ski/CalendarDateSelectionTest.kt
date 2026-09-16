@@ -1,6 +1,8 @@
 package calino.malinov.ski
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import calino.malinov.ski.CalinoTestActions.FixtureDate
 import calino.malinov.ski.CalinoTestActions.MonthPager
 import calino.malinov.ski.CalinoTestActions.WeekPager
@@ -28,6 +30,7 @@ class CalendarDateSelectionTest : CalinoUiTest() {
 
         compose.assertDaySelected(WeekPager, wednesday)
         compose.assertDayNotSelected(WeekPager, FixtureDate)
+        compose.onNodeWithContentDescription("Agenda for Wednesday, May 20").assertIsDisplayed()
     }
 
     @Test fun monthCellTapCommitsSelection() {

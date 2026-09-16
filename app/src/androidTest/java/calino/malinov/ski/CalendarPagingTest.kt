@@ -1,6 +1,8 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
@@ -64,6 +66,7 @@ class CalendarPagingTest : CalinoUiTest() {
         compose.waitForIdle()
 
         compose.assertDaySelected(WeekPager, FixtureDate.plusWeeks(1))
+        compose.onNodeWithContentDescription("Agenda for Monday, May 25").assertIsDisplayed()
     }
 
     @Test fun cancelledWeekSwipeLeavesTheDateAlone() {

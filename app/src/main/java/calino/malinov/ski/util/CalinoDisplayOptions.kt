@@ -54,6 +54,7 @@ enum class CalinoDefaultView(val label: String, val zoomLevel: Float?) {
 
 /** The number of adjacent days shown by the dedicated range calendar. */
 enum class CalinoRangeMode(val label: String, val dayCount: Int) {
+    OneDay("1 day", 1),
     ThreeDay("3 days", 3),
     SevenDay("7 days", 7),
     ;
