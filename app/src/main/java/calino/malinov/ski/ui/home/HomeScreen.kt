@@ -1379,7 +1379,14 @@ fun HomeScreen(
             val handleHeight = if (showZoomHandle) ZoomHandleHeight else 0.dp
 
             val splitGridHeight = 292.dp
-            val detailedGridHeight = (maxHeight - handleHeight).coerceAtLeast(splitGridHeight)
+            // The root add pill floats over this surface. Keep the detailed
+            // month endpoint above its lane so events in the bottom week stay
+            // visible and tappable instead of disappearing behind the pill.
+            // Using the shared clearance keeps this aligned with the other
+            // root surfaces and lets the existing zoom interpolation reveal
+            // the space continuously rather than jumping at level 2.
+            val detailedGridHeight = (maxHeight - handleHeight - CalinoSpacing.PillClearance)
+                .coerceAtLeast(splitGridHeight)
             val daySurfaceHeight = (maxHeight - handleHeight - 80.dp).coerceAtLeast(0.dp)
             // Keep the expensive month and day surfaces at stable measured
             // sizes. The zoom frame only clips the month endpoint and places
