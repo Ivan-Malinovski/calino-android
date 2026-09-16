@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.content.Context
 import android.content.res.Configuration
 import android.icu.util.Calendar
+import android.provider.Settings
 import android.text.format.DateFormat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -19,6 +20,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.text.util.LocalePreferences
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
 import java.time.DayOfWeek
@@ -128,7 +130,13 @@ data class CalinoDeviceDefaults(
                 .map { configuration.locales[it] }
                 .ifEmpty { listOf(Locale.getDefault()) }
             val locale = localeList.first()
-            val weekData = Calendar.getInstance(locale).weekData
+            // Resource configuration describes the app's language. Android's
+            // FORMAT locale is the device/user regional preference and may
+            // intentionally differ (for example English UI with Danish date,
+            // clock, and week conventions).
+            val formatLocale = Locale.getDefault(Locale.Category.FORMAT)
+            val weekData = Calendar.getInstance(formatLocale).weekData
+            val firstDayOfWeek = localeFirstDayOfWeek(formatLocale)
             val alarmManager = appContext.getSystemService(AlarmManager::class.java)
             val exactAlarmsAllowed = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 runCatching { alarmManager?.canScheduleExactAlarms() ?: false }.getOrDefault(false)
@@ -141,17 +149,13 @@ data class CalinoDeviceDefaults(
                 locale = locale,
                 locales = localeList,
                 languageTag = locale.toLanguageTag(),
-                region = locale.country.takeIf { it.isNotBlank() },
-                shortDatePattern = DateFormat.getBestDateTimePattern(locale, "yMd"),
+                region = formatLocale.country.takeIf { it.isNotBlank() },
+                shortDatePattern = DateFormat.getBestDateTimePattern(formatLocale, "yMd"),
                 dateFormatOrder = DateFormat.getDateFormatOrder(appContext)
                     .joinToString("") { it.uppercaseChar().toString() },
-                timeFormat = if (DateFormat.is24HourFormat(appContext)) {
-                    CalinoTimeFormat.TwentyFourHour
-                } else {
-                    CalinoTimeFormat.TwelveHour
-                },
-                weekStart = calinoWeekStartFor(icuDayOfWeek(weekData.firstDayOfWeek)),
-                firstDayOfWeek = icuDayOfWeek(weekData.firstDayOfWeek),
+                timeFormat = systemTimeFormat(appContext, formatLocale),
+                weekStart = calinoWeekStartFor(firstDayOfWeek),
+                firstDayOfWeek = firstDayOfWeek,
                 weekendOnset = icuDayOfWeek(weekData.weekendOnset),
                 weekendOnsetMillis = weekData.weekendOnsetMillis,
                 weekendCease = icuDayOfWeek(weekData.weekendCease),
@@ -188,6 +192,41 @@ private fun icuDayOfWeek(day: Int): DayOfWeek = when (day) {
     Calendar.SATURDAY -> DayOfWeek.SATURDAY
     else -> DayOfWeek.MONDAY
 }
+
+/** Resolves Android's `fw` regional override before falling back to CLDR. */
+internal fun localeFirstDayOfWeek(locale: Locale): DayOfWeek =
+    when (LocalePreferences.getFirstDayOfWeek(locale)) {
+        LocalePreferences.FirstDayOfWeek.MONDAY -> DayOfWeek.MONDAY
+        LocalePreferences.FirstDayOfWeek.TUESDAY -> DayOfWeek.TUESDAY
+        LocalePreferences.FirstDayOfWeek.WEDNESDAY -> DayOfWeek.WEDNESDAY
+        LocalePreferences.FirstDayOfWeek.THURSDAY -> DayOfWeek.THURSDAY
+        LocalePreferences.FirstDayOfWeek.FRIDAY -> DayOfWeek.FRIDAY
+        LocalePreferences.FirstDayOfWeek.SATURDAY -> DayOfWeek.SATURDAY
+        LocalePreferences.FirstDayOfWeek.SUNDAY -> DayOfWeek.SUNDAY
+        else -> icuDayOfWeek(Calendar.getInstance(locale).weekData.firstDayOfWeek)
+    }
+
+/**
+ * The explicit per-user clock choice wins. If Android stores "locale default",
+ * resolve the FORMAT locale's hour-cycle extension/CLDR default rather than the
+ * app resource locale.
+ */
+internal fun timeFormatFor(setting: String?, formatLocale: Locale): CalinoTimeFormat = when (setting) {
+    "24" -> CalinoTimeFormat.TwentyFourHour
+    "12" -> CalinoTimeFormat.TwelveHour
+    else -> when (LocalePreferences.getHourCycle(formatLocale)) {
+        LocalePreferences.HourCycle.H23,
+        LocalePreferences.HourCycle.H24,
+        -> CalinoTimeFormat.TwentyFourHour
+        else -> CalinoTimeFormat.TwelveHour
+    }
+}
+
+private fun systemTimeFormat(context: Context, formatLocale: Locale): CalinoTimeFormat =
+    timeFormatFor(
+        Settings.System.getString(context.contentResolver, Settings.System.TIME_12_24),
+        formatLocale,
+    )
 
 /** Only Monday and Sunday are user-selectable today; preserve the raw answer above. */
 fun calinoWeekStartFor(day: DayOfWeek): CalinoWeekStart =
