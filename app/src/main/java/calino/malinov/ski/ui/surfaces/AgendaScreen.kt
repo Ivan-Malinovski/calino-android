@@ -80,6 +80,7 @@ import calino.malinov.ski.ui.home.monthEventIndex
 import calino.malinov.ski.ui.home.monthForPage
 import calino.malinov.ski.ui.home.monthPageFor
 import calino.malinov.ski.util.EventDateIndex
+import calino.malinov.ski.util.sortAgendaEvents
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -359,11 +360,7 @@ internal fun AgendaDayBlock(
     onAdd: () -> Unit,
 ) {
     val timeFormat = LocalTimeFormat
-    val dayEvents = remember(events) {
-        events.sortedWith(
-            compareBy<CalEvent> { !it.allDay }.thenBy { it.start?.toLocalTime() }.thenBy { it.id },
-        )
-    }
+    val dayEvents = remember(events) { sortAgendaEvents(events) }
     Column(
         modifier.animateContentSize(tween(CalinoMotion.ContentEnterMillis)),
     ) {

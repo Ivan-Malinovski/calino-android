@@ -192,6 +192,7 @@ import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.openTasksDueOn
 import calino.malinov.ski.state.tasksDueOn
 import calino.malinov.ski.util.EventDateIndex
+import calino.malinov.ski.util.sortAgendaEvents
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.CalinoMonthHeading
 import calino.malinov.ski.ui.components.eventDescription
@@ -5680,14 +5681,15 @@ private fun SelectedDayAgendaPage(
             onTaskDrop = onTaskDrop,
             enabled = active,
         )
-        if (dayEvents.isEmpty()) {
+        val orderedEvents = remember(dayEvents) { sortAgendaEvents(dayEvents) }
+        if (orderedEvents.isEmpty()) {
             Text("Nothing scheduled", fontSize = 13.sp, color = CalinoColors.Ink3, modifier = Modifier.padding(vertical = 8.dp))
         } else {
             Column(
                 Modifier.padding(top = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                dayEvents.forEach { event ->
+                orderedEvents.forEach { event ->
                     EventChip(
                         event,
                         minHeight = 44.dp,

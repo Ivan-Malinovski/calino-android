@@ -10,6 +10,7 @@ import calino.malinov.ski.ui.home.MonthPagerPageCount
 import calino.malinov.ski.ui.home.monthEventIndex
 import calino.malinov.ski.ui.home.expandedMonthSpanSegment
 import calino.malinov.ski.util.CalinoWeekStart
+import calino.malinov.ski.util.sortAgendaEvents
 import calino.malinov.ski.ui.home.monthForPage
 import calino.malinov.ski.ui.home.monthPageFor
 import org.junit.Assert.assertEquals
@@ -68,6 +69,26 @@ class AgendaViewTest {
         val due = task.due!!
         assertTrue(tasksDueOn(repository.tasks(), due).any { it.id == task.id })
         assertFalse(tasksDueOn(repository.tasks(), due.plusDays(1)).any { it.id == task.id })
+    }
+
+    @Test
+    fun dayAgenda_sortsTimedEventsByStartTime() {
+        val day = LocalDate.of(2026, 5, 18)
+        fun event(id: String, hour: Int, minute: Int = 0) = CalEvent(
+            id = id,
+            title = id,
+            color = 0L,
+            start = LocalDateTime.of(day, LocalTime.of(hour, minute)),
+            durationMinutes = 30,
+            calendarId = "test",
+        )
+
+        assertEquals(
+            listOf("12:30", "14:00", "15:00"),
+            sortAgendaEvents(
+                listOf(event("15:00", 15), event("12:30", 12, 30), event("14:00", 14)),
+            ).map { it.id },
+        )
     }
 
     @Test
