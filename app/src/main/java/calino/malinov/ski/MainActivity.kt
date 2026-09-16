@@ -1084,19 +1084,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     }
 
     /**
-     * [indicate] puts the write on the add pill: the border traces while it is
-     * in flight and the label holds the outcome once it lands. Reserved for the
-     * writes a person deliberately made -- adding, saving or removing an event,
-     * task or journal entry -- so background and incidental writes (a checkbox,
-     * an undo, a write that already shows an undo chip) leave the lane alone.
+     * Every person-initiated repository mutation reports through the pill by
+     * default. [indicatorAlreadyStarted] lets an editor begin that report at
+     * the exact Save press, before focus clearing and its exit animation, while
+     * this gateway still owns finishing it from the real repository result.
+     * Background writes can explicitly pass a null [indicate].
      */
     fun <T> launchWrite(
         operation: suspend () -> WriteResult<T>,
-        indicate: PillWriteKind? = null,
+        indicate: PillWriteKind? = PillWriteKind.Save,
+        indicatorAlreadyStarted: Boolean = false,
         onApplied: (T) -> Unit = {},
     ) {
         writeError = null
-        if (indicate != null) savePillLane.saveStarted(indicate)
+        if (indicate != null && !indicatorAlreadyStarted) savePillLane.saveStarted(indicate)
         writeScope.launch {
             var landed = false
             try {
@@ -1693,19 +1694,31 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             }
                         },
                         onDelete = { contact ->
-                            launchWrite(operation = { repository.deleteContact(contact.id) }) {
+                            launchWrite(
+                                operation = { repository.deleteContact(contact.id) },
+                                indicate = PillWriteKind.Remove,
+                            ) {
                                 if (selectedContactId == contact.id) selectedContactId = null
                             }
                         },
                         onAddBirthday = { contact, date, anniversary ->
-                            repository.addLocalEvent(
-                                contactReminderEvent(
-                                    contact = contact,
-                                    date = date,
-                                    calendarId = snapshot.calendars.firstOrNull()?.id ?: "personal",
-                                    anniversary = anniversary,
-                                ),
-                            )
+                            savePillLane.saveStarted(PillWriteKind.Save)
+                            var landed = false
+                            try {
+                                repository.addLocalEvent(
+                                    contactReminderEvent(
+                                        contact = contact,
+                                        date = date,
+                                        calendarId = snapshot.calendars.firstOrNull()?.id ?: "personal",
+                                        anniversary = anniversary,
+                                    ),
+                                )
+                                landed = true
+                            } catch (error: Throwable) {
+                                writeError = error.message ?: "That reminder could not be saved."
+                            } finally {
+                                savePillLane.saveFinished(writeScope, success = landed)
+                            }
                         },
                         onOpenMenu = { sidebarVisible = true },
                         startEntryRequest = contactRequest,
@@ -1882,10 +1895,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     onEventAction = ::handleEventAction,
                     onInlineSave = { target, input, scope ->
                         writeError = null
+                        savePillLane.saveStarted(PillWriteKind.Save)
+                        var landed = false
                         try {
                             when (val result = repository.updateEvent(target.id, input.copy(recurrenceScope = scope))) {
-                                is WriteResult.Applied -> true
-                                is WriteResult.Queued -> true
+                                is WriteResult.Applied -> true.also { landed = true }
+                                is WriteResult.Queued -> true.also { landed = true }
                                 is WriteResult.Rejected -> { writeError = result.reason; false }
                             }
                         } catch (cancelled: CancellationException) {
@@ -1893,6 +1908,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         } catch (error: Throwable) {
                             writeError = error.message ?: "That change could not be saved."
                             false
+                        } finally {
+                            savePillLane.saveFinished(writeScope, success = landed)
                         }
                     },
                     occurrenceDate = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay),
@@ -2013,13 +2030,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     // starts morphing back immediately, and it morphs into the
                     // add pill of the screen it will land on.
                     onSaveStarted = { draft ->
+                        savePillLane.saveStarted(PillWriteKind.Save)
                         if (draft.kind == PocQuickAddKind.Journal) {
                             journalReviewVisible = false
                             quickAddOrigin = PocReturnTarget.Journal
                         }
                     },
                     onSave = { draft ->
-                        launchWrite({ saveEditorDraft(repository, draft) }, indicate = PillWriteKind.Save) {
+                        launchWrite(
+                            operation = { saveEditorDraft(repository, draft) },
+                            indicate = PillWriteKind.Save,
+                            indicatorAlreadyStarted = true,
+                        ) {
                             selectedDate = draft.date
                             if (aiQueue.isNotEmpty()) {
                                 val next = aiQueue.first()
@@ -2341,14 +2363,22 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     val target = importCalendarId ?: return@TextButton
                     val candidates = batch.events.filterNot { it.uid in batch.duplicateUids }
                     importBatch = null
+                    savePillLane.saveStarted(PillWriteKind.Save)
                     writeScope.launch {
                         var imported = 0; var queued = 0; var failed = 0
-                        candidates.forEach { event ->
-                            when (repository.addEvent(IcsInterop.asNewEvent(event, target))) {
-                                is WriteResult.Applied -> imported++
-                                is WriteResult.Queued -> queued++
-                                is WriteResult.Rejected -> failed++
+                        try {
+                            candidates.forEach { event ->
+                                when (repository.addEvent(IcsInterop.asNewEvent(event, target))) {
+                                    is WriteResult.Applied -> imported++
+                                    is WriteResult.Queued -> queued++
+                                    is WriteResult.Rejected -> failed++
+                                }
                             }
+                        } finally {
+                            savePillLane.saveFinished(
+                                writeScope,
+                                success = failed == 0 && imported + queued == candidates.size,
+                            )
                         }
                         writeError = "Imported $imported${if (queued > 0) ", queued $queued" else ""}${if (batch.duplicateUids.isNotEmpty()) ", skipped ${batch.duplicateUids.size}" else ""}${if (failed > 0) ", failed $failed" else ""}."
                     }

@@ -126,6 +126,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -2445,7 +2446,16 @@ private data class ModalPillAction(
     val onClick: () -> Unit,
     val enabled: Boolean,
     val description: String,
+    val tone: ModalPillActionTone = ModalPillActionTone.Neutral,
 )
+
+private enum class ModalPillActionTone { Neutral, Save, Delete }
+
+private fun modalPillActionTone(label: String): ModalPillActionTone = when (label.lowercase(Locale.US)) {
+    "save" -> ModalPillActionTone.Save
+    "delete" -> ModalPillActionTone.Delete
+    else -> ModalPillActionTone.Neutral
+}
 
 /**
  * The action pill shared by the root add affordance and every modal card.
@@ -2505,13 +2515,19 @@ fun ModalActionPill(
     // things only the pill needs -- its backdrop and the dismissal drag.
     val lane = LocalCalinoPillLane.current
     val haptics = LocalHapticFeedback.current
+    val focusManager = LocalFocusManager.current
     val saveTrace = rememberPillSaveTrace()
     val primaryInteraction = remember { MutableInteractionSource() }
     val primaryPressed by primaryInteraction.collectIsPressedAsState()
     var longPressCommitted by remember { mutableStateOf(false) }
     val confirmationCountdown = remember { Animatable(0f) }
     val holdCountdown = remember { Animatable(0f) }
-    val currentPrimary by rememberUpdatedState(onPrimary)
+    val currentPrimary by rememberUpdatedState {
+        if (modalPillActionTone(primaryLabel) == ModalPillActionTone.Save) {
+            focusManager.clearFocus(force = true)
+        }
+        onPrimary()
+    }
     val currentConfirmationChange by rememberUpdatedState(onPrimaryConfirmationChange)
     LaunchedEffect(primaryConfirmationActive) {
         confirmationCountdown.snapTo(0f)
@@ -2643,7 +2659,15 @@ fun ModalActionPill(
     val actionsForm: @Composable () -> Unit = {
         val actions = buildList {
             if (!primaryConfirmationActive && hasCancel) add(ModalPillAction(cancelLabel!!, onCancel!!, true, cancelDescription))
-            if (!primaryConfirmationActive && hasSecondary) add(ModalPillAction(secondaryLabel!!, onSecondary!!, secondaryEnabled, secondaryDescription))
+            if (!primaryConfirmationActive && hasSecondary) add(
+                ModalPillAction(
+                    secondaryLabel!!,
+                    onSecondary!!,
+                    secondaryEnabled,
+                    secondaryDescription,
+                    modalPillActionTone(secondaryLabel),
+                )
+            )
             add(
                 ModalPillAction(
                     label = if (primaryConfirmationActive) primaryConfirmationLabel else primaryLabel,
@@ -2652,16 +2676,17 @@ fun ModalActionPill(
                             longPressCommitted = false
                         } else if (primaryConfirmationActive) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onPrimary()
+                            currentPrimary()
                         } else if (primaryHoldToConfirm) {
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onPrimaryConfirmationChange(true)
                         } else {
-                            onPrimary()
+                            currentPrimary()
                         }
                     },
                     enabled = primaryEnabled,
                     description = if (primaryConfirmationActive) "Confirm $primaryDescription" else primaryDescription,
+                    tone = modalPillActionTone(primaryLabel),
                 )
             )
         }
@@ -2695,7 +2720,11 @@ fun ModalActionPill(
                     ) { label ->
                         Text(
                             label,
-                            color = CalinoColors.OnFloat.copy(alpha = if (action.enabled) 1f else .45f),
+                            color = when (action.tone) {
+                                ModalPillActionTone.Neutral -> CalinoColors.OnFloat
+                                ModalPillActionTone.Save -> CalinoColors.Green
+                                ModalPillActionTone.Delete -> CalinoColors.Rose
+                            }.copy(alpha = if (action.enabled) 1f else .45f),
                             style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
