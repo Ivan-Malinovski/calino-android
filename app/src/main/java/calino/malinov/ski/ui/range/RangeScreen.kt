@@ -251,6 +251,7 @@ private fun RangePagerSurface(
     var hostHeight by remember { mutableIntStateOf(0) }
     var edgeDirection by remember { mutableIntStateOf(0) }
     var autoScrollDirection by remember { mutableIntStateOf(0) }
+    var menuDismissalGeneration by remember { mutableIntStateOf(0) }
     val hourHeightPx = with(density) { (62 * timelineScale).dp.toPx() }
 
     LaunchedEffect(edgeDirection, drag) {
@@ -290,6 +291,7 @@ private fun RangePagerSurface(
                 onLift = { card, pointer ->
                     drag = RangeDragSession(card, pointer = pointer, scrollAtLift = timelineScroll.value)
                 },
+                onDragStart = { menuDismissalGeneration++ },
                 onDrag = { delta, pointer ->
                     drag = drag?.let { it.copy(offset = it.offset + delta, pointer = pointer) }
                     edgeDirection = rangeEdgeDirection(pointer.x, hostWidth, with(density) { RangeEdgeTurnZone.toPx() })
@@ -352,6 +354,7 @@ private fun RangePagerSurface(
                     onTaskAction = onTaskAction,
                     onTaskDone = onTaskDone,
                     draggingCardKey = drag?.card?.key,
+                    menuDismissalGeneration = menuDismissalGeneration,
                     onCardBounds = { cardBounds[it.key] = it },
                     onCardGone = { cardBounds.remove(it) },
                 )
@@ -396,6 +399,7 @@ private fun RangePage(
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
     draggingCardKey: String?,
+    menuDismissalGeneration: Int,
     onCardBounds: (TimelineCardBounds) -> Unit,
     onCardGone: (String) -> Unit,
 ) {
@@ -446,6 +450,7 @@ private fun RangePage(
                         onEventDrop = onEventDrop,
                         timelineScale = timelineScale,
                         draggingCardKey = draggingCardKey,
+                        menuDismissalGeneration = menuDismissalGeneration,
                         onCardBounds = onCardBounds,
                         onCardGone = onCardGone,
                         showHourLabels = false,
@@ -533,12 +538,14 @@ private const val RangeAutoScrollFrameMillis = 16L
 private fun Modifier.rangeTimelineLiftDrag(
     hitTest: (Offset) -> TimelineCardBounds?,
     onLift: (TimelineCardBounds, Offset) -> Unit,
+    onDragStart: () -> Unit,
     onDrag: (Offset, Offset) -> Unit,
     onRelease: () -> Unit,
     onCancel: () -> Unit,
 ): Modifier = composed {
     val currentHitTest by rememberUpdatedState(hitTest)
     val currentOnLift by rememberUpdatedState(onLift)
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
     val currentOnDrag by rememberUpdatedState(onDrag)
     val currentOnRelease by rememberUpdatedState(onRelease)
     val currentOnCancel by rememberUpdatedState(onCancel)
@@ -550,6 +557,7 @@ private fun Modifier.rangeTimelineLiftDrag(
             val startedAt = android.os.SystemClock.uptimeMillis()
             val liftDelay = minOf(viewConfiguration.longPressTimeoutMillis.toLong(), 220L)
             var lifted = false
+            var dragging = false
             var finished = false
             try {
                 while (!finished) {
@@ -574,7 +582,14 @@ private fun Modifier.rangeTimelineLiftDrag(
                         finished = true
                     } else if (!lifted && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
                         break
-                    } else if (lifted) {
+                    } else if (lifted && !dragging &&
+                        (change.position - down.position).getDistance() > viewConfiguration.touchSlop
+                    ) {
+                        dragging = true
+                        currentOnDragStart()
+                        change.consume()
+                        currentOnDrag(change.positionChangeIgnoreConsumed(), change.position)
+                    } else if (dragging) {
                         change.consume()
                         currentOnDrag(change.positionChangeIgnoreConsumed(), change.position)
                     }

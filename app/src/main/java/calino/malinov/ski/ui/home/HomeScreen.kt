@@ -3300,6 +3300,7 @@ private fun MonthEventDragTarget(
                 dragOffset = Offset.Zero
                 onDragVisualChanged?.invoke(event, Offset.Zero)
             },
+            onDragStart = { menuOpen = false },
             onDragStartPosition = { position -> dragStartPosition = position },
             onDrag = { offset ->
                 dragOffset = dragOffset + offset
@@ -5113,6 +5114,7 @@ private fun EventChip(
             onClick = onClick,
             onLongPress = onEventAction?.let { { menuOpen = true } },
             onDragArmed = { dragDistance = 0f },
+            onDragStart = { menuOpen = false },
             onDrag = { amount -> dragDistance += amount.y },
             onDragEnd = { _ -> onEventDrop(event, dragDistance); dragDistance = 0f },
             onDragCancel = { dragDistance = 0f },
@@ -5932,6 +5934,7 @@ internal fun HourRailContent(
     onEventDrop: ((CalEvent, LocalDate) -> Unit)?,
     timelineScale: Float,
     draggingCardKey: String?,
+    menuDismissalGeneration: Int = 0,
     onCardBounds: ((TimelineCardBounds) -> Unit)?,
     onCardGone: ((String) -> Unit)?,
     showHourLabels: Boolean = true,
@@ -6036,6 +6039,9 @@ internal fun HourRailContent(
                     label = "range card drag y",
                 )
                 val cardKey = remember(day, event.id) { timelineCardKey(day, event.id) }
+                LaunchedEffect(menuDismissalGeneration) {
+                    if (menuDismissalGeneration > 0) menuOpen = false
+                }
                 val eventInteraction = when {
                     onEvent != null && onEventAction != null -> Modifier.combinedClickable(
                         onClick = { onEvent(event) },
@@ -6055,6 +6061,7 @@ internal fun HourRailContent(
                             lastDragMinute = 0
                         },
                         onDragStart = {
+                            menuOpen = false
                             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         },
                         onDrag = { delta ->

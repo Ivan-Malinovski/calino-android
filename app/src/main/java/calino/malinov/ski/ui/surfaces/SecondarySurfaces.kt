@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.widthIn
@@ -242,6 +243,10 @@ private fun CalinoActionMenu(
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss,
+        // Keep the pointer stream on the held row. This lets a menu that
+        // appeared during the hold yield immediately when that same finger
+        // moves into a drag.
+        properties = PopupProperties(focusable = false),
         modifier = Modifier
             .widthIn(min = 184.dp, max = 264.dp)
             .shadow(10.dp, shape)
@@ -2069,7 +2074,7 @@ private fun TaskRow(
         Modifier.calinoLongPressDrag(
             onClick = onClick,
             onLongPress = { menuOpen = true },
-            onDragStart = { verticalDrag = 0f; liftedDrag = Offset.Zero; isLifted = true; onDragStart?.invoke() },
+            onDragStart = { menuOpen = false; verticalDrag = 0f; liftedDrag = Offset.Zero; isLifted = true; onDragStart?.invoke() },
             onDrag = { amount -> verticalDrag += amount.y; liftedDrag += amount; onDrag(amount) },
             onDragEnd = { _ -> onDragEnd?.invoke(); verticalDrag = 0f; liftedDrag = Offset.Zero; isLifted = false },
             onDragCancel = { onDragCancel?.invoke(); verticalDrag = 0f; liftedDrag = Offset.Zero; isLifted = false },

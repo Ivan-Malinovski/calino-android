@@ -185,9 +185,9 @@ private val ShortDateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
 /**
  * One gesture for an actionable row: a normal tap opens it, a held tap opens
- * its action menu, and a held tap followed by movement becomes a drag.  The
- * important detail is that movement is left unconsumed until the drag
- * activation delay has elapsed.  A normal scroll therefore still belongs to
+ * its action menu, and movement after either the drag cue or the menu becomes
+ * a drag. The important detail is that movement is left unconsumed until the
+ * drag activation delay has elapsed. A normal scroll therefore still belongs to
  * the LazyColumn instead of every row competing with it on every move.
  *
  * The drag announces itself the moment it is available rather than on the
@@ -236,6 +236,7 @@ fun Modifier.calinoLongPressDrag(
             val dragDelay = minOf(menuDelay, 220L)
             var totalDrag = Offset.Zero
             var armed = false
+            var menuShown = false
             var dragging = false
             var finished = false
             try {
@@ -249,18 +250,29 @@ fun Modifier.calinoLongPressDrag(
                     // wait with a deadline rather than purely on input: a
                     // stationary finger produces no events, and the drag has to
                     // announce itself on time without one.
-                    val remainingToArm = dragDelay - (SystemClock.uptimeMillis() - downClock)
-                    val event = if (!armed && remainingToArm > 0) {
-                        withTimeoutOrNull(remainingToArm) {
+                    val elapsedBeforeWait = SystemClock.uptimeMillis() - downClock
+                    val nextDeadline = when {
+                        !armed -> dragDelay
+                        !menuShown && currentOnLongPress != null -> menuDelay
+                        else -> null
+                    }
+                    val remainingToDeadline = nextDeadline?.minus(elapsedBeforeWait)
+                    val event = if (remainingToDeadline != null && remainingToDeadline > 0) {
+                        withTimeoutOrNull(remainingToDeadline) {
                             awaitPointerEvent(PointerEventPass.Initial)
                         }
                     } else {
                         awaitPointerEvent(PointerEventPass.Initial)
                     }
                     if (event == null) {
-                        armed = true
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        currentOnDragArmed?.invoke()
+                        if (!armed) {
+                            armed = true
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            currentOnDragArmed?.invoke()
+                        } else if (!menuShown) {
+                            menuShown = true
+                            currentOnLongPress?.invoke()
+                        }
                         continue
                     }
                     val change = event.changes.firstOrNull { it.id == pointerId } ?: break
@@ -288,10 +300,7 @@ fun Modifier.calinoLongPressDrag(
                                 .changes
                                 .firstOrNull { it.id == pointerId }
                                 ?.isConsumed == true
-                            if (!claimed) {
-                                if (elapsed >= menuDelay) currentOnLongPress?.invoke()
-                                else currentOnClick?.invoke()
-                            }
+                            if (!claimed && !menuShown) currentOnClick?.invoke()
                         }
                         finished = true
                         continue
@@ -877,6 +886,7 @@ fun AgendaRow(
     variant: AgendaRowVariant = AgendaRowVariant.Card,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    onDragStart: (() -> Unit)? = null,
     onDragEnd: ((Offset) -> Unit)? = null,
     trailingDescription: String? = null,
     struck: Boolean = false,
@@ -905,7 +915,7 @@ fun AgendaRow(
         Modifier.calinoLongPressDrag(
             onClick = onClick,
             onLongPress = onLongClick,
-            onDragStart = { dragOffsetY = 0f },
+            onDragStart = { dragOffsetY = 0f; onDragStart?.invoke() },
             onDrag = { amount -> dragOffsetY += amount.y },
             onDragEnd = { offset -> onDragEnd(offset); dragOffsetY = 0f },
             onDragCancel = { dragOffsetY = 0f },
