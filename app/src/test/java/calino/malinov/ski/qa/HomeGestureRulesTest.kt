@@ -1,10 +1,21 @@
 package calino.malinov.ski.qa
 
+import calino.malinov.ski.ui.home.monthEventsOwnInput
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeGestureRulesTest {
+    @Test
+    fun `month events only own taps at the detailed level`() {
+        assertFalse(monthEventsOwnInput(0f))
+        assertFalse(monthEventsOwnInput(1f))
+        assertFalse(monthEventsOwnInput(1.49f))
+        assertTrue(monthEventsOwnInput(1.5f))
+        assertTrue(monthEventsOwnInput(2f))
+    }
+
     @Test
     fun verticalScreenDrag_pullDownExpands_andPullUpCollapses() {
         assertEquals(0.5f, zoomAfterVerticalDrag(0f, 140f), 0.001f)

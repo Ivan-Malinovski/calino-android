@@ -3,6 +3,8 @@ package calino.malinov.ski
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.performTouchInput
 import calino.malinov.ski.CalinoTestActions.FixtureDate
 import calino.malinov.ski.CalinoTestActions.MonthPager
 import calino.malinov.ski.CalinoTestActions.WeekPager
@@ -41,6 +43,19 @@ class CalendarDateSelectionTest : CalinoUiTest() {
 
         compose.assertDaySelected(MonthPager, thursday)
         compose.assertDayNotSelected(MonthPager, FixtureDate)
+    }
+
+    @Test fun busyDayBlockTapInSplitMonthOnlyCommitsSelection() {
+        zoomTo(1)
+        val busyDay = FixtureDate.plusDays(1)
+
+        // Aim at the block centre, where the detailed month layers an event
+        // target over the day. The split month must give that space to the day.
+        compose.dayCellIn(MonthPager, busyDay).performTouchInput { click(center) }
+        compose.waitForIdle()
+
+        compose.assertDaySelected(MonthPager, busyDay)
+        compose.onNodeWithContentDescription("Open event").assertDoesNotExist()
     }
 
     /**

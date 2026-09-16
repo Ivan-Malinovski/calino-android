@@ -277,6 +277,9 @@ private const val CollapsedMonthRowCrossfadeHalfWidth = .06f
 private const val MonthEndpointBlendStart = .10f
 private const val MonthEndpointBlendEnd = .18f
 
+/** Month event chips become direct targets only at the fully detailed level. */
+internal fun monthEventsOwnInput(zoom: Float): Boolean = zoom >= 1.5f
+
 private val FullDateFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)
 private val AgendaDateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
 
@@ -3070,7 +3073,11 @@ private fun MonthGridHitTargets(
         compactWeekRow,
         eventCapacity,
     ) {
-        if (!interactionEnabled || (onEventDrop == null && onEventClick == null && onEventAction == null)) {
+        if (
+            !interactionEnabled ||
+            !monthEventsOwnInput(zoom) ||
+            (onEventDrop == null && onEventClick == null && onEventAction == null)
+        ) {
             emptyList()
         } else {
             buildList {
