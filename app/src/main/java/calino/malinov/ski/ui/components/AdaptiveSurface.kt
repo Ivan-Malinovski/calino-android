@@ -415,14 +415,22 @@ fun AdaptiveSurfaceHost(
         // card reached the pill (and again while it left).
         val backdropLayer = rememberGraphicsLayer()
         var backdropOrigin by remember { mutableStateOf(Offset.Zero) }
+        val scrimColor = CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress))
         StatusBarScrimExtension(
-            color = CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress)),
-            modifier = Modifier.align(Alignment.TopStart),
+            color = scrimColor,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                // Match the sidebar: reveal the underlying surface in direct
+                // proportion to the card's live dismissal travel. Reading the
+                // progress in a layer keeps finger-follow frames out of
+                // composition.
+                .graphicsLayer { alpha = 1f - dismissDrag.progress },
         )
         Box(
             Modifier
                 .fillMaxSize()
-                .background(CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress)))
+                .graphicsLayer { alpha = 1f - dismissDrag.progress }
+                .background(scrimColor)
                 .clickable(enabled = visible, onClick = onDismiss)
                 .semantics { this.contentDescription = contentDescription },
         )
