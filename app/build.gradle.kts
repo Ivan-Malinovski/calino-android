@@ -2,8 +2,13 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
 val repositoryVersion = providers.gradleProperty("appVersionName").orElse("0.1.0").get()
+val versionParts = repositoryVersion.substringBefore('-').split('.').map(String::toInt)
+require(versionParts.size == 3) {
+    "appVersionName must use MAJOR.MINOR.PATCH, got: $repositoryVersion"
+}
+val appVersionCode = versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]
 
-// Release signing key lives outside git at keystore/release.keystore so it never
+// Release signing key lives outside git at keystore/calino-release.jks so it never
 // gets silently regenerated (that's what desynced the phone's installed signature
 // from a freshly generated ~/.android/debug.keystore before). Missing the
 // properties file is a hard error rather than falling back to an ad hoc key.
@@ -29,7 +34,9 @@ android {
         applicationId = "calino.malinov.ski"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        // Keep the native APK on the same monotonically increasing version-code
+        // line as the web/Capacitor Android app.
+        versionCode = appVersionCode
         versionName = repositoryVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

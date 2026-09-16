@@ -383,6 +383,13 @@ private fun RangePagerSurface(
                     timelineScale = timelineScale,
                     timelineScroll = timelineScroll,
                     onTimelineScaleChanged = onTimelineScaleChanged,
+                    onRangeModePinch = { scale ->
+                        val next = rangeModeAfterHorizontalPinch(activeMode, scale)
+                        if (next != activeMode) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            preferences.setRangeMode(next)
+                        }
+                    },
                     onEventClick = onEventClick,
                     onEventAction = onEventAction,
                     onEventDrop = onEventDrop,
@@ -478,6 +485,7 @@ private fun RangePage(
     timelineScale: Float,
     timelineScroll: ScrollState,
     onTimelineScaleChanged: (Float) -> Unit,
+    onRangeModePinch: (Float) -> Unit,
     onEventClick: (LocalDate, CalEvent) -> Unit,
     onEventAction: (EventMenuAction, CalEvent) -> Unit,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
@@ -503,7 +511,12 @@ private fun RangePage(
                     railLayer.record { this@drawWithContent.drawContent() }
                     drawLayer(railLayer)
                 }
-                .rangePinch { zoom -> onTimelineScaleChanged((timelineScale * zoom).coerceIn(.65f, 1.8f)) }
+                .rangePinch(
+                    onVerticalZoom = { zoom ->
+                        onTimelineScaleChanged((timelineScale * zoom).coerceIn(.65f, 1.8f))
+                    },
+                    onHorizontalPinch = onRangeModePinch,
+                )
                 .verticalScroll(timelineScroll).padding(bottom = CalinoSpacing.PillClearance),
             horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
         ) {
@@ -548,18 +561,17 @@ private fun RangePage(
                 }
             }
         }
-        // Animated rather than following `stripHeight` directly: that height
-        // is one frame behind its own content (measured via onSizeChanged),
-        // so an expanding band would otherwise make the scrim step instead of
-        // grow smoothly under it.
-        val scrimHeight by animateDpAsState(stripHeight + 10.dp, CalinoMotion.standardSpatial(), label = "range strip scrim height")
+        val scrimHeight by animateDpAsState(
+            stripHeight,
+            CalinoMotion.standardSpatial(),
+            label = "range strip scrim height",
+        )
         CompactLaneScrim(
             source = railLayer,
             blend = { 1f },
             modifier = Modifier.fillMaxWidth().height(scrimHeight),
+            dissolveEdge = false,
         )
-        // Match the compact week strip: content and input sit over the same
-        // translucent, blurred copy of the hour rail instead of an opaque bar.
         Column(
             Modifier.fillMaxWidth().onSizeChanged { size ->
                 stripHeight = with(density) { size.height.toDp() }
@@ -735,22 +747,48 @@ private fun Modifier.rangeEmptyDoubleTap(
     }
 }
 
-private fun Modifier.rangePinch(onZoom: (Float) -> Unit): Modifier = pointerInput(Unit) {
-    awaitEachGesture {
-        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-        var previousSpan: Float? = null
-        while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Initial)
-            val pressed = event.changes.filter { it.pressed }
-            if (pressed.isEmpty()) break
-            if (pressed.size >= 2) {
-                val span = (pressed[0].position - pressed[1].position).getDistance()
-                previousSpan?.takeIf { it > 0f }?.let { onZoom(span / it) }
-                previousSpan = span
-                pressed.forEach { it.consume() }
-            } else {
-                previousSpan = null
+private fun Modifier.rangePinch(
+    onVerticalZoom: (Float) -> Unit,
+    onHorizontalPinch: (Float) -> Unit,
+): Modifier = composed {
+    val currentOnVerticalZoom by rememberUpdatedState(onVerticalZoom)
+    val currentOnHorizontalPinch by rememberUpdatedState(onHorizontalPinch)
+    pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            var initialVector: Offset? = null
+            var previousVerticalSpan: Float? = null
+            var finalHorizontalScale = 1f
+            var gestureAxis = 0 // 0 undecided, 1 horizontal, 2 vertical
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val pressed = event.changes.filter { it.pressed }
+                if (pressed.isEmpty()) break
+                if (pressed.size >= 2) {
+                    val vector = pressed[0].position - pressed[1].position
+                    val initial = initialVector
+                    if (initial == null) {
+                        initialVector = vector
+                        previousVerticalSpan = kotlin.math.abs(vector.y).coerceAtLeast(1f)
+                    } else {
+                        val horizontalChange = kotlin.math.abs(kotlin.math.abs(vector.x) - kotlin.math.abs(initial.x))
+                        val verticalChange = kotlin.math.abs(kotlin.math.abs(vector.y) - kotlin.math.abs(initial.y))
+                        if (gestureAxis == 0 && maxOf(horizontalChange, verticalChange) > viewConfiguration.touchSlop) {
+                            gestureAxis = if (horizontalChange > verticalChange) 1 else 2
+                        }
+                        if (gestureAxis == 1) {
+                            finalHorizontalScale = kotlin.math.abs(vector.x) /
+                                kotlin.math.abs(initial.x).coerceAtLeast(1f)
+                        } else if (gestureAxis == 2) {
+                            val span = kotlin.math.abs(vector.y).coerceAtLeast(1f)
+                            previousVerticalSpan?.takeIf { it > 0f }?.let { currentOnVerticalZoom(span / it) }
+                            previousVerticalSpan = span
+                        }
+                    }
+                    pressed.forEach { it.consume() }
+                }
             }
+            if (gestureAxis == 1) currentOnHorizontalPinch(finalHorizontalScale)
         }
     }
 }

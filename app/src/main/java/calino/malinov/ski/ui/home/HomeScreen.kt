@@ -5886,6 +5886,7 @@ internal fun CompactLaneScrim(
     source: GraphicsLayer,
     blend: () -> Float,
     modifier: Modifier = Modifier,
+    dissolveEdge: Boolean = true,
 ) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
@@ -5911,16 +5912,18 @@ internal fun CompactLaneScrim(
                 } else {
                     drawRect(colors.Canvas)
                 }
-                val softEdge = CompactLaneSoftEdge.toPx().coerceAtMost(size.height)
-                val fadeStart = ((size.height - softEdge) / size.height).coerceIn(0f, 1f)
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.Black,
-                        fadeStart to Color.Black,
-                        1f to Color.Transparent,
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
+                if (dissolveEdge) {
+                    val softEdge = CompactLaneSoftEdge.toPx().coerceAtMost(size.height)
+                    val fadeStart = ((size.height - softEdge) / size.height).coerceIn(0f, 1f)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Black,
+                            fadeStart to Color.Black,
+                            1f to Color.Transparent,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                }
             },
     )
 }

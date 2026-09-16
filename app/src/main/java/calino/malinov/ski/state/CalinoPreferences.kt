@@ -17,6 +17,27 @@ import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoThemeChoice
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
+import kotlin.math.min
+
+/** Independent Range-view preference buckets for adaptive window shapes. */
+enum class CalinoRangeProfile {
+    PhonePortrait,
+    PhoneLandscape,
+    TabletPortrait,
+    TabletLandscape,
+}
+
+fun rangeProfileFor(device: CalinoDeviceDefaults): CalinoRangeProfile {
+    val tablet = min(device.windowWidthDp, device.windowHeightDp) >= 600
+    val landscape = device.orientation == CalinoOrientation.Landscape ||
+        device.orientation == CalinoOrientation.Unknown && device.windowWidthDp > device.windowHeightDp
+    return when {
+        tablet && landscape -> CalinoRangeProfile.TabletLandscape
+        tablet -> CalinoRangeProfile.TabletPortrait
+        landscape -> CalinoRangeProfile.PhoneLandscape
+        else -> CalinoRangeProfile.PhonePortrait
+    }
+}
 
 /**
  * The user's display preferences, and the callbacks that change them.
@@ -122,8 +143,8 @@ interface CalinoPreferenceStore {
     fun saveShowWeekNumbers(show: Boolean)
     fun loadDefaultView(): CalinoDefaultView
     fun saveDefaultView(view: CalinoDefaultView)
-    fun loadRangeMode(): CalinoRangeMode
-    fun saveRangeMode(mode: CalinoRangeMode)
+    fun loadRangeMode(profile: CalinoRangeProfile): CalinoRangeMode
+    fun saveRangeMode(profile: CalinoRangeProfile, mode: CalinoRangeMode)
     fun loadDefaultDuration(): CalinoDefaultDuration
     fun saveDefaultDuration(duration: CalinoDefaultDuration)
     fun loadDefaultReminder(): CalinoDefaultReminder
@@ -166,7 +187,7 @@ interface CalinoPreferenceStore {
         private var density = CalinoEventDensity.Default
         private var weekNumbers = true
         private var defaultView = CalinoDefaultView.Default
-        private var rangeMode = CalinoRangeMode.Default
+        private val rangeModes = mutableMapOf<CalinoRangeProfile, CalinoRangeMode>()
         private var duration = CalinoDefaultDuration.Default
         private var reminder = CalinoDefaultReminder.Default
         private var hideCompleted = false
@@ -190,8 +211,8 @@ interface CalinoPreferenceStore {
         override fun saveShowWeekNumbers(show: Boolean) { weekNumbers = show }
         override fun loadDefaultView() = defaultView
         override fun saveDefaultView(view: CalinoDefaultView) { defaultView = view }
-        override fun loadRangeMode() = rangeMode
-        override fun saveRangeMode(mode: CalinoRangeMode) { rangeMode = mode }
+        override fun loadRangeMode(profile: CalinoRangeProfile) = rangeModes[profile] ?: CalinoRangeMode.Default
+        override fun saveRangeMode(profile: CalinoRangeProfile, mode: CalinoRangeMode) { rangeModes[profile] = mode }
         override fun loadDefaultDuration() = duration
         override fun saveDefaultDuration(duration: CalinoDefaultDuration) { this.duration = duration }
         override fun loadDefaultReminder() = reminder
@@ -258,8 +279,10 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 
     override fun loadDefaultView(): CalinoDefaultView = CalinoDefaultView.fromName(name(DefaultViewKey))
     override fun saveDefaultView(view: CalinoDefaultView) = putString(DefaultViewKey, view.name)
-    override fun loadRangeMode(): CalinoRangeMode = CalinoRangeMode.fromName(name(RangeModeKey))
-    override fun saveRangeMode(mode: CalinoRangeMode) = putString(RangeModeKey, mode.name)
+    override fun loadRangeMode(profile: CalinoRangeProfile): CalinoRangeMode =
+        CalinoRangeMode.fromName(name("${RangeModeKey}_${profile.name}") ?: name(RangeModeKey))
+    override fun saveRangeMode(profile: CalinoRangeProfile, mode: CalinoRangeMode) =
+        putString("${RangeModeKey}_${profile.name}", mode.name)
 
     override fun loadDefaultDuration(): CalinoDefaultDuration =
         CalinoDefaultDuration.fromName(name(DefaultDurationKey))
@@ -340,7 +363,8 @@ fun rememberCalinoPreferences(
     var eventDensity by remember(store) { mutableStateOf(store.loadEventDensity()) }
     var showWeekNumbers by remember(store) { mutableStateOf(store.loadShowWeekNumbers()) }
     var defaultView by remember(store) { mutableStateOf(store.loadDefaultView()) }
-    var rangeMode by remember(store) { mutableStateOf(store.loadRangeMode()) }
+    val rangeProfile = rangeProfileFor(deviceDefaults)
+    var rangeMode by remember(store, rangeProfile) { mutableStateOf(store.loadRangeMode(rangeProfile)) }
     var defaultDuration by remember(store) { mutableStateOf(store.loadDefaultDuration()) }
     var defaultReminder by remember(store) { mutableStateOf(store.loadDefaultReminder()) }
     var hideCompletedTasks by remember(store) { mutableStateOf(store.loadHideCompletedTasks()) }
@@ -371,7 +395,7 @@ fun rememberCalinoPreferences(
         defaultView = defaultView,
         setDefaultView = { value -> defaultView = value; store.saveDefaultView(value) },
         rangeMode = rangeMode,
-        setRangeMode = { value -> rangeMode = value; store.saveRangeMode(value) },
+        setRangeMode = { value -> rangeMode = value; store.saveRangeMode(rangeProfile, value) },
         defaultDuration = defaultDuration,
         setDefaultDuration = { value -> defaultDuration = value; store.saveDefaultDuration(value) },
         defaultReminder = defaultReminder,

@@ -42,6 +42,19 @@ class RangeRulesTest {
         assertEquals(wednesday.minusDays(7), rangeAnchorForPage(wednesday, RangePagerCenter - 1, CalinoRangeMode.SevenDay))
     }
 
+    @Test fun `horizontal pinch steps through range sizes`() {
+        assertEquals(CalinoRangeMode.ThreeDay, rangeModeAfterHorizontalPinch(CalinoRangeMode.OneDay, .7f))
+        assertEquals(CalinoRangeMode.SevenDay, rangeModeAfterHorizontalPinch(CalinoRangeMode.ThreeDay, .7f))
+        assertEquals(CalinoRangeMode.ThreeDay, rangeModeAfterHorizontalPinch(CalinoRangeMode.SevenDay, 1.3f))
+        assertEquals(CalinoRangeMode.OneDay, rangeModeAfterHorizontalPinch(CalinoRangeMode.ThreeDay, 1.3f))
+    }
+
+    @Test fun `horizontal pinch ignores small scale changes and clamps endpoints`() {
+        assertEquals(CalinoRangeMode.ThreeDay, rangeModeAfterHorizontalPinch(CalinoRangeMode.ThreeDay, 1.1f))
+        assertEquals(CalinoRangeMode.OneDay, rangeModeAfterHorizontalPinch(CalinoRangeMode.OneDay, 1.3f))
+        assertEquals(CalinoRangeMode.SevenDay, rangeModeAfterHorizontalPinch(CalinoRangeMode.SevenDay, .7f))
+    }
+
     @Test fun `held drag enters edge zones only`() {
         assertEquals(-1, rangeEdgeDirection(20f, 360, 52f))
         assertEquals(0, rangeEdgeDirection(180f, 360, 52f))

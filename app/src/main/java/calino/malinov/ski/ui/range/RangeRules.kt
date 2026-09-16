@@ -21,6 +21,16 @@ fun rangeDays(anchor: LocalDate, mode: CalinoRangeMode, weekStart: CalinoWeekSta
 fun rangeAnchorForPage(base: LocalDate, page: Int, mode: CalinoRangeMode): LocalDate =
     base.plusDays((page - RangePagerCenter).toLong() * mode.dayCount)
 
+/** Pinch inward reveals more days; spreading outward reveals fewer. */
+internal fun rangeModeAfterHorizontalPinch(mode: CalinoRangeMode, horizontalScale: Float): CalinoRangeMode {
+    val index = CalinoRangeMode.entries.indexOf(mode)
+    return when {
+        horizontalScale <= .82f -> CalinoRangeMode.entries[(index + 1).coerceAtMost(CalinoRangeMode.entries.lastIndex)]
+        horizontalScale >= 1.18f -> CalinoRangeMode.entries[(index - 1).coerceAtLeast(0)]
+        else -> mode
+    }
+}
+
 internal fun rangeEdgeDirection(pointerX: Float, width: Int, edge: Float): Int = when {
     width <= 0 || edge <= 0f -> 0
     pointerX < edge -> -1
