@@ -102,7 +102,9 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val RangeDate = DateTimeFormatter.ofPattern("MMM d", Locale.US)
@@ -288,18 +290,27 @@ private fun RangePagerSurface(
         lastHapticMinute = minute
     }
 
-    LaunchedEffect(edgeDirection, drag) {
+    // Key on whether a drag exists, not the per-frame session value. Keying on
+    // `drag` restarts this delay for every pointer update, making an edge turn
+    // require an unrealistically motionless hold.
+    LaunchedEffect(edgeDirection, drag != null) {
         if (edgeDirection == 0 || drag == null) return@LaunchedEffect
         while (true) {
             delay(RangeEdgeTurnDelayMillis)
             val target = pager.currentPage + edgeDirection
             if (target !in 0 until pager.pageCount) break
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            pager.animateScrollToPage(target)
+            // Once a page turn has visibly begun, finish it. Leaving the edge
+            // cancels this effect; allowing that cancellation to interrupt the
+            // pager animation strands it at a fractional page until the next
+            // manual swipe.
+            withContext(NonCancellable) {
+                pager.animateScrollToPage(target)
+            }
         }
     }
 
-    LaunchedEffect(autoScrollDirection, drag) {
+    LaunchedEffect(autoScrollDirection, drag != null) {
         if (autoScrollDirection == 0 || drag == null) return@LaunchedEffect
         val step = with(density) { RangeAutoScrollStep.toPx() }
         while (true) {
