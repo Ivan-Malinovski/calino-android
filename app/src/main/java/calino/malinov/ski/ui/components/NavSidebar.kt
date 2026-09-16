@@ -161,6 +161,15 @@ fun NavSidebar(
     val axisThresholdPx = with(density) { 8.dp.toPx() }
     val travelPx = with(density) { 360.dp.toPx() }
     val scrimDragAlpha = 1f - (abs(dragX) / travelPx).coerceIn(0f, 1f)
+    val statusBarScrimProgress by animateFloatAsState(
+        targetValue = if (visible && !dismissing) 1f else 0f,
+        animationSpec = if (visible && !dismissing) {
+            CalinoMotion.expressiveSpatial()
+        } else {
+            tween(200)
+        },
+        label = "sidebar status bar scrim",
+    )
 
     PredictiveBackHandler(enabled = visible && !dismissing) { events ->
         try {
@@ -188,16 +197,16 @@ fun NavSidebar(
         // This sidebar host is inset below the status bar. Paint the matching
         // slice just outside its bounds so the transparent system bar follows
         // the same veil instead of remaining a bright strip above it.
-        AnimatedVisibility(
-            visible = visible && !dismissing,
-            enter = fadeIn(tween(CalinoMotion.SurfaceFadeMillis)),
-            exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
+        // Keep the negatively offset status-bar slice mounted while its color
+        // animates. An AnimatedVisibility layer can clip drawing outside its
+        // own bounds mid-transition, making this slice appear in one step.
+        StatusBarScrimExtension(
+            color = CalinoColors.scrim(
+                .38f * statusBarScrimProgress.coerceIn(0f, 1f) * scrimDragAlpha,
+            ),
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .graphicsLayer { alpha = scrimDragAlpha },
-        ) {
-            StatusBarScrimExtension(color = CalinoColors.Scrim)
-        }
+                .align(Alignment.TopStart),
+        )
         CalinoScrim(
             visible = visible && !dismissing,
             onDismiss = onDismiss,
