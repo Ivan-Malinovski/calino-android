@@ -3,6 +3,7 @@ package calino.malinov.ski.ui.range
 import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoWeekStart
 import java.time.LocalDate
+import java.time.LocalDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -52,5 +53,25 @@ class RangeRulesTest {
         assertEquals(days.first(), rangeDropDay(52f, 352, 52f, days))
         assertEquals(days[1], rangeDropDay(202f, 352, 52f, days))
         assertEquals(days.last(), rangeDropDay(351f, 352, 52f, days))
+    }
+
+    @Test fun `live range drop target snaps movement to quarter hours`() {
+        val start = LocalDateTime.of(2026, 9, 16, 9, 0)
+        assertEquals(
+            LocalDateTime.of(2026, 9, 17, 9, 30),
+            rangeDropTarget(start, wednesday.plusDays(1), dragY = 31f, scrollDelta = 0, hourHeight = 62f),
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 16, 8, 45),
+            rangeDropTarget(start, wednesday, dragY = -8f, scrollDelta = 0, hourHeight = 62f),
+        )
+    }
+
+    @Test fun `live range drop target stays inside its destination day`() {
+        val start = LocalDateTime.of(2026, 9, 16, 23, 30)
+        assertEquals(
+            LocalDateTime.of(2026, 9, 17, 23, 45),
+            rangeDropTarget(start, wednesday.plusDays(1), dragY = 500f, scrollDelta = 0, hourHeight = 62f),
+        )
     }
 }

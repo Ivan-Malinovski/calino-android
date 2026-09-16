@@ -4,6 +4,8 @@ import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoWeekStart
 import calino.malinov.ski.util.startOfWeek
 import java.time.LocalDate
+import java.time.LocalDateTime
+import kotlin.math.roundToInt
 
 internal const val RangePagerCenter = 10_000
 internal const val RangePagerPageCount = RangePagerCenter * 2 + 1
@@ -32,4 +34,19 @@ internal fun rangeDropDay(pointerX: Float, width: Int, gutter: Float, days: List
     val laneWidth = (width - safeGutter).coerceAtLeast(1f)
     val index = (((pointerX - safeGutter) / laneWidth) * days.size).toInt().coerceIn(0, days.lastIndex)
     return days[index]
+}
+
+/** The live, quarter-hour destination shared by the preview and final write. */
+internal fun rangeDropTarget(
+    start: LocalDateTime,
+    day: LocalDate,
+    dragY: Float,
+    scrollDelta: Int,
+    hourHeight: Float,
+): LocalDateTime? {
+    if (hourHeight <= 0f) return null
+    val minuteDelta = (((dragY + scrollDelta) / hourHeight) * 4f).roundToInt() * 15
+    val startMinute = start.hour * 60 + start.minute
+    val targetMinute = (startMinute + minuteDelta).coerceIn(0, 23 * 60 + 45)
+    return day.atStartOfDay().plusMinutes(targetMinute.toLong())
 }

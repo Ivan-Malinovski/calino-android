@@ -252,7 +252,41 @@ private fun RangePagerSurface(
     var edgeDirection by remember { mutableIntStateOf(0) }
     var autoScrollDirection by remember { mutableIntStateOf(0) }
     var menuDismissalGeneration by remember { mutableIntStateOf(0) }
+    var lastHapticMinute by remember { mutableStateOf<java.time.LocalTime?>(null) }
     val hourHeightPx = with(density) { (62 * timelineScale).dp.toPx() }
+
+    val visibleDragDays = rangeDays(
+        rangeAnchorForPage(base, pager.currentPage, activeMode),
+        activeMode,
+        weekStart,
+    )
+    val dragTarget = drag?.let { session ->
+        val day = rangeDropDay(
+            session.pointer.x,
+            hostWidth,
+            with(density) { CalinoSpacing.RailGutter.toPx() },
+            visibleDragDays,
+        )
+        val start = session.card.event.start
+        if (day != null && start != null) {
+            rangeDropTarget(
+                start = start,
+                day = day,
+                dragY = session.offset.y,
+                scrollDelta = timelineScroll.value - session.scrollAtLift,
+                hourHeight = hourHeightPx,
+            )
+        } else null
+    }
+
+    LaunchedEffect(dragTarget?.toLocalTime()) {
+        val minute = dragTarget?.toLocalTime() ?: return@LaunchedEffect
+        val previous = lastHapticMinute
+        if (previous != null && minute != previous) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        lastHapticMinute = minute
+    }
 
     LaunchedEffect(edgeDirection, drag) {
         if (edgeDirection == 0 || drag == null) return@LaunchedEffect
@@ -290,6 +324,7 @@ private fun RangePagerSurface(
                 },
                 onLift = { card, pointer ->
                     drag = RangeDragSession(card, pointer = pointer, scrollAtLift = timelineScroll.value)
+                    lastHapticMinute = card.event.start?.toLocalTime()
                 },
                 onDragStart = { menuDismissalGeneration++ },
                 onDrag = { delta, pointer ->
@@ -306,24 +341,16 @@ private fun RangePagerSurface(
                     edgeDirection = 0
                     autoScrollDirection = 0
                     drag = null
+                    lastHapticMinute = null
                     if (session != null) {
-                        val visible = rangeDays(rangeAnchorForPage(base, pager.currentPage, activeMode), activeMode, weekStart)
-                        val day = rangeDropDay(
-                            session.pointer.x,
-                            hostWidth,
-                            with(density) { CalinoSpacing.RailGutter.toPx() },
-                            visible,
-                        )
                         val start = session.card.event.start
-                        if (day != null && start != null && hourHeightPx > 0f) {
-                            val scrollDelta = timelineScroll.value - session.scrollAtLift
-                            val minuteDelta = (((session.offset.y + scrollDelta) / hourHeightPx) * 4f).roundToInt() * 15
-                            val target = LocalDateTime.of(day, start.toLocalTime().plusMinutes(minuteDelta.toLong()))
+                        val target = dragTarget
+                        if (start != null && target != null) {
                             if (target != start) onEventTimeDrop(session.card.event, target)
                         }
                     }
                 },
-                onCancel = { edgeDirection = 0; autoScrollDirection = 0; drag = null },
+                onCancel = { edgeDirection = 0; autoScrollDirection = 0; drag = null; lastHapticMinute = null },
             ),
     ) {
         HorizontalPager(
@@ -359,6 +386,56 @@ private fun RangePagerSurface(
                     onCardGone = { cardBounds.remove(it) },
                 )
             }
+        if (drag != null && dragTarget != null) {
+            val session = drag!!
+            val dayIndex = visibleDragDays.indexOf(dragTarget.toLocalDate())
+            val gutterPx = with(density) { CalinoSpacing.RailGutter.toPx() }
+            val gapPx = with(density) { CalinoSpacing.RailColumnGap.toPx() }
+            val columnWidth = ((hostWidth - gutterPx - gapPx * visibleDragDays.size) /
+                visibleDragDays.size.coerceAtLeast(1)).coerceAtLeast(1f)
+            val previewLeft = gutterPx + gapPx + dayIndex.coerceAtLeast(0) * (columnWidth + gapPx)
+            val previewTop = (dragTarget.hour * 60 + dragTarget.minute) / 60f * hourHeightPx - timelineScroll.value
+            Text(
+                text = timeFormat.format(dragTarget.toLocalTime()),
+                modifier = Modifier
+                    .width(CalinoSpacing.RailGutter - 6.dp)
+                    .graphicsLayer {
+                        translationX = with(density) { 3.dp.toPx() }
+                        translationY = previewTop - with(density) { 8.dp.toPx() }
+                    }
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(CalinoColors.Canvas.copy(alpha = .94f))
+                    .border(1.dp, CalinoColors.Accent.copy(alpha = .7f), RoundedCornerShape(7.dp))
+                    .padding(horizontal = 3.dp, vertical = 2.dp)
+                    .semantics {
+                        contentDescription = "Drop start time, ${timeFormat.format(dragTarget.toLocalTime())}"
+                    },
+                color = CalinoColors.Accent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+            )
+            TimelineEventCard(
+                modifier = Modifier
+                    .width(with(density) { session.card.rootRect.width.toDp() })
+                    .height(with(density) { session.card.rootRect.height.toDp() })
+                    .graphicsLayer {
+                        translationX = previewLeft
+                        translationY = previewTop
+                        alpha = .34f
+                    }
+                    .semantics {
+                        contentDescription = "Drop preview, ${dragTarget.toLocalDate()}, ${timeFormat.format(dragTarget.toLocalTime())}"
+                    },
+                event = session.card.event,
+                showMetadata = session.card.showMetadata,
+                timeFormat = timeFormat,
+                preferences = preferences,
+                colors = CalinoColors,
+                hideAccentRail = true,
+            )
+        }
         drag?.let { session ->
             val rect = session.card.rootRect
             TimelineEventCard(
