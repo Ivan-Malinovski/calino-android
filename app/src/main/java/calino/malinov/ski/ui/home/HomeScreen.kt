@@ -338,6 +338,16 @@ private data class BoundaryPagerSnapshot(
     val dayCurrentPage: Int,
     val dayTargetPage: Int,
     val daySettledPage: Int,
+    /**
+     * Whether the day pager is resting on a whole page.
+     *
+     * Between a drag ending and its fling starting, the pager reports
+     * `isScrollInProgress == false` with [dayTargetPage] collapsed back onto
+     * [dayCurrentPage] for a single snapshot, which is indistinguishable from a
+     * cancelled drag by page numbers alone. It is not indistinguishable by
+     * position: a real settle sits on a whole page, and that gap is mid-page.
+     */
+    val dayAtRestOnPage: Boolean,
     val monthInProgress: Boolean,
     val monthSettledPage: Int,
 )
@@ -385,7 +395,15 @@ private fun dayPageFor(date: LocalDate): Int =
 internal fun dateForDayPage(page: Int): LocalDate =
     PagerEpoch.plusDays((page - DayPagerCenter).toLong())
 
-/** Maps live day-pager travel onto the compact row's visible selector column. */
+/**
+ * Maps live day-pager travel onto the compact row's visible selector column.
+ *
+ * This is the mapping for a surface whose row does *not* move under the pill --
+ * the month grid and the compact month row, which pick their own row and keep a
+ * Sunday/Monday wrap inside it. The week strip pages a whole week's width during
+ * the same gesture, so it binds its pill to the day each page is showing rather
+ * than to travel measured in a week that is itself moving.
+ */
 internal fun selectorColumnForDayTravel(selectedColumn: Int, liveOffset: Float): Float {
     val continuousColumn = selectedColumn - liveOffset
     val lower = floor(continuousColumn).toInt()
@@ -396,6 +414,52 @@ internal fun selectorColumnForDayTravel(selectedColumn: Int, liveOffset: Float):
     } else {
         lowerColumn + fraction
     }
+}
+
+/**
+ * The day one week-strip page is showing.
+ *
+ * The week being revealed shows the previewed day itself; any week merely
+ * sliding past shows the committed weekday in its own week. The strip's pill is
+ * this day's column, which is what keeps the indicator and the date underneath
+ * it the same fact rather than two things that have to be kept in step.
+ */
+internal fun weekStripPageDay(
+    pageWeekStart: LocalDate,
+    displayedWeekDay: LocalDate,
+    committedColumn: Int,
+    weekStart: CalinoWeekStart,
+): LocalDate = if (pageWeekStart == displayedWeekDay.startOfWeek(weekStart)) {
+    displayedWeekDay
+} else {
+    pageWeekStart.plusDays(committedColumn.toLong())
+}
+
+/**
+ * The compact pill's column, measured in the week the row is actually showing.
+ *
+ * [distanceInPages] is the day pager's `getOffsetDistanceInPages` from the
+ * committed day's page -- target minus current, so travelling forward is
+ * negative and subtracting it advances the column.
+ *
+ * The frame matters more than the arithmetic. Measuring this travel in the
+ * *committed* day's week is correct only while that week stays under the pill;
+ * a week crossing pages the row to the destination week, and the two then
+ * disagree by exactly one week's worth of columns, which is the distance the
+ * pill was seen to wander. Reading it against the row's own week start keeps
+ * the pill and the dates beneath it the same fact on every frame, with nothing
+ * retained between frames to fall out of step.
+ *
+ * The result is allowed one column beyond each edge so a crossing slides off
+ * one side and in from the other rather than snapping.
+ */
+internal fun selectorColumnInRowWeek(
+    committedDay: LocalDate,
+    rowWeekStart: LocalDate,
+    distanceInPages: Float,
+): Float {
+    val committedOffsetInRow = (committedDay.toEpochDay() - rowWeekStart.toEpochDay()).toFloat()
+    return (committedOffsetInRow - distanceInPages).coerceIn(-1f, 7f)
 }
 
 internal fun weekPageFor(date: LocalDate, weekStart: CalinoWeekStart): Int {
@@ -907,14 +971,76 @@ fun HomeScreen(
             distance.coerceIn(-7f, 7f)
         }
     }
-    // Null while no day preview is live. The pill follows PagerState directly
-    // during the drag, including a direct Sunday/Monday crossing; the
-    // Animatable below owns it only at rest and during non-gesture changes.
-    val compactSelectorPreview = remember(dayPagerTravel, selectedWeekdayIndex) {
+    // The day the strip is representing right now: the boundary preview when a
+    // drag has chosen a neighbouring week, otherwise the day pager's own
+    // predicted destination, otherwise the committed date.
+    //
+    // Without the middle term the pill would be bound to a day that only
+    // changes on settle, which is the same "it updates when I let go" the
+    // boundary case had. [compactBoundaryDay] already covers the destinations
+    // that page the strip; this covers the ones inside the current week, which
+    // move no page and so were never previewed anywhere.
+    val stripPreviewDay by remember(dayPagerState, selected, weekStart) {
         derivedStateOf {
-            val liveOffset = dayPagerTravel.value.coerceIn(-7f, 7f)
-            if (abs(liveOffset) <= .001f) return@derivedStateOf null
-            selectorColumnForDayTravel(selectedWeekdayIndex, liveOffset)
+            if (pagerDragOrigins[dayPagerState] != selected.toEpochDay()) {
+                return@derivedStateOf selected
+            }
+            // As the boundary observer does: a fling's target may leap several
+            // days before they have crossed the viewport, so preview only the
+            // adjacent page and let currentPage carry it forward.
+            val current = dayPagerState.currentPage
+            val predicted = dayPagerState.targetPage
+            val preview = dateForDayPage(
+                when {
+                    predicted > current + 1 -> current + 1
+                    predicted < current - 1 -> current - 1
+                    else -> predicted
+                },
+            )
+            // Deliberately confined to the committed week. Anything that
+            // changes the week is [compactBoundaryDay]'s to publish, through
+            // the suppression and rollback machinery that keeps the week pager
+            // and the selected date in step; a second, ungoverned week opinion
+            // here would drive the preview and month-canvas rules that read
+            // this day.
+            if (preview.startOfWeek(weekStart) == selected.startOfWeek(weekStart)) {
+                preview
+            } else {
+                selected
+            }
+        }
+    }
+    val weekStripDay = compactBoundaryDay ?: stripPreviewDay
+    // Null while the day pager is at rest. The pill follows PagerState directly
+    // whenever it is moving; the Animatable below owns it only at rest and
+    // during non-gesture changes.
+    val compactSelectorPreview = remember(dayPagerState, selectedDayPage, weekStripDay, weekStart) {
+        derivedStateOf {
+            // Measured in the week the row is actually showing.
+            //
+            // Every version of this bug was one subtraction in the wrong frame.
+            // The pill used to be travel away from the *committed* day's
+            // column, but a week crossing pages the row out from under it: the
+            // row becomes the destination week while the travel is still
+            // counted in the week being left, and the two disagree by exactly
+            // the distance the pill was seen to wander. A boundary preview then
+            // moved the Animatable's target from column 6 to column 0, so the
+            // selector's own tween crawled backwards across the incoming week
+            // -- the "jumping to the middle of the week" that no amount of
+            // pinning could fix, because the pin was fighting an animation
+            // rather than removing it.
+            //
+            // The live day position is continuous across the crossing, and the
+            // row's own week start is the only frame it can be read in. Their
+            // difference is the column, every frame, with nothing retained
+            // between frames and nothing to fall out of step.
+            val distance = dayPagerState.getOffsetDistanceInPages(selectedDayPage)
+            if (abs(distance) <= .001f) return@derivedStateOf null
+            selectorColumnInRowWeek(
+                committedDay = selected,
+                rowWeekStart = weekStripDay.startOfWeek(weekStart),
+                distanceInPages = distance,
+            )
         }
     }
     val compactSelectorIndex = remember(compactSelectorPreview) {
@@ -948,6 +1074,7 @@ fun HomeScreen(
                 dayCurrentPage = dayPagerState.currentPage,
                 dayTargetPage = dayPagerState.targetPage,
                 daySettledPage = dayPagerState.settledPage,
+                dayAtRestOnPage = abs(dayPagerState.currentPageOffsetFraction) <= .001f,
                 monthInProgress = monthPagerState.isScrollInProgress,
                 monthSettledPage = monthPagerState.settledPage,
             )
@@ -975,12 +1102,16 @@ fun HomeScreen(
             } else {
                 val boundary = snapshot.compactBoundaryDay
                 if (boundary != null) {
+                    // Both arms require the pager to be resting on a whole page.
+                    // Without that, the one mid-page snapshot between drag-end
+                    // and fling-start reads as a cancelled drag: the preview was
+                    // cleared and re-armed a frame later, and the row flicked
+                    // back to the week being left for exactly one frame.
+                    val daySettled = !snapshot.dayInProgress && snapshot.dayAtRestOnPage
                     val daySettledElsewhere =
-                        !snapshot.dayInProgress &&
-                            snapshot.daySettledPage != dayPageFor(boundary)
+                        daySettled && snapshot.daySettledPage != dayPageFor(boundary)
                     val dayTransitionComplete =
-                        !snapshot.dayInProgress &&
-                            snapshot.daySettledPage == dayPageFor(boundary)
+                        daySettled && snapshot.daySettledPage == dayPageFor(boundary)
                     val monthTransitionComplete =
                         !snapshot.monthInProgress &&
                             snapshot.monthSettledPage == monthPageFor(YearMonth.from(boundary))
@@ -1102,7 +1233,6 @@ fun HomeScreen(
             }
         }
     }
-    val weekStripDay = compactBoundaryDay ?: selected
     val isDayPagerBoundaryTransition = compactBoundaryDay != null
 
     val agendaOwnsInputNow = interactionEnabled &&
@@ -1557,7 +1687,6 @@ fun HomeScreen(
                         events = events,
                         eventDateIndex = eventDateIndex,
                         tasksByDueDate = tasksByDueDate,
-                        selectorIndex = { compactSelectorIndex.value },
                         gestureModifier = Modifier,
                         interactionEnabled = interactionEnabled,
                             onUserSwipeStart = {
@@ -2281,7 +2410,6 @@ private fun WeekStrip(
     events: List<CalEvent>,
     eventDateIndex: EventDateIndex,
     tasksByDueDate: Map<LocalDate, List<CalTask>>,
-    selectorIndex: () -> Float,
     gestureModifier: Modifier,
     interactionEnabled: Boolean,
     onUserSwipeStart: () -> Unit,
@@ -2331,18 +2459,20 @@ private fun WeekStrip(
             .then(semanticsModifier)
             .clipToBounds(),
     ) {
-        val committedWeekStart = day.startOfWeek(weekStart)
-        val settledIndex = day.weekdayColumn(weekStart)
-        // A day pager offset is screen travel: negative reveals tomorrow and
-        // positive reveals yesterday. Keep the week row fixed, but move its
-        // indicator in lockstep while the agenda is being dragged/settled.
-        // [selectorIndex] already tracks the previewed day, including a
-        // boundary day in the neighboring week, so the week the strip is
-        // displaying always follows it.
-        val displayedWeekStart = displayedWeekDay.startOfWeek(weekStart)
-        // Deferred so a day-pager sample invalidates this compact subtree,
-        // not the whole HomeScreen composition.
-        val indicatorTargetIndex = selectorIndex().coerceIn(-1f, 7f)
+        // The pill is bound to the day each page is showing -- nothing else.
+        //
+        // It used to be derived from the day pager's live offset, with a settle
+        // handoff and a spring behind it. On a surface that pages under the
+        // pill those three disagree: the offset is measured in the committed
+        // week's columns while the page being drawn is the neighbouring week,
+        // so a week crossing put the pill on the far side of the incoming week,
+        // and holding the drag let the spring and the week preview's own
+        // animation walk it through days that were never the destination.
+        //
+        // A page knows which day it is showing. Reading the column off that day
+        // makes every one of those states unrepresentable: there is no clock,
+        // no handoff frame, and nothing to disagree with, because the indicator
+        // and the date under it are the same fact.
         HorizontalPager(
             state = state,
             // No padding here: the shared row insets itself exactly as the
@@ -2354,19 +2484,20 @@ private fun WeekStrip(
             key = { page -> page },
         ) { page ->
             val pageWeekStart = weekStartForPage(page, weekStart)
-            val pageDay = if (pageWeekStart == displayedWeekDay.startOfWeek(weekStart)) {
-                displayedWeekDay
-            } else {
-                pageWeekStart.plusDays(day.weekdayColumn(weekStart).toLong())
-            }
-            // The displayed week owns the moving indicator. Other pages keep
-            // the committed weekday so a week that is only sliding past does
-            // not animate an indicator of its own.
+            val pageDay = weekStripPageDay(
+                pageWeekStart = pageWeekStart,
+                displayedWeekDay = displayedWeekDay,
+                committedColumn = day.weekdayColumn(weekStart),
+                weekStart = weekStart,
+            )
+            // [pageDay] is the previewed day on the week being revealed and the
+            // committed weekday on any week merely sliding past, so this one
+            // expression already places the pill correctly on both.
             WeekStripPage(
                 firstDay = pageWeekStart,
                 weekStart = weekStart,
                 selected = pageDay,
-                indicatorIndex = if (pageWeekStart == displayedWeekStart) indicatorTargetIndex else settledIndex.toFloat(),
+                indicatorIndex = pageDay.weekdayColumn(weekStart).toFloat(),
                 events = events,
                 eventDateIndex = eventDateIndex,
                 tasksByDueDate = tasksByDueDate,
