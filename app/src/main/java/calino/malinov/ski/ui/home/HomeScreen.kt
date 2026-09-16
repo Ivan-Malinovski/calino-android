@@ -145,7 +145,9 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.lastCoveredDate
+import calino.malinov.ski.data.model.occurrenceStartCovering
 import calino.malinov.ski.data.model.placementDate
+import calino.malinov.ski.data.model.spanLengthDays
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.ui.components.AbsentParentRow
 import calino.malinov.ski.ui.components.AllDayBand
@@ -4708,9 +4710,14 @@ internal fun expandedMonthSpanSegment(
     date: LocalDate,
     column: Int,
 ): ExpandedMonthSpanSegment {
-    val first = event.placementDate()
-    val last = event.lastCoveredDate()
-    val isSpan = first != null && last != null
+    // A recurring span's model dates describe its master occurrence. Resolve
+    // the occurrence covering this cell before deciding which edges continue;
+    // comparing a later occurrence with the master's dates makes every later
+    // segment look like a trailing fragment, so it is painted without a title.
+    val spanLength = event.spanLengthDays()
+    val first = event.occurrenceStartCovering(date)
+    val last = first?.plusDays(spanLength)
+    val isSpan = first != null && spanLength > 0L
     return ExpandedMonthSpanSegment(
         isSpan = isSpan,
         continuesFromPrevious = isSpan && date > first && column > 0,

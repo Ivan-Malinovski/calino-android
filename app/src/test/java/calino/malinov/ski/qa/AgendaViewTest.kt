@@ -185,6 +185,33 @@ class AgendaViewTest {
         assertEquals(listOf(true, false, false, false), expandedMonthSpanSegment(event, monday.plusDays(8), 1).edges())
     }
 
+    @Test
+    fun expandedMonthSpan_resolvesEdgesAgainstEachRecurringOccurrence() {
+        val firstFriday = LocalDate.of(2026, 4, 24)
+        val event = CalEvent(
+            id = "weekly-span",
+            title = "Weekly span",
+            color = 0L,
+            start = null,
+            durationMinutes = null,
+            allDay = true,
+            recurrence = "FREQ=WEEKLY;BYDAY=FR",
+            calendarId = "test",
+            date = firstFriday,
+            endDate = firstFriday.plusDays(1),
+        )
+        val laterFriday = LocalDate.of(2026, 5, 8)
+
+        assertEquals(
+            listOf(false, true, false, false),
+            expandedMonthSpanSegment(event, laterFriday, 4).edges(),
+        )
+        assertEquals(
+            listOf(true, false, false, false),
+            expandedMonthSpanSegment(event, laterFriday.plusDays(1), 5).edges(),
+        )
+    }
+
     private fun calino.malinov.ski.ui.home.ExpandedMonthSpanSegment.edges() = listOf(
         continuesFromPrevious,
         continuesToNext,
