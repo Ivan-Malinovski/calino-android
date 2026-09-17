@@ -164,6 +164,7 @@ import calino.malinov.ski.ui.components.BottomDetailOverlay
 import calino.malinov.ski.ui.components.AdaptiveDetailCard
 import calino.malinov.ski.ui.components.AdaptiveSurfaceHost
 import calino.malinov.ski.ui.components.BottomDetailCard
+import calino.malinov.ski.ui.components.DetailCardSurface
 import calino.malinov.ski.ui.components.LocalCalinoPillLane
 import calino.malinov.ski.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.ui.components.CalinoIcon
@@ -497,6 +498,23 @@ fun DayModalSurface(
         onDismiss = dismiss,
         scrimAlpha = .62f,
         contentDescription = "Dismiss day details",
+        // The day's actions belong in the same lane as every other modal's,
+        // so the root add pill morphs into them instead of the card growing a
+        // button row of its own.
+        pill = {
+            ModalActionPill(
+                addLabel = "Add on ${displayedDate.format(dateFormat)}",
+                morphFromAddPill = true,
+                inPillLane = true,
+                expanded = shown,
+                cancelLabel = "Close",
+                onCancel = dismiss,
+                cancelDescription = "Close day",
+                primaryLabel = "Add",
+                onPrimary = { closeAfterAnimation(onAdd) },
+                primaryDescription = "Add on ${displayedDate.format(dateFormat)}",
+            )
+        },
     ) { panelModifier ->
         val mode = LocalCalinoSurfaceMode.current
         val layoutDirection = LocalLayoutDirection.current
@@ -591,16 +609,15 @@ fun DayModalSurface(
                 }
             },
         ) {
-            val shape = when (mode) {
-                CalinoSurfaceMode.BottomSheet -> RoundedCornerShape(26.dp, 26.dp, 0.dp, 0.dp)
-                CalinoSurfaceMode.FloatingWindow -> RoundedCornerShape(26.dp)
-                CalinoSurfaceMode.EndPanel -> RoundedCornerShape(topStart = 26.dp, bottomStart = 26.dp, topEnd = 0.dp, bottomEnd = 0.dp)
-            }
-            Surface(
-                shape = shape,
-                color = CalinoColors.Panel,
-                modifier = Modifier.fillMaxSize().offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) },
-            ) {
+            // The same shell the detail and editor cards use: rounded on all
+            // four corners, lifted off the window edges, with the shared
+            // handle. The day was the one modal still glued to the bottom.
+            DetailCardSurface(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp)
+                    .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) },
+            ) { _ ->
                 AnimatedContent(
                     targetState = displayedDate,
                     transitionSpec = {
@@ -613,16 +630,21 @@ fun DayModalSurface(
                     val dayEvents = dayEventsFor(events, pageDate)
                     val dayJournals = journals.filter { it.date == pageDate }
                     Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 12.dp)) {
-                        Box(Modifier.align(Alignment.CenterHorizontally).size(38.dp, 4.dp).clip(CircleShape).background(CalinoColors.Ink.copy(.16f)))
-                        Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.Top) {
-                            Column(Modifier.weight(1f)) {
-                                Text(pageDate.format(dateFormat), style = CalinoTypography.titleLarge)
-                                label(if (pageDate == today) "Today · ${dayEvents.size} events" else "${dayEvents.size} events")
-                            }
-                            IconButtonGlyph("×", "Close day", dismiss)
+                        // Closing is the pill's left lane, like every other
+                        // modal; a second × in the header was the day card
+                        // answering for itself.
+                        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            Text(pageDate.format(dateFormat), style = CalinoTypography.titleLarge)
+                            label(if (pageDate == today) "Today · ${dayEvents.size} events" else "${dayEvents.size} events")
                         }
                         Spacer(Modifier.height(16.dp))
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.weight(1f)) {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(9.dp),
+                            // The pill floats over the tail of the list now,
+                            // so the last chip needs the lane's clearance.
+                            contentPadding = PaddingValues(bottom = CalinoSpacing.PillClearance),
+                            modifier = Modifier.weight(1f),
+                        ) {
                             if (dayEvents.isEmpty()) {
                                 item(key = "empty:$pageDate") {
                                     AnimatedVisibility(visible = true, enter = fadeIn(tween(160)) + expandVertically(tween(180))) {
@@ -640,16 +662,6 @@ fun DayModalSurface(
                                     JournalAgendaCard(journal) { closeAfterAnimation { onJournal(journal) } }
                                 }
                             }
-                        }
-                        HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Add on ${pageDate.format(DateTimeFormatter.ofPattern("d MMM", Locale.US))}", style = CalinoTypography.bodyLarge, modifier = Modifier.weight(1f))
-                            Button(
-                                onClick = { closeAfterAnimation(onAdd) },
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                                modifier = Modifier.size(46.dp).semantics { contentDescription = "Add on ${pageDate.format(dateFormat)}" },
-                            ) { Text("+", fontSize = 24.sp) }
                         }
                     }
                 }
