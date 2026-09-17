@@ -423,6 +423,16 @@ private fun JournalAgendaCard(entry: JournalEntry, onClick: () -> Unit = {}) {
     }
 }
 
+/**
+ * Measured heights of the day card's parts, in dp, used to ask the host for a
+ * card that fits the day instead of one that fills the pane. They are the
+ * rendered heights of [AgendaCard], [JournalAgendaCard] and the card's own
+ * handle/header/padding, so a change to any of those belongs here too.
+ */
+private const val DayRowSpacing = 9
+private const val DayCardChrome = 112
+private const val EmptyDayRowHeight = 62
+
 /** A transparent modal layer over the calendar supplied by the host screen. */
 @Composable
 fun DayModalSurface(
@@ -492,11 +502,30 @@ fun DayModalSurface(
     }
     val dismiss: () -> Unit = { closeAfterAnimation(onDismiss) }
 
+    // A quiet day should not open a card the height of a busy one. The rows
+    // here are fixed-height by construction, so the card can ask for exactly
+    // what the displayed day needs and let the host cap it at .86 of the pane
+    // when the day overflows. Sizing on displayedDate rather than the settled
+    // page lets the card reach the incoming day's height during the swipe.
+    val preferredDayHeight = run {
+        val pageEvents = dayEventsFor(events, displayedDate)
+        val pageJournals = journals.filter { it.date == displayedDate }
+        val rows = pageEvents.sumOf { if (it.location.isNullOrBlank()) 60 else 63 } +
+            pageJournals.sumOf { entry ->
+                // The body is capped at two lines; one more line of it is the
+                // only thing that changes a journal row's height.
+                if (entry.body.length > 42) 84 else 65
+            }
+        val rowCount = pageEvents.size + pageJournals.size
+        val body = if (rowCount == 0) EmptyDayRowHeight else rows + (rowCount - 1) * DayRowSpacing
+        (DayCardChrome + body + CalinoSpacing.PillClearance.value.toInt()).dp
+    }
+
     AdaptiveSurfaceHost(
         kind = CalinoSurfaceKind.Day,
         visible = shown,
         onDismiss = dismiss,
-        scrimAlpha = .62f,
+        preferredSurfaceHeight = preferredDayHeight,
         contentDescription = "Dismiss day details",
         // The day's actions belong in the same lane as every other modal's,
         // so the root add pill morphs into them instead of the card growing a
@@ -635,11 +664,12 @@ fun DayModalSurface(
                         // answering for itself.
                         Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                             Text(pageDate.format(dateFormat), style = CalinoTypography.titleLarge)
-                            label(if (pageDate == today) "Today · ${dayEvents.size} events" else "${dayEvents.size} events")
+                            val count = "${dayEvents.size} ${if (dayEvents.size == 1) "event" else "events"}"
+                            label(if (pageDate == today) "Today · $count" else count)
                         }
                         Spacer(Modifier.height(16.dp))
                         LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(9.dp),
+                            verticalArrangement = Arrangement.spacedBy(DayRowSpacing.dp),
                             // The pill floats over the tail of the list now,
                             // so the last chip needs the lane's clearance.
                             contentPadding = PaddingValues(bottom = CalinoSpacing.PillClearance),

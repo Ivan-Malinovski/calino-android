@@ -324,7 +324,10 @@ fun AdaptiveSurfaceHost(
             // compact card but reaches its content cap when the screen allows.
             kind == CalinoSurfaceKind.EventPreviewCompact -> minOf(paneHeight * .86f, surfaceHeightCap)
             kind == CalinoSurfaceKind.Preview -> minOf(paneHeight * .76f, surfaceHeightCap)
-            else -> paneHeight * .86f
+            // .86f is the tallest a bottom sheet goes, not the height it
+            // insists on: a caller that knows how much content it has says so
+            // through preferredSurfaceHeight and gets a shorter card.
+            else -> minOf(paneHeight * .86f, surfaceHeightCap)
         }
         val bottomHeight by animateDpAsState(
             targetValue = bottomHeightTarget,
