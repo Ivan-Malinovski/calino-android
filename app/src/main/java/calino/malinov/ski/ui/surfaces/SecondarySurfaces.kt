@@ -539,9 +539,9 @@ fun DayModalSurface(
                 cancelLabel = "Close",
                 onCancel = dismiss,
                 cancelDescription = "Close day",
-                primaryLabel = "Add",
+                primaryLabel = "New event",
                 onPrimary = { closeAfterAnimation(onAdd) },
-                primaryDescription = "Add on ${displayedDate.format(dateFormat)}",
+                primaryDescription = "New event on ${displayedDate.format(dateFormat)}",
             )
         },
     ) { panelModifier ->
