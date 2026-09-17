@@ -2851,9 +2851,9 @@ fun ModalActionPill(
         val add = addMeasurables.first().measure(Constraints(maxWidth = constraints.maxWidth))
         val actionsRow = actionMeasurables.first()
         val settledHeight = CalinoSpacing.ActionPillHeight.roundToPx()
-        // The actions' own idea of how much room they need: with equal
-        // weights that is the widest action, three times over, so the columns
-        // stay even without anyone declaring a width per action count.
+        // The actions' own idea of how much room they need: the sum of what
+        // each one wraps, since each is sized by its content rather than by a
+        // share of the pill.
         val actionsNatural = actionsRow.maxIntrinsicWidth(settledHeight)
         // The collapsed end of the move is the root pill's own measurement
         // whenever it is showing the same label, so the two shapes agree to
@@ -2862,14 +2862,20 @@ fun ModalActionPill(
         // fall back to measuring the label here.
         val collapsedWidth = if (anchorWidth > 0) anchorWidth else add.width
         val collapsedHeight = if (anchorHeight > 0) anchorHeight else add.height
-        // And never narrower than the shape it grew out of. A pill that
-        // shrank while gaining actions would read as a different control.
+        // The settled pill is sized by what it holds, and nothing else. The
+        // add pill's width is the collapsed end of the move, not a floor on
+        // the expanded one: a row of glyphs held to it gets stretched to fit
+        // a shape measured for a sentence, which is dead space between the
+        // actions and reads as a pill that has lost its contents. Shrinking
+        // into its actions is a continuous move like any other, so it still
+        // reads as one object changing shape.
+        //
         // Anything asked for from outside -- the parameter, or a width a
         // caller imposed with a modifier -- belongs to this end of the move
         // too. Folded in here it widens the settled pill; left on the
         // interpolation it would stop the shape partway.
         val requested = if (minExpandedWidth != Dp.Unspecified) minExpandedWidth.roundToPx() else 0
-        val expanded = maxOf(actionsNatural, collapsedWidth, requested, constraints.minWidth)
+        val expanded = maxOf(actionsNatural, requested, constraints.minWidth)
         // Only the ceiling is a real limit here: reporting a size under the
         // incoming minimum is allowed, and it is what lets the shape reach
         // the add pill's own width rather than stopping short of it.
