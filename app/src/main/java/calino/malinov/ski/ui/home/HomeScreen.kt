@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,6 +59,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.key
@@ -1535,6 +1537,11 @@ fun HomeScreen(
                 }
             }
 
+            // The agenda below scrolls, and the zoom drag reads its edges to
+            // know when the list has nothing left to give in that direction.
+            // One state for every day page, like the day rail's own scroll.
+            val agendaScroll = rememberScrollState()
+
             /**
              * The zoom drag, hosted on the container rather than on the
              * layers it moves.
@@ -1605,7 +1612,20 @@ fun HomeScreen(
                         travel += change.positionChangeIgnoreConsumed()
                         var claimed = 0f
                         if (!owned) {
-                            if (abs(travel.y) > viewConfiguration.touchSlop * .5f &&
+                            // The agenda owns a drag it can still scroll on.
+                            // Only once it sits against the matching edge --
+                            // top for a downward pull, bottom for an upward one
+                            // -- does the calendar take the drag over.
+                            val agendaCanScroll = startedOnDaySurface && (
+                                if (travel.y > 0f) agendaScroll.canScrollBackward
+                                else agendaScroll.canScrollForward
+                                )
+                            // Travel the agenda is still absorbing is not
+                            // ours; keeping it would make the calendar jump in
+                            // by the whole scrolled distance at the handover.
+                            if (agendaCanScroll) travel = Offset.Zero
+                            if (!agendaCanScroll &&
+                                abs(travel.y) > viewConfiguration.touchSlop * .5f &&
                                 abs(travel.y) > abs(travel.x)
                             ) {
                                 // A held event chip consumes position changes
@@ -1923,6 +1943,7 @@ fun HomeScreen(
                         zoomState = currentZoom,
                         laneOverlap = laneOverlap,
                         agendaOwnsInput = agendaOwnsInputNow,
+                        agendaScroll = agendaScroll,
                         onEvent = onEventClick,
                         onEventAction = onEventAction,
                         onEventDrop = onEventDrop,
@@ -5335,6 +5356,7 @@ private fun DayPagerSurface(
     zoomState: androidx.compose.runtime.State<Float>,
     laneOverlap: Dp,
     agendaOwnsInput: Boolean,
+    agendaScroll: androidx.compose.foundation.ScrollState,
     onEvent: ((CalEvent) -> Unit)?,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
     onEventDrop: ((CalEvent, LocalDate) -> Unit)?,
@@ -5365,6 +5387,7 @@ private fun DayPagerSurface(
                 day = pageDay,
                 dayEvents = dayEvents,
                 dayTasks = dayTasks,
+                scrollState = agendaScroll,
                 active = agendaOwnsInput,
                 onEvent = if (agendaOwnsInput) onEvent else null,
                 onEventAction = if (agendaOwnsInput) onEventAction else null,
@@ -5752,6 +5775,7 @@ private fun SelectedDayAgendaPage(
     dayEvents: List<CalEvent>,
     dayTasks: List<CalTask>,
     modifier: Modifier = Modifier.fillMaxSize(),
+    scrollState: androidx.compose.foundation.ScrollState? = null,
     active: Boolean,
     onEvent: ((CalEvent) -> Unit)?,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
@@ -5769,8 +5793,17 @@ private fun SelectedDayAgendaPage(
     } else {
         modifier.clearAndSetSemantics { }
     }
+    // A full day overflowed this column and the hidden chips were
+    // unreachable: every vertical drag here was claimed by the calendar zoom.
+    // The list scrolls first now; the zoom takes the drag back at the edges.
+    val agendaScroll = scrollState ?: rememberScrollState()
+    // No overscroll: its stretch consumes the leftover drag at the edges, and
+    // that swallowed the very travel the calendar zoom takes over on. The
+    // handover is the edge feedback here.
+    CompositionLocalProvider(LocalOverscrollFactory provides null) {
     Column(
         interactionModifier
+            .verticalScroll(agendaScroll, enabled = active)
             .padding(horizontal = 16.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
@@ -5823,6 +5856,10 @@ private fun SelectedDayAgendaPage(
                 }
             }
         }
+        // The root add pill floats over the last chip; same clearance the day
+        // rail leaves at the end of its own scroll.
+        Spacer(Modifier.height(CalinoSpacing.PillClearance))
+    }
     }
 }
 
