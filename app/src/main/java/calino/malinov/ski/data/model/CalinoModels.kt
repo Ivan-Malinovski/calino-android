@@ -96,6 +96,22 @@ fun CalEvent.occurrenceStartCovering(day: LocalDate): LocalDate? {
     return null
 }
 
+/**
+ * The next [limit] occurrence starts after [after], for a recurring event.
+ *
+ * Named apart from `util.nextOccurrences`, which is a separate hand-rolled
+ * expander that predates the shared engine and understands a smaller grammar.
+ *
+ * Empty for a one-off, and for a series that has no occurrence left. [after]
+ * is the occurrence being looked at rather than today, so the list reads as
+ * "and then" from wherever the person is standing.
+ */
+fun CalEvent.upcomingOccurrences(after: LocalDate, limit: Int = 5): List<LocalDate> {
+    val rule = recurrence ?: return emptyList()
+    val anchor = placementDate() ?: return emptyList()
+    return RecurrenceRules.nextOccurrences(rule, start ?: anchor.atStartOfDay(), allDay, after, limit)
+}
+
 fun CalEvent.placementDate(): LocalDate? = if (allDay) date else start?.toLocalDate()
 
 /** Inclusive final date occupied by this event, or null when it stays on its start date. */

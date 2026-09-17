@@ -46,6 +46,44 @@ internal object RecurrenceRules {
         return day in dates
     }
 
+    /**
+     * The first [limit] occurrence starts strictly after [after].
+     *
+     * The year cache is no help here -- a series can skip a year, and the
+     * answer is wanted once, when someone opens the list -- so this walks the
+     * iterator directly from [after] and stops as soon as it has enough. A
+     * rule that ends (UNTIL or COUNT) simply yields fewer.
+     */
+    fun nextOccurrences(
+        rule: String,
+        anchor: LocalDateTime,
+        allDay: Boolean,
+        after: LocalDate,
+        limit: Int,
+    ): List<LocalDate> {
+        if (limit <= 0) return emptyList()
+        val event = runCatching {
+            Biweekly.parse(icalText(rule.trim(), anchor, allDay)).first()?.events?.firstOrNull()
+        }.getOrNull() ?: return emptyList()
+        val zone = ZoneId.systemDefault()
+        val from = after.plusDays(1).atStartOfDay(zone).toInstant()
+        val iterator = runCatching { event.getDateIterator(TimeZone.getDefault()) }.getOrNull() ?: return emptyList()
+        runCatching { iterator.advanceTo(Date.from(from)) }.getOrElse { return emptyList() }
+
+        val dates = mutableListOf<LocalDate>()
+        // A rule whose occurrences all fall on one day -- or one the iterator
+        // reports without advancing -- must not spin: the walk is bounded by
+        // the same per-year ceiling the cache uses.
+        var steps = 0
+        while (iterator.hasNext() && dates.size < limit && steps < MaxOccurrencesPerYear) {
+            steps++
+            val instant = runCatching { iterator.next().toInstant() }.getOrNull() ?: break
+            val date = instant.atZone(zone).toLocalDate()
+            if (date.isAfter(after) && dates.lastOrNull() != date) dates += date
+        }
+        return dates
+    }
+
     private fun datesIn(key: Key): Set<LocalDate> {
         val event = runCatching {
             Biweekly.parse(icalText(key.rule, key.anchor, key.allDay)).first()?.events?.firstOrNull()

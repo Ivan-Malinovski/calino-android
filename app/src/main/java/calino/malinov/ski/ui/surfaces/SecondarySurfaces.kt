@@ -70,6 +70,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -130,6 +131,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.data.model.Attendee
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.upcomingOccurrences
+import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.JournalEntry
@@ -151,6 +154,9 @@ import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.state.TaskTree
 import calino.malinov.ski.ui.components.taskNestIndent
 import calino.malinov.ski.ui.components.rememberDatePicker
+import calino.malinov.ski.ui.components.rememberTimePicker
+import calino.malinov.ski.ui.components.WhenHero
+import calino.malinov.ski.ui.components.HeroMasthead
 import calino.malinov.ski.ui.components.TaskNestStep
 import calino.malinov.ski.state.nestingLinesFor
 import calino.malinov.ski.util.CalinoTimeFormat
@@ -179,11 +185,11 @@ import calino.malinov.ski.ui.components.CompactSegmentedControl
 import calino.malinov.ski.ui.components.EventLocationButton
 import calino.malinov.ski.ui.components.calinoLongPressDrag
 import calino.malinov.ski.util.formatRecurrenceSummary
-import calino.malinov.ski.util.nextOccurrences
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
@@ -353,6 +359,7 @@ private const val CompletionUndoWindowMillis = 5_000L
  */
 private val May18 = FixtureNow.today
 private val dateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
+private val occurrenceDateFormat = DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.US)
 
 @Composable @ReadOnlyComposable
 private fun eventColor(event: CalEvent) = CalinoColors.forEvent(Color(event.color))
@@ -376,14 +383,6 @@ private fun dayEventsFor(events: List<CalEvent>, date: LocalDate): List<CalEvent
 /** Materialised instances keep recurrence readable; the UI never exposes RRULE text. */
 @Composable
 private fun label(text: String, modifier: Modifier = Modifier) = Text(text.uppercase(), modifier, style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.2.sp, color = CalinoColors.Ink3), fontWeight = FontWeight.Bold)
-@Composable
-private fun IconButtonGlyph(glyph: String, description: String, onClick: () -> Unit) = IconButton(
-    onClick = onClick,
-    modifier = Modifier.size(44.dp).semantics { contentDescription = description },
-) {
-    Text(glyph, fontSize = 22.sp, color = CalinoColors.Ink, modifier = Modifier.alpha(.85f))
-}
-
 @Composable
 private fun AgendaCard(event: CalEvent, onClick: () -> Unit = {}) {
     val color = eventColor(event)
@@ -753,15 +752,23 @@ fun EventDetailSurface(
         val length = sizingEvent.attendees.sumOf { it.name.ifBlank { it.email }.length + 2 }
         ((length + 37) / 38).coerceAtLeast(1)
     }
-    // Base includes handle/header, date/time/location/description rows, the
-    // divider, and the real pill clearance. Add only what this event renders.
+    // Base includes the handle, the masthead with its when-hero, the
+    // location and description rows, the divider, and the real pill
+    // clearance. Add only what this event renders on top of that.
     val preferredPreviewHeight = (
-        420 +
+        // An all-day hero is one row where a timed one carries a day line
+        // under each clock face, so the card does not reserve room for a
+        // second line that is never drawn.
+        // Tracks the masthead's own height: the tint block was tightened, so
+        // the card asks for less before its rows are counted.
+        (if (sizingEvent.allDay) 368 else 398) +
             (descriptionLines - 1) * 22 +
             attendeeLines * 24 +
             (if (sizingEvent.recurrence != null) 54 else 0) +
             (if (sizingEvent.reminders.isNotEmpty()) 54 else 0) +
             (if (sizingEvent.travelTimeMinutes != null) 54 else 0)
+        // Matches CalinoSurfaceKind.EventPreviewCompact's own ceiling, which
+        // clamps this anyway; asking for more here only hides that.
         ).coerceAtMost(560).dp
     var pillState by remember { mutableStateOf(EventPreviewPillState(false, false, {}, {}, {}, {})) }
     BottomDetailOverlay(
@@ -817,6 +824,10 @@ fun EventDetailSurface(
                     allowDownwardDismissInEndPanel = true,
                 ) { cardModifier ->
                     EventDetailContent(pageEvent,
+                        // Only the page the card opened on is the occurrence
+                        // that was tapped; a paged-to neighbour states its own
+                        // date.
+                        occurrenceDate = occurrenceDate.takeIf { pageEvent.id == event.id },
                         onBack = { closeAfterAnimation(onBack) },
                         onPrimary = { onEditEvent(pageEvent) },
                         onDeleteEvent = { target, scope ->
@@ -836,6 +847,7 @@ fun EventDetailSurface(
 @Composable
 private fun EventDetailContent(
     event: CalEvent,
+    occurrenceDate: LocalDate?,
     onBack: () -> Unit,
     onPrimary: () -> Unit,
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
@@ -845,15 +857,18 @@ private fun EventDetailContent(
     onPillState: (EventPreviewPillState) -> Unit,
 ) {
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
-    val original = remember(event) { eventPreviewDraft(event) }
-    var draft by remember(event.id, event.etag) { mutableStateOf(original) }
-    var dateText by remember(event.id, event.etag) { mutableStateOf(original.date.toString()) }
-    val originalTimeText = remember(original) {
-        if (original.startTime == null) "All day" else original.startTime.toString() + " – " +
-            original.startTime.plusMinutes(original.durationMinutes?.toLong() ?: 0).toString()
+    // An expansion of a series carries the master's DTSTART, so a card opened
+    // on the 22nd of May was stating the April date the series began on. The
+    // day that was tapped is the one the card is about.
+    val original = remember(event, occurrenceDate) {
+        eventPreviewDraft(event).let { draft -> occurrenceDate?.let { draft.copy(date = it) } ?: draft }
     }
-    var timeText by remember(event.id, event.etag) { mutableStateOf(originalTimeText) }
+    var draft by remember(event.id, event.etag, occurrenceDate) { mutableStateOf(original) }
     var error by remember(event.id) { mutableStateOf<String?>(null) }
+    // The card is height-capped by its surface kind, so the open list scrolls
+    // inside it rather than growing it; the state stays local because nothing
+    // outside this page can act on it.
+    var occurrencesExpanded by remember(event.id) { mutableStateOf(false) }
     var saving by remember(event.id) { mutableStateOf(false) }
     var saveScope by remember(event.id) {
         mutableStateOf(if (event.recurrenceId != null || event.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All)
@@ -865,18 +880,11 @@ private fun EventDetailContent(
     var deleteScope by remember(event.id, event.recurrenceId, event.recurrenceDate) {
         mutableStateOf(defaultEventDeleteScope(event))
     }
-    val dirty = draft != original || dateText != original.date.toString() || timeText != originalTimeText
+    val dirty = draft != original
     fun save(openAfter: Boolean) {
-        val validDate = runCatching { LocalDate.parse(dateText) }.getOrNull()
-        val timeParts = timeText.split('–', '-', limit = 2).map(String::trim)
-        val allDayText = timeText.equals("all day", true)
-        val validStart = timeParts.getOrNull(0)?.takeUnless { allDayText }?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
-        val validEnd = timeParts.getOrNull(1)?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
-        val validation = when {
-            validDate == null -> "Use a date in YYYY-MM-DD format."
-            !allDayText && (validStart == null || validEnd == null) -> "Use times in HH:MM format."
-            else -> draft.validationError()
-        }
+        // The when-block is edited through pickers now, so there is no text to
+        // reject: whatever the draft holds is already a real date and time.
+        val validation = draft.validationError()
         if (validation != null) { error = validation; return }
         if (isRecurringEvent(event) && !scopePrompt) {
             pendingOpen = openAfter
@@ -897,61 +905,117 @@ private fun EventDetailContent(
     val openAction = { if (!saving) { if (dirty) save(true) else onPrimary() } }
     val saveAction = { if (!saving) save(false) }
     val deleteAction = { onDeleteEvent(event, deleteScope) }
+    val pickDate = rememberDatePicker({ draft.date }) { draft = draft.copy(date = it); error = null }
+    val pickStartTime = rememberTimePicker({ draft.startTime }) { picked ->
+        // Keep the span the person already agreed to rather than snapping the
+        // end back to an hour: moving a meeting is not re-planning its length.
+        draft = draft.copy(startTime = picked, durationMinutes = draft.durationMinutes ?: DefaultEventMinutes)
+        error = null
+    }
+    val pickEndTime = rememberTimePicker({ draft.startTime?.plusMinutes(draft.durationMinutes?.toLong() ?: 0L) }) { picked ->
+        val start = draft.startTime ?: return@rememberTimePicker
+        val span = java.time.Duration.between(start, picked).toMinutes()
+        val minutes = if (span <= 0) span + java.time.Duration.ofDays(1).toMinutes() else span
+        draft = draft.copy(durationMinutes = minutes.toInt())
+        error = null
+    }
+    val toggleAllDay = {
+        draft = if (draft.startTime == null) {
+            draft.copy(startTime = LocalTime.of(9, 0), durationMinutes = DefaultEventMinutes)
+        } else {
+            draft.copy(startTime = null, durationMinutes = null)
+        }
+        error = null
+    }
     val deletePromptChanged: (Boolean) -> Unit = { confirmDelete = it }
     LaunchedEffect(dirty, saving, active, confirmDelete, deleteScope) {
         if (active) onPillState(EventPreviewPillState(dirty, confirmDelete, openAction, saveAction, deleteAction, deletePromptChanged))
     }
     Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().height(52.dp).background(tint)) {
-            Row(
-                Modifier.fillMaxSize().padding(start = 32.dp, end = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        HeroMasthead(tint) {
+            val kicker = eventKicker(event)
+            Column(
+                // An event with nothing to say above its title would otherwise
+                // start one line higher than every other card, with the title
+                // pressed against the handle. The kicker's line is held open
+                // whether or not there is a kicker in it.
+                Modifier.fillMaxWidth().padding(top = if (kicker == null) 14.dp else 0.dp),
             ) {
-                Box(Modifier.size(10.dp).background(eventColor(event), CircleShape))
+                kicker?.let {
+                    Text(it, style = CalinoTypography.labelSmall, color = eventColor(event))
+                }
                 BasicTextField(
                     value = draft.title,
                     onValueChange = { draft = draft.copy(title = it); error = null },
-                    textStyle = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink),
+                    textStyle = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink),
                     singleLine = true,
-                    modifier = Modifier.weight(1f).padding(horizontal = 14.dp).semantics { contentDescription = "Event title" },
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                        .semantics { contentDescription = "Event title" },
                 )
-                IconButtonGlyph("×", "Close event preview", onBack)
             }
+            // The draft holds a start and a span, so the finishing day is
+            // derived: an event that runs past midnight ends tomorrow, and the
+            // hero has to say so rather than show a smaller number.
+            val finish = draft.startTime?.let {
+                draft.date.atTime(it).plusMinutes(draft.durationMinutes?.toLong() ?: 0L)
+            }
+            // An all-day span lives on the record rather than in the draft, so
+            // it is carried across as a length in days. Taking the record's own
+            // end date instead would state the series master's last day on
+            // every occurrence of a repeating multi-day event.
+            val allDayEnd = event.endDate?.let { end ->
+                val from = event.date ?: event.start?.toLocalDate()
+                from?.let { draft.date.plusDays(ChronoUnit.DAYS.between(it, end)) }
+            }
+            WhenHero(
+                startDate = draft.date,
+                startTime = draft.startTime,
+                endDate = if (draft.startTime == null) allDayEnd else finish?.toLocalDate(),
+                endTime = finish?.toLocalTime(),
+                accent = eventColor(event),
+                // The preview draft has no separate flag: no start time is
+                // exactly what all-day means for a record that already exists.
+                allDay = draft.startTime == null,
+                modifier = Modifier.padding(top = 8.dp),
+                onStartDate = pickDate,
+                onStartTime = pickStartTime,
+                onEndDate = pickDate,
+                onEndTime = pickEndTime,
+                onAllDay = toggleAllDay,
+            )
         }
-        HorizontalDivider(color = CalinoColors.Ink.copy(alpha = .09f))
+        HorizontalDivider(color = eventColor(event).copy(alpha = .30f))
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).padding(horizontal = 18.dp).testTag("event-detail-list"),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            item { PreviewEditRow(CalinoIcon.Calendar, "Date", dateText) {
-                dateText = it; runCatching { LocalDate.parse(it) }.getOrNull()?.let { value -> draft = draft.copy(date = value) }
-            } }
-            item {
-                PreviewEditRow(CalinoIcon.Clock, "Time", timeText) { value ->
-                    timeText = value
-                    if (value.equals("all day", true)) { draft = draft.copy(startTime = null, durationMinutes = null) }
-                    else {
-                        val parts = value.split('–', '-', limit = 2).map(String::trim)
-                        if (parts.size == 2) {
-                            val start = runCatching { LocalTime.parse(parts[0]) }.getOrNull()
-                            val end = runCatching { LocalTime.parse(parts[1]) }.getOrNull()
-                            if (start != null && end != null) draft = draft.copy(startTime = start,
-                                durationMinutes = java.time.Duration.between(start, end).toMinutes().toInt())
-                        }
-                    }
-                }
-            }
             item {
                 PreviewEditRow(
                     CalinoIcon.Pin,
                     "Location",
                     draft.location.orEmpty(),
                     onValue = { draft = draft.copy(location = it) },
-                    trailing = { EventLocationButton(draft.location) },
+                    trailing = {
+                        // The location button is a 44dp target centring a 20dp
+                        // glyph, so its box has to stop 12dp short of the
+                        // chevron's for the two glyphs to share an edge.
+                        Box(Modifier.padding(end = PreviewTrailingInset - 12.dp)) {
+                            EventLocationButton(draft.location)
+                        }
+                    },
                 )
             }
-            if (event.recurrence != null) item { PreviewStaticRow(CalinoIcon.Repeat, "Repeats", recurrenceSummary(event)) }
+            if (event.recurrence != null) item {
+                PreviewRecurrenceRow(
+                    summary = recurrenceSummary(event),
+                    occurrences = remember(event.id, draft.date) {
+                        event.upcomingOccurrences(draft.date, PreviewOccurrenceCount)
+                    },
+                    expanded = occurrencesExpanded,
+                    onExpandedChange = { occurrencesExpanded = it },
+                )
+            }
             if (event.reminders.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Bell, "Reminder", event.reminders.joinToString { "${it.minutesBefore} minutes before" }) }
             event.travelTimeMinutes?.takeIf { it > 0 }?.let { minutes ->
                 item { PreviewStaticRow(CalinoIcon.Clock, "Travel time", formatCalinoDuration(minutes)) }
@@ -1013,6 +1077,22 @@ private data class EventPreviewPillState(
     val onDeletePromptChanged: (Boolean) -> Unit,
 )
 
+/** The default span an event gets when it is handed a time it did not have. */
+private const val DefaultEventMinutes = 60
+
+/**
+ * The line above the title: what this event is, in the words the record
+ * already carries. Null when the event says nothing worth a kicker -- an
+ * empty strip above the title is worse than no strip.
+ */
+private fun eventKicker(event: CalEvent): String? {
+    val parts = buildList {
+        event.categories.firstOrNull()?.takeIf { it.isNotBlank() }?.let { add(it) }
+        if (isRecurringEvent(event)) add("Repeating")
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")?.uppercase(Locale.US)
+}
+
 @Composable
 private fun PreviewEditRow(
     icon: CalinoIcon,
@@ -1029,6 +1109,101 @@ private fun PreviewEditRow(
             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
                 focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
         trailing?.invoke()
+    }
+}
+
+/**
+ * How far a row's trailing control sits in from the card's edge, beyond the
+ * list's own inset.
+ *
+ * The card reads as one text measure -- the masthead, every row's text and
+ * every trailing control share it -- with the leading icons in a gutter
+ * outside it. 18dp of list inset plus this is the 56dp the masthead uses.
+ */
+private val PreviewTrailingInset = 38.dp
+
+/** How many future occurrences the recurrence row is willing to name. */
+private const val PreviewOccurrenceCount = 5
+
+/**
+ * The recurrence row, with the series it describes one tap away.
+ *
+ * "Every Friday until 30 Jun" is a rule, not an answer: the question people
+ * actually bring to a repeating event is which days it lands on next. The
+ * chevron keeps that available without spending five rows on an event nobody
+ * asked the question about.
+ */
+@Composable
+private fun PreviewRecurrenceRow(
+    summary: String,
+    occurrences: List<LocalDate>,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+) {
+    val turn by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(CalinoMotion.ContentEnterMillis),
+        label = "recurrence-chevron",
+    )
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .clickable(role = Role.Button) { onExpandedChange(!expanded) }
+                .semantics(mergeDescendants = true) {
+                    contentDescription = if (expanded) {
+                        "Repeats: $summary, hide the next dates"
+                    } else {
+                        "Repeats: $summary, show the next dates"
+                    }
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CalinoIcon(CalinoIcon.Repeat, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                label("Repeats")
+                Text(summary, style = CalinoTypography.bodyLarge)
+            }
+            Icon(
+                CalinoIcons.ChevronDown,
+                contentDescription = null,
+                tint = CalinoColors.Ink3,
+                modifier = Modifier
+                    .padding(end = PreviewTrailingInset)
+                    .size(20.dp)
+                    .graphicsLayer { rotationZ = turn },
+            )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeIn(tween(CalinoMotion.FadeThroughMillis)),
+            exit = shrinkVertically(tween(CalinoMotion.ContentExitMillis)) + fadeOut(tween(CalinoMotion.FadeThroughMillis)),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = 38.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                if (occurrences.isEmpty()) {
+                    Text(
+                        "No more occurrences.",
+                        style = CalinoTypography.bodyMedium,
+                        color = CalinoColors.Ink3,
+                    )
+                } else {
+                    occurrences.forEach { date ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.size(4.dp).background(CalinoColors.Ink.copy(alpha = .22f), CircleShape))
+                            Text(
+                                date.format(occurrenceDateFormat),
+                                style = CalinoTypography.bodyMedium,
+                                color = CalinoColors.Ink2,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

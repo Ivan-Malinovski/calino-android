@@ -61,16 +61,38 @@ fun formatCalinoTime(
 ): String = format.format(time)
 
 /**
+ * A span in words, to at most two units.
+ *
  * Reads a duration as hours *and* minutes. It used to be printed as a raw
  * minute count, so a 90-minute meeting read "90 min" and an all-afternoon
  * event read "240 min", which nobody parses at a glance.
+ *
+ * A span that crosses midnight is still counted in hours by everything that
+ * measures one, so an overnight event read as "26 h" -- true, and not how
+ * anyone says it. Past a day the label leads with days and then names the
+ * largest remaining unit, so a day and a half is "1 d 12 h" and a day and a
+ * half-hour is "1 d 30 min" rather than either being flattened to "1 d".
  */
 fun formatCalinoDuration(minutes: Int): String = when {
     minutes <= 0 -> "0 min"
-    minutes % 60 == 0 -> "${minutes / 60} h"
     minutes < 60 -> "$minutes min"
-    else -> "${minutes / 60} h ${minutes % 60} min"
+    minutes < MinutesPerDay -> if (minutes % 60 == 0) {
+        "${minutes / 60} h"
+    } else {
+        "${minutes / 60} h ${minutes % 60} min"
+    }
+    else -> {
+        val days = minutes / MinutesPerDay
+        val remainder = minutes % MinutesPerDay
+        when {
+            remainder == 0 -> "$days d"
+            remainder < 60 -> "$days d $remainder min"
+            else -> "$days d ${remainder / 60} h"
+        }
+    }
 }
+
+private const val MinutesPerDay = 24 * 60
 
 fun formatEventDate(event: CalEvent): String? = event.start?.let { formatCalinoDate(it.toLocalDate()) }
 

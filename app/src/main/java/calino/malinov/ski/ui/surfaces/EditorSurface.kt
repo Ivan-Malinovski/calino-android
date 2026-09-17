@@ -55,7 +55,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.model.Attendee
@@ -88,6 +87,7 @@ import calino.malinov.ski.ui.components.EditorReveal
 import calino.malinov.ski.ui.components.ModalActionPill
 import calino.malinov.ski.ui.components.rememberDatePicker
 import calino.malinov.ski.ui.components.rememberTimePicker
+import calino.malinov.ski.ui.components.WhenHero
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.util.formatRecurrenceRule
 import java.time.DayOfWeek
@@ -623,71 +623,26 @@ private fun EventDateTimeSection(
     pickEndDate: () -> Unit,
     pickEndTime: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        DateTimeColumn(
-            label = "Start",
-            date = draft.date,
-            time = if (draft.allDay) "All day" else draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
-            modifier = Modifier.weight(1f),
-            dateEnabled = true,
-            timeEnabled = !draft.allDay,
-            onDate = pickStartDate,
-            onTime = pickStartTime,
-        )
-        Box(Modifier.width(34.dp), contentAlignment = Alignment.Center) {
-            Text("→", color = CalinoColors.Ink3, fontSize = 24.sp, textAlign = TextAlign.Center)
-        }
-        DateTimeColumn(
-            label = "End",
-            date = draft.endDate,
-            time = if (draft.allDay) "All day" else draft.endTime?.let { LocalTimeFormat.format(it) } ?: "—",
-            modifier = Modifier.weight(1f),
-            dateEnabled = !draft.allDay && draft.startTime != null,
-            timeEnabled = !draft.allDay && draft.startTime != null,
-            onDate = pickEndDate,
-            onTime = pickEndTime,
-        )
-    }
-}
-
-@Composable
-private fun DateTimeColumn(
-    label: String,
-    date: LocalDate,
-    time: String,
-    modifier: Modifier,
-    dateEnabled: Boolean,
-    timeEnabled: Boolean,
-    onDate: () -> Unit,
-    onTime: () -> Unit,
-) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            date.format(EditorDateFormat),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 44.dp)
-                .clickable(enabled = dateEnabled, role = Role.Button, onClick = onDate)
-                .semantics { contentDescription = "$label date, ${date.format(EditorDateFormat)}" },
-            style = CalinoTypography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 22.sp),
-            color = if (dateEnabled) CalinoColors.Ink else CalinoColors.Ink3,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            time,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 44.dp)
-                .clickable(enabled = timeEnabled, role = Role.Button, onClick = onTime)
-                .semantics { contentDescription = "$label time, $time" },
-            style = CalinoTypography.bodyLarge.copy(fontSize = 17.sp, lineHeight = 23.sp),
-            color = if (timeEnabled) CalinoColors.Ink else CalinoColors.Ink3,
-            textAlign = TextAlign.Center,
-        )
-    }
+    // The all-day switch sits directly above this block, so the hero is given
+    // no toggle of its own: two controls for one fact is what makes a form
+    // feel guessed at.
+    WhenHero(
+        startDate = draft.date,
+        startTime = if (draft.allDay) null else draft.startTime,
+        endDate = draft.endDate,
+        endTime = if (draft.allDay) null else draft.endTime,
+        accent = CalinoColors.Accent,
+        allDay = draft.allDay,
+        // Starts on the rows' text column -- the 28dp icon box plus its 12dp
+        // spacer -- so the when-block reads as one of the fields rather than
+        // as something hanging in the icon gutter.
+        modifier = Modifier.padding(start = 40.dp, top = 14.dp, bottom = 14.dp),
+        onStartDate = pickStartDate,
+        onStartTime = if (draft.allDay) null else pickStartTime,
+        // An end has nothing to hang off until the start is set.
+        onEndDate = if (!draft.allDay && draft.startTime != null) pickEndDate else null,
+        onEndTime = if (!draft.allDay && draft.startTime != null) pickEndTime else null,
+    )
 }
 
 @Composable

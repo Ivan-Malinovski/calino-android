@@ -94,6 +94,12 @@ class DayRailLayoutTest {
         assertEquals("2 h", formatCalinoDuration(120))
         assertEquals("4 h 5 min", formatCalinoDuration(245))
         assertEquals("0 min", formatCalinoDuration(0))
+        // A span past midnight is named in days rather than counted in hours.
+        assertEquals("1 d", formatCalinoDuration(24 * 60))
+        assertEquals("1 d 2 h", formatCalinoDuration(26 * 60))
+        assertEquals("1 d 30 min", formatCalinoDuration(24 * 60 + 30))
+        assertEquals("2 d", formatCalinoDuration(48 * 60))
+        assertEquals("23 h", formatCalinoDuration(23 * 60))
     }
 
     @Test
