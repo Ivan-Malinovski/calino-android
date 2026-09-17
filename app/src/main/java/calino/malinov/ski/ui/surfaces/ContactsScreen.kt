@@ -570,9 +570,9 @@ private fun ContactDetailPill(
         primaryLabel = "Edit",
         onPrimary = onEdit,
         primaryDescription = "Edit contact",
-        secondaryLabel = "Delete",
-        onSecondary = onDelete,
-        secondaryDescription = "Delete contact",
+        deleteLabel = "Delete",
+        onDelete = onDelete,
+        deleteDescription = "Delete contact",
         modifier = modifier,
     )
 }
@@ -662,11 +662,12 @@ private fun ContactEditor(
                 cancelLabel = "Cancel",
                 onCancel = ::dismiss,
                 cancelDescription = "Cancel contact editing",
-                secondaryLabel = onDelete?.let { "Delete" },
-                onSecondary = onDelete?.let { { showDelete = !showDelete } },
-                secondaryDescription = "Delete contact",
+                deleteLabel = onDelete?.let { "Delete" },
+                onDelete = onDelete?.let { { showDelete = !showDelete } },
+                deleteDescription = "Delete contact",
                 primaryLabel = "Save",
                 onPrimary = ::saveContact,
+                primaryVisible = isNew || dirty,
                 primaryEnabled = canSave,
                 primaryDescription = "Save contact",
             )

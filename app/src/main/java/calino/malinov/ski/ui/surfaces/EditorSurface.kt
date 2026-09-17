@@ -211,6 +211,9 @@ fun EditorSurface(
                     onSaveStarted(saved)
                     closeAfterAnimation { onSave(saved) }
                 },
+                // A record that exists and has not been touched has nothing
+                // to save; the pill then offers only the way out.
+                primaryVisible = !draft.isEditing || draft != initial,
                 primaryEnabled = draft.canSave(),
                 primaryDescription = "Save editor",
                 cancelDescription = "Cancel editor",

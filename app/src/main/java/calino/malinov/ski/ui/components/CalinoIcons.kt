@@ -16,6 +16,7 @@ object CalinoIcons {
     val Check: ImageVector by lazy { icon("check") { moveTo(5f, 12f); lineTo(10f, 17f); lineTo(19f, 7f) } }
     val ChevronLeft: ImageVector by lazy { icon("chevron-left") { moveTo(15f, 18f); lineTo(9f, 12f); lineTo(15f, 6f) } }
     val ChevronRight: ImageVector by lazy { icon("chevron-right") { moveTo(9f, 18f); lineTo(15f, 12f); lineTo(9f, 6f) } }
+    val ChevronDown: ImageVector by lazy { icon("chevron-down") { moveTo(6f, 9.5f); lineTo(12f, 15.5f); lineTo(18f, 9.5f) } }
     val Search: ImageVector by lazy { icon("search") { circle(11f, 11f, 7f); moveTo(16f, 16f); lineTo(21f, 21f) } }
     val Camera: ImageVector by lazy { icon("camera") { moveTo(4f, 7f); curveTo(4f, 5.9f, 4.9f, 5f, 6f, 5f); horizontalLineTo(8f); lineTo(9.5f, 3f); horizontalLineTo(14.5f); lineTo(16f, 5f); horizontalLineTo(18f); curveTo(19.1f, 5f, 20f, 5.9f, 20f, 7f); verticalLineTo(18f); curveTo(20f, 19.1f, 19.1f, 20f, 18f, 20f); horizontalLineTo(6f); curveTo(4.9f, 20f, 4f, 19.1f, 4f, 18f); close(); circle(12f, 12f, 3f) } }
     val Calendar: ImageVector by lazy { icon("calendar") { moveTo(4f, 5f); horizontalLineTo(20f); verticalLineTo(21f); horizontalLineTo(4f); close(); moveTo(8f, 3f); verticalLineTo(7f); moveTo(16f, 3f); verticalLineTo(7f); moveTo(4f, 10f); horizontalLineTo(20f) } }

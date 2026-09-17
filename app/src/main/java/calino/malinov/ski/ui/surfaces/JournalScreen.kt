@@ -378,11 +378,14 @@ private fun JournalEditor(
                     if (isEditing) closeAnimated { onSave(entry.copy(title = title.trim(), body = body.trim())) }
                     else isEditing = true
                 },
+                // Reading an entry, Edit is always on offer; writing one, Save
+                // appears only once there is a change to write.
+                primaryVisible = !isEditing || dirty || isNewEntry,
                 primaryEnabled = !isEditing || canSave,
                 primaryDescription = if (isEditing) "Save journal entry" else "Edit journal entry",
-                secondaryLabel = "Delete",
-                onSecondary = { confirmDelete = !confirmDelete },
-                secondaryDescription = "Delete journal entry",
+                deleteLabel = "Delete",
+                onDelete = { confirmDelete = !confirmDelete },
+                deleteDescription = "Delete journal entry",
             )
         },
     ) { editorModifier ->

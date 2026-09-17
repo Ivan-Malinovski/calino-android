@@ -738,15 +738,21 @@ fun EventDetailSurface(
                     cancelLabel = "Cancel",
                     onCancel = { closeAfterAnimation(onBack) },
                     cancelDescription = "Close event preview",
+                    deleteLabel = "Delete",
+                    onDelete = state.onDelete,
+                    deleteDescription = "Delete event",
+                    deleteConfirmationActive = state.confirmingDelete,
+                    onDeleteConfirmationChange = state.onDeletePromptChanged,
+                    deleteHoldToConfirm = true,
                     secondaryLabel = "Open",
                     onSecondary = state.onOpen,
                     secondaryDescription = "Open event",
-                    primaryLabel = if (state.dirty) "Save" else "Delete",
-                    onPrimary = if (state.dirty) state.onSave else state.onDelete,
-                    primaryDescription = if (state.dirty) "Save event changes" else "Delete event",
-                    primaryConfirmationActive = !state.dirty && state.confirmingDelete,
-                    onPrimaryConfirmationChange = if (state.dirty) ({}) else state.onDeletePromptChanged,
-                    primaryHoldToConfirm = !state.dirty,
+                    primaryLabel = "Save",
+                    onPrimary = state.onSave,
+                    // Delete keeps its own lane whatever happens; Save is the
+                    // one that appears, and only once the preview is dirty.
+                    primaryVisible = state.dirty,
+                    primaryDescription = "Save event changes",
             )
         },
     ) { overlayModifier ->
@@ -1229,6 +1235,14 @@ fun TaskDetailSurface(
         handleColor = headerTint,
         pill = {
             val canSave = title.trim().isNotEmpty()
+            // Completion has its own action, so it does not count as an edit
+            // waiting to be saved.
+            val dirty = title != task.title ||
+                category != task.category.orEmpty() ||
+                notes != task.notes.orEmpty() ||
+                due != task.due ||
+                priority != task.priority ||
+                percentComplete != task.percentComplete
             ModalActionPill(
                 addLabel = "New task",
                 morphFromAddPill = true,
@@ -1256,6 +1270,7 @@ fun TaskDetailSurface(
                 },
                 secondaryEnabled = canSave,
                 secondaryDescription = if (done) "Mark task as open" else "Mark task as done",
+                primaryVisible = dirty,
             )
         },
     ) { detailModifier ->

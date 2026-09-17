@@ -545,7 +545,7 @@ fun SwipeDownDismiss(
 enum class EventChipVariant { Rail, Tint, Task }
 enum class AgendaRowVariant { Card, Flat }
 
-enum class CalinoIcon { Back, Forward, Plus, Search, Calendar, Repeat, Check, Pin, Note, Users, Edit, Trash, Bell, Filter, Clock, More }
+enum class CalinoIcon { Back, Forward, Down, Plus, Search, Calendar, Repeat, Check, Pin, Note, Users, Edit, Trash, Bell, Filter, Clock, More }
 
 /**
  * A transient feedback toast shared by writes and undoable actions.
@@ -2447,6 +2447,14 @@ private data class ModalPillAction(
     val enabled: Boolean,
     val description: String,
     val tone: ModalPillActionTone = ModalPillActionTone.Neutral,
+    /**
+     * Drawn instead of the label. Cancel and delete are the two actions every
+     * pill spells the same way, so they carry a glyph rather than a word and
+     * stop competing for width with the actions that differ per modal.
+     */
+    val icon: CalinoIcon? = null,
+    /** This action owns the press that runs the hold-to-confirm countdown. */
+    val holdInteraction: Boolean = false,
 )
 
 private enum class ModalPillActionTone { Neutral, Save, Delete }
@@ -2474,9 +2482,11 @@ private fun modalPillActionTone(label: String): ModalPillActionTone = when (labe
  * action count used to stand in for this, and they were wrong for any label
  * or density they were not chosen against.
  *
- * Actions are ordered Cancel, secondary, primary. This lets each modal keep
- * its cancellation affordance while retaining a destructive or state-changing
- * action beside the primary action.
+ * Actions sit in fixed lanes, left to right: cancel (a down chevron, since
+ * every modal dismisses the same way), delete (a red trash glyph), this
+ * modal's own secondary action, and the primary action. The commit is always
+ * the rightmost thing, and a lane a modal has no use for is simply absent
+ * rather than reshuffling the others.
  */
 @Composable
 fun ModalActionPill(
@@ -2485,6 +2495,8 @@ fun ModalActionPill(
     modifier: Modifier = Modifier,
     secondaryLabel: String? = null,
     onSecondary: (() -> Unit)? = null,
+    deleteLabel: String? = null,
+    onDelete: (() -> Unit)? = null,
     cancelLabel: String? = null,
     onCancel: (() -> Unit)? = null,
     addLabel: String? = null,
@@ -2497,18 +2509,26 @@ fun ModalActionPill(
     // the shape in flight, which is a morph that covers part of its distance
     // and finds the rest in one frame when the pill is swapped out.
     minExpandedWidth: Dp = Dp.Unspecified,
+    // Whether the primary action is offered at all. A save that has nothing
+    // to write is not a disabled button, it is not a button: the pill only
+    // grows a Save once the record is new or the person has changed
+    // something.
+    primaryVisible: Boolean = true,
     primaryEnabled: Boolean = true,
     secondaryEnabled: Boolean = true,
+    deleteEnabled: Boolean = true,
     primaryDescription: String = primaryLabel,
     secondaryDescription: String = secondaryLabel ?: "",
+    deleteDescription: String = deleteLabel ?: "Delete",
     cancelDescription: String = cancelLabel ?: "Cancel",
-    primaryConfirmationActive: Boolean = false,
-    primaryConfirmationLabel: String = "Are you sure?",
-    onPrimaryConfirmationChange: (Boolean) -> Unit = {},
-    primaryHoldToConfirm: Boolean = false,
+    deleteConfirmationActive: Boolean = false,
+    deleteConfirmationLabel: String = "Are you sure?",
+    onDeleteConfirmationChange: (Boolean) -> Unit = {},
+    deleteHoldToConfirm: Boolean = false,
 ) {
     val hasCancel = cancelLabel != null && onCancel != null
     val hasSecondary = secondaryLabel != null && onSecondary != null
+    val hasDelete = deleteLabel != null && onDelete != null
 
     // The lane itself is claimed by the surface hosting this pill, which can
     // do it early enough in the frame to matter; this reads the lane for the
@@ -2517,8 +2537,8 @@ fun ModalActionPill(
     val haptics = LocalHapticFeedback.current
     val focusManager = LocalFocusManager.current
     val saveTrace = rememberPillSaveTrace()
-    val primaryInteraction = remember { MutableInteractionSource() }
-    val primaryPressed by primaryInteraction.collectIsPressedAsState()
+    val deleteInteraction = remember { MutableInteractionSource() }
+    val deletePressed by deleteInteraction.collectIsPressedAsState()
     var longPressCommitted by remember { mutableStateOf(false) }
     val confirmationCountdown = remember { Animatable(0f) }
     val holdCountdown = remember { Animatable(0f) }
@@ -2528,22 +2548,23 @@ fun ModalActionPill(
         }
         onPrimary()
     }
-    val currentConfirmationChange by rememberUpdatedState(onPrimaryConfirmationChange)
-    LaunchedEffect(primaryConfirmationActive) {
+    val currentDelete by rememberUpdatedState { onDelete?.invoke() }
+    val currentConfirmationChange by rememberUpdatedState(onDeleteConfirmationChange)
+    LaunchedEffect(deleteConfirmationActive) {
         confirmationCountdown.snapTo(0f)
-        if (primaryConfirmationActive) {
+        if (deleteConfirmationActive) {
             confirmationCountdown.animateTo(1f, tween(PillDeleteConfirmationMillis, easing = LinearEasing))
             currentConfirmationChange(false)
         }
     }
-    LaunchedEffect(primaryPressed, primaryHoldToConfirm, primaryConfirmationActive) {
-        if (primaryPressed && primaryHoldToConfirm && !primaryConfirmationActive) {
+    LaunchedEffect(deletePressed, deleteHoldToConfirm, deleteConfirmationActive) {
+        if (deletePressed && deleteHoldToConfirm && !deleteConfirmationActive) {
             longPressCommitted = false
             holdCountdown.snapTo(0f)
             holdCountdown.animateTo(1f, tween(PillDeleteHoldMillis, easing = LinearEasing))
             longPressCommitted = true
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            currentPrimary()
+            currentDelete()
         } else {
             holdCountdown.snapTo(0f)
         }
@@ -2657,78 +2678,139 @@ fun ModalActionPill(
     }
 
     val actionsForm: @Composable () -> Unit = {
+        // Fixed lanes, left to right: dismissal, destruction, whatever this
+        // modal calls its own, and the commit. Every pill in the app puts the
+        // same action in the same place, so the position is learnable and a
+        // modal that lacks one simply leaves the lane out.
         val actions = buildList {
-            if (!primaryConfirmationActive && hasCancel) add(ModalPillAction(cancelLabel!!, onCancel!!, true, cancelDescription))
-            if (!primaryConfirmationActive && hasSecondary) add(
-                ModalPillAction(
-                    secondaryLabel!!,
-                    onSecondary!!,
-                    secondaryEnabled,
-                    secondaryDescription,
-                    modalPillActionTone(secondaryLabel),
-                )
-            )
-            add(
-                ModalPillAction(
-                    label = if (primaryConfirmationActive) primaryConfirmationLabel else primaryLabel,
-                    onClick = {
-                        if (longPressCommitted) {
-                            longPressCommitted = false
-                        } else if (primaryConfirmationActive) {
+            if (deleteConfirmationActive) {
+                add(
+                    ModalPillAction(
+                        label = deleteConfirmationLabel,
+                        onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            currentPrimary()
-                        } else if (primaryHoldToConfirm) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onPrimaryConfirmationChange(true)
-                        } else {
-                            currentPrimary()
-                        }
-                    },
-                    enabled = primaryEnabled,
-                    description = if (primaryConfirmationActive) "Confirm $primaryDescription" else primaryDescription,
-                    tone = modalPillActionTone(primaryLabel),
+                            currentDelete()
+                        },
+                        enabled = true,
+                        description = "Confirm $deleteDescription",
+                        tone = ModalPillActionTone.Delete,
+                    )
                 )
-            )
+            } else {
+                if (hasCancel) add(
+                    ModalPillAction(
+                        label = cancelLabel!!,
+                        onClick = onCancel!!,
+                        enabled = true,
+                        description = cancelDescription,
+                        icon = CalinoIcon.Down,
+                    )
+                )
+                if (hasDelete) add(
+                    ModalPillAction(
+                        label = deleteLabel!!,
+                        onClick = {
+                            if (longPressCommitted) {
+                                longPressCommitted = false
+                            } else if (deleteHoldToConfirm) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onDeleteConfirmationChange(true)
+                            } else {
+                                currentDelete()
+                            }
+                        },
+                        enabled = deleteEnabled,
+                        description = deleteDescription,
+                        tone = ModalPillActionTone.Delete,
+                        icon = CalinoIcon.Trash,
+                        holdInteraction = deleteHoldToConfirm,
+                    )
+                )
+                if (hasSecondary) add(
+                    ModalPillAction(
+                        secondaryLabel!!,
+                        onSecondary!!,
+                        secondaryEnabled,
+                        secondaryDescription,
+                        modalPillActionTone(secondaryLabel),
+                    )
+                )
+                if (primaryVisible) add(
+                    ModalPillAction(
+                        label = primaryLabel,
+                        onClick = { currentPrimary() },
+                        enabled = primaryEnabled,
+                        description = primaryDescription,
+                        tone = modalPillActionTone(primaryLabel),
+                    )
+                )
+            }
         }
+        // Each action is as wide as what it holds, and whatever the pill has
+        // spare -- it is floored at the add pill's width, which has nothing to
+        // do with these labels -- becomes an even rhythm of gutters across the
+        // whole row. Splitting the pill into equal lanes instead sized every
+        // action by the arithmetic rather than by its content: a glyph adrift
+        // in a third of the pill, a word pressed against its own edges.
         Row(
             Modifier
                 .graphicsLayer { alpha = actionsAlpha }
                 .heightIn(min = CalinoSpacing.ActionPillHeight),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             actions.forEachIndexed { index, action ->
                 if (index > 0) {
                     Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .28f)))
                 }
+                val tint = when (action.tone) {
+                    ModalPillActionTone.Neutral -> CalinoColors.OnFloat
+                    // The palette's green is an ink for the light canvas, and
+                    // on the pill's dark glass it has no lift at all -- it
+                    // reads as a darker grey than the label beside it. Carried
+                    // toward the surface's own foreground it stays the same
+                    // hue and becomes a colour on this surface rather than a
+                    // colour borrowed from another one. Rose already sits
+                    // light enough to leave alone.
+                    ModalPillActionTone.Save -> lerp(CalinoColors.Green, CalinoColors.OnFloat, .42f)
+                    ModalPillActionTone.Delete -> CalinoColors.Rose
+                }.copy(alpha = if (action.enabled) 1f else .45f)
                 TextButton(
                     // A half-faded action is still on its way in or out.
                     // Taking a tap there would fire an action the person
                     // cannot yet read.
                     enabled = action.enabled && actionsLive,
                     onClick = action.onClick,
-                    interactionSource = if (index == actions.lastIndex && primaryHoldToConfirm) primaryInteraction else null,
+                    interactionSource = if (action.holdInteraction) deleteInteraction else null,
                     modifier = Modifier
-                        .weight(1f)
+                        // Only the floor of a tap target; the width above it
+                        // comes from the content.
+                        .widthIn(min = 48.dp)
                         .heightIn(min = 48.dp)
                         .semantics { contentDescription = action.description },
-                    contentPadding = PaddingValues(horizontal = 10.dp),
+                    contentPadding = PaddingValues(horizontal = if (action.icon != null) 4.dp else 14.dp),
                 ) {
-                    AnimatedContent(
-                        targetState = action.label,
-                        transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
-                        label = "pill action label",
-                    ) { label ->
-                        Text(
-                            label,
-                            color = when (action.tone) {
-                                ModalPillActionTone.Neutral -> CalinoColors.OnFloat
-                                ModalPillActionTone.Save -> CalinoColors.Green
-                                ModalPillActionTone.Delete -> CalinoColors.Rose
-                            }.copy(alpha = if (action.enabled) 1f else .45f),
-                            style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                    if (action.icon != null) {
+                        CalinoIcon(
+                            action.icon,
+                            tint = tint,
+                            modifier = Modifier.size(20.dp),
+                            contentDescription = null,
                         )
+                    } else {
+                        AnimatedContent(
+                            targetState = action.label,
+                            transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
+                            label = "pill action label",
+                        ) { label ->
+                            Text(
+                                label,
+                                color = tint,
+                                style = CalinoTypography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -2748,7 +2830,7 @@ fun ModalActionPill(
             .pillSaveTrace(saveTrace)
             .pillDeleteCountdown(
                 progress = maxOf(confirmationCountdown.value, holdCountdown.value),
-                active = primaryConfirmationActive || (primaryPressed && primaryHoldToConfirm),
+                active = deleteConfirmationActive || (deletePressed && deleteHoldToConfirm),
                 color = CalinoColors.Rose,
             )
             .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
@@ -3019,6 +3101,7 @@ fun CalinoIcon(icon: CalinoIcon, tint: Color = LocalContentColor.current, modifi
         imageVector = when (icon) {
             CalinoIcon.Back -> CalinoIcons.ChevronLeft
             CalinoIcon.Forward -> CalinoIcons.ChevronRight
+            CalinoIcon.Down -> CalinoIcons.ChevronDown
             CalinoIcon.Plus -> CalinoIcons.Plus
             CalinoIcon.Search -> CalinoIcons.Search
             CalinoIcon.Calendar -> CalinoIcons.Calendar
