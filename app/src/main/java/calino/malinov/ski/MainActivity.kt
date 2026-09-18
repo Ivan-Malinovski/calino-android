@@ -799,6 +799,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val calendarEvents = remember(snapshot.events, visibleCalendarIds) {
         snapshot.events.filter { event -> event.calendarId in visibleCalendarIds }
     }
+    /**
+     * Calendars nothing may be written to.
+     *
+     * Derived beside the visible set for the same reason that one was
+     * extracted: every surface that offers an edit has to agree about which
+     * events it may offer it for, and four copies of the rule is how they
+     * stop agreeing. Covers imported device calendars and CalDAV collections
+     * the server grants no write privilege on -- the second of which the app
+     * previously only checked when *choosing* a calendar, never when editing
+     * something already in one.
+     */
+    val readOnlyCalendarIds = remember(snapshot.calendars) {
+        snapshot.calendars.filter { it.readOnly }.map { it.id }.toSet()
+    }
     val calendarTasks = remember(snapshot.tasks, taskCalendarIds) {
         snapshot.tasks.filter { it.calendarId in taskCalendarIds }
     }
@@ -1083,6 +1097,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     /** The same editor, seeded from a record that already exists. */
     fun openEditor(event: CalEvent, origin: PocReturnTarget) {
+        // The last gate. The detail card already hides its Open action for a
+        // read-only event, but the editor can be reached from a menu and a
+        // deep link too, and an editor whose Save can only fail is worse than
+        // no editor.
+        if (event.calendarId in readOnlyCalendarIds) {
+            writeError = "That calendar belongs to another app on this device. " +
+                "Calino can show it, but not change it."
+            return
+        }
         externalDraft = null
         editEventId = event.id
         quickAddSeed = ""
@@ -1270,17 +1293,33 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             }.onFailure { writeError = "That event could not be shared." }
             EventMenuAction.Duplicate -> launchWrite({ repository.duplicateEvent(event) })
             EventMenuAction.ConvertToTask -> launchWrite({ repository.convertEventToTask(event) })
-            EventMenuAction.Delete -> pendingEventDelete = event
+            EventMenuAction.Delete ->
+                if (event.calendarId in readOnlyCalendarIds) {
+                    writeError = "That calendar belongs to another app on this " +
+                        "device. Calino can show it, but not change it."
+                } else {
+                    pendingEventDelete = event
+                }
         }
     }
 
+    /**
+     * Whether a drag may move [event] at all.
+     *
+     * Checked before the write rather than after: the grid animates an event
+     * to the finger, so a move that the repository then refuses leaves the
+     * card sitting on a day it was never actually moved to until the next
+     * snapshot snaps it back.
+     */
+    fun eventIsMovable(event: CalEvent) = event.calendarId !in readOnlyCalendarIds
+
     fun handleEventDrop(event: CalEvent, date: LocalDate) {
-        if (event.placementDate() == date) return
+        if (event.placementDate() == date || !eventIsMovable(event)) return
         launchWrite({ repository.moveEventToDate(event, date) }, indicate = PillWriteKind.Save)
     }
 
     fun handleEventTimeDrop(event: CalEvent, start: java.time.LocalDateTime) {
-        if (event.start == start) return
+        if (event.start == start || !eventIsMovable(event)) return
         launchWrite({ repository.moveEventToDateTime(event, start) }, indicate = PillWriteKind.Save)
     }
 
@@ -1911,6 +1950,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Detail -> selectedEvent?.let { event ->
                 EventDetail(
                     event = event,
+                    readOnly = event.calendarId in readOnlyCalendarIds,
                     events = remember(snapshot.events, selectedEventOccurrenceDay) {
                         snapshot.events.filter {
                             it.occursOn(selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay) ?: selectedDate)
