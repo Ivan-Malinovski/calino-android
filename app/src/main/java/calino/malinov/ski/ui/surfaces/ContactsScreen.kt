@@ -212,7 +212,12 @@ fun ContactsSurface(
                 onOpenMenu = onOpenMenu,
                 modifier = Modifier.fillMaxSize(),
             )
-            if (selected != null) {
+            // Only while the editor is closed. The editor is opened from this
+            // card, and the card is asked to animate out first -- but the
+            // selection it is keyed to stays, so leaving it composed would
+            // strand a departed sheet on top of the list, its full-screen
+            // scrim swallowing every tap while showing nothing at all.
+            if (selected != null && editingId == null) {
                 // The card used to vanish outright, which took its pill with
                 // it. It animates out instead, which is the window the pill
                 // needs to morph back into the root add shape.
