@@ -566,6 +566,15 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         container.onCalendarsToggled()
     }
 
+    /** The calendars published into Android's calendar store. */
+    var projectedCalendarIds by mutableStateOf(container.projectedCalendarIds.orEmpty())
+        private set
+
+    fun onProjectedCalendarsChanged(ids: Set<String>) {
+        container.setProjectedCalendars(ids)
+        projectedCalendarIds = container.projectedCalendarIds.orEmpty()
+    }
+
     fun onAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
         container.accountStore.setAddressBookEnabled(accountId, addressBookId, enabled)
         container.onCalendarsToggled()
@@ -1777,6 +1786,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             pocViewModel.onAddressBookEnabled(accountId, addressBookId, enabled)
                         },
                         onRemoveAccount = { pocViewModel.onAccountRemoved(it) },
+                        projectedCalendarIds = pocViewModel.projectedCalendarIds,
+                        onProjectedCalendarsChanged = { pocViewModel.onProjectedCalendarsChanged(it) },
                         syncState = snapshot.sync,
                         onRefresh = { pocViewModel.refresh() },
                         pendingChanges = pendingChanges,

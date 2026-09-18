@@ -176,6 +176,17 @@ interface CalinoPreferenceStore {
     fun saveTaskRemindersEnabled(enabled: Boolean)
     fun loadProviderRemindersEnabled(): Boolean
     fun saveProviderRemindersEnabled(enabled: Boolean)
+
+    /**
+     * The CalDAV calendars published into Android's calendar store.
+     *
+     * Deliberately not a field on [CalinoPreferences]: this is not a setting
+     * the Settings screen renders, it is per-calendar state that
+     * `CalinoContainer` owns and the calendar accounts surface edits. An empty
+     * set means projection is off entirely.
+     */
+    fun loadProjectedCalendarIds(): Set<String>
+    fun saveProjectedCalendarIds(ids: Set<String>)
     fun loadSidebarCalendarExpanded(): Boolean
     fun saveSidebarCalendarExpanded(expanded: Boolean)
     fun loadDayTasksExpanded(): Boolean
@@ -243,6 +254,7 @@ interface CalinoPreferenceStore {
         private var eventReminders = true
         private var taskReminders = true
         private var providerReminders = false
+        private var projected = emptySet<String>()
         private var notificationPrompt = false
         private var sidebarCalendarExpanded = false
         private var dayTasksExpanded = true
@@ -252,6 +264,8 @@ interface CalinoPreferenceStore {
         override fun saveTaskRemindersEnabled(enabled: Boolean) { taskReminders = enabled }
         override fun loadProviderRemindersEnabled() = providerReminders
         override fun saveProviderRemindersEnabled(enabled: Boolean) { providerReminders = enabled }
+        override fun loadProjectedCalendarIds() = projected
+        override fun saveProjectedCalendarIds(ids: Set<String>) { projected = ids }
         override fun loadSidebarCalendarExpanded() = sidebarCalendarExpanded
         override fun saveSidebarCalendarExpanded(expanded: Boolean) { sidebarCalendarExpanded = expanded }
         override fun loadDayTasksExpanded() = dayTasksExpanded
@@ -329,6 +343,13 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveTaskRemindersEnabled(enabled: Boolean) = putBoolean(TaskRemindersKey, enabled)
     override fun loadProviderRemindersEnabled(): Boolean = prefs.getBoolean(ProviderRemindersKey, false)
     override fun saveProviderRemindersEnabled(enabled: Boolean) = putBoolean(ProviderRemindersKey, enabled)
+    // Copied on the way out: SharedPreferences hands back the live stored set,
+    // and holding on to it is documented as undefined behaviour.
+    override fun loadProjectedCalendarIds(): Set<String> =
+        prefs.getStringSet(ProjectedCalendarsKey, emptySet()).orEmpty().toSet()
+    override fun saveProjectedCalendarIds(ids: Set<String>) {
+        prefs.edit().putStringSet(ProjectedCalendarsKey, ids).apply()
+    }
     override fun loadSidebarCalendarExpanded(): Boolean = prefs.getBoolean(SidebarCalendarExpandedKey, false)
     override fun saveSidebarCalendarExpanded(expanded: Boolean) = putBoolean(SidebarCalendarExpandedKey, expanded)
     override fun loadDayTasksExpanded(): Boolean = prefs.getBoolean(DayTasksExpandedKey, true)
@@ -356,6 +377,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val EventRemindersKey = "event_reminders_enabled"
         const val TaskRemindersKey = "task_reminders_enabled"
         const val ProviderRemindersKey = "provider_reminders_enabled"
+        const val ProjectedCalendarsKey = "projected_calendar_ids"
         const val SidebarCalendarExpandedKey = "sidebar_calendar_expanded"
         const val DayTasksExpandedKey = "day_tasks_expanded"
         const val NotificationPromptKey = "notification_prompt_shown"

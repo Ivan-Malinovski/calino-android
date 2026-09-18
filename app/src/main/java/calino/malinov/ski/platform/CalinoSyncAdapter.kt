@@ -45,12 +45,12 @@ class CalinoSyncAdapter(context: Context) : AbstractThreadedSyncAdapter(
         syncResult: SyncResult,
     ) {
         val container = CalinoContainer.get(context)
-        if (!container.calendarProjectionEnabled) return
-
-        // The repository has to be able to reach the server for a write to be
-        // applied rather than queued, and this may be a process the framework
-        // woke with nothing else running in it.
+        // Before the projection check, not after: this may be a process the
+        // framework woke with nothing else running in it, and restoring the
+        // opt-in is part of what connecting does. It is also what lets a
+        // write reach the server rather than sit in the queue.
         container.ensureConnected()
+        if (!container.calendarProjectionEnabled) return
 
         val changes = CalendarIngest.collect(context, account)
         if (changes.isNotEmpty()) {

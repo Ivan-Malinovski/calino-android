@@ -127,7 +127,21 @@ to the device's calendar store and to read back edits made elsewhere; no
 calendar data leaves the device by this path.
 
 Refusal is a supported state: projection stays off, the toggle reflects that,
-and Calino continues exactly as it does today.
+and Calino continues exactly as it does today. Opting *out* never asks, so a
+person who later revokes the permission can still turn the projection off.
+
+### The opt-in is the only switch
+
+Amended 2026-09-18, during implementation. This review assumed two controls: a
+per-account projection switch and a per-calendar opt-in. There is one, the
+per-calendar opt-in, and the feature is on exactly while that set is
+non-empty.
+
+Two switches can disagree -- calendars opted in with projection off is a state
+that means nothing, and one that teardown and restore both have to handle.
+Deriving the flag removes the state rather than handling it. Practically it
+also reads better: a person turning off their last published calendar means
+"stop publishing", and does not then have to find a second switch to say so.
 
 `READ_SYNC_SETTINGS` / `WRITE_SYNC_SETTINGS` are required to register the sync
 adapter. A `<queries>` entry for `ACTION_INSERT` on `Events.CONTENT_URI` is

@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,6 +46,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -91,6 +96,11 @@ import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.calinoPressable
 import kotlinx.coroutines.delay
 
+private val CalendarPermissions = arrayOf(
+    android.Manifest.permission.READ_CALENDAR,
+    android.Manifest.permission.WRITE_CALENDAR,
+)
+
 private const val SheetExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
 
 /**
@@ -107,6 +117,9 @@ fun CalendarAccountsSurface(
     onCalendarEnabled: (accountId: String, calendarId: String, enabled: Boolean) -> Unit,
     onAddressBookEnabled: (accountId: String, addressBookId: String, enabled: Boolean) -> Unit = { _, _, _ -> },
     onRemoveAccount: (accountId: String) -> Unit,
+    /** The calendars currently published into Android's calendar store. */
+    projectedCalendarIds: Set<String> = emptySet(),
+    onProjectedCalendarsChanged: (Set<String>) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenMenu: (() -> Unit)? = null,
     startAdding: Boolean = false,
@@ -134,6 +147,34 @@ fun CalendarAccountsSurface(
     // "Manage" row has to bring that account into view rather than restoring
     // wherever the list happened to be left.
     val listState = rememberLazyListState()
+
+    // Publishing to the calendar store needs the calendar permissions, and
+    // they are asked for here -- at the moment of opting in -- rather than at
+    // launch, because until now there was nothing to publish. Refusal is a
+    // supported state: the set is left alone, so the toggle springs back.
+    val context = LocalContext.current
+    var pendingProjection by remember { mutableStateOf<Set<String>?>(null) }
+    val calendarPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        val requested = pendingProjection
+        pendingProjection = null
+        if (requested != null && granted.values.all { it }) onProjectedCalendarsChanged(requested)
+    }
+    val setProjected: (Set<String>) -> Unit = { next ->
+        val hasPermission = CalendarPermissions.all { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+        // Only opting *in* needs the permission. Opting out must work even
+        // after a revoke, or the projection could never be turned off.
+        if (hasPermission || next.size <= projectedCalendarIds.size) {
+            onProjectedCalendarsChanged(next)
+        } else {
+            pendingProjection = next
+            calendarPermissions.launch(CalendarPermissions)
+        }
+    }
+
     LaunchedEffect(focusAccountId, accounts) {
         val index = accounts.indexOfFirst { it.id == focusAccountId }
         if (focusAccountId != null && index >= 0) {
@@ -197,6 +238,13 @@ fun CalendarAccountsSurface(
                                 onAddressBookEnabled(account.id, addressBookId, enabled)
                             },
                             onRemove = { onRemoveAccount(account.id) },
+                            projectedCalendarIds = projectedCalendarIds,
+                            onProjectionChanged = { calendarId, published ->
+                                setProjected(
+                                    if (published) projectedCalendarIds + calendarId
+                                    else projectedCalendarIds - calendarId,
+                                )
+                            },
                         )
                     }
                 }
@@ -405,6 +453,8 @@ private fun AccountCard(
     onCalendarEnabled: (calendarId: String, enabled: Boolean) -> Unit,
     onAddressBookEnabled: (addressBookId: String, enabled: Boolean) -> Unit,
     onRemove: () -> Unit,
+    projectedCalendarIds: Set<String>,
+    onProjectionChanged: (calendarId: String, published: Boolean) -> Unit,
 ) = EditorSection(null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -447,6 +497,35 @@ private fun AccountCard(
                         label = if (addressBook.readOnly) "${addressBook.name} · read only" else addressBook.name,
                         checked = addressBook.enabled,
                         onCheckedChange = { onAddressBookEnabled(addressBook.id, it) },
+                    )
+                }
+            }
+        }
+    }
+    val publishable = account.calendars.filter { it.enabled }
+    if (publishable.isNotEmpty()) {
+        HorizontalDivider(color = CalinoColors.Line)
+        EditorLabel("Publish to Android")
+        Text(
+            "A published calendar appears in the device's calendar store, so other " +
+                "calendar apps, watch faces and Android Auto can show it and edit it. " +
+                "Nothing leaves the device by this route.",
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink3,
+        )
+        publishable.forEach { calendar ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    CalinoIcons.Calendar,
+                    contentDescription = null,
+                    tint = CalinoColors.Accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                Box(Modifier.weight(1f).padding(start = 10.dp)) {
+                    CalinoToggleRow(
+                        label = calendar.name,
+                        checked = calendar.id in projectedCalendarIds,
+                        onCheckedChange = { onProjectionChanged(calendar.id, it) },
                     )
                 }
             }

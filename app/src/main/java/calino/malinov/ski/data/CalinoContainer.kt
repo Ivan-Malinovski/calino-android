@@ -181,6 +181,7 @@ class CalinoContainer private constructor(context: Context) {
         cacheRestored = true
         connections.restore()
         updateActiveRepository()
+        restoreProjection()
     }
 
     /**
@@ -310,10 +311,12 @@ class CalinoContainer private constructor(context: Context) {
      *
      * Off until someone opts in. An Android account appearing in Settings is
      * user-visible, so it must not be a side effect of connecting to a CalDAV
-     * server -- see `docs/calendar-provider.md`.
+     * server -- see `docs/calendar-provider.md`. Turned on and off only
+     * through [setProjectedCalendars], so the flag and the list of opted-in
+     * calendars cannot disagree.
      */
     var calendarProjectionEnabled: Boolean = false
-        set(value) {
+        private set(value) {
             if (field == value) return
             field = value
             syncAndroidAccounts()
@@ -346,11 +349,52 @@ class CalinoContainer private constructor(context: Context) {
      * The calendars projected into `CalendarContract`, or null while every
      * visible one is.
      *
-     * Null until the per-calendar opt-in exists. It changes nothing on its
-     * own: [calendarProjectionEnabled] is false, so the projection does not
-     * run at all until someone turns it on.
+     * Written only by [setProjectedCalendars] and [restoreProjection], so the
+     * null case survives for the sync adapter's benefit rather than as a
+     * state the opt-in can produce.
      */
     var projectedCalendarIds: Set<String>? = null
+        private set
+
+    /**
+     * Publish exactly [ids] into the calendar provider, and persist that
+     * choice.
+     *
+     * An empty set is how projection is turned off: there is no second switch
+     * to keep in step with the list, so "nothing is opted in" and "the feature
+     * is off" cannot disagree.
+     *
+     * The caller is responsible for holding `WRITE_CALENDAR` before opting the
+     * first calendar in. Refusal is a supported state, and reaches here as an
+     * unchanged set.
+     */
+    fun setProjectedCalendars(ids: Set<String>) {
+        if (ids == projectedCalendarIds) return
+        preferenceStore.saveProjectedCalendarIds(ids)
+        projectedCalendarIds = ids
+        val enabled = ids.isNotEmpty()
+        if (enabled == calendarProjectionEnabled) {
+            // The switch did not move, so its setter will not reconcile. A
+            // calendar added to or dropped from the set still has to be.
+            if (enabled) projectCalendars()
+        } else {
+            calendarProjectionEnabled = enabled
+        }
+    }
+
+    /**
+     * Bring back the opt-in from a previous run.
+     *
+     * Called from [ensureConnected] rather than construction, because
+     * enabling projection touches `AccountManager` and the calendar provider:
+     * a process woken to redraw a widget or re-arm an alarm must not do that.
+     */
+    private fun restoreProjection() {
+        val stored = preferenceStore.loadProjectedCalendarIds()
+        if (stored.isEmpty() || projectedCalendarIds != null) return
+        projectedCalendarIds = stored
+        calendarProjectionEnabled = true
+    }
 
     /**
      * Start projecting into the calendar provider. Only the UI process needs
