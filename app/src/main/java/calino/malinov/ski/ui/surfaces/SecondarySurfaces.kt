@@ -770,7 +770,7 @@ fun EventDetailSurface(
         // Matches CalinoSurfaceKind.EventPreviewCompact's own ceiling, which
         // clamps this anyway; asking for more here only hides that.
         ).coerceAtMost(560).dp
-    var pillState by remember { mutableStateOf(EventPreviewPillState(false, false, {}, {}, {}, {})) }
+    var pillState by remember { mutableStateOf(EventPreviewPillState(false, false, {}, {}, {}, {}, {})) }
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
@@ -792,6 +792,7 @@ fun EventDetailSurface(
                     deleteConfirmationActive = state.confirmingDelete,
                     onDeleteConfirmationChange = state.onDeletePromptChanged,
                     deleteHoldToConfirm = true,
+                    onDeleteHold = state.onDeleteOccurrence,
                     secondaryLabel = "Open",
                     onSecondary = state.onOpen,
                     secondaryDescription = "Open event",
@@ -876,7 +877,13 @@ private fun EventDetailContent(
     var pendingOpen by remember(event.id) { mutableStateOf(false) }
     var scopePrompt by remember(event.id) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
-    var confirmDelete by remember(event.id) { mutableStateOf(false) }
+    // Removing a repeating event is two questions, and they have to be asked
+    // one at a time: which occurrences, and then whether to really do it. Both
+    // used to hang off a single flag, so the scope chips and "Are you sure?"
+    // appeared together and the pill was asking the person to confirm a choice
+    // they had not made yet.
+    var deleteStage by remember(event.id) { mutableStateOf(EventDeleteStage.None) }
+    val confirmDelete = deleteStage != EventDeleteStage.None
     var deleteScope by remember(event.id, event.recurrenceId, event.recurrenceDate) {
         mutableStateOf(defaultEventDeleteScope(event))
     }
@@ -905,6 +912,15 @@ private fun EventDetailContent(
     val openAction = { if (!saving) { if (dirty) save(true) else onPrimary() } }
     val saveAction = { if (!saving) save(false) }
     val deleteAction = { onDeleteEvent(event, deleteScope) }
+    // Holding the trash skips both questions, so it answers the scope one the
+    // safest way it can: a repeating event loses the occurrence in front of
+    // the person, never the series. Before this it fired the card's current
+    // scope, which defaults to the whole series for a master event -- the
+    // largest possible blast radius from the gesture that asks the fewest
+    // questions.
+    val deleteOccurrenceAction = {
+        onDeleteEvent(event, if (isRecurringEvent(event)) RecurrenceEditScope.This else deleteScope)
+    }
     val pickDate = rememberDatePicker({ draft.date }) { draft = draft.copy(date = it); error = null }
     val pickStartTime = rememberTimePicker({ draft.startTime }) { picked ->
         // Keep the span the person already agreed to rather than snapping the
@@ -927,9 +943,31 @@ private fun EventDetailContent(
         }
         error = null
     }
-    val deletePromptChanged: (Boolean) -> Unit = { confirmDelete = it }
-    LaunchedEffect(dirty, saving, active, confirmDelete, deleteScope) {
-        if (active) onPillState(EventPreviewPillState(dirty, confirmDelete, openAction, saveAction, deleteAction, deletePromptChanged))
+    val deletePromptChanged: (Boolean) -> Unit = { asked ->
+        deleteStage = when {
+            !asked -> EventDeleteStage.None
+            // A one-off event has no scope to choose, so it goes straight to
+            // the only question there is.
+            isRecurringEvent(event) -> EventDeleteStage.Scope
+            else -> EventDeleteStage.Confirm
+        }
+    }
+    // The pill only says "Are you sure?" once the scope question is answered.
+    val pillConfirming = deleteStage == EventDeleteStage.Confirm
+    LaunchedEffect(dirty, saving, active, deleteStage, deleteScope) {
+        if (active) {
+            onPillState(
+                EventPreviewPillState(
+                    dirty,
+                    pillConfirming,
+                    openAction,
+                    saveAction,
+                    deleteAction,
+                    deleteOccurrenceAction,
+                    deletePromptChanged,
+                ),
+            )
+        }
     }
     Column(Modifier.fillMaxSize()) {
         HeroMasthead(tint) {
@@ -1057,7 +1095,18 @@ private fun EventDetailContent(
                             RecurrenceEditScope.Future -> "This and future"
                             RecurrenceEditScope.All -> "Entire series"
                         }
-                        CalinoChip(label, deleteScope == option, "Delete scope $label", semanticsRole = Role.RadioButton, onClick = { deleteScope = option })
+                        CalinoChip(
+                            label,
+                            deleteScope == option,
+                            "Delete scope $label",
+                            semanticsRole = Role.RadioButton,
+                            onClick = {
+                                deleteScope = option
+                                // Answering the scope question is what hands
+                                // the pill its confirmation.
+                                deleteStage = EventDeleteStage.Confirm
+                            },
+                        )
                     }
                 }
             }
@@ -1068,12 +1117,23 @@ private fun EventDetailContent(
     }
 }
 
+/**
+ * How far through removing an event the person has got.
+ *
+ * [Scope] is only ever reached by a repeating event: it is the card asking
+ * which occurrences are meant, with the pill still showing a plain trash
+ * glyph. [Confirm] is the pill's own "Are you sure?", and nothing else.
+ */
+private enum class EventDeleteStage { None, Scope, Confirm }
+
 private data class EventPreviewPillState(
     val dirty: Boolean,
     val confirmingDelete: Boolean,
     val onOpen: () -> Unit,
     val onSave: () -> Unit,
     val onDelete: () -> Unit,
+    // The hold shortcut's own removal: this occurrence and nothing else.
+    val onDeleteOccurrence: () -> Unit,
     val onDeletePromptChanged: (Boolean) -> Unit,
 )
 

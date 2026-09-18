@@ -2532,6 +2532,12 @@ fun ModalActionPill(
     deleteConfirmationLabel: String = "Are you sure?",
     onDeleteConfirmationChange: (Boolean) -> Unit = {},
     deleteHoldToConfirm: Boolean = false,
+    // What a completed hold removes, when that is deliberately less than what
+    // the tap-then-confirm path would. Holding is the shortcut past the
+    // questions, so it must commit to the narrowest reading of "delete this"
+    // rather than to whatever scope the card's chips happen to be sitting on.
+    // Null means the hold and the confirmed tap do the same thing.
+    onDeleteHold: (() -> Unit)? = null,
 ) {
     val hasCancel = cancelLabel != null && onCancel != null
     val hasSecondary = secondaryLabel != null && onSecondary != null
@@ -2556,6 +2562,7 @@ fun ModalActionPill(
         onPrimary()
     }
     val currentDelete by rememberUpdatedState { onDelete?.invoke() }
+    val currentDeleteHold by rememberUpdatedState { (onDeleteHold ?: { onDelete?.invoke() })() }
     val currentConfirmationChange by rememberUpdatedState(onDeleteConfirmationChange)
     LaunchedEffect(deleteConfirmationActive) {
         confirmationCountdown.snapTo(0f)
@@ -2571,7 +2578,7 @@ fun ModalActionPill(
             holdCountdown.animateTo(1f, tween(PillDeleteHoldMillis, easing = LinearEasing))
             longPressCommitted = true
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            currentDelete()
+            currentDeleteHold()
         } else {
             holdCountdown.snapTo(0f)
         }

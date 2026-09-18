@@ -1884,13 +1884,21 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     onEventSelected = { selectedEventId = it.id },
                     onEditEvent = { openEditor(it, PocReturnTarget.Detail) },
                     onDeleteEvent = { target, scope ->
+                        // Which occurrence the card was showing, read before
+                        // the selection is cleared: a scoped delete that lost
+                        // it would fall back to the series anchor and remove
+                        // the wrong day.
+                        val occurrence = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay)
                         // Leave the detail route as soon as its exit animation
                         // completes; the write itself may be queued and must
                         // not cause the detail surface to remount underneath.
                         selectedEventId = null
                         selectedEventOccurrenceDay = null
                         restoreDetailOrigin()
-                        launchWrite({ repository.deleteEvent(target.id, scope) }, indicate = PillWriteKind.Remove)
+                        launchWrite(
+                            { repository.deleteEvent(target.id, scope, occurrence) },
+                            indicate = PillWriteKind.Remove,
+                        )
                     },
                     onEventAction = ::handleEventAction,
                     onInlineSave = { target, input, scope ->
@@ -2225,7 +2233,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     pendingTaskDelete = null
                     when {
                         event != null -> launchWrite(
-                            { repository.deleteEvent(event.id, defaultEventDeleteScope(event)) },
+                            {
+                                repository.deleteEvent(
+                                    event.id,
+                                    defaultEventDeleteScope(event),
+                                    event.placementDate(),
+                                )
+                            },
                             indicate = PillWriteKind.Remove,
                         )
                         task != null -> launchWrite(

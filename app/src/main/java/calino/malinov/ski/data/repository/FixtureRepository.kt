@@ -16,10 +16,15 @@ import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
+import calino.malinov.ski.data.model.placementDate
+import calino.malinov.ski.data.model.upcomingOccurrences
 import java.io.Closeable
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** A writable calendar the editor can file a record under. */
@@ -135,7 +140,18 @@ interface CalinoRepository {
     fun observe(listener: (CalinoSnapshot) -> Unit): Closeable
     suspend fun addEvent(input: NewEvent): WriteResult<CalEvent>
     suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent>
-    suspend fun deleteEvent(id: String, scope: RecurrenceEditScope = RecurrenceEditScope.All): WriteResult<Unit>
+    /**
+     * [occurrenceDate] is the occurrence the person was actually looking at,
+     * and it is what makes [RecurrenceEditScope.This] and
+     * [RecurrenceEditScope.Future] answerable at all: a fixture-backed series
+     * is one record drawn on many days, so the id alone names the whole
+     * series and nothing narrower. Null falls back to the series anchor.
+     */
+    suspend fun deleteEvent(
+        id: String,
+        scope: RecurrenceEditScope = RecurrenceEditScope.All,
+        occurrenceDate: LocalDate? = null,
+    ): WriteResult<Unit>
     suspend fun addTask(input: NewTask): WriteResult<CalTask>
     suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask>
     suspend fun deleteTask(id: String, scope: RecurrenceEditScope = RecurrenceEditScope.All): WriteResult<Unit>
@@ -219,9 +235,28 @@ class FixtureRepository : CalinoRepository {
         return WriteResult.Applied(event)
     }
 
-    override suspend fun deleteEvent(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
-        if (snapshot().events.none { it.id == id }) return WriteResult.Applied(Unit)
-        update { current -> current.copy(events = current.events.filterNot { it.id == id }) }
+    override suspend fun deleteEvent(
+        id: String,
+        scope: RecurrenceEditScope,
+        occurrenceDate: LocalDate?,
+    ): WriteResult<Unit> {
+        val current = snapshot().events.firstOrNull { it.id == id } ?: return WriteResult.Applied(Unit)
+        val rewritten = when {
+            // A one-off has no narrower reading of "delete this", and neither
+            // does a series the caller asked to remove entirely.
+            current.recurrence == null || scope == RecurrenceEditScope.All -> null
+            scope == RecurrenceEditScope.This -> current.withoutOccurrence(occurrenceDate)
+            else -> current.endedBefore(occurrenceDate)
+        }
+        update { snapshot ->
+            snapshot.copy(
+                events = if (rewritten == null) {
+                    snapshot.events.filterNot { it.id == id }
+                } else {
+                    snapshot.events.map { if (it.id == id) rewritten else it }
+                },
+            )
+        }
         return WriteResult.Applied(Unit)
     }
 
@@ -661,3 +696,59 @@ private fun fixtureContacts(): List<Contact> = listOf(
         emails = listOf(ContactEmail("mira@example.com", ContactType.Other, isPrimary = true)),
     ),
 )
+
+/**
+ * The same series with one occurrence taken out of it.
+ *
+ * Two different edits, because an occurrence is excluded two different ways.
+ * Any occurrence after the first is an EXDATE, which the shared recurrence
+ * engine already understands inside the rule text. The *first* one cannot be:
+ * `occurrenceStartCovering` answers "yes" for the anchor date before it ever
+ * consults the rule, so an EXDATE on the anchor is drawn anyway. That one is
+ * removed by moving the series onto its next occurrence instead.
+ *
+ * Null means the series has nothing left and the record should simply go.
+ */
+private fun CalEvent.withoutOccurrence(occurrenceDate: LocalDate?): CalEvent? {
+    val rule = recurrence ?: return null
+    val anchor = placementDate() ?: return null
+    val target = occurrenceDate ?: anchor
+    if (target != anchor) {
+        val stamp = if (allDay) {
+            target.format(FixtureExceptionDate)
+        } else {
+            target.atTime(start?.toLocalTime() ?: LocalTime.MIDNIGHT).format(FixtureExceptionDateTime)
+        }
+        return copy(recurrence = "$rule;EXDATE=$stamp")
+    }
+    val next = upcomingOccurrences(anchor, limit = 1).firstOrNull() ?: return null
+    val shift = ChronoUnit.DAYS.between(anchor, next)
+    return copy(
+        start = start?.plusDays(shift),
+        date = date?.plusDays(shift),
+        endDate = endDate?.plusDays(shift),
+    )
+}
+
+/**
+ * The same series, stopped before [occurrenceDate].
+ *
+ * Cutting at the anchor leaves no occurrence at all, so that is a deletion
+ * rather than a rule with an impossible UNTIL. Any existing UNTIL is replaced:
+ * two of them in one rule is not a narrower series, it is a broken one.
+ */
+private fun CalEvent.endedBefore(occurrenceDate: LocalDate?): CalEvent? {
+    val rule = recurrence ?: return null
+    val anchor = placementDate() ?: return null
+    val target = occurrenceDate ?: anchor
+    if (!target.isAfter(anchor)) return null
+    val until = target.minusDays(1).format(FixtureExceptionDate)
+    val kept = rule.split(';')
+        .filter { it.isNotBlank() }
+        .filterNot { it.uppercase(Locale.US).startsWith("UNTIL=") }
+    return copy(recurrence = (kept + "UNTIL=${until}T235959Z").joinToString(";"))
+}
+
+private val FixtureExceptionDate: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd", Locale.US)
+private val FixtureExceptionDateTime: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss", Locale.US)

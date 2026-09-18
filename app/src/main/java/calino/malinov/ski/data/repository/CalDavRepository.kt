@@ -1228,7 +1228,14 @@ class CalDavRepository(
         return WriteResult.Applied(moved)
     }
 
-    override suspend fun deleteEvent(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
+    // The server path identifies an occurrence from the record itself -- an
+    // expanded occurrence carries its own RECURRENCE-ID -- so it has no use
+    // for the caller's occurrence date.
+    override suspend fun deleteEvent(
+        id: String,
+        scope: RecurrenceEditScope,
+        occurrenceDate: LocalDate?,
+    ): WriteResult<Unit> {
         val current = events().firstOrNull { it.id == id }
             ?: return WriteResult.Applied(Unit)
         val source = sourceForRecord(current.calendarId, current.href)
