@@ -3863,11 +3863,18 @@ private fun StaticMonthGrid(
                             monthRowReveal(unfoldZoom, row, compactWeekRow)
                         } else 1f
                         if (rowAlpha <= .001f) return@forEachIndexed
+                        val dateCenter = dateTopFor(row, 0) + dateSizePx / 2f
                         val center = if (sharedCompactRow) {
                             if (row != compactWeekRow) return@forEachIndexed
                             compactStartHeightPx / 2f
+                        } else if (zoom < 1f && row == compactWeekRow) {
+                            // The strip centres its number in the band, not on
+                            // the dates. Ride the same morph the row does into
+                            // that centre, so the last frame is already where
+                            // the strip draws it and nothing steps at the end.
+                            dateCenter + (compactWeekCenter - dateCenter) * compactProgress
                         } else {
-                            dateTopFor(row, 0) + dateSizePx / 2f
+                            dateCenter
                         }
                         drawText(
                             layout,
