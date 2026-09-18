@@ -113,6 +113,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import calino.malinov.ski.data.model.CalDavAccount
+import calino.malinov.ski.data.model.WebcalForm
+import calino.malinov.ski.data.model.WebcalSubscription
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.occursOn
@@ -488,6 +490,8 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     val accountStore get() = container.accountStore
 
+    val webcalStore get() = container.webcalStore
+
     /** Display preferences (clock, and whatever joins it), persisted. */
     val preferenceStore get() = container.preferenceStore
 
@@ -498,13 +502,18 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     val activeRepository: CalinoRepository get() = repositoryState.value
 
     private val hasAccountsState = mutableStateOf(container.hasAccounts)
+    private val hasLiveDataState = mutableStateOf(container.hasLiveData)
 
     /** Whether any CalDAV account is connected. Drives the calendar's anchor date. */
     val hasAccounts: Boolean get() = hasAccountsState.value
 
+    /** CalDAV or a webcal overlay: not the frozen fixture. */
+    val hasLiveData: Boolean get() = hasLiveDataState.value
+
     private val repositorySubscription = container.observeRepository { repository ->
         repositoryState.value = repository
         hasAccountsState.value = container.hasAccounts
+        hasLiveDataState.value = container.hasLiveData
     }
 
     init {
@@ -562,8 +571,6 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         syncState()
     }
 
-    fun refresh() = container.calDavRepository.refresh()
-
     fun drainPendingWrites() = container.calDavRepository.drainPendingWrites()
 
     fun pendingChanges(): List<PendingChange> = container.calDavRepository.pendingChanges()
@@ -592,6 +599,39 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     private fun syncState() {
         repositoryState.value = container.activeRepository
         hasAccountsState.value = container.hasAccounts
+        hasLiveDataState.value = container.hasLiveData
+    }
+
+    suspend fun addWebcalSubscription(form: WebcalForm) {
+        container.addWebcalSubscription(form)
+        syncState()
+    }
+
+    fun removeWebcalSubscription(id: String) {
+        container.removeWebcalSubscription(id)
+        syncState()
+    }
+
+    fun onWebcalVisibilityChanged(id: String, visible: Boolean) =
+        container.onWebcalVisibilityChanged(id, visible)
+
+    fun onWebcalNotifyRemindersChanged(id: String, notify: Boolean) =
+        container.onWebcalNotifyRemindersChanged(id, notify)
+
+    fun onWebcalRenamed(id: String, name: String) = container.onWebcalRenamed(id, name)
+
+    fun onWebcalRenamedByCalendarId(calendarId: String, name: String) =
+        container.onWebcalRenamedByCalendarId(calendarId, name)
+
+    fun onWebcalColorChanged(id: String, color: Long) = container.onWebcalColorChanged(id, color)
+
+    fun syncWebcal(id: String) {
+        container.scope.launch { runCatching { container.syncWebcal(id) } }
+    }
+
+    fun refresh() {
+        container.calDavRepository.refresh()
+        container.scope.launch { runCatching { container.syncWebcalAll() } }
     }
 }
 
@@ -601,7 +641,7 @@ fun CalinoApp() {
     val pocViewModel = viewModel<PocRepositoryViewModel>()
     // The clock runs for real once an account is connected; with only the
     // fixture data it stays frozen so the sample stays deterministic.
-    val now by rememberCalinoNow(live = pocViewModel.hasAccounts)
+    val now by rememberCalinoNow(live = pocViewModel.hasLiveData)
     val deviceDefaults = rememberCalinoDeviceDefaults()
     // Read before the theme, not inside it: the palette is a function of a
     // preference, so the preference has to exist first.
@@ -781,6 +821,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     }
     val pendingChanges = remember(snapshot.revision) { pocViewModel.pendingChanges() }
     val calDavAccounts = rememberCalDavAccounts(accountStore)
+    val webcalSubscriptions = rememberWebcalSubscriptions(pocViewModel.webcalStore)
     val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var route by rememberSaveable(stateSaver = RouteSaver) {
         mutableStateOf<PockRoute>(if (preferences.defaultView == calino.malinov.ski.util.CalinoDefaultView.Range) PockRoute.Range else PockRoute.Day)
@@ -791,7 +832,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // landing a connected account on the fixture month shows an empty
     // calendar and reads as a broken integration.
     var selectedDate by rememberSaveable(stateSaver = LocalDateSaver) {
-        mutableStateOf(if (pocViewModel.hasAccounts) LocalDate.now() else FixtureNow.today)
+        mutableStateOf(if (pocViewModel.hasLiveData) LocalDate.now() else FixtureNow.today)
     }
     // The two days a live swipe has the add pill's label between, ahead of
     // the commit. Only chrome that merely names the day reads this; the
@@ -804,8 +845,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var swipeLabelTravel by remember { mutableStateOf<() -> Float>({ 0f }) }
     // Connecting the first account mid-session moves the calendar to today
     // for the same reason.
-    LaunchedEffect(pocViewModel.hasAccounts) {
-        if (pocViewModel.hasAccounts && selectedDate == FixtureNow.today) {
+    LaunchedEffect(pocViewModel.hasLiveData) {
+        if (pocViewModel.hasLiveData && selectedDate == FixtureNow.today) {
             selectedDate = LocalDate.now()
         }
     }
@@ -1739,6 +1780,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         openAiVisionRequest = openAiSettingsRequest,
                         onImportCalendar = { importLauncher.launch(arrayOf("text/calendar", "application/ics", "application/octet-stream")) },
                         onExportCalendar = { exportCalendarPicker = true },
+                        webcalSubscriptions = webcalSubscriptions,
+                        onSubscribeWebcal = { form -> pocViewModel.addWebcalSubscription(form) },
+                        onRemoveWebcal = pocViewModel::removeWebcalSubscription,
+                        onSyncWebcal = pocViewModel::syncWebcal,
+                        onToggleWebcalNotify = pocViewModel::onWebcalNotifyRemindersChanged,
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,
@@ -2275,8 +2321,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             accounts = calDavAccounts,
             selectedDate = selectedDate,
             onDateChanged = ::selectCalendarDate,
-            onToggleCalendar = pocViewModel::onCalendarVisibilityChanged,
-            onToggleCalendarTasks = pocViewModel::onCalendarTasksChanged,
+            onToggleCalendar = { accountId, calendarId, visible ->
+                if (accountId == WebcalSubscription.AccountId) {
+                    pocViewModel.webcalStore.findByCalendarId(calendarId)?.let {
+                        pocViewModel.onWebcalVisibilityChanged(it.id, visible)
+                    }
+                } else {
+                    pocViewModel.onCalendarVisibilityChanged(accountId, calendarId, visible)
+                }
+            },
+            onToggleCalendarTasks = { accountId, calendarId, show ->
+                if (accountId != WebcalSubscription.AccountId) {
+                    pocViewModel.onCalendarTasksChanged(accountId, calendarId, show)
+                }
+            },
             fixtureHiddenCalendarIds = fixtureHiddenCalendarIds,
             fixtureHiddenTaskCalendarIds = fixtureHiddenTaskCalendarIds,
             onToggleFixtureCalendar = { calendarId, visible ->
@@ -2285,10 +2343,34 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             onToggleFixtureCalendarTasks = { calendarId, visible ->
                 fixtureHiddenTaskCalendarIds = if (visible) fixtureHiddenTaskCalendarIds - calendarId else fixtureHiddenTaskCalendarIds + calendarId
             },
-            onRenameCalendar = pocViewModel::onCalendarRenamed,
-            onColorCalendar = pocViewModel::onCalendarColorChanged,
+            onRenameCalendar = { accountId, calendarId, name ->
+                if (accountId == WebcalSubscription.AccountId ||
+                    WebcalSubscription.isWebcalCalendarId(calendarId)
+                ) {
+                    pocViewModel.onWebcalRenamedByCalendarId(calendarId, name)
+                } else {
+                    pocViewModel.onCalendarRenamed(accountId, calendarId, name)
+                }
+            },
+            onColorCalendar = { accountId, calendarId, color ->
+                if (accountId == WebcalSubscription.AccountId) {
+                    pocViewModel.webcalStore.findByCalendarId(calendarId)?.let {
+                        pocViewModel.onWebcalColorChanged(it.id, color)
+                    }
+                } else {
+                    pocViewModel.onCalendarColorChanged(accountId, calendarId, color)
+                }
+            },
             onSyncAll = { pocViewModel.refresh() },
-            onSyncCalendar = { _, _ -> pocViewModel.refresh() },
+            onSyncCalendar = { accountId, calendarId ->
+                if (accountId == WebcalSubscription.AccountId) {
+                    pocViewModel.webcalStore.findByCalendarId(calendarId)?.let {
+                        pocViewModel.syncWebcal(it.id)
+                    }
+                } else {
+                    pocViewModel.refresh()
+                }
+            },
             onTaskClick = { task ->
                 sidebarVisible = false
                 openTaskDetail(task, PocReturnTarget.Tasks)
@@ -2466,6 +2548,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 }
 }
 }
+}
+
+@Composable
+private fun rememberWebcalSubscriptions(
+    store: calino.malinov.ski.data.repository.WebcalSubscriptionStore,
+): List<WebcalSubscription> {
+    var subscriptions by remember(store) { mutableStateOf(store.subscriptions()) }
+    DisposableEffect(store) {
+        val subscription = store.observe { subscriptions = it }
+        onDispose { subscription.close() }
+    }
+    return subscriptions
 }
 
 @Composable

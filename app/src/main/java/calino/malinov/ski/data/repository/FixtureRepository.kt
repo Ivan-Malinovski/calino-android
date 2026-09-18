@@ -49,6 +49,12 @@ data class CalinoCalendar(
     val visible: Boolean = true,
     /** Whether VTODOs from this collection appear on calendar views. */
     val showTasksInViews: Boolean = true,
+    /**
+     * Whether this collection's VALARMs may fire. Writable CalDAV defaults
+     * to true. Webcal subscriptions default to false: an overlay is for
+     * seeing events, not being paged by the publisher's alarms.
+     */
+    val notifyReminders: Boolean = true,
 )
 
 /**
@@ -63,6 +69,10 @@ data class CalinoCalendar(
  */
 fun visibleCalendarIds(calendars: List<CalinoCalendar>): Set<String> =
     calendars.asSequence().filter { it.visible }.map { it.id }.toSet()
+
+/** Visible calendars whose alarms the user has opted to hear. */
+fun reminderCalendarIds(calendars: List<CalinoCalendar>): Set<String> =
+    calendars.asSequence().filter { it.visible && it.notifyReminders }.map { it.id }.toSet()
 
 /** As [visibleCalendarIds], further restricted to collections that show tasks. */
 fun taskCalendarIds(calendars: List<CalinoCalendar>): Set<String> =

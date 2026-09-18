@@ -3,6 +3,8 @@ package calino.malinov.ski.qa
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.Reminder
+import calino.malinov.ski.data.repository.CalinoCalendar
+import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.notify.ReminderKind
 import calino.malinov.ski.notify.ReminderPlanOptions
 import calino.malinov.ski.notify.ReminderPlanner
@@ -220,6 +222,34 @@ class ReminderPlannerTest {
 
         assertEquals(Instant.parse("2026-03-29T07:50:00Z"), firings.single().at)
         assertEquals(Instant.parse("2026-03-29T08:00:00Z"), firings.single().anchor)
+    }
+
+    @Test
+    fun `a muted webcal calendar does not fire its VALARMs`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val snapshot = CalinoSnapshot(
+            events = listOf(event(calendarId = "webcal:1", start = start, reminders = listOf(Reminder(10)))),
+            tasks = emptyList(),
+            journals = emptyList(),
+            calendars = listOf(
+                CalinoCalendar("webcal:1", "Katrina", 0xFF5B7FB5, readOnly = true, notifyReminders = false),
+            ),
+        )
+        assertTrue(ReminderPlanner.plan(snapshot, now, zone).isEmpty())
+    }
+
+    @Test
+    fun `an opted-in webcal calendar fires its VALARMs`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val snapshot = CalinoSnapshot(
+            events = listOf(event(calendarId = "webcal:1", start = start, reminders = listOf(Reminder(10)))),
+            tasks = emptyList(),
+            journals = emptyList(),
+            calendars = listOf(
+                CalinoCalendar("webcal:1", "Katrina", 0xFF5B7FB5, readOnly = true, notifyReminders = true),
+            ),
+        )
+        assertEquals(1, ReminderPlanner.plan(snapshot, now, zone).size)
     }
 
     @Test

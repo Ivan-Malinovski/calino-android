@@ -13,13 +13,19 @@ import calino.malinov.ski.data.caldav.KeystoreCredentialStore
 import calino.malinov.ski.data.caldav.SharedPreferencesAccountPersistence
 import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalDavForm
+import calino.malinov.ski.data.model.WebcalForm
 import calino.malinov.ski.data.repository.CalDavAccountStore
 import calino.malinov.ski.data.repository.CalDavClient
 import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalinoRepository
 import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.FixtureRepository
+import calino.malinov.ski.data.repository.SharedPreferencesWebcalPersistence
+import calino.malinov.ski.data.repository.WebcalSubscriptionStore
 import calino.malinov.ski.data.repository.WriteResult
+import calino.malinov.ski.data.webcal.FileWebcalCache
+import calino.malinov.ski.data.webcal.WebcalFetcher
+import calino.malinov.ski.data.webcal.WebcalManager
 import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
@@ -73,6 +79,8 @@ class CalinoContainer private constructor(context: Context) {
 
     val accountStore = CalDavAccountStore(SharedPreferencesAccountPersistence(application))
 
+    val webcalStore = WebcalSubscriptionStore(SharedPreferencesWebcalPersistence(application))
+
     val preferenceStore: CalinoPreferenceStore = SharedPreferencesPreferenceStore(application)
 
     val calDavClient: CalDavClient = CalDavDiscovery(http)
@@ -99,6 +107,14 @@ class CalinoContainer private constructor(context: Context) {
         scope = scope,
     )
 
+    private val webcal = WebcalManager(
+        store = webcalStore,
+        repository = calDavRepository,
+        fetcher = WebcalFetcher(http),
+        cache = FileWebcalCache(File(application.filesDir, "webcal-cache")),
+        scope = scope,
+    )
+
     private val repositoryListeners = CopyOnWriteArrayList<(CalinoRepository) -> Unit>()
 
     /**
@@ -109,6 +125,9 @@ class CalinoContainer private constructor(context: Context) {
         private set
 
     val hasAccounts: Boolean get() = accountStore.accounts().isNotEmpty()
+
+    val hasLiveData: Boolean
+        get() = hasAccounts || webcalStore.subscriptions().isNotEmpty()
 
     @Volatile
     private var connected = false
@@ -160,6 +179,7 @@ class CalinoContainer private constructor(context: Context) {
         connected = true
         cacheRestored = true
         connections.restore()
+        webcal.restore()
         updateActiveRepository()
     }
 
@@ -179,6 +199,7 @@ class CalinoContainer private constructor(context: Context) {
         if (cacheRestored || connected) return
         cacheRestored = true
         connections.restoreFromCache()
+        webcal.restoreFromCache()
         updateActiveRepository()
     }
 
@@ -198,7 +219,7 @@ class CalinoContainer private constructor(context: Context) {
         // calls back immediately with the current repository, so this also
         // covers the already-connected case.
         observeRepository { repository ->
-            if (hasAccounts) reminderBridge.attach(repository, scope) else reminderBridge.clear()
+            if (hasLiveData) reminderBridge.attach(repository, scope) else reminderBridge.clear()
         }
         scope.launch { drainQueuedReminderActions() }
     }
@@ -284,8 +305,32 @@ class CalinoContainer private constructor(context: Context) {
 
     fun onCalendarsToggled() = connections.onCalendarsToggled()
 
+    suspend fun addWebcalSubscription(form: WebcalForm) =
+        webcal.add(form).also { updateActiveRepository() }
+
+    fun removeWebcalSubscription(id: String) {
+        webcal.remove(id)
+        updateActiveRepository()
+    }
+
+    fun onWebcalVisibilityChanged(id: String, visible: Boolean) = webcal.setVisible(id, visible)
+
+    fun onWebcalNotifyRemindersChanged(id: String, notify: Boolean) =
+        webcal.setNotifyReminders(id, notify)
+
+    fun onWebcalRenamed(id: String, name: String) = webcal.setName(id, name)
+
+    fun onWebcalRenamedByCalendarId(calendarId: String, name: String) =
+        webcal.setNameByCalendarId(calendarId, name)
+
+    fun onWebcalColorChanged(id: String, color: Long) = webcal.setColor(id, color)
+
+    suspend fun syncWebcal(id: String) = webcal.sync(id)
+
+    suspend fun syncWebcalAll() = webcal.syncAll()
+
     private fun updateActiveRepository() {
-        val next: CalinoRepository = if (hasAccounts) calDavRepository else fixtureRepository
+        val next: CalinoRepository = if (hasLiveData) calDavRepository else fixtureRepository
         if (next === activeRepository) return
         activeRepository = next
         repositoryListeners.forEach { it(next) }

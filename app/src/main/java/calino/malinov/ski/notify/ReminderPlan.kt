@@ -6,7 +6,7 @@ import calino.malinov.ski.data.model.lastCoveredDate
 import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.placementDate
 import calino.malinov.ski.data.repository.CalinoSnapshot
-import calino.malinov.ski.data.repository.visibleCalendarIds
+import calino.malinov.ski.data.repository.reminderCalendarIds
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -81,7 +81,7 @@ data class ReminderPlanOptions(
 
 object ReminderPlanner {
 
-    /** Convenience overload: visibility is read from the snapshot's calendars. */
+    /** Convenience overload: visibility and mute are read from the snapshot's calendars. */
     fun plan(
         snapshot: CalinoSnapshot,
         now: Instant,
@@ -90,7 +90,7 @@ object ReminderPlanner {
     ): List<ReminderFiring> = plan(
         events = snapshot.events,
         tasks = snapshot.tasks,
-        visibleCalendarIds = visibleCalendarIds(snapshot.calendars),
+        visibleCalendarIds = reminderCalendarIds(snapshot.calendars),
         now = now,
         zone = zone,
         options = options,
