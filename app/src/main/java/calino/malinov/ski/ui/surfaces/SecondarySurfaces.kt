@@ -987,7 +987,10 @@ private fun EventDetailContent(
                     onValueChange = { draft = draft.copy(title = it); error = null },
                     textStyle = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                    // The kicker is a 10sp label and the title a display
+                    // numeral's worth of type; at 2dp apart they read as one
+                    // clump rather than a label and the thing it labels.
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
                         .semantics { contentDescription = "Event title" },
                 )
             }

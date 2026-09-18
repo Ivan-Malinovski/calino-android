@@ -709,17 +709,30 @@ private fun SidebarExtras(
             if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
         }
         Text("$visibleCount of ${rows.size} visible", color = CalinoColors.Ink3, fontSize = 12.sp)
-        IconButton(
-            onClick = onSyncAll,
-            modifier = Modifier
-                .size(44.dp)
-                .semantics { contentDescription = "Sync all calendars" },
+        // One sync control for the section, and it says what it does. A bare
+        // accent glyph floating at the end of the header read as a stray mark
+        // rather than a button; the same chrome the rest of the sidebar uses --
+        // a quiet rounded field, an icon at label weight -- makes it one.
+        Row(
+            Modifier
+                .padding(start = 10.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(CalinoColors.Side)
+                .clickable(role = Role.Button, onClick = onSyncAll)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .semantics(mergeDescendants = true) { contentDescription = "Sync all calendars" },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
                 CalinoIcons.Refresh,
                 contentDescription = null,
-                tint = CalinoColors.Accent,
-                modifier = Modifier.size(18.dp),
+                tint = CalinoColors.Ink2,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                "Sync",
+                style = CalinoTypography.labelSmall.copy(fontSize = 11.sp, letterSpacing = .4.sp, color = CalinoColors.Ink2),
             )
         }
     }
@@ -815,11 +828,21 @@ private fun SidebarExtras(
                 IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
                     Icon(CalinoIcons.More, contentDescription = "More options for ${row.calendar.name}", tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp))
                 }
-                if (row.accountId != null) {
-                    IconButton(onClick = { onSyncCalendar(row.accountId, row.calendar.id) }, modifier = Modifier.size(44.dp)) { Text("↻", fontSize = 17.sp, color = CalinoColors.Ink2) }
-                }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                // Syncing one calendar used to be a glyph on every row, which
+                // gave the list a column of identical buttons nobody was
+                // looking for. It is a per-calendar action like the others, so
+                // it lives where the other per-calendar actions live.
+                if (row.accountId != null) {
+                    DropdownMenuItem(
+                        text = { Text("Sync now") },
+                        onClick = {
+                            menuOpen = false
+                            onSyncCalendar(row.accountId, row.calendar.id)
+                        },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Rename calendar") },
                     onClick = {

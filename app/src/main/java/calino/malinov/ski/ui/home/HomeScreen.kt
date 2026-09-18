@@ -6382,8 +6382,14 @@ internal fun HourRailContent(
                     .height(8.dp)
                     .semantics { contentDescription = "Current time, ${timeFormat.format(now.time)}" },
             ) {
-                drawLine(colors.Rose, androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
-                drawCircle(colors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(44.dp.toPx(), 4.dp.toPx()))
+                // The marker belongs to the day, so it starts where the day's
+                // rail starts -- which is the hour gutter when this page draws
+                // one, and the very edge of the column when it does not. A
+                // fixed 44.dp inset was neither, and left the line floating
+                // short of the column it was supposed to cross.
+                val markerStart = railStart.toPx()
+                drawLine(colors.Rose, androidx.compose.ui.geometry.Offset(markerStart, 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
+                drawCircle(colors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(markerStart + 4.dp.toPx(), 4.dp.toPx()))
             }
         }
     }

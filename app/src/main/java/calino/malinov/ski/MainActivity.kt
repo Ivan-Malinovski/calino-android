@@ -2254,6 +2254,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         PockRoute.Journal -> journalEntryRequest += 1
                         PockRoute.Contacts -> contactRequest += 1
                         PockRoute.Range -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Range, morphFromAddPill = true)
+                        // The agenda used to fall through to the calendar's
+                        // origin, so finishing an event there put the person
+                        // in the month view they never asked for. Every root
+                        // that can add names itself.
+                        PockRoute.Agenda -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Agenda, morphFromAddPill = true)
                         else -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true)
                     }
                 },

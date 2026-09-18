@@ -635,8 +635,11 @@ private fun EventDateTimeSection(
         allDay = draft.allDay,
         // Starts on the rows' text column -- the 28dp icon box plus its 12dp
         // spacer -- so the when-block reads as one of the fields rather than
-        // as something hanging in the icon gutter.
-        modifier = Modifier.padding(start = 40.dp, top = 14.dp, bottom = 14.dp),
+        // as something hanging in the icon gutter, and ends the same distance
+        // in. The block is symmetric about its own middle, so an inset on one
+        // side only pushed the whole thing -- and the span rule with it --
+        // off the card's centre.
+        modifier = Modifier.padding(start = 40.dp, end = 40.dp, top = 14.dp, bottom = 14.dp),
         onStartDate = pickStartDate,
         onStartTime = if (draft.allDay) null else pickStartTime,
         // An end has nothing to hang off until the start is set.
