@@ -271,26 +271,41 @@ fun ContactsSurface(
             isNew = editing == null,
             onDismiss = { editingId = null },
             onSave = { value ->
+                // Only the fields this editor puts on screen. The rest --
+                // tags, title, the second and third phone number -- belong to
+                // the contact, not to this form, and taking them from a draft
+                // that never held them would delete them on a name change.
                 if (editing == null) onCreate(value) else onUpdate(editing.copy(
                     displayName = value.displayName,
                     givenName = value.givenName,
                     familyName = value.familyName,
                     organization = value.organization,
-                    department = value.department,
-                    title = value.title,
-                    nickname = value.nickname,
-                    emails = value.emails,
-                    phones = value.phones,
-                    urls = value.urls,
+                    emails = editing.emails.withEditedFirst(value.emails.firstOrNull()) { kept, edited -> kept.copy(value = edited.value) },
+                    phones = editing.phones.withEditedFirst(value.phones.firstOrNull()) { kept, edited -> kept.copy(value = edited.value) },
                     birthday = value.birthday,
                     anniversary = value.anniversary,
                     note = value.note,
-                    categories = value.categories,
                 ))
                 editingId = null
             },
             onDelete = if (editing == null) null else { { onDelete(editing); editingId = null } },
         )
+    }
+}
+
+/**
+ * The editor shows one email and one phone: the first of each. Put the edited
+ * text back on that entry and leave the rest of the list alone, so a changed
+ * number keeps the label the server gave it -- Mobile stays Mobile -- and the
+ * second and third numbers survive a save. A cleared field drops that entry;
+ * text typed where the contact had none arrives as the editor built it.
+ */
+private fun <T> List<T>.withEditedFirst(edited: T?, onKept: (T, T) -> T): List<T> {
+    val kept = firstOrNull()
+    return when {
+        edited == null -> drop(1)
+        kept == null -> listOf(edited)
+        else -> listOf(onKept(kept, edited)) + drop(1)
     }
 }
 
