@@ -53,6 +53,22 @@ object CalendarProjection {
         CalendarContract.Events.CALENDAR_ID,
     )
 
+    /**
+     * Serialises projection passes.
+     *
+     * A pass reads the provider, works out a delete-and-reinsert plan, and
+     * applies it; two passes running at once both plan against the same
+     * pre-state and both insert, leaving two rows with one `_SYNC_ID`. That
+     * is not hypothetical -- it is what an ingested foreign edit produced on
+     * device, because the sync adapter projects explicitly at the same moment
+     * the repository's own publish wakes the bridge.
+     *
+     * Serialising rather than de-duplicating is deliberate: a pass is
+     * idempotent, so the one that waits finds its work already done and
+     * writes nothing.
+     */
+    private val PassLock = Any()
+
     /** What one pass did, for logging and for the instrumented tests to assert on. */
     data class Result(
         val calendars: Int = 0,
@@ -76,17 +92,19 @@ object CalendarProjection {
         context: Context,
         projection: ProviderIdentity.Projection,
         writable: Boolean = false,
-    ): Result? = runCatching {
-        val accounts = projection.calendars
-            .map { it.accountId }
-            .distinct()
-            .mapNotNull { id -> CalinoAccounts.find(context, id)?.let { id to it } }
-            .toMap()
+    ): Result? = synchronized(PassLock) {
+        runCatching {
+            val accounts = projection.calendars
+                .map { it.accountId }
+                .distinct()
+                .mapNotNull { id -> CalinoAccounts.find(context, id)?.let { id to it } }
+                .toMap()
 
-        val rowIds = reconcileCalendars(context, projection.calendars, accounts, writable)
-        val counts = reconcileEvents(context, projection.events, rowIds, accounts)
-        Result(calendars = rowIds.size, written = counts.first, removed = counts.second)
-    }.getOrNull()
+            val rowIds = reconcileCalendars(context, projection.calendars, accounts, writable)
+            val counts = reconcileEvents(context, projection.events, rowIds, accounts)
+            Result(calendars = rowIds.size, written = counts.first, removed = counts.second)
+        }.getOrNull()
+    }
 
     /**
      * Removes every calendar this app owns, and with it every event and
@@ -286,7 +304,12 @@ object CalendarProjection {
                 val event = syncId?.let { wanted[it] }
                 val wantedCalendar = event?.let { calendarRowIds[it.calendarId] }
 
-                val unchanged = event != null &&
+                // A duplicate of a row already kept this pass. Nothing should
+                // create one, but a pass that crashed midway or an older
+                // build's race can leave one behind, and a reconcile that
+                // cannot heal it would carry it forever.
+                val duplicate = syncId != null && syncId in upToDate
+                val unchanged = !duplicate && event != null &&
                     wantedCalendar == cursor.getLong(3) &&
                     event.hash == cursor.getString(2)
                 if (unchanged) {
@@ -300,6 +323,12 @@ object CalendarProjection {
                 ops += ContentProviderOperation
                     .newDelete(ContentUris.withAppendedId(eventsUri, rowId))
                     .build()
+                // A duplicate is dropped, not re-inserted: the row it
+                // duplicates is already accounted for.
+                if (duplicate) {
+                    removed++
+                    continue
+                }
                 if (event == null) removed++
             }
         }

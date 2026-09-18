@@ -91,6 +91,24 @@ The sync adapter therefore ingests first and projects second, and it projects
 unconditionally — a rejected write publishes no snapshot, so nothing else
 would ever put the row back.
 
+### One pass at a time
+
+Amended 2026-09-18, after the first run against a real CalDAV server. A
+projection pass reads the provider, works out a delete-and-reinsert plan, and
+applies it. Two passes running at once both plan against the same pre-state
+and both insert, leaving two rows under one `_SYNC_ID`.
+
+This is not hypothetical: it happened on the first ingested foreign edit,
+because the sync adapter projects explicitly at the same moment the
+repository's own publish wakes the bridge. Passes are therefore serialised.
+Serialising rather than de-duplicating the callers is deliberate -- a pass is
+idempotent, so whichever one waits finds its work already done and writes
+nothing.
+
+The reconcile also drops a row that duplicates one it has already kept, so a
+provider that is already in that state can be brought back into shape rather
+than carrying the duplicate forever.
+
 ## Authority: who owns which row
 
 - The **CalDAV server** is the source of truth. Nothing here changes that.

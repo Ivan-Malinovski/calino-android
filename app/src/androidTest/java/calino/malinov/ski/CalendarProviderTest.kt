@@ -124,6 +124,35 @@ class CalendarProviderTest {
         }
     }
 
+    @Test fun aDuplicatedRowIsHealedByTheNextPass() {
+        project(listOf(event()))
+        val original = ourEvents().single()
+        // A second row under the same `_SYNC_ID`, which is what two
+        // projection passes racing used to leave behind on device. The pass
+        // is serialised now; this asserts the provider can still be brought
+        // back into shape when it already holds one.
+        context.contentResolver.insert(
+            CalendarContract.Events.CONTENT_URI.buildUpon()
+                .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+                .appendQueryParameter(CalendarContract.Events.ACCOUNT_NAME, account.name)
+                .appendQueryParameter(CalendarContract.Events.ACCOUNT_TYPE, account.type)
+                .build(),
+            android.content.ContentValues().apply {
+                put(CalendarContract.Events._SYNC_ID, original.syncId)
+                put(CalendarContract.Events.CALENDAR_ID, ourCalendarRowId())
+                put(CalendarContract.Events.TITLE, original.title)
+                put(CalendarContract.Events.DTSTART, 1_779_285_600_000L)
+                put(CalendarContract.Events.DTEND, 1_779_288_300_000L)
+                put(CalendarContract.Events.EVENT_TIMEZONE, "Europe/Copenhagen")
+            },
+        )
+        assertEquals(2, ourEvents().size)
+
+        project(listOf(event()))
+
+        assertEquals(1, ourEvents().size)
+    }
+
     @Test fun clearingRemovesEveryOwnedCalendar() {
         project(listOf(event()))
         CalendarProjection.clearAccount(context, accountId)
