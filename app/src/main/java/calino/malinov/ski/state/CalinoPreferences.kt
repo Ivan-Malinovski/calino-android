@@ -187,6 +187,24 @@ interface CalinoPreferenceStore {
      */
     fun loadProjectedCalendarIds(): Set<String>
     fun saveProjectedCalendarIds(ids: Set<String>)
+
+    /**
+     * The device's own calendars that Calino shows, and the subset of those
+     * it also reminds for.
+     *
+     * Store-only for the same reason as the projected set above: this is
+     * per-calendar state `CalinoContainer` owns, not a row the Settings
+     * screen renders. An empty import set means the feature is off entirely
+     * and the composite repository is not even in the graph.
+     *
+     * The reminder set is always a subset of the import set and is off by
+     * default, because the app that owns an imported calendar is already
+     * notifying for it -- and Calino cannot stop it doing so.
+     */
+    fun loadImportedCalendarIds(): Set<String>
+    fun saveImportedCalendarIds(ids: Set<String>)
+    fun loadImportedReminderCalendarIds(): Set<String>
+    fun saveImportedReminderCalendarIds(ids: Set<String>)
     fun loadSidebarCalendarExpanded(): Boolean
     fun saveSidebarCalendarExpanded(expanded: Boolean)
     fun loadDayTasksExpanded(): Boolean
@@ -258,6 +276,8 @@ interface CalinoPreferenceStore {
         private var notificationPrompt = false
         private var sidebarCalendarExpanded = false
         private var dayTasksExpanded = true
+        private var imported = emptySet<String>()
+        private var importedReminders = emptySet<String>()
         override fun loadEventRemindersEnabled() = eventReminders
         override fun saveEventRemindersEnabled(enabled: Boolean) { eventReminders = enabled }
         override fun loadTaskRemindersEnabled() = taskReminders
@@ -266,6 +286,10 @@ interface CalinoPreferenceStore {
         override fun saveProviderRemindersEnabled(enabled: Boolean) { providerReminders = enabled }
         override fun loadProjectedCalendarIds() = projected
         override fun saveProjectedCalendarIds(ids: Set<String>) { projected = ids }
+        override fun loadImportedCalendarIds() = imported
+        override fun saveImportedCalendarIds(ids: Set<String>) { imported = ids }
+        override fun loadImportedReminderCalendarIds() = importedReminders
+        override fun saveImportedReminderCalendarIds(ids: Set<String>) { importedReminders = ids }
         override fun loadSidebarCalendarExpanded() = sidebarCalendarExpanded
         override fun saveSidebarCalendarExpanded(expanded: Boolean) { sidebarCalendarExpanded = expanded }
         override fun loadDayTasksExpanded() = dayTasksExpanded
@@ -350,6 +374,16 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveProjectedCalendarIds(ids: Set<String>) {
         prefs.edit().putStringSet(ProjectedCalendarsKey, ids).apply()
     }
+    override fun loadImportedCalendarIds(): Set<String> =
+        prefs.getStringSet(ImportedCalendarsKey, emptySet()).orEmpty().toSet()
+    override fun saveImportedCalendarIds(ids: Set<String>) {
+        prefs.edit().putStringSet(ImportedCalendarsKey, ids).apply()
+    }
+    override fun loadImportedReminderCalendarIds(): Set<String> =
+        prefs.getStringSet(ImportedReminderCalendarsKey, emptySet()).orEmpty().toSet()
+    override fun saveImportedReminderCalendarIds(ids: Set<String>) {
+        prefs.edit().putStringSet(ImportedReminderCalendarsKey, ids).apply()
+    }
     override fun loadSidebarCalendarExpanded(): Boolean = prefs.getBoolean(SidebarCalendarExpandedKey, false)
     override fun saveSidebarCalendarExpanded(expanded: Boolean) = putBoolean(SidebarCalendarExpandedKey, expanded)
     override fun loadDayTasksExpanded(): Boolean = prefs.getBoolean(DayTasksExpandedKey, true)
@@ -378,6 +412,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val TaskRemindersKey = "task_reminders_enabled"
         const val ProviderRemindersKey = "provider_reminders_enabled"
         const val ProjectedCalendarsKey = "projected_calendar_ids"
+        const val ImportedCalendarsKey = "imported_calendar_ids"
+        const val ImportedReminderCalendarsKey = "imported_reminder_calendar_ids"
         const val SidebarCalendarExpandedKey = "sidebar_calendar_expanded"
         const val DayTasksExpandedKey = "day_tasks_expanded"
         const val NotificationPromptKey = "notification_prompt_shown"

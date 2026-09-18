@@ -34,6 +34,15 @@ class ReminderSchedulerBridge(
      * calendar with nobody reminding for it.
      */
     private val projectedCalendarIds: () -> Set<String> = { emptySet() },
+    /**
+     * The imported calendars whose own app does the reminding, read fresh for
+     * the same reason.
+     *
+     * Defaults to every imported calendar: somebody is already notifying for
+     * one of these, and Calino joining in unasked would simply mean two
+     * notifications for one meeting.
+     */
+    private val importedCalendarsRemindedElsewhere: () -> Set<String> = { emptySet() },
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val now: () -> Instant = { Instant.now() },
 ) {
@@ -86,10 +95,15 @@ class ReminderSchedulerBridge(
                 // are required: a projected calendar with the setting off is
                 // still Calino's to remind for, and the setting on with
                 // nothing projected changes nothing.
+                //
+                // The imported half is added unconditionally and works the
+                // other way round: an imported calendar's own app already
+                // notifies for it, so Calino stays quiet unless the person
+                // opts that calendar back out of this set.
                 providerOwnedCalendarIds = if (preferences.loadProviderRemindersEnabled()) {
-                    projectedCalendarIds()
+                    projectedCalendarIds() + importedCalendarsRemindedElsewhere()
                 } else {
-                    emptySet()
+                    importedCalendarsRemindedElsewhere()
                 },
             ),
         )

@@ -149,6 +149,14 @@ object ProviderIdentity {
         }
 
         val calendars = snapshot.calendars
+            // An imported calendar is never projected back. It already lives
+            // in the provider, owned by another app; re-publishing it under
+            // Calino's account would show the person two of everything and
+            // grow by one copy per pass. AndroidCalendarSource excludes our
+            // own account type on the way in, and this is the same guard from
+            // the other side -- stated rather than left to the incidental
+            // fact that an imported calendar has no CalDAV account to map to.
+            .filterNot { AndroidCalendarId.isImported(it.id) }
             .filter { it.id in optedIn && it.visible }
             .mapNotNull { calendar ->
                 val accountId = accountByCalendar[calendar.id] ?: return@mapNotNull null

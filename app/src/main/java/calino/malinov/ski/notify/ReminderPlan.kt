@@ -91,6 +91,12 @@ data class ReminderPlanOptions(
      * directions: an installed app may never post a notification, and the
      * person may want Calino's regardless. So this is asked, not inferred.
      *
+     * The same set also carries the inbound case, which is why this is named
+     * for who owns delivery rather than for the projection. A calendar
+     * imported from the device belongs to the app that syncs it, and that app
+     * is already notifying for it -- so an imported calendar is in here by
+     * default and leaves only when the person asks Calino to speak too.
+     *
      * **Events only.** A task has no provider representation at all, so
      * handing its reminder over would hand it to nobody. See
      * `docs/calendar-provider.md`.

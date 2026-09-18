@@ -1,6 +1,10 @@
 package calino.malinov.ski.data
 
 import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.CalendarContract
 import calino.malinov.ski.data.caldav.CalDavConnectionManager
 import calino.malinov.ski.data.caldav.CalDavDiscovery
 import calino.malinov.ski.data.caldav.CalDavFetcher
@@ -19,11 +23,13 @@ import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalinoRepository
 import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.FixtureRepository
+import calino.malinov.ski.data.repository.ImportingRepository
 import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.data.repository.visibleCalendarIds
 import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
+import calino.malinov.ski.platform.AndroidCalendarSource
 import calino.malinov.ski.platform.CalendarProjection
 import calino.malinov.ski.platform.CalendarProjectionBridge
 import calino.malinov.ski.platform.CalinoAccounts
@@ -133,6 +139,20 @@ class CalinoContainer private constructor(context: Context) {
     private var projecting = false
 
     /**
+     * The device's own calendars Calino shows, and the wrapper that shows
+     * them.
+     *
+     * The wrapper exists only while the set is non-empty. That is the point:
+     * someone who never opts in gets the bare repository, no content
+     * observer, and no provider query at all.
+     */
+    private var importedCalendarIds: Set<String> = emptySet()
+
+    private var importing: ImportingRepository? = null
+
+    private var importObserver: ContentObserver? = null
+
+    /**
      * Keeps the durable reminder schedule level with whatever the repository
      * is currently publishing.
      */
@@ -156,6 +176,7 @@ class CalinoContainer private constructor(context: Context) {
         store = Reminders.scheduleStore(application),
         scheduler = Reminders.scheduler(application),
         projectedCalendarIds = { projectedCalendars() },
+        importedCalendarsRemindedElsewhere = { importedCalendarsRemindedElsewhere() },
     )
 
     init {
@@ -180,6 +201,7 @@ class CalinoContainer private constructor(context: Context) {
         connected = true
         cacheRestored = true
         connections.restore()
+        restoreImport()
         updateActiveRepository()
         restoreProjection()
     }
@@ -432,8 +454,133 @@ class CalinoContainer private constructor(context: Context) {
 
     fun onCalendarsToggled() = connections.onCalendarsToggled()
 
+    /**
+     * The calendars imported from the device, and the ones Calino also
+     * reminds for.
+     */
+    val importedCalendars: Set<String> get() = importedCalendarIds
+
+    var importedReminderCalendarIds: Set<String> = emptySet()
+        private set
+
+    /**
+     * Choose which of the device's calendars Calino shows.
+     *
+     * Wraps or unwraps the repository as the set becomes non-empty or empty,
+     * so the composite is in the graph only while it has something to add.
+     */
+    fun setImportedCalendars(ids: Set<String>) {
+        if (ids == importedCalendarIds) return
+        preferenceStore.saveImportedCalendarIds(ids)
+        importedCalendarIds = ids
+        // A calendar that is no longer imported cannot keep a reminder
+        // preference; leaving one behind would silently re-apply if it were
+        // ever imported again.
+        setImportedReminderCalendars(importedReminderCalendarIds intersect ids)
+        updateActiveRepository()
+        refreshImport()
+    }
+
+    /** Choose which imported calendars Calino delivers reminders for. */
+    fun setImportedReminderCalendars(ids: Set<String>) {
+        val next = ids intersect importedCalendarIds
+        if (next == importedReminderCalendarIds) return
+        preferenceStore.saveImportedReminderCalendarIds(next)
+        importedReminderCalendarIds = next
+        reminderBridge.refresh()
+    }
+
+    /**
+     * The imported calendars whose reminders somebody else delivers.
+     *
+     * The inverse of the projection's rule, and the reason it is worded this
+     * way round: an imported calendar's own app is already notifying for it,
+     * so Calino stays quiet unless asked. It cannot silence that app, which
+     * is why opting in is the person's deliberate choice.
+     */
+    fun importedCalendarsRemindedElsewhere(): Set<String> =
+        importedCalendarIds - importedReminderCalendarIds
+
+    private fun restoreImport() {
+        if (importedCalendarIds.isNotEmpty()) return
+        importedCalendarIds = preferenceStore.loadImportedCalendarIds()
+        importedReminderCalendarIds =
+            preferenceStore.loadImportedReminderCalendarIds() intersect importedCalendarIds
+    }
+
+    /**
+     * Re-read the device's calendars off the main thread and republish.
+     *
+     * A daily series over the projection window is hundreds of instance rows,
+     * so this is not work for a frame.
+     */
+    private fun refreshImport() {
+        val target = importing ?: return
+        val wanted = importedCalendarIds
+        scope.launch {
+            val read = AndroidCalendarSource.read(application, wanted)
+            // The set can have changed while the query ran -- a person can
+            // toggle faster than the provider answers -- and publishing a
+            // stale read would show a calendar they just turned off.
+            if (wanted == importedCalendarIds) target.setImported(read)
+        }
+    }
+
+    /**
+     * Follow changes another app makes to its own calendars.
+     *
+     * Registered only while something is imported. The provider notifies
+     * generously -- a Google sync touches the URI repeatedly -- so the work
+     * this triggers stays a read and a republish, never a write.
+     */
+    private fun updateImportObserver() {
+        val wanted = importedCalendarIds.isNotEmpty()
+        val existing = importObserver
+        if (wanted == (existing != null)) return
+        if (!wanted) {
+            existing?.let { application.contentResolver.unregisterContentObserver(it) }
+            importObserver = null
+            return
+        }
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) = refreshImport()
+        }
+        runCatching {
+            application.contentResolver.registerContentObserver(
+                CalendarContract.CONTENT_URI,
+                true,
+                observer,
+            )
+            importObserver = observer
+        }
+    }
+
     private fun updateActiveRepository() {
-        val next: CalinoRepository = if (hasAccounts) calDavRepository else fixtureRepository
+        val base: CalinoRepository = if (hasAccounts) calDavRepository else fixtureRepository
+        val next: CalinoRepository = if (importedCalendarIds.isEmpty()) {
+            importing?.close()
+            importing = null
+            base
+        } else {
+            val existing = importing
+            // Rebuilt rather than re-pointed when the primary swaps: the
+            // wrapper holds one subscription to the primary for its lifetime,
+            // and moving that is more machinery than dropping the wrapper.
+            if (existing != null && existing.observes(base)) {
+                existing
+            } else {
+                // Carry the last read across a rebuild, so swapping fixture
+                // for CalDAV does not blank the imported events for as long
+                // as the re-read takes.
+                ImportingRepository(base, existing?.imported ?: AndroidCalendarSource.Import())
+                    .also {
+                        existing?.close()
+                        importing = it
+                        refreshImport()
+                    }
+            }
+        }
+        updateImportObserver()
         if (next === activeRepository) return
         activeRepository = next
         repositoryListeners.forEach { it(next) }
