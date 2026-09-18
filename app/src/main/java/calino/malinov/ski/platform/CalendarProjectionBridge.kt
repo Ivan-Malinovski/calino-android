@@ -63,6 +63,15 @@ class CalendarProjectionBridge(
         subscription = null
     }
 
+    /**
+     * Run a pass now, off whatever the repository currently holds.
+     *
+     * For the sync adapter, which has just ingested foreign edits and must
+     * put the provider back in agreement even when the repository refused
+     * them and therefore published nothing.
+     */
+    fun projectNow(snapshot: CalinoSnapshot) = project(snapshot)
+
     private fun project(snapshot: CalinoSnapshot) {
         val connected = accounts()
         val visible = snapshot.calendars.filter { it.visible }.map { it.id }.toSet()
@@ -73,6 +82,10 @@ class CalendarProjectionBridge(
                 accounts = connected,
                 optedIn = optedIn() ?: visible,
             ),
+            // Editable, now that a foreign edit is read back rather than
+            // discarded. A collection Calino itself cannot write stays
+            // read-only regardless -- CalendarProjection.accessLevel decides.
+            writable = true,
         )
     }
 }

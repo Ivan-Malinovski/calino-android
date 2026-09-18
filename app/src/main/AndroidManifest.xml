@@ -130,6 +130,23 @@
                 android:resource="@xml/authenticator" />
         </service>
 
+        <!--
+            The calendar sync adapter. Exported because the sync manager binds
+            it from the system process; it accepts no intent of its own and
+            only ever reads rows under Calino's own account type.
+        -->
+        <service
+            android:name=".platform.CalinoSyncService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ADAPTER_SERVICE">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/syncadapter" />
+        </service>
+
         <!-- The armed reminder alarm fires here. Explicitly targeted; never broadcast to. -->
         <receiver
             android:name=".notify.ReminderAlarmReceiver"

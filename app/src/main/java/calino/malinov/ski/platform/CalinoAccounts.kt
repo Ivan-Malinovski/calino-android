@@ -105,8 +105,10 @@ object CalinoAccounts {
         }.getOrDefault(false)
         if (!added) return
 
-        // Syncable, but not automatic: a projection pass is driven by a
-        // snapshot change or an inbound edit, not by a timer we do not control.
+        // Automatic sync is what delivers inbound edits: dirtying a row
+        // makes the provider request a sync, and that is the only way Calino
+        // hears about a change another calendar app made. Outbound projection
+        // is still driven by the repository publishing, not by this.
         runCatching {
             ContentResolver.setIsSyncable(android, CalendarAuthority, 1)
             ContentResolver.setSyncAutomatically(android, CalendarAuthority, true)

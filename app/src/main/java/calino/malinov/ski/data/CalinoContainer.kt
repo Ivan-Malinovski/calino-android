@@ -356,6 +356,18 @@ class CalinoContainer private constructor(context: Context) {
         observeRepository { repository -> calendarProjectionBridge.attach(repository, scope) }
     }
 
+    /**
+     * Reconcile the calendar provider once, now.
+     *
+     * For the sync adapter: after ingesting foreign edits it must put the
+     * provider back in agreement with Calino, and a rejected edit publishes
+     * no snapshot for the bridge to react to.
+     */
+    fun projectCalendars() {
+        if (!calendarProjectionEnabled) return
+        calendarProjectionBridge.projectNow(activeRepository.snapshot())
+    }
+
     fun onCalendarsToggled() = connections.onCalendarsToggled()
 
     private fun updateActiveRepository() {

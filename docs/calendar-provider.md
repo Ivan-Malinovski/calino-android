@@ -75,6 +75,22 @@ In exchange, an inbound edit names exactly one occurrence, which is what
 `RecurrenceEditScope.This` needs, and no second identity scheme exists to fall
 out of step with `_SYNC_ID`.
 
+### How an ingested row settles
+
+Amended 2026-09-18, during implementation. An ingested row has its `DIRTY`
+flag cleared **and its content hash cleared with it**, so the next projection
+pass rewrites it from Calino's snapshot whatever the repository decided.
+
+That single rule is what makes the paragraph below true in code rather than in
+intention. An accepted edit comes back in its canonical form; a rejected one is
+reverted without a second revert path that could fall out of step with the
+first. The cost is one rewrite per foreign edit, which is bounded by how often
+a person edits a Calino event from another app.
+
+The sync adapter therefore ingests first and projects second, and it projects
+unconditionally — a rejected write publishes no snapshot, so nothing else
+would ever put the row back.
+
 ## Authority: who owns which row
 
 - The **CalDAV server** is the source of truth. Nothing here changes that.
