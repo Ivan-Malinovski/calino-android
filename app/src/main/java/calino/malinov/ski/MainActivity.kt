@@ -155,6 +155,7 @@ import calino.malinov.ski.data.repository.duplicateTask
 import calino.malinov.ski.data.repository.duplicateEvent
 import calino.malinov.ski.data.repository.convertTaskToEvent
 import calino.malinov.ski.data.repository.convertEventToTask
+import calino.malinov.ski.platform.AndroidCalendarSource
 import calino.malinov.ski.data.repository.moveEventToDate
 import calino.malinov.ski.data.repository.moveEventToDateTime
 import calino.malinov.ski.data.repository.accepts
@@ -573,6 +574,35 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     fun onProjectedCalendarsChanged(ids: Set<String>) {
         container.setProjectedCalendars(ids)
         projectedCalendarIds = container.projectedCalendarIds.orEmpty()
+    }
+
+    /** The device's own calendars Calino shows, and which it reminds for. */
+    var importedCalendarIds by mutableStateOf(container.importedCalendars)
+        private set
+
+    var importedReminderCalendarIds by mutableStateOf(container.importedReminderCalendarIds)
+        private set
+
+    /**
+     * The device's calendars, as a roster to choose from.
+     *
+     * Read on demand rather than observed: which calendars *exist* changes
+     * when an account is added in system Settings, which is a trip out of
+     * Calino and back. Their contents are followed by a content observer in
+     * the container; this is only the list of names.
+     */
+    fun availableDeviceCalendars(): List<AndroidCalendarSource.ImportableCalendar> =
+        AndroidCalendarSource.availableCalendars(getApplication())
+
+    fun onImportedCalendarsChanged(ids: Set<String>) {
+        container.setImportedCalendars(ids)
+        importedCalendarIds = container.importedCalendars
+        importedReminderCalendarIds = container.importedReminderCalendarIds
+    }
+
+    fun onImportedReminderCalendarsChanged(ids: Set<String>) {
+        container.setImportedReminderCalendars(ids)
+        importedReminderCalendarIds = container.importedReminderCalendarIds
     }
 
     fun onAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
@@ -1816,6 +1846,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,
+                        // Re-read whenever the surface is entered: a person
+                        // who leaves to add a Google account in Settings
+                        // comes back expecting to see it here.
+                        availableDeviceCalendars = remember(route) {
+                            pocViewModel.availableDeviceCalendars()
+                        },
+                        importedCalendarIds = pocViewModel.importedCalendarIds,
+                        onImportedCalendarsChanged = {
+                            pocViewModel.onImportedCalendarsChanged(it)
+                        },
+                        importedReminderCalendarIds = pocViewModel.importedReminderCalendarIds,
+                        onImportedReminderCalendarsChanged = {
+                            pocViewModel.onImportedReminderCalendarsChanged(it)
+                        },
                         client = pocViewModel.calDavClient,
                         onAddAccount = { form, calendars -> pocViewModel.onAccountConnected(form, calendars) },
                         onCalendarEnabled = { accountId, calendarId, enabled ->
