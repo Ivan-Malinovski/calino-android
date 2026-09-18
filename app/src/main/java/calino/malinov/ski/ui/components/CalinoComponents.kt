@@ -1476,14 +1476,21 @@ private val SyncBadgeSlotWidth = 26.dp
 @Composable
 private fun MonthHeadingLabel(month: YearMonth, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.Bottom) {
+        // The month name yields the space, not the year: a long name may
+        // ellipsize, but "2026" must never break across two lines.
         Text(
             month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).replaceFirstChar { it.uppercase() },
             style = CalinoTypography.titleLarge.copy(fontSize = 27.sp, lineHeight = 30.sp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
         Text(
             month.year.toString(),
             style = CalinoTypography.bodyMedium,
             color = CalinoColors.Ink3,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier.padding(start = 7.dp, bottom = 4.dp),
         )
     }
