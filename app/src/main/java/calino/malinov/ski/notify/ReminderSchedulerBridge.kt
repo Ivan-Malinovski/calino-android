@@ -25,6 +25,15 @@ class ReminderSchedulerBridge(
     private val preferences: CalinoPreferenceStore,
     private val store: ReminderScheduleStore,
     private val scheduler: ReminderScheduler,
+    /**
+     * The calendars currently projected into `CalendarContract`, or empty
+     * when nothing is.
+     *
+     * Read fresh on every plan rather than captured: projection can be turned
+     * off between one sync and the next, and a stale set would leave a
+     * calendar with nobody reminding for it.
+     */
+    private val projectedCalendarIds: () -> Set<String> = { emptySet() },
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val now: () -> Instant = { Instant.now() },
 ) {
@@ -73,6 +82,15 @@ class ReminderSchedulerBridge(
             options = ReminderPlanOptions(
                 eventRemindersEnabled = preferences.loadEventRemindersEnabled(),
                 taskRemindersEnabled = preferences.loadTaskRemindersEnabled(),
+                // Only when the person has handed delivery over. Both halves
+                // are required: a projected calendar with the setting off is
+                // still Calino's to remind for, and the setting on with
+                // nothing projected changes nothing.
+                providerOwnedCalendarIds = if (preferences.loadProviderRemindersEnabled()) {
+                    projectedCalendarIds()
+                } else {
+                    emptySet()
+                },
             ),
         )
         store.replace(firings, at, currentZone)

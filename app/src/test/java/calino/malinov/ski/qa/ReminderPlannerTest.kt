@@ -234,6 +234,56 @@ class ReminderPlannerTest {
         assertEquals(listOf(ReminderKind.Event), withoutTasks.map { it.kind })
     }
 
+    // ------------------------------------------- handing delivery to another app
+
+    @Test
+    fun `an event on a calendar another app owns is not reminded for twice`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val firings = plan(
+            events = listOf(event(start = start, reminders = listOf(Reminder(10)))),
+            options = ReminderPlanOptions(providerOwnedCalendarIds = setOf("work")),
+        )
+
+        assertTrue(firings.isEmpty())
+    }
+
+    @Test
+    fun `a calendar not handed over keeps its own reminders`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val firings = plan(
+            events = listOf(
+                event(id = "evt-1", start = start, calendarId = "work", reminders = listOf(Reminder(10))),
+                event(id = "evt-2", start = start, calendarId = "personal", reminders = listOf(Reminder(10))),
+            ),
+            options = ReminderPlanOptions(providerOwnedCalendarIds = setOf("work")),
+        )
+
+        assertEquals(listOf("evt-2"), firings.map { it.recordId })
+    }
+
+    @Test
+    fun `a task is never handed over`() {
+        // CalendarContract has no task table, so there is no other app that
+        // could deliver this. Handing it over would deliver it to nobody.
+        val firings = plan(
+            tasks = listOf(
+                task(due = LocalDate.of(2026, 9, 15), dueTime = LocalTime.of(17, 0), reminder = Reminder(30)),
+            ),
+            options = ReminderPlanOptions(providerOwnedCalendarIds = setOf("personal", "work")),
+        )
+
+        assertEquals(1, firings.size)
+        assertEquals(ReminderKind.Task, firings.single().kind)
+    }
+
+    @Test
+    fun `nothing is handed over by default`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val firings = plan(events = listOf(event(start = start, reminders = listOf(Reminder(10)))))
+
+        assertEquals(1, firings.size)
+    }
+
     private fun event(
         id: String = "evt-1",
         start: LocalDateTime? = null,

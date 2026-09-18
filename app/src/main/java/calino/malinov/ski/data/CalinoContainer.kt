@@ -20,6 +20,7 @@ import calino.malinov.ski.data.repository.CalinoRepository
 import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.FixtureRepository
 import calino.malinov.ski.data.repository.WriteResult
+import calino.malinov.ski.data.repository.visibleCalendarIds
 import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
@@ -154,6 +155,7 @@ class CalinoContainer private constructor(context: Context) {
         preferences = preferenceStore,
         store = Reminders.scheduleStore(application),
         scheduler = Reminders.scheduler(application),
+        projectedCalendarIds = { projectedCalendars() },
     )
 
     init {
@@ -334,6 +336,10 @@ class CalinoContainer private constructor(context: Context) {
             projecting = false
             CalinoAccounts.clear(application)
         }
+        // Reminder ownership follows projection, so a toggle has to re-plan:
+        // turning projection off must give Calino its own alarms back, and
+        // the schedule is only rebuilt when something asks it to be.
+        reminderBridge.refresh()
     }
 
     /**
@@ -354,6 +360,18 @@ class CalinoContainer private constructor(context: Context) {
         if (projecting) return
         projecting = true
         observeRepository { repository -> calendarProjectionBridge.attach(repository, scope) }
+    }
+
+    /**
+     * The calendars currently projected into `CalendarContract`.
+     *
+     * Empty while projection is off, which is what makes reminder ownership
+     * follow the projection without a second switch to keep in step.
+     */
+    fun projectedCalendars(): Set<String> {
+        if (!calendarProjectionEnabled) return emptySet()
+        return projectedCalendarIds
+            ?: visibleCalendarIds(activeRepository.snapshot().calendars)
     }
 
     /**

@@ -47,7 +47,9 @@ import calino.malinov.ski.notify.ReminderFiring
 import calino.malinov.ski.notify.ReminderKind
 import calino.malinov.ski.notify.Reminders
 import calino.malinov.ski.notify.channelSettingsIntent
+import calino.malinov.ski.data.CalinoContainer
 import calino.malinov.ski.state.LocalTimeFormat
+import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.util.formatCalinoDate
 import java.time.Instant
 import java.time.LocalDate
@@ -74,6 +76,13 @@ data class NotificationSurfaceState(
     val channels: List<ReminderChannelState>,
     val upcoming: List<ReminderFiring>,
     val remindersScheduled: Int,
+    /**
+     * How many calendars another app has been made responsible for.
+     *
+     * Stated rather than inferred: with delivery handed over, this screen
+     * would otherwise show an empty schedule and look broken.
+     */
+    val providerOwnedCalendars: Int,
 )
 
 /**
@@ -97,6 +106,7 @@ fun rememberNotificationSurfaceState(): NotificationSurfaceState {
 
     return remember(nonce, permission.granted) {
         val schedule = Reminders.scheduleStore(context).load()
+        val store = SharedPreferencesPreferenceStore(context)
         val now = Instant.now()
         val upcoming = schedule.firings
             .filter { it.at.isAfter(now) }
@@ -108,6 +118,11 @@ fun rememberNotificationSurfaceState(): NotificationSurfaceState {
             channels = ReminderChannels.state(context),
             upcoming = upcoming.take(5),
             remindersScheduled = upcoming.size,
+            providerOwnedCalendars = if (store.loadProviderRemindersEnabled()) {
+                CalinoContainer.get(context).projectedCalendars().size
+            } else {
+                0
+            },
         )
     }
 }
@@ -151,6 +166,19 @@ fun NotificationsSurface(
                 onAction = {
                     Reminders.scheduler(context).exactAlarmSettingsIntent()?.let(context::startActivity)
                 },
+            )
+        }
+
+        if (state.providerOwnedCalendars > 0) {
+            Text(
+                "Your calendar app is delivering event reminders for " +
+                    "${state.providerOwnedCalendars} calendar" +
+                    (if (state.providerOwnedCalendars == 1) "" else "s") +
+                    " Calino publishes to Android, so they do not appear below. " +
+                    "Task reminders are still Calino's.",
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+                modifier = Modifier.padding(top = 12.dp),
             )
         }
 

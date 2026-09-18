@@ -105,6 +105,15 @@ data class CalinoPreferences(
     val setEventRemindersEnabled: (Boolean) -> Unit = {},
     val taskRemindersEnabled: Boolean = true,
     val setTaskRemindersEnabled: (Boolean) -> Unit = {},
+    /**
+     * Whether another calendar app delivers the reminders for projected
+     * calendars, instead of Calino.
+     *
+     * Off by default, and never inferred from what is installed: the person
+     * is the only one who knows which app they want to hear from.
+     */
+    val providerRemindersEnabled: Boolean = false,
+    val setProviderRemindersEnabled: (Boolean) -> Unit = {},
     /** Whether the sidebar's compact month calendar disclosure is open. */
     val sidebarCalendarExpanded: Boolean = false,
     val setSidebarCalendarExpanded: (Boolean) -> Unit = {},
@@ -165,6 +174,8 @@ interface CalinoPreferenceStore {
     fun saveEventRemindersEnabled(enabled: Boolean)
     fun loadTaskRemindersEnabled(): Boolean
     fun saveTaskRemindersEnabled(enabled: Boolean)
+    fun loadProviderRemindersEnabled(): Boolean
+    fun saveProviderRemindersEnabled(enabled: Boolean)
     fun loadSidebarCalendarExpanded(): Boolean
     fun saveSidebarCalendarExpanded(expanded: Boolean)
     fun loadDayTasksExpanded(): Boolean
@@ -231,6 +242,7 @@ interface CalinoPreferenceStore {
         override fun saveContactsEnabled(enabled: Boolean) { contacts = enabled }
         private var eventReminders = true
         private var taskReminders = true
+        private var providerReminders = false
         private var notificationPrompt = false
         private var sidebarCalendarExpanded = false
         private var dayTasksExpanded = true
@@ -238,6 +250,8 @@ interface CalinoPreferenceStore {
         override fun saveEventRemindersEnabled(enabled: Boolean) { eventReminders = enabled }
         override fun loadTaskRemindersEnabled() = taskReminders
         override fun saveTaskRemindersEnabled(enabled: Boolean) { taskReminders = enabled }
+        override fun loadProviderRemindersEnabled() = providerReminders
+        override fun saveProviderRemindersEnabled(enabled: Boolean) { providerReminders = enabled }
         override fun loadSidebarCalendarExpanded() = sidebarCalendarExpanded
         override fun saveSidebarCalendarExpanded(expanded: Boolean) { sidebarCalendarExpanded = expanded }
         override fun loadDayTasksExpanded() = dayTasksExpanded
@@ -313,6 +327,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveEventRemindersEnabled(enabled: Boolean) = putBoolean(EventRemindersKey, enabled)
     override fun loadTaskRemindersEnabled(): Boolean = prefs.getBoolean(TaskRemindersKey, true)
     override fun saveTaskRemindersEnabled(enabled: Boolean) = putBoolean(TaskRemindersKey, enabled)
+    override fun loadProviderRemindersEnabled(): Boolean = prefs.getBoolean(ProviderRemindersKey, false)
+    override fun saveProviderRemindersEnabled(enabled: Boolean) = putBoolean(ProviderRemindersKey, enabled)
     override fun loadSidebarCalendarExpanded(): Boolean = prefs.getBoolean(SidebarCalendarExpandedKey, false)
     override fun saveSidebarCalendarExpanded(expanded: Boolean) = putBoolean(SidebarCalendarExpandedKey, expanded)
     override fun loadDayTasksExpanded(): Boolean = prefs.getBoolean(DayTasksExpandedKey, true)
@@ -339,6 +355,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ContactsEnabledKey = "contacts_enabled"
         const val EventRemindersKey = "event_reminders_enabled"
         const val TaskRemindersKey = "task_reminders_enabled"
+        const val ProviderRemindersKey = "provider_reminders_enabled"
         const val SidebarCalendarExpandedKey = "sidebar_calendar_expanded"
         const val DayTasksExpandedKey = "day_tasks_expanded"
         const val NotificationPromptKey = "notification_prompt_shown"
@@ -375,6 +392,7 @@ fun rememberCalinoPreferences(
     var contactsEnabled by remember(store) { mutableStateOf(store.loadContactsEnabled()) }
     var eventRemindersEnabled by remember(store) { mutableStateOf(store.loadEventRemindersEnabled()) }
     var taskRemindersEnabled by remember(store) { mutableStateOf(store.loadTaskRemindersEnabled()) }
+    var providerRemindersEnabled by remember(store) { mutableStateOf(store.loadProviderRemindersEnabled()) }
     var sidebarCalendarExpanded by remember(store) { mutableStateOf(store.loadSidebarCalendarExpanded()) }
     var dayTasksExpanded by remember(store) { mutableStateOf(store.loadDayTasksExpanded()) }
     return CalinoPreferences(
@@ -422,6 +440,12 @@ fun rememberCalinoPreferences(
         setTaskRemindersEnabled = { value ->
             taskRemindersEnabled = value
             store.saveTaskRemindersEnabled(value)
+            onRemindersChanged()
+        },
+        providerRemindersEnabled = providerRemindersEnabled,
+        setProviderRemindersEnabled = { value ->
+            providerRemindersEnabled = value
+            store.saveProviderRemindersEnabled(value)
             onRemindersChanged()
         },
         sidebarCalendarExpanded = sidebarCalendarExpanded,

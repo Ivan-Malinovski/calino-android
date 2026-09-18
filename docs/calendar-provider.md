@@ -157,24 +157,53 @@ is not:
 
 ## Reminder ownership
 
-For projected events the **provider owns the alarm**, and Calino stops
-scheduling its own for those calendars. The alternative — both paths live —
-means two notifications for one event, which is the defect this section exists
-to prevent.
+Amended 2026-09-18, during implementation, after looking at what the Android
+CalDAV ecosystem actually does. The original text here said the provider owns
+the alarm for every projected event and Calino stops scheduling its own, with
+an automatic fallback to local scheduling when no calendar app is installed.
+That is not the convention, and the fallback cannot be made to work.
 
-Two consequences must be handled rather than assumed away:
+**What the ecosystem does.** The division of labour is between two apps, not
+two code paths. [DAVx⁵](https://manual.davx5.com/settings.html) — the
+reference implementation of this exact architecture, an authenticator plus a
+calendar sync adapter — writes reminder rows into the provider and
+[deliberately never posts a notification](https://github.com/bitfireAT/davx5-ose/discussions/491),
+on the stated grounds that this is the calendar app's job and DAVx⁵ is a
+silent background app. Etar, Fossify Calendar and Google Calendar are the
+other half: they read the provider and notify. Exactly one component speaks
+because the two components are different apps.
 
-1. The provider stores reminders but does not post notifications. In AOSP the
-   calendar *app* receives the provider's broadcast and raises the
-   notification. On a device with no calendar app installed, handing reminders
-   over would silently drop them. Calino therefore keeps local scheduling when
-   no calendar app is present, and re-plans on the transition in both
-   directions.
-2. Tasks are unaffected. `CalTask` reminders have no provider representation and
-   remain entirely local, through the existing `notify/` path.
+Calino is both halves at once, so that convention gives it no answer.
 
-The Notifications screen states which component is delivering, next to the
-existing exact-alarm disclosure, so the answer is visible rather than inferred.
+**What Calino does.** Reminder rows are always projected, as `METHOD_ALERT`
+— DAVx⁵'s own long-standing reminder bug is that it writes `METHOD_DEFAULT`,
+which Android does not alert on, so this is a case where matching the
+convention means matching what works rather than what the reference does.
+Other calendar apps, Wear faces and Android Auto need those rows regardless of
+who notifies.
+
+Calino keeps delivering its own reminders **by default**, which is what every
+calendar app does for its own data. One user-visible setting, off by default,
+hands event delivery for projected calendars to whichever calendar app the
+person uses.
+
+**The `hasCalendarApp()` fallback is dropped.** Detecting an installed
+calendar app and silently switching who notifies fails in both directions: an
+app that resolves `ACTION_INSERT` may never post a notification (a widget, a
+viewer, a picker), and a person with Etar installed may still want Calino's
+reminders. A silent, automatic change to whether a notification arrives at all
+is the worst kind of thing to get wrong, because the failure is invisible —
+nothing appears, and nothing says why. Asking once is more durable than
+inferring continuously.
+
+Two things remain as they were:
+
+1. **Tasks are unaffected.** `CalTask` reminders have no provider
+   representation, so handing one over would hand it to nobody. The setting
+   filters events only.
+2. **The Notifications screen says who is delivering**, next to the existing
+   exact-alarm disclosure. With delivery handed over, the schedule is legitimately
+   near-empty, and a screen that showed that without explanation would look broken.
 
 ## Removal and reversibility
 

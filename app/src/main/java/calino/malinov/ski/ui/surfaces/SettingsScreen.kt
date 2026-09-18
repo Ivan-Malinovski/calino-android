@@ -94,6 +94,7 @@ import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.CalinoIcons
 import androidx.compose.ui.platform.LocalContext
+import calino.malinov.ski.data.CalinoContainer
 import androidx.compose.ui.platform.testTag
 import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.systemSettingsIntent
@@ -693,6 +694,20 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
                 preferences.taskRemindersEnabled,
                 preferences.setTaskRemindersEnabled,
             )
+        }
+        // Only while there is something projected. A switch offering to hand
+        // reminders to an app that has been given no calendars would hand
+        // them to nobody, and the reminders would simply stop.
+        if (remember { CalinoContainer.get(context).projectedCalendars().isNotEmpty() }) {
+            SettingsGroup("System calendar") {
+                SettingToggleRow(
+                    "Let another app remind me",
+                    "Your calendar app notifies for the calendars Calino publishes to " +
+                        "Android, instead of Calino. Tasks stay with Calino either way.",
+                    preferences.providerRemindersEnabled,
+                    preferences.setProviderRemindersEnabled,
+                )
+            }
         }
         // "Daily brief" used to sit here as a planned row. It is not a delivery
         // of a reminder the user set, it is a separate feature nobody has

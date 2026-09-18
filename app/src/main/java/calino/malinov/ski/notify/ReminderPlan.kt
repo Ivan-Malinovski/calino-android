@@ -77,6 +77,25 @@ data class ReminderPlanOptions(
     val allDayAnchor: LocalTime = LocalTime.of(9, 0),
     val horizon: Duration = Duration.ofDays(7),
     val maxFirings: Int = 200,
+    /**
+     * Calendars whose event reminders another calendar app has been made
+     * responsible for, and which Calino therefore skips.
+     *
+     * Empty unless the person has said so. The convention across the Android
+     * CalDAV ecosystem is a division of labour between two apps -- DAVx5
+     * writes reminder rows into the provider and deliberately never notifies,
+     * leaving that to whichever calendar app the person uses -- and it works
+     * because a sync adapter has no UI of its own. Calino is both halves at
+     * once, so nothing about the projection can tell it which app should
+     * speak. Guessing from "is a calendar app installed" gets it wrong in both
+     * directions: an installed app may never post a notification, and the
+     * person may want Calino's regardless. So this is asked, not inferred.
+     *
+     * **Events only.** A task has no provider representation at all, so
+     * handing its reminder over would hand it to nobody. See
+     * `docs/calendar-provider.md`.
+     */
+    val providerOwnedCalendarIds: Set<String> = emptySet(),
 )
 
 object ReminderPlanner {
@@ -118,6 +137,7 @@ object ReminderPlanner {
             events.asSequence()
                 .filter { it.reminders.isNotEmpty() }
                 .filter { it.calendarId in visibleCalendarIds }
+                .filter { it.calendarId !in options.providerOwnedCalendarIds }
                 .forEach { event -> firings += event.firings(now, until, zone, options) }
         }
 
