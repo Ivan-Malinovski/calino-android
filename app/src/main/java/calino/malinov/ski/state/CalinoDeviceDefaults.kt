@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.icu.util.Calendar
 import android.provider.Settings
+import android.telephony.TelephonyManager
 import android.text.format.DateFormat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -136,7 +137,7 @@ data class CalinoDeviceDefaults(
             // clock, and week conventions).
             val formatLocale = Locale.getDefault(Locale.Category.FORMAT)
             val weekData = Calendar.getInstance(formatLocale).weekData
-            val firstDayOfWeek = localeFirstDayOfWeek(formatLocale)
+            val firstDayOfWeek = localeFirstDayOfWeek(formatLocale, simCountry(appContext))
             val alarmManager = appContext.getSystemService(AlarmManager::class.java)
             val exactAlarmsAllowed = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 runCatching { alarmManager?.canScheduleExactAlarms() ?: false }.getOrDefault(false)
@@ -193,9 +194,65 @@ private fun icuDayOfWeek(day: Int): DayOfWeek = when (day) {
     else -> DayOfWeek.MONDAY
 }
 
-/** Resolves Android's `fw` regional override before falling back to CLDR. */
-internal fun localeFirstDayOfWeek(locale: Locale): DayOfWeek =
-    when (LocalePreferences.getFirstDayOfWeek(locale)) {
+/**
+ * The country the device is actually operating in, as far as it can be known
+ * without a permission or a network call. Empty when there is no SIM, which is
+ * the normal case on a tablet and on an emulator.
+ */
+private fun simCountry(context: Context): String? = runCatching {
+    context.getSystemService(TelephonyManager::class.java)?.simCountryIso
+}.getOrNull()?.takeIf { it.isNotBlank() }
+
+/**
+ * Whether the locale carries an *explicit* `-u-fw-` regional preference, as
+ * opposed to the CLDR default androidx would otherwise resolve for it. Asking
+ * unresolved is the only way to tell "the user said Monday" apart from "nobody
+ * said anything and Monday is this region's habit".
+ */
+private fun explicitFirstDayOfWeek(locale: Locale): DayOfWeek? =
+    firstDayOfWeekFor(LocalePreferences.getFirstDayOfWeek(locale, /* resolved = */ false))
+
+/**
+ * The locale whose week conventions Calino should follow.
+ *
+ * A language locale's country is a *language* choice, not a statement about
+ * where the phone is. Someone in Copenhagen who reads English picks "English
+ * (United States)", and CLDR then answers Sunday for `en-US` — which is why
+ * "System" used to start the grid on Sunday for a user whose every other
+ * calendar starts it on Monday. The SIM's country is the one region signal
+ * Android hands out for free, so it replaces the language's country when there
+ * is one. Only the region moves; the language is kept so that anything else
+ * read from this locale still reads in the user's language.
+ */
+internal fun weekStartLocale(formatLocale: Locale, deviceCountry: String?): Locale {
+    val country = deviceCountry?.takeIf { it.isNotBlank() }?.uppercase(Locale.ROOT)
+        ?: return formatLocale
+    if (country.equals(formatLocale.country, ignoreCase = true)) return formatLocale
+    return runCatching {
+        Locale.Builder().setLocale(formatLocale).setRegion(country).build()
+    }.getOrDefault(formatLocale)
+}
+
+/**
+ * Resolves Android's `fw` regional override, then the device region's CLDR
+ * habit, before falling back to the language locale's own.
+ *
+ * [deviceCountry] is the device's region when one is known; see
+ * [weekStartLocale] for why it outranks the language locale's country.
+ */
+internal fun localeFirstDayOfWeek(locale: Locale, deviceCountry: String? = null): DayOfWeek {
+    // An explicit regional preference is the user's own word and outranks
+    // every inference below it, including the SIM's.
+    explicitFirstDayOfWeek(locale)?.let { return it }
+    return cldrFirstDayOfWeek(weekStartLocale(locale, deviceCountry))
+}
+
+private fun cldrFirstDayOfWeek(locale: Locale): DayOfWeek =
+    firstDayOfWeekFor(LocalePreferences.getFirstDayOfWeek(locale))
+        ?: icuDayOfWeek(Calendar.getInstance(locale).weekData.firstDayOfWeek)
+
+private fun firstDayOfWeekFor(value: String?): DayOfWeek? =
+    when (value) {
         LocalePreferences.FirstDayOfWeek.MONDAY -> DayOfWeek.MONDAY
         LocalePreferences.FirstDayOfWeek.TUESDAY -> DayOfWeek.TUESDAY
         LocalePreferences.FirstDayOfWeek.WEDNESDAY -> DayOfWeek.WEDNESDAY
@@ -203,7 +260,7 @@ internal fun localeFirstDayOfWeek(locale: Locale): DayOfWeek =
         LocalePreferences.FirstDayOfWeek.FRIDAY -> DayOfWeek.FRIDAY
         LocalePreferences.FirstDayOfWeek.SATURDAY -> DayOfWeek.SATURDAY
         LocalePreferences.FirstDayOfWeek.SUNDAY -> DayOfWeek.SUNDAY
-        else -> icuDayOfWeek(Calendar.getInstance(locale).weekData.firstDayOfWeek)
+        else -> null
     }
 
 /**
