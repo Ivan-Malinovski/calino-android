@@ -268,10 +268,135 @@ This is the guarantee that a bug in this feature cannot reach the person's
 Google, Exchange, or locally-created calendars. It is not a convention to be
 relaxed for convenience in a later change.
 
+## Reading the device's calendars
+
+Everything above describes Calino publishing outward. The reverse direction —
+showing the Google, Exchange and locally-created calendars the device already
+holds inside Calino — is a separate feature with a separate data-ownership
+question, and this section settles it before any of it is built.
+
+The two directions are not symmetric in cost. Inbound has no ETags, no
+conditional writes, no three-way rebase, no durable queue and no
+dead-lettering, because the provider is local and always available. And
+`CalendarContract.Instances` returns occurrences already expanded, which is the
+same shape `ICalMapper` produces client-side. The saving is real, and it is why
+inbound can be read-only and still be worth having.
+
+### Authority: the source app owns every imported row
+
+An imported row is a **read-only view**. The app that owns the account —
+Google Calendar, the Exchange client, whatever created it — is authoritative
+for it in every respect. Calino stores no copy beyond the in-memory snapshot,
+caches nothing to disk, and in v1 never writes to a foreign row at all.
+
+This is the mirror image of the outbound rule and has the same consequence: no
+row in this feature is ever the only copy of anything. Turning an import off
+loses nothing, because there was nothing of Calino's there to lose.
+
+An imported `CalinoCalendar` is therefore constructed `readOnly = true`, and an
+imported `CalEvent` carries **no** CalDAV identity: `uid`, `href`, `etag`,
+`sequence` and `recurrenceId` all stay null. A provider row has no such
+identity, and giving it a synthetic one would make it indistinguishable from a
+real CalDAV record to every piece of code downstream. The model already permits
+this — those fields are nullable — so nothing has to change to accommodate it.
+
+### Read-only in v1, with the seam for later
+
+Write-back is deliberately deferred, not designed out. It would add the
+provider's recurrence-exception model (`ORIGINAL_ID` plus
+`ORIGINAL_INSTANCE_TIME`), delete-versus-tombstone semantics, and conflict
+handling against another app's sync adapter — roughly triple the work of the
+read path, and the part where other apps push back.
+
+Two choices are made now so that adding it later is an extension rather than a
+rewrite:
+
+- Writes route through a composite repository that delegates by calendar
+  ownership. In v1 a write naming an imported calendar returns
+  `WriteResult.Rejected`. In v2 the same branch performs provider operations.
+  Nothing above the repository changes.
+- The id scheme is `android:<eventRowId>@<beginMillis>`, deliberately the same
+  `id@instant` shape as `occurrenceId(...)`. A future write-back recovers both
+  `ORIGINAL_ID` and `ORIGINAL_INSTANCE_TIME` by parsing the id alone, with no
+  lookup table — the same reasoning that put identity in `SYNC_DATA1..5`
+  outbound.
+
+### The loop, and the one predicate that prevents it
+
+Calino publishes calendars into the provider. If Calino then read every
+calendar in the provider back, it would import its own projection, which the
+projection would then re-project, and the person would see each event twice and
+climbing.
+
+The whole defence is one selection, the exact inverse of the ownership scoping
+used outbound:
+
+```
+Calendars.ACCOUNT_TYPE != <Calino's own account type>
+```
+
+read from `CalinoAccounts.accountType(context)` so that the debug variant's
+suffix is handled rather than hard-coded. This predicate is load-bearing and
+gets a test of its own: a calendar inserted under Calino's own type must not be
+discovered.
+
+It is guarded twice on purpose. The outbound projection also skips `android:`
+calendars explicitly, rather than relying on the incidental fact that they have
+no CalDAV account to map to. A later refactor of that mapping must not be able
+to quietly turn the app into an echo chamber.
+
+### Reminder ownership, inbound
+
+Outbound, Calino hands alarm delivery to the calendar app that displays the
+projection. Inbound, the same rule points the other way: **the source app
+notifies, and Calino stays silent.** Google Calendar already alarms for its own
+events, and the existing `providerOwnedCalendarIds` suppression handles this
+with no new mechanism — an imported calendar simply joins that set.
+
+A per-calendar toggle, **off by default**, hands delivery to Calino instead.
+
+The honest caveat, which the toggle's helper text must state: Calino cannot
+stop the source app notifying for its own events. Turning this on risks two
+notifications rather than moving one. That is the person's call to make
+knowingly, which is why it is off until they make it.
+
+### What is not imported
+
+- `VTODO` and `VJOURNAL` — the provider has no table for either, so an imported
+  calendar declares `components = setOf("VEVENT")` and contributes no tasks or
+  journal entries.
+- Attendees, organiser and any property the provider does not model. As
+  outbound, these are **not** flattened into something else; they are absent.
+- Anything outside the same past/future window the projection uses.
+
+### Reversibility
+
+Turning an imported calendar off drops its events from the next snapshot and
+restores whatever reminder behaviour applied before. There is nothing to clean
+up in the provider, because Calino never wrote there. Turning the last one off
+unwinds the composite repository entirely, so a person who never opts in pays
+nothing at all.
+
+Revoking `READ_CALENDAR` degrades to an empty import with a visible
+explanation. It is not a crash, and it is not silent.
+
+Nothing in this direction ever deletes or modifies a Google, Exchange or other
+foreign row.
+
 ## Scope note
 
-This is a third sanctioned exception to the scope rules in `AGENTS.md`,
-alongside TODO items 1–3 and 10 and the optional AI photo import. It adds no
-new remote host and no outbound traffic: it is a local projection of data
-Calino already holds. webcal, telemetry and other remote hosts remain out of
-scope.
+The outbound projection is a third sanctioned exception to the scope rules in
+`AGENTS.md`, alongside TODO items 1–3 and 10 and the optional AI photo import.
+It adds no new remote host and no outbound traffic: it is a local projection of
+data Calino already holds.
+
+Reading the device's calendars is a **fourth, separate** exception, and it is
+recorded separately because the data-ownership question is not the same one.
+The projection sends the person's own CalDAV data outward, where it never
+leaves the device by that route. The import brings third-party account data
+*in* — into Calino's snapshot, its search index and its widget. Same mechanism,
+different question, so it gets its own approval rather than inheriting the
+projection's.
+
+Neither direction adds a remote host. webcal, telemetry and other remote hosts
+remain out of scope.
