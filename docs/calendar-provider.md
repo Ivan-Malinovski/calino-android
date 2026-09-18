@@ -43,13 +43,37 @@ must be answered by construction rather than by care:
 | --- | --- |
 | Feedback loop | Calino writes only through `CALLER_IS_SYNCADAPTER`, which does not set `DIRTY`; only a foreign edit can dirty a row. A content hash in `SYNC_DATA1` makes re-projecting an ingested change a no-op. |
 | Duplicate write | Ingest routes to the existing `CalDavRepository` entry points, which are already serialised by `writeMutex` and already conditional on an ETag. There is no second writer and no second queue. |
-| Occurrence identity | Detached occurrences use the provider's own exception model (`ORIGINAL_ID` + `ORIGINAL_INSTANCE_TIME`) rather than the mirror's flattening, so an inbound occurrence edit resolves to `RecurrenceEditScope.This`. |
+| Occurrence identity | Every projected row is one occurrence, carrying `ICalMapper.occurrenceId` (`uid@instant`) in `_SYNC_ID`, so an inbound occurrence edit resolves to `RecurrenceEditScope.This` by reading one column. |
 
 If two-way ingest proves unsafe on device — an unbreakable loop, or an edit path
 that cannot preserve foreign properties — the documented retreat is to keep the
 outbound projection and set every projected calendar to `CAL_ACCESS_READ`. That
 degrades to the sister app's proven design without removing the feature, which
 is why the projection lands as its own commit before ingest is enabled.
+
+### Series are projected already expanded
+
+Amended 2026-09-18, during implementation. This review first called for the
+provider's own exception model — a master row carrying `RRULE`, with detached
+occurrences hanging off it by `ORIGINAL_ID` and `ORIGINAL_INSTANCE_TIME`. That
+does not fit the data. `ICalMapper` expands every series before a
+`CalinoSnapshot` exists, so there is no master in the snapshot to project: each
+event is already one occurrence, identified by `occurrenceId(uid, instant)`.
+Writing the series rule onto each of those rows would ask the provider to
+re-expand the series once per occurrence.
+
+Projected rows are therefore standalone and carry no `RRULE`. Two consequences,
+accepted:
+
+- The projection reaches only as far as Calino's fetch window, where a series
+  expanded by the provider would have been unbounded.
+- Another calendar app offers no "edit all occurrences" affordance, because
+  each row is a single event as far as the provider is concerned. Series-wide
+  edits stay in Calino.
+
+In exchange, an inbound edit names exactly one occurrence, which is what
+`RecurrenceEditScope.This` needs, and no second identity scheme exists to fall
+out of step with `_SYNC_ID`.
 
 ## Authority: who owns which row
 

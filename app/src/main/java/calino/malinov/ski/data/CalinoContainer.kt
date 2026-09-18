@@ -23,6 +23,8 @@ import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
+import calino.malinov.ski.platform.CalendarProjection
+import calino.malinov.ski.platform.CalendarProjectionBridge
 import calino.malinov.ski.platform.CalinoAccounts
 import calino.malinov.ski.state.CalinoPreferenceStore
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
@@ -126,12 +128,27 @@ class CalinoContainer private constructor(context: Context) {
     @Volatile
     private var widgetUpdating = false
 
+    @Volatile
+    private var projecting = false
+
     /**
      * Keeps the durable reminder schedule level with whatever the repository
      * is currently publishing.
      */
     /** Keeps the home screen widget level with the repository. */
     val widgetBridge = CalinoWidgetBridge(application)
+
+    /**
+     * Keeps `CalendarContract` level with the repository, while projection is
+     * on. Attached by [startCalendarProjection] rather than at construction,
+     * for the same reason the widget bridge is: a process woken to re-arm one
+     * alarm has no business reconciling the calendar store.
+     */
+    val calendarProjectionBridge = CalendarProjectionBridge(
+        context = application,
+        accounts = { accountStore.accounts() },
+        optedIn = { projectedCalendarIds },
+    )
 
     val reminderBridge = ReminderSchedulerBridge(
         preferences = preferenceStore,
@@ -307,9 +324,36 @@ class CalinoContainer private constructor(context: Context) {
     private fun syncAndroidAccounts() {
         if (calendarProjectionEnabled) {
             CalinoAccounts.sync(application, accountStore.accounts())
+            startCalendarProjection()
         } else {
+            // Calendars first: removing the account would take its calendars
+            // with it, but only after the provider had already told every
+            // calendar app they vanished without explanation.
+            CalendarProjection.clear(application)
+            calendarProjectionBridge.detach()
+            projecting = false
             CalinoAccounts.clear(application)
         }
+    }
+
+    /**
+     * The calendars projected into `CalendarContract`, or null while every
+     * visible one is.
+     *
+     * Null until the per-calendar opt-in exists. It changes nothing on its
+     * own: [calendarProjectionEnabled] is false, so the projection does not
+     * run at all until someone turns it on.
+     */
+    var projectedCalendarIds: Set<String>? = null
+
+    /**
+     * Start projecting into the calendar provider. Only the UI process needs
+     * this, and only while projection is on.
+     */
+    fun startCalendarProjection() {
+        if (projecting) return
+        projecting = true
+        observeRepository { repository -> calendarProjectionBridge.attach(repository, scope) }
     }
 
     fun onCalendarsToggled() = connections.onCalendarsToggled()
