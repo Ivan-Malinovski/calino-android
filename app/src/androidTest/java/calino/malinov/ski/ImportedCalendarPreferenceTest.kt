@@ -124,6 +124,36 @@ class ImportedCalendarPreferenceTest {
         assertTrue(found.none { it.accountType == ours })
     }
 
+    /**
+     * The test that was missing, and whose absence let a broken query ship.
+     *
+     * Everything else here asserts that something is *not* found, which an
+     * empty result satisfies for the wrong reason. `read` swallows provider
+     * exceptions on purpose -- a revoked permission must not crash the app --
+     * so a projection the provider rejects turns the whole import into
+     * silence rather than an error. Only an assertion that real events come
+     * back can tell the two apart.
+     */
+    @Test fun anImportedCalendarYieldsItsEventsAndExpandsItsSeries() {
+        val rowId = insertCalendar(ForeignType, ForeignAccount, "Foreign test")
+        val calendarId = AndroidCalendarId.calendar(rowId)
+        val begin = System.currentTimeMillis() + 3_600_000L
+        insertEvent(rowId, "Dentist", begin, begin + 3_600_000L)
+        insertRecurringAllDay(rowId, "Bin day", begin, "FREQ=WEEKLY;COUNT=4")
+
+        val import = AndroidCalendarSource.read(context, setOf(calendarId))
+
+        assertEquals(1, import.calendars.size)
+        assertTrue("the calendar must be read-only", import.calendars.single().readOnly)
+        assertTrue(
+            "expected the one-off event among ${import.events.map { it.title }}",
+            import.events.any { it.title == "Dentist" },
+        )
+        // Instances expands the series for us; four occurrences, one row each.
+        assertEquals(4, import.events.count { it.title == "Bin day" })
+        assertTrue(import.events.all { it.calendarId == calendarId })
+    }
+
     @Test fun readingACalendarThatWasNotAskedForReturnsNothing() {
         val rowId = insertCalendar(ForeignType, ForeignAccount, "Foreign test")
 
@@ -165,6 +195,37 @@ class ImportedCalendarPreferenceTest {
      * the rows in place, which is how an earlier version of this test seeded
      * the emulator with calendars that outlived it.
      */
+    private fun insertEvent(calendarRowId: Long, title: String, start: Long, end: Long) {
+        val values = android.content.ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarRowId)
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DTSTART, start)
+            put(CalendarContract.Events.DTEND, end)
+            put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
+        }
+        context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+    }
+
+    private fun insertRecurringAllDay(
+        calendarRowId: Long,
+        title: String,
+        start: Long,
+        rule: String,
+    ) {
+        val values = android.content.ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarRowId)
+            put(CalendarContract.Events.TITLE, title)
+            // All-day rows are anchored at UTC midnight; the provider rejects
+            // anything else.
+            put(CalendarContract.Events.DTSTART, start / 86_400_000L * 86_400_000L)
+            put(CalendarContract.Events.ALL_DAY, 1)
+            put(CalendarContract.Events.DURATION, "P1D")
+            put(CalendarContract.Events.RRULE, rule)
+            put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
+        }
+        context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+    }
+
     private fun removeTestCalendars() {
         val accounts = listOf(
             ForeignType to ForeignAccount,

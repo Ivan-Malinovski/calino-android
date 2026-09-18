@@ -91,8 +91,20 @@ object AndroidCalendarSource {
         CalendarContract.Instances.AVAILABILITY,
         CalendarContract.Instances.DURATION,
         CalendarContract.Instances.HAS_ALARM,
-        CalendarContract.Instances.STATUS,
     )
+
+    /**
+     * Excludes cancelled meetings.
+     *
+     * Applied as a selection rather than read as a column, because the
+     * `Instances` view does not expose `STATUS` in a projection -- asking for
+     * it makes the whole query throw. The name has to be qualified, since the
+     * view joins `Events` and only that side has the column.
+     */
+    private val NotCancelled =
+        " AND (Events.${CalendarContract.Events.STATUS} IS NULL" +
+            " OR Events.${CalendarContract.Events.STATUS} !=" +
+            " ${CalendarContract.Events.STATUS_CANCELED})"
 
     /**
      * Every calendar on the device that is not Calino's own.
@@ -222,21 +234,26 @@ object AndroidCalendarSource {
         // series into one.
         val remindersByEvent = mutableMapOf<Long, List<Reminder>>()
 
-        context.contentResolver.query(uri, InstanceColumns, selection, null, null)
+        // A cancelled meeting still has instance rows -- Exchange and Google
+        // both keep them so an organiser's recall reaches everyone -- and a
+        // read-only viewer with no way to strike one out should not draw a
+        // meeting that is not happening.
+        //
+        // The fallback is the point of this being two attempts rather than
+        // one. A provider that rejects the qualified column name would
+        // otherwise throw, be swallowed by the catch above, and silently
+        // empty the whole import. Losing the niceness beats losing the
+        // feature.
+        val cursor = runCatching {
+            context.contentResolver.query(uri, InstanceColumns, selection + NotCancelled, null, null)
+        }.getOrNull()
+            ?: context.contentResolver.query(uri, InstanceColumns, selection, null, null)
+
+        cursor
             ?.use { cursor ->
                 while (cursor.moveToNext()) {
                     val calendar = byRow[cursor.getLong(3)] ?: continue
                     if (cursor.isNull(1)) continue
-                    // A cancelled meeting still has instance rows -- Exchange
-                    // and Google both keep them so the organiser's recall
-                    // reaches everyone. Fossify keeps them and marks them;
-                    // a read-only viewer that cannot mark them is better off
-                    // not drawing a meeting that is not happening.
-                    if (!cursor.isNull(11) &&
-                        cursor.getInt(11) == CalendarContract.Instances.STATUS_CANCELED
-                    ) {
-                        continue
-                    }
                     val eventRowId = cursor.getLong(0)
                     val reminders = if (cursor.getInt(10) == 1) {
                         remindersByEvent.getOrPut(eventRowId) {

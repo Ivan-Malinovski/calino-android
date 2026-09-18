@@ -284,7 +284,13 @@ fun CalendarAccountsSurface(
                         )
                     }
                 }
-                if (availableDeviceCalendars.isNotEmpty()) {
+                // Shown when there is something to offer, and also when
+                // something is already imported but the roster came back
+                // empty -- which is what a revoked permission looks like.
+                // Hiding it then would strand the import switched on with no
+                // way to reach it, the exact thing the "opting out never
+                // needs permission" rule exists to prevent.
+                if (availableDeviceCalendars.isNotEmpty() || importedCalendarIds.isNotEmpty()) {
                     item {
                         DeviceCalendarsCard(
                             calendars = availableDeviceCalendars,
@@ -518,6 +524,26 @@ private fun DeviceCalendarsCard(
         style = CalinoTypography.bodySmall,
         color = CalinoColors.Ink3,
     )
+    if (calendars.isEmpty()) {
+        // Reached only with something still imported, so say what happened
+        // and offer the way out rather than leaving a card with nothing in
+        // it.
+        HorizontalDivider(color = CalinoColors.Line)
+        Text(
+            "Calino cannot read this device's calendars without the calendar " +
+                "permission. Whatever was showing is hidden until it is granted " +
+                "again in Android's settings.",
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink2,
+        )
+        TextButton(
+            onClick = { importedCalendarIds.forEach { onImportChanged(it, false) } },
+            modifier = Modifier.heightIn(min = 44.dp)
+                .semantics { contentDescription = "Stop showing this device's calendars" },
+        ) {
+            Text("Stop showing them", color = CalinoColors.Rose)
+        }
+    }
     calendars.groupBy { it.accountName }.forEach { (accountName, owned) ->
         HorizontalDivider(color = CalinoColors.Line)
         EditorLabel(accountName.ifBlank { "This device" })
