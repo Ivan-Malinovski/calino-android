@@ -23,6 +23,7 @@ import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
+import calino.malinov.ski.platform.CalinoAccounts
 import calino.malinov.ski.state.CalinoPreferenceStore
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.widget.CalinoWidgetBridge
@@ -274,12 +275,41 @@ class CalinoContainer private constructor(context: Context) {
         connected = true
         connections.onAccountConnected(account, form.password)
         updateActiveRepository()
+        syncAndroidAccounts()
     }
 
     fun onAccountRemoved(accountId: String) {
         accountStore.removeAccount(accountId)
         connections.onAccountRemoved(accountId)
         updateActiveRepository()
+        syncAndroidAccounts()
+    }
+
+    /**
+     * Whether Calino owns Android accounts and projects calendars into
+     * `CalendarContract`.
+     *
+     * Off until someone opts in. An Android account appearing in Settings is
+     * user-visible, so it must not be a side effect of connecting to a CalDAV
+     * server -- see `docs/calendar-provider.md`.
+     */
+    var calendarProjectionEnabled: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            syncAndroidAccounts()
+        }
+
+    /**
+     * Makes the Android account list match the connected CalDAV accounts, or
+     * empties it while projection is off.
+     */
+    private fun syncAndroidAccounts() {
+        if (calendarProjectionEnabled) {
+            CalinoAccounts.sync(application, accountStore.accounts())
+        } else {
+            CalinoAccounts.clear(application)
+        }
     }
 
     fun onCalendarsToggled() = connections.onCalendarsToggled()

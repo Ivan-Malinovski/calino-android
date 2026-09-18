@@ -349,6 +349,14 @@ class MainActivity : ComponentActivity() {
         private set
 
     /**
+     * Settings asking Calino to add an account, through the account
+     * authenticator. Held like the other pending intents because the
+     * composition that owns the route does not exist yet on a cold start.
+     */
+    var addAccountPending by mutableStateOf(false)
+        private set
+
+    /**
      * A notification tap, waiting for a snapshot that can resolve it.
      *
      * Held rather than acted on: a cold start arrives here before the calendar
@@ -400,8 +408,11 @@ class MainActivity : ComponentActivity() {
 
     fun consumeSearchShortcut() { searchShortcutPending = false }
 
+    fun consumeAddAccount() { addAccountPending = false }
+
     private fun consumeLauncherShortcut(intent: Intent?) {
         if (intent?.action == ActionSearch) searchShortcutPending = true
+        if (intent?.action == ActionAddAccount) addAccountPending = true
     }
 
     private fun consumeReminderIntent(intent: Intent?) {
@@ -462,8 +473,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val ActionSearch = "calino.malinov.ski.action.SEARCH"
+    companion object {
+        private const val ActionSearch = "calino.malinov.ski.action.SEARCH"
+
+        /** Sent by [calino.malinov.ski.platform.CalinoAuthenticator]. */
+        const val ActionAddAccount = "calino.malinov.ski.action.ADD_ACCOUNT"
     }
 }
 
@@ -1044,6 +1058,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         searchOriginRoute = route
         sidebarVisible = false
         searchVisible = true
+    }
+
+    /**
+     * Android Settings sent the person here to add an account. There is one
+     * add-account flow, and this is how the authenticator reaches it rather
+     * than growing a second one.
+     */
+    LaunchedEffect(activity.addAccountPending) {
+        if (!activity.addAccountPending) return@LaunchedEffect
+        activity.consumeAddAccount()
+        sidebarVisible = false
+        route = PockRoute.Accounts
     }
 
     /** The same editor, seeded from a record that already exists. */
