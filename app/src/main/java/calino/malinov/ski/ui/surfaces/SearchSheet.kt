@@ -240,16 +240,24 @@ fun CalinoSearchSheet(
             }
         }
         if (compact) {
-            SwipeDownDismiss(
-                visible = expanded,
-                onDismiss = ::requestClose,
-                modifier = Modifier
+            // The pane offset belongs to the gesture container alone.
+            // SwipeDownDismiss also hands its modifier to the content, so an
+            // offset passed in there is applied twice and parks the capsule a
+            // whole pane below the screen -- leaving only the scrim on screen.
+            Box(
+                Modifier
                     .align(Alignment.TopStart)
                     .offset(x = searchPane.leftDp.dp, y = searchPane.topDp.dp + (paneHeight - capsuleHeight - 20.dp).coerceAtLeast(0.dp))
-                    .width(paneWidth)
-                    .padding(bottom = 20.dp),
-                content = searchContent,
-            )
+                    .width(paneWidth),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                SwipeDownDismiss(
+                    visible = expanded,
+                    onDismiss = ::requestClose,
+                    modifier = Modifier.padding(bottom = 20.dp),
+                    content = searchContent,
+                )
+            }
         } else {
             AnimatedVisibility(
                 visible = expanded,
