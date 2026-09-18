@@ -419,6 +419,70 @@ internal fun selectorColumnForDayTravel(selectedColumn: Int, liveOffset: Float):
 }
 
 /**
+ * Where the expanded month grid's selection pill sits during day travel.
+ *
+ * The compact row has one week to work with, so a Sunday/Monday crossing there
+ * has nowhere to go but back across the row. The open grid shows the
+ * destination week already, and dragging the pill the long way past five days
+ * it never visits reads as a mistake. Here the crossing leaves through the edge
+ * it is heading for and the next week's pill arrives through the opposite edge,
+ * each carrying the alpha of how far the crossing has come.
+ */
+/**
+ * A committed single-day move that leaves one edge of the grid's week and
+ * arrives at the opposite edge of the next.
+ */
+internal data class MonthSelectorCrossing(
+    val from: LocalDate,
+    val to: LocalDate,
+    val progress: Float,
+)
+
+internal data class MonthSelectorPlacement(
+    val row: Int,
+    val column: Float,
+    val alpha: Float,
+)
+
+/**
+ * A pill for the cell [cell] of a grid holding [rows] weeks, nudged [offset]
+ * columns past its own. Cells outside the page are simply not drawn.
+ */
+internal fun monthSelectorPlacementAt(
+    cell: Int,
+    offset: Float,
+    alpha: Float,
+    rows: Int,
+): MonthSelectorPlacement? {
+    if (cell < 0 || cell >= rows * 7) return null
+    return MonthSelectorPlacement(
+        Math.floorDiv(cell, 7),
+        Math.floorMod(cell, 7) + offset,
+        alpha,
+    )
+}
+
+internal fun monthSelectorPlacements(
+    selectedCell: Float,
+    liveOffset: Float,
+): List<MonthSelectorPlacement> {
+    val continuousCell = selectedCell - liveOffset
+    val lowerCell = floor(continuousCell).toInt()
+    val fraction = (continuousCell - floor(continuousCell)).toFloat()
+    val row = Math.floorDiv(lowerCell, 7)
+    val column = Math.floorMod(lowerCell, 7)
+    if (column != 6 || fraction <= .001f) {
+        return listOf(MonthSelectorPlacement(row, column + fraction, 1f))
+    }
+    // Mid-crossing: both halves are drawn, so the week being left and the week
+    // being entered each show the part of the pill that belongs to them.
+    return listOf(
+        MonthSelectorPlacement(row, 6f + fraction, 1f - fraction),
+        MonthSelectorPlacement(row + 1, -1f + fraction, fraction),
+    )
+}
+
+/**
  * The day one week-strip page is showing.
  *
  * The week being revealed shows the previewed day itself; any week merely
@@ -634,6 +698,28 @@ fun HomeScreen(
     // not mirror every sample into Animatable, which adds redundant state
     // writes on the hottest frame path and can still arrive a frame late.
     var compactSelectorHandoff by remember { mutableStateOf<Float?>(null) }
+
+    // The open month shows the destination week already, so a week boundary is
+    // crossed by leaving one edge and arriving at the other. Only the compact
+    // row, which has a single week to work with, slides back across it.
+    val selectorDay = compactBoundaryDay ?: selected
+    var monthCrossingEnds by remember { mutableStateOf<Pair<LocalDate, LocalDate>?>(null) }
+    val monthCrossingProgress = remember { Animatable(0f) }
+    var lastSelectorDay by remember { mutableStateOf(selectorDay) }
+    LaunchedEffect(selectorDay, weekStart) {
+        val previous = lastSelectorDay
+        lastSelectorDay = selectorDay
+        val step = selectorDay.toEpochDay() - previous.toEpochDay()
+        val fromColumn = previous.weekdayColumn(weekStart)
+        val toColumn = selectorDay.weekdayColumn(weekStart)
+        val wraps = (fromColumn == 6 && toColumn == 0) || (fromColumn == 0 && toColumn == 6)
+        if (abs(step) == 1L && wraps) {
+            monthCrossingEnds = previous to selectorDay
+            monthCrossingProgress.snapTo(0f)
+            monthCrossingProgress.animateTo(1f, animationSpec = tween(220, easing = LinearEasing))
+        }
+        monthCrossingEnds = null
+    }
 
     // Changing the week start moves the selected day to a different column.
     // Springing it across the strip would read as a week change that is not
@@ -1811,6 +1897,11 @@ fun HomeScreen(
                         compactDayPagerTravel = {
                             dayPagerTravel.value.takeIf { abs(it) > .001f }
                         },
+                        monthSelectorCrossing = {
+                            monthCrossingEnds?.let { (from, to) ->
+                                MonthSelectorCrossing(from, to, monthCrossingProgress.value)
+                            }
+                        },
                         compactBoundaryTransition = isDayPagerBoundaryTransition,
                         compactLaneOwnedByWeek = weekPreviewActive,
                         modifier = Modifier.fillMaxSize(),
@@ -2110,6 +2201,7 @@ private fun SplitHomeLayout(
                     compactDay = selected,
                     compactSelectorIndex = { selected.weekdayColumn(weekStart).toFloat() },
                     compactDayPagerTravel = { null },
+                    monthSelectorCrossing = { null },
                     compactBoundaryTransition = false,
                     compactLaneOwnedByWeek = remember { mutableStateOf(false) },
                     modifier = Modifier.fillMaxSize(),
@@ -2783,6 +2875,7 @@ private fun MonthPager(
     compactDay: LocalDate,
     compactSelectorIndex: () -> Float,
     compactDayPagerTravel: () -> Float?,
+    monthSelectorCrossing: () -> MonthSelectorCrossing?,
     compactBoundaryTransition: Boolean,
     compactLaneOwnedByWeek: androidx.compose.runtime.State<Boolean>,
     modifier: Modifier,
@@ -2870,6 +2963,7 @@ private fun MonthPager(
                         compactDay = compactDay,
                         compactSelectorIndex = compactSelectorIndex,
                         compactDayPagerTravel = compactDayPagerTravel,
+                        monthSelectorCrossing = monthSelectorCrossing,
                         interactionEnabled = monthInteractive,
                         onDay = onDay,
                         onEventClick = onEventClick,
@@ -3545,6 +3639,7 @@ private fun StaticMonthGrid(
     compactDay: LocalDate,
     compactSelectorIndex: () -> Float,
     compactDayPagerTravel: () -> Float?,
+    monthSelectorCrossing: () -> MonthSelectorCrossing?,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)? = null,
@@ -3722,28 +3817,56 @@ private fun StaticMonthGrid(
                 // crosses directly between the Sunday and Monday columns.
                 val fallbackSelectorWeekRow = compactWeekRow
                 // An active day drag owns the selector geometry directly.
-                // At a Sunday/Monday boundary, interpolate straight across
-                // the row from 6 to 0 (or 0 to 6) from actual fractional pager
-                // travel, never its potentially unstable fling target.
-                var liveSelectorRow = fallbackSelectorWeekRow
-                var liveSelectorColumn = compactSelectorIndex
+                // While the row still stands alone, a Sunday/Monday boundary
+                // has to be crossed inside it, so the pill interpolates
+                // straight across from 6 to 0 (or 0 to 6) from actual
+                // fractional pager travel, never its potentially unstable
+                // fling target. Once the grid is open the destination week is
+                // already on screen, so the crossing leaves through one edge
+                // and arrives through the other instead.
+                var selectorPlacements = listOf(
+                    MonthSelectorPlacement(fallbackSelectorWeekRow, compactSelectorIndex, 1f),
+                )
                 if (liveDayTravel != null) {
                     val selectedCell = selected.toEpochDay().toFloat() - start.toEpochDay().toFloat()
-                    val continuousCell = selectedCell - liveDayTravel
-                    val lowerCell = floor(continuousCell).toInt()
-                    val lowerRow = Math.floorDiv(lowerCell, 7)
-                    val lowerColumn = Math.floorMod(lowerCell, 7)
-                    val fraction = continuousCell - floor(continuousCell)
-                    if (lowerColumn == 6 && fraction > .001f) {
-                        liveSelectorRow = compactWeekRow
+                    if (compactProgress < .5f) {
+                        selectorPlacements = monthSelectorPlacements(selectedCell, liveDayTravel)
+                            .map { it.copy(row = it.row.coerceIn(0, rows - 1)) }
                     } else {
-                        liveSelectorRow = lowerRow
+                        val continuousCell = selectedCell - liveDayTravel
+                        val lowerCell = floor(continuousCell).toInt()
+                        val lowerRow = Math.floorDiv(lowerCell, 7)
+                        val lowerColumn = Math.floorMod(lowerCell, 7)
+                        val fraction = continuousCell - floor(continuousCell)
+                        val row = if (lowerColumn == 6 && fraction > .001f) compactWeekRow else lowerRow
+                        selectorPlacements = listOf(
+                            MonthSelectorPlacement(
+                                row.coerceIn(0, rows - 1),
+                                selectorColumnForDayTravel(
+                                    selected.weekdayColumn(weekStart),
+                                    liveDayTravel,
+                                ),
+                                1f,
+                            ),
+                        )
                     }
-                    liveSelectorColumn = selectorColumnForDayTravel(
-                        selected.weekdayColumn(weekStart),
-                        liveDayTravel,
-                    )
-                    liveSelectorRow = liveSelectorRow.coerceIn(0, rows - 1)
+                } else if (compactProgress < .5f) {
+                    val crossing = monthSelectorCrossing()
+                    if (crossing != null) {
+                        val progress = crossing.progress.coerceIn(0f, 1f)
+                        val fromCell = (crossing.from.toEpochDay() - start.toEpochDay()).toInt()
+                        val toCell = (crossing.to.toEpochDay() - start.toEpochDay()).toInt()
+                        val forward = toCell > fromCell
+                        // The pill leaves through the edge it is heading for
+                        // and the next week's arrives through the opposite
+                        // one, each carrying the alpha of the crossing.
+                        val leaving = if (forward) progress else -progress
+                        val arriving = if (forward) -(1f - progress) else (1f - progress)
+                        selectorPlacements = listOfNotNull(
+                            monthSelectorPlacementAt(fromCell, leaving, 1f - progress, rows),
+                            monthSelectorPlacementAt(toCell, arriving, progress, rows),
+                        )
+                    }
                 }
                 val contentHeaderHeightPx = headerHeightPx * (1f - compactProgress)
                 val compactStartHeightPx = with(density) { CompactWeekMetrics.Height.toPx() }
@@ -3962,44 +4085,56 @@ private fun StaticMonthGrid(
                         compactWeekInsetPx + compactWeekCellWidthPx * compactSelectorIndex.coerceIn(-1f, 7f),
                         compactWeekCenter - pillHeight / 2f,
                     )
-                    val selectorColumn = liveSelectorColumn.coerceIn(-1f, 7f)
-                    val selectorDateTop = dateTopFor(
-                        liveSelectorRow,
-                        selectorColumn.roundToInt().coerceIn(0, 6),
-                    )
-                    val selectorSize = compactDateSizePx
-                    val targetTopLeft = Offset(
-                        gridLeftPx + cellWidthPx * (selectorColumn + .5f) - selectorSize / 2f,
-                        selectorDateTop,
-                    )
                     val selectorMorph = monthSelectorMorphProgress(unfoldZoom)
-                    val selectorTopLeft = Offset(
-                        compactPillTopLeft.x + (targetTopLeft.x - compactPillTopLeft.x) * selectorMorph,
-                        compactPillTopLeft.y + (targetTopLeft.y - compactPillTopLeft.y) * selectorMorph,
-                    )
-                    val selectorWidth = compactWeekCellWidthPx +
-                        (selectorSize - compactWeekCellWidthPx) * selectorMorph
-                    val selectorHeight = pillHeight + (selectorSize - pillHeight) * selectorMorph
                     val compactCorner = with(density) { CompactWeekMetrics.PillRadius.toPx() }
-                    val selectorCorner = compactCorner + (selectorSize / 2f - compactCorner) * selectorMorph
-                    drawRoundRect(
-                        color = faded(colors.SelectionFill),
-                        topLeft = selectorTopLeft,
-                        size = Size(selectorWidth, selectorHeight),
-                        cornerRadius = CornerRadius(selectorCorner),
-                    )
-                    if (colors.SelectionBorder.alpha > 0f) {
-                        // Inset by half the stroke so the edge lands inside the
-                        // pill rather than straddling its bounds and reading a
-                        // pixel wider than the fill.
-                        val strokePx = with(density) { 1.dp.toPx() }
-                        drawRoundRect(
-                            color = faded(colors.SelectionBorder),
-                            topLeft = selectorTopLeft + Offset(strokePx / 2f, strokePx / 2f),
-                            size = Size(selectorWidth - strokePx, selectorHeight - strokePx),
-                            cornerRadius = CornerRadius((selectorCorner - strokePx / 2f).coerceAtLeast(0f)),
-                            style = Stroke(width = strokePx),
-                        )
+                    // A crossing pill is only ever part way into its week, so
+                    // hold it inside the grid rather than letting it paint over
+                    // the week-number rail beside it.
+                    clipRect(
+                        left = gridLeftPx,
+                        top = 0f,
+                        right = gridLeftPx + cellWidthPx * 7f,
+                        bottom = size.height,
+                    ) {
+                        selectorPlacements.forEach { placement ->
+                            val selectorColumn = placement.column.coerceIn(-1f, 7f)
+                            val selectorDateTop = dateTopFor(
+                                placement.row,
+                                selectorColumn.roundToInt().coerceIn(0, 6),
+                            )
+                            val selectorSize = compactDateSizePx
+                            val targetTopLeft = Offset(
+                                gridLeftPx + cellWidthPx * (selectorColumn + .5f) - selectorSize / 2f,
+                                selectorDateTop,
+                            )
+                            val selectorTopLeft = Offset(
+                                compactPillTopLeft.x + (targetTopLeft.x - compactPillTopLeft.x) * selectorMorph,
+                                compactPillTopLeft.y + (targetTopLeft.y - compactPillTopLeft.y) * selectorMorph,
+                            )
+                            val selectorWidth = compactWeekCellWidthPx +
+                                (selectorSize - compactWeekCellWidthPx) * selectorMorph
+                            val selectorHeight = pillHeight + (selectorSize - pillHeight) * selectorMorph
+                            val selectorCorner = compactCorner + (selectorSize / 2f - compactCorner) * selectorMorph
+                            drawRoundRect(
+                                color = faded(colors.SelectionFill, placement.alpha),
+                                topLeft = selectorTopLeft,
+                                size = Size(selectorWidth, selectorHeight),
+                                cornerRadius = CornerRadius(selectorCorner),
+                            )
+                            if (colors.SelectionBorder.alpha > 0f) {
+                                // Inset by half the stroke so the edge lands inside
+                                // the pill rather than straddling its bounds and
+                                // reading a pixel wider than the fill.
+                                val strokePx = with(density) { 1.dp.toPx() }
+                                drawRoundRect(
+                                    color = faded(colors.SelectionBorder, placement.alpha),
+                                    topLeft = selectorTopLeft + Offset(strokePx / 2f, strokePx / 2f),
+                                    size = Size(selectorWidth - strokePx, selectorHeight - strokePx),
+                                    cornerRadius = CornerRadius((selectorCorner - strokePx / 2f).coerceAtLeast(0f)),
+                                    style = Stroke(width = strokePx),
+                                )
+                            }
+                        }
                     }
                 }
                 // The day pager remains the gesture owner while the grid is
@@ -4039,11 +4174,14 @@ private fun StaticMonthGrid(
                     // geometry, resolve it into a date-sized selector. This
                     // remains visible at both the half-month and expanded
                     // month endpoints instead of leaving only today's marker.
-                    val monthSelectionWeight = if (row == liveSelectorRow && !isToday) {
-                        (1f - abs(liveSelectorColumn.coerceIn(-1f, 7f) - column.toFloat()))
-                            .coerceIn(0f, 1f) * (1f - compactProgress)
-                    } else {
-                        0f
+                    val monthSelectionWeight = if (isToday) 0f else {
+                        selectorPlacements.fold(0f) { weight, placement ->
+                            if (placement.row != row) weight else max(
+                                weight,
+                                (1f - abs(placement.column.coerceIn(-1f, 7f) - column.toFloat()))
+                                    .coerceIn(0f, 1f) * placement.alpha * (1f - compactProgress),
+                            )
+                        }
                     }
                     val dateTop = dateTopFor(row, column)
                     val compactFill = if (isToday) {
