@@ -138,8 +138,13 @@ object AndroidCalendarSource {
                         accountType = accountType,
                         name = cursor.getString(3)?.takeIf { it.isNotBlank() }
                             ?: cursor.getString(1).orEmpty(),
-                        color = (cursor.takeIf { !it.isNull(4) }?.getInt(4) ?: DefaultColor)
-                            .toLong() and 0xffffffffL,
+                        // Forced opaque. The provider stores CALENDAR_COLOR
+                        // as 0xRRGGBB with no alpha channel, so carrying the
+                        // value across verbatim yields alpha 0 -- an
+                        // invisible dot and a colourless event, which looks
+                        // like a layout bug rather than a missing byte.
+                        color = ((cursor.takeIf { !it.isNull(4) }?.getInt(4) ?: DefaultColor)
+                            .toLong() and 0xffffffL) or 0xff000000L,
                     )
                 }
             }
@@ -356,5 +361,5 @@ object AndroidCalendarSource {
         Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
 
     /** Used when a provider row carries no colour of its own. */
-    private const val DefaultColor = 0xFF5B8DEF.toInt()
+    private const val DefaultColor = 0x5B8DEF
 }

@@ -99,7 +99,7 @@ class ImportedCalendarPreferenceTest {
     // -------------------------------------------------------- the loop guard
 
     @Test fun aForeignCalendarIsDiscovered() {
-        val rowId = insertCalendar(ForeignType, "someone@example.invalid", "Foreign test")
+        val rowId = insertCalendar(ForeignType, ForeignAccount, "Foreign test")
 
         val found = AndroidCalendarSource.availableCalendars(context)
 
@@ -111,7 +111,7 @@ class ImportedCalendarPreferenceTest {
 
     @Test fun calinosOwnCalendarIsNeverDiscovered() {
         val ours = CalinoAccounts.accountType(context)
-        val rowId = insertCalendar(ours, "calino-import-test", "Calino's own")
+        val rowId = insertCalendar(ours, OwnAccount, "Calino's own")
 
         val found = AndroidCalendarSource.availableCalendars(context)
 
@@ -125,7 +125,7 @@ class ImportedCalendarPreferenceTest {
     }
 
     @Test fun readingACalendarThatWasNotAskedForReturnsNothing() {
-        val rowId = insertCalendar(ForeignType, "someone@example.invalid", "Foreign test")
+        val rowId = insertCalendar(ForeignType, ForeignAccount, "Foreign test")
 
         val other = AndroidCalendarId.calendar(rowId + 9_999)
         val import = AndroidCalendarSource.read(context, setOf(other))
@@ -159,19 +159,24 @@ class ImportedCalendarPreferenceTest {
         return inserted!!.lastPathSegment!!.toLong()
     }
 
+    /**
+     * The provider only honours a sync-adapter delete when the URI names
+     * *both* the account name and its type. Supplying the type alone leaves
+     * the rows in place, which is how an earlier version of this test seeded
+     * the emulator with calendars that outlived it.
+     */
     private fun removeTestCalendars() {
-        for (type in listOf(ForeignType, CalinoAccounts.accountType(context))) {
+        val accounts = listOf(
+            ForeignType to ForeignAccount,
+            CalinoAccounts.accountType(context) to OwnAccount,
+        )
+        for ((type, name) in accounts) {
             val uri = CalendarContract.Calendars.CONTENT_URI.buildUpon()
                 .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+                .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, name)
                 .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, type)
                 .build()
-            runCatching {
-                context.contentResolver.delete(
-                    uri,
-                    "${CalendarContract.Calendars.ACCOUNT_NAME} IN (?, ?)",
-                    arrayOf("someone@example.invalid", "calino-import-test"),
-                )
-            }
+            runCatching { context.contentResolver.delete(uri, null, null) }
         }
     }
 
@@ -181,5 +186,7 @@ class ImportedCalendarPreferenceTest {
          * It must not be Calino's, which is the whole point of the guard.
          */
         const val ForeignType = "calino.test.foreign"
+        const val ForeignAccount = "someone@example.invalid"
+        const val OwnAccount = "calino-import-test"
     }
 }
