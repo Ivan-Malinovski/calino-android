@@ -143,6 +143,7 @@ import calino.malinov.ski.data.model.blankEditorDraft
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.util.formatRecurrenceRule
 import calino.malinov.ski.data.repository.CalinoCalendar
+import calino.malinov.ski.data.model.WebcalSubscription
 import calino.malinov.ski.data.parser.PocQuickAddKind
 import calino.malinov.ski.data.parser.parseQuickAdd
 import calino.malinov.ski.design.CalinoColors
@@ -703,6 +704,7 @@ fun DayModalSurface(
 @Composable
 fun EventDetailSurface(
     event: CalEvent = fixtureEvents().first { it.id == "evt-design" },
+    readOnly: Boolean = false,
     onBack: () -> Unit = {},
     onPrimary: () -> Unit = {},
     occurrenceDate: LocalDate? = null,
@@ -786,21 +788,24 @@ fun EventDetailSurface(
                     cancelLabel = "Cancel",
                     onCancel = { closeAfterAnimation(onBack) },
                     cancelDescription = "Close event preview",
-                    deleteLabel = "Delete",
-                    onDelete = state.onDelete,
+                    // Null rather than disabled: a greyed-out trash on
+                    // somebody else's calendar invites the question every
+                    // time it is seen.
+                    deleteLabel = "Delete".takeUnless { readOnly },
+                    onDelete = state.onDelete.takeUnless { readOnly },
                     deleteDescription = "Delete event",
                     deleteConfirmationActive = state.confirmingDelete,
                     onDeleteConfirmationChange = state.onDeletePromptChanged,
                     deleteHoldToConfirm = true,
                     onDeleteHold = state.onDeleteOccurrence,
-                    secondaryLabel = "Open",
-                    onSecondary = state.onOpen,
+                    secondaryLabel = "Open".takeUnless { readOnly },
+                    onSecondary = state.onOpen.takeUnless { readOnly },
                     secondaryDescription = "Open event",
                     primaryLabel = "Save",
                     onPrimary = state.onSave,
                     // Delete keeps its own lane whatever happens; Save is the
                     // one that appears, and only once the preview is dirty.
-                    primaryVisible = state.dirty,
+                    primaryVisible = state.dirty && !readOnly,
                     primaryDescription = "Save event changes",
             )
         },
@@ -824,7 +829,13 @@ fun EventDetailSurface(
                     handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
                     allowDownwardDismissInEndPanel = true,
                 ) { cardModifier ->
-                    EventDetailContent(pageEvent,
+                    EventDetailContent(
+                        pageEvent,
+                        // Read per page, not per card: the pager can reach a
+                        // neighbour in a different calendar from the one the
+                        // card opened on.
+                        readOnly = readOnly ||
+                            WebcalSubscription.isWebcalCalendarId(pageEvent.calendarId),
                         // Only the page the card opened on is the occurrence
                         // that was tapped; a paged-to neighbour states its own
                         // date.
@@ -848,6 +859,7 @@ fun EventDetailSurface(
 @Composable
 private fun EventDetailContent(
     event: CalEvent,
+    readOnly: Boolean,
     occurrenceDate: LocalDate?,
     onBack: () -> Unit,
     onPrimary: () -> Unit,
@@ -887,7 +899,22 @@ private fun EventDetailContent(
     var deleteScope by remember(event.id, event.recurrenceId, event.recurrenceDate) {
         mutableStateOf(defaultEventDeleteScope(event))
     }
-    val dirty = draft != original
+    val dirty = draft != original && !readOnly
+
+    /**
+     * The only way the draft changes.
+     *
+     * One gate rather than six call sites each remembering to check. Letting
+     * a person type into a field whose value can never be saved is a worse
+     * answer than not taking the keystroke: the edit looks accepted right up
+     * until it silently is not.
+     */
+    fun edit(change: (EventPreviewDraft) -> EventPreviewDraft) {
+        if (readOnly) return
+        draft = change(draft)
+        error = null
+    }
+
     fun save(openAfter: Boolean) {
         // The when-block is edited through pickers now, so there is no text to
         // reject: whatever the draft holds is already a real date and time.
@@ -921,27 +948,26 @@ private fun EventDetailContent(
     val deleteOccurrenceAction = {
         onDeleteEvent(event, if (isRecurringEvent(event)) RecurrenceEditScope.This else deleteScope)
     }
-    val pickDate = rememberDatePicker({ draft.date }) { draft = draft.copy(date = it); error = null }
+    val pickDate = rememberDatePicker({ draft.date }) { edit { draft -> draft.copy(date = it) } }
     val pickStartTime = rememberTimePicker({ draft.startTime }) { picked ->
         // Keep the span the person already agreed to rather than snapping the
         // end back to an hour: moving a meeting is not re-planning its length.
-        draft = draft.copy(startTime = picked, durationMinutes = draft.durationMinutes ?: DefaultEventMinutes)
-        error = null
+        edit { it.copy(startTime = picked, durationMinutes = it.durationMinutes ?: DefaultEventMinutes) }
     }
     val pickEndTime = rememberTimePicker({ draft.startTime?.plusMinutes(draft.durationMinutes?.toLong() ?: 0L) }) { picked ->
         val start = draft.startTime ?: return@rememberTimePicker
         val span = java.time.Duration.between(start, picked).toMinutes()
         val minutes = if (span <= 0) span + java.time.Duration.ofDays(1).toMinutes() else span
-        draft = draft.copy(durationMinutes = minutes.toInt())
-        error = null
+        edit { it.copy(durationMinutes = minutes.toInt()) }
     }
     val toggleAllDay = {
-        draft = if (draft.startTime == null) {
-            draft.copy(startTime = LocalTime.of(9, 0), durationMinutes = DefaultEventMinutes)
-        } else {
-            draft.copy(startTime = null, durationMinutes = null)
+        edit {
+            if (it.startTime == null) {
+                it.copy(startTime = LocalTime.of(9, 0), durationMinutes = DefaultEventMinutes)
+            } else {
+                it.copy(startTime = null, durationMinutes = null)
+            }
         }
-        error = null
     }
     val deletePromptChanged: (Boolean) -> Unit = { asked ->
         deleteStage = when {
@@ -984,7 +1010,7 @@ private fun EventDetailContent(
                 }
                 BasicTextField(
                     value = draft.title,
-                    onValueChange = { draft = draft.copy(title = it); error = null },
+                    onValueChange = { value -> edit { it.copy(title = value) } },
                     textStyle = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink),
                     singleLine = true,
                     // The kicker is a 10sp label and the title a display
@@ -1036,7 +1062,7 @@ private fun EventDetailContent(
                     CalinoIcon.Pin,
                     "Location",
                     draft.location.orEmpty(),
-                    onValue = { draft = draft.copy(location = it) },
+                    onValue = { value -> edit { it.copy(location = value) } },
                     trailing = {
                         // The location button is a 44dp target centring a 20dp
                         // glyph, so its box has to stop 12dp short of the
@@ -1063,7 +1089,7 @@ private fun EventDetailContent(
             }
             if (event.attendees.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Users, "Attendees", event.attendees.joinToString { it.name.ifBlank { it.email } }) }
             item { HorizontalDivider(Modifier.padding(vertical = 6.dp), color = CalinoColors.Ink.copy(.1f)) }
-            item { PreviewEditRow(CalinoIcon.Note, "Description", draft.description, if (draft.description.isBlank()) "+ Add description" else "") { draft = draft.copy(description = it) } }
+            item { PreviewEditRow(CalinoIcon.Note, "Description", draft.description, if (draft.description.isBlank()) "+ Add description" else "") { value -> edit { it.copy(description = value) } } }
             error?.let { message -> item { Text(message, color = CalinoColors.Rose, style = CalinoTypography.bodySmall, modifier = Modifier.padding(12.dp)) } }
         }
         AnimatedVisibility(scopePrompt) {
@@ -2639,6 +2665,16 @@ fun DayModal(state: DayModalState = DayModalState(), onDismiss: () -> Unit = {},
 @Composable
 fun EventDetail(
     event: CalEvent = fixtureEvents().first(),
+    /**
+     * True when the event's calendar cannot be written to -- an imported
+     * device calendar, or a CalDAV collection the server grants no write
+     * privilege on.
+     *
+     * The repository refuses such a write anyway, but a refusal is a poor
+     * substitute for not offering the action: a person who taps Delete and
+     * reads an apology has already decided to delete something.
+     */
+    readOnly: Boolean = false,
     onBack: () -> Unit = {},
     onPrimaryAction: () -> Unit = {},
     occurrenceDate: LocalDate? = null,
@@ -2650,6 +2686,7 @@ fun EventDetail(
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
 ) = EventDetailSurface(
     event = event,
+    readOnly = readOnly,
     onBack = onBack,
     onPrimary = onPrimaryAction,
     occurrenceDate = occurrenceDate,
