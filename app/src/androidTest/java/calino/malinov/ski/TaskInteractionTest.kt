@@ -155,6 +155,12 @@ class TaskInteractionTest : CalinoUiTest() {
             .assertIsDisplayed()
     }
 
+    @Test fun taskDetailExposesDeleteInTheActionPill() {
+        openTaskDetail()
+
+        compose.onNodeWithContentDescription("Delete task").assertIsDisplayed()
+    }
+
     private fun openTaskDetail() {
         compose.openRoute("Tasks")
         compose.waitForIdle()

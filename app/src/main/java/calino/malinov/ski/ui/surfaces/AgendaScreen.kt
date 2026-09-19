@@ -498,12 +498,6 @@ internal fun AgendaDayBlock(
                             variant = AgendaRowVariant.Card,
                             onClick = onEventClick?.let { click -> { click(day, event) } },
                             onLongClick = onEventAction?.let { { menuOpen = true } },
-                            onDragStart = { menuOpen = false },
-                            onDragEnd = { offset ->
-                                if (kotlin.math.abs(offset.y) > 36f) {
-                                    onEventDrop(event, day.plusDays((offset.y / 76f).roundToInt().toLong()))
-                                }
-                            },
                         )
                         EventActionMenu(
                             event = event,

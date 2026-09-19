@@ -3010,7 +3010,7 @@ private fun MonthPager(
                         onDay = onDay,
                         onEventClick = onEventClick,
                         onEventAction = onEventAction,
-                        onEventDrop = onEventDrop,
+                        onEventDrop = null,
                     )
                 }
             }
@@ -6157,7 +6157,6 @@ private fun SelectedDayAgendaPage(
                         onClick = onEvent?.let { callback -> { callback(event) } },
                         agendaStyle = true,
                         onEventAction = onEventAction,
-                        onEventDrop = onEventDrop?.let { callback -> { _, deltaY -> callback(event, day.plusDays((deltaY / 76f).roundToInt().toLong())) } },
                     )
                 }
             }

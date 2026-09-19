@@ -2151,6 +2151,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             restoreTaskDetailOrigin()
                         }
                     },
+                    onDelete = {
+                        launchWrite(
+                            { repository.deleteTask(task.id, task.recurrenceScope) },
+                            indicate = PillWriteKind.Remove,
+                        ) {
+                            selectedTaskId = null
+                            restoreTaskDetailOrigin()
+                        }
+                    },
                     onAddSubtask = {
                         openQuickAdd(QuickAddKind.Task, PocReturnTarget.TaskDetail, morphFromAddPill = true, parentTaskId = task.id)
                     },

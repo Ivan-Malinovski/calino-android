@@ -1487,6 +1487,7 @@ fun TaskDetailSurface(
     tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
     onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+    onDelete: () -> Unit = {},
     onAddSubtask: () -> Unit = {},
 ) {
     val today = LocalCalinoNow.current.today
@@ -1499,6 +1500,8 @@ fun TaskDetailSurface(
     var percentComplete by remember(task.id) { mutableIntStateOf(task.percentComplete) }
     var shown by remember(task.id) { mutableStateOf(true) }
     var pendingSave by remember(task.id) { mutableStateOf(false) }
+    var pendingDelete by remember(task.id) { mutableStateOf(false) }
+    var confirmingDelete by remember(task.id) { mutableStateOf(false) }
     var requestedDone by remember(task.id) { mutableStateOf<Boolean?>(null) }
     val detailScrollState = rememberScrollState()
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
@@ -1507,7 +1510,9 @@ fun TaskDetailSurface(
     LaunchedEffect(shown) {
         if (!shown) {
             delay(220)
-            if (pendingSave) {
+            if (pendingDelete) {
+                onDelete()
+            } else if (pendingSave) {
                 // Completion is latched separately from presentation state.
                 // The sheet exits before saving, and the delayed coroutine can
                 // otherwise observe the pre-click `done` value from its exit
@@ -1577,6 +1582,16 @@ fun TaskDetailSurface(
                 cancelLabel = "Cancel",
                 onCancel = { dismiss(false) },
                 cancelDescription = "Cancel task editing",
+                deleteLabel = "Delete",
+                onDelete = {
+                    pendingDelete = true
+                    confirmingDelete = false
+                    shown = false
+                },
+                deleteDescription = "Delete task",
+                deleteConfirmationActive = confirmingDelete,
+                onDeleteConfirmationChange = { confirmingDelete = it },
+                deleteHoldToConfirm = true,
                 primaryLabel = "Save",
                 onPrimary = { dismiss(true) },
                 primaryEnabled = canSave,
@@ -1675,16 +1690,12 @@ fun TaskDetailSurface(
                         CalinoIcon(CalinoIcon.Calendar, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
                         label("Due date", Modifier.padding(start = 16.dp))
                     }
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        val choices = listOf(
-                            today to "Today",
-                            today.plusDays(1) to "Tomorrow",
-                            today.plusDays(7) to "Next week",
-                            null to "No date",
-                        )
+                    val choices = listOf(
+                        today to "Today",
+                        today.plusDays(1) to "Tomorrow",
+                        today.plusDays(7) to "Next week",
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         choices.forEach { (date, text) ->
                             val selected = due == date
                             TextButton(
@@ -1697,22 +1708,37 @@ fun TaskDetailSurface(
                                     .semantics {
                                         contentDescription = if (selected) "$text, selected" else "Set due date to $text"
                                     },
-                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
                             ) {
-                                Text(text, fontSize = 10.sp, color = if (selected) CalinoColors.Accent else CalinoColors.Ink2, maxLines = 1)
+                                Text(text, fontSize = 11.sp, color = if (selected) CalinoColors.Accent else CalinoColors.Ink2, maxLines = 1)
                             }
                         }
                     }
-                    TextButton(
-                        onClick = pickDueDate,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(CalinoColors.Panel)
-                            .semantics { contentDescription = "Choose a custom due date" },
-                    ) {
-                        Text("Choose date…", color = CalinoColors.Accent)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(
+                            onClick = pickDueDate,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 44.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(CalinoColors.Panel)
+                                .semantics { contentDescription = "Choose a custom due date" },
+                        ) {
+                            Text("Choose date…", color = CalinoColors.Accent)
+                        }
+                        TextButton(
+                            onClick = { due = null },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 44.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (due == null) CalinoColors.AccentSoft else CalinoColors.Panel)
+                                .semantics {
+                                    contentDescription = if (due == null) "No date, selected" else "Remove due date"
+                                },
+                        ) {
+                            Text("No date", color = if (due == null) CalinoColors.Accent else CalinoColors.Ink2)
+                        }
                     }
                     due?.let { selectedDue ->
                         Text(
@@ -2728,8 +2754,9 @@ fun TaskDetail(
     tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
     onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+    onDelete: () -> Unit = {},
     onAddSubtask: () -> Unit = {},
-) = TaskDetailSurface(task, tasks, onBack, onSave, onAddSubtask)
+) = TaskDetailSurface(task, tasks, onBack, onSave, onDelete, onAddSubtask)
 
 /** Task ledger; horizontal drag reveals completion/rescheduling affordances. */
 @Composable

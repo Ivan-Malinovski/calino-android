@@ -224,14 +224,22 @@ private fun SpanRule(
 ) {
     Column(
         modifier
-            .width(56.dp)
+            .width(72.dp)
             .then(if (onAllDay != null) Modifier.clickable(role = Role.Button, onClick = onAllDay) else Modifier)
             .semantics { contentDescription = if (onAllDay != null) action else "Duration, $label" }
             .padding(top = topPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(label, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
+        Text(
+            text = label,
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink2,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Box(Modifier.fillMaxWidth().height(7.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 3.dp).height(1.dp).background(CalinoColors.Ink.copy(alpha = .18f)))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
