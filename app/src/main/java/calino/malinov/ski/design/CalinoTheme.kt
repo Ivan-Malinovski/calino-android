@@ -164,6 +164,15 @@ data class CalinoPalette(
     fun tint(color: Color, percent: Float, over: Color = Canvas): Color =
         lerp(over, forEvent(color), (percent * eventTintScale).coerceIn(0f, 1f))
 
+    /**
+     * The fill an event wears in the calendar grid, at every size.
+     *
+     * A compact marker and the card it unfolds into are the same swatch, so
+     * changing level never reads as changing color. Stronger than a card's
+     * usual wash, because a 3dp dot has to carry its hue on that little ink.
+     */
+    fun eventFill(resolved: Color): Color = tint(resolved, .42f, Panel)
+
     private companion object {
         /**
          * Keyed on the light palette's own hues, so a fixture written against

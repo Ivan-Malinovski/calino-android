@@ -2509,7 +2509,7 @@ private fun DrawScope.drawCompactWeekRow(
             val markerWidth = widths[index] * markerScale
             val markerHeight = if (event.allDay) 3.dp.toPx() else 5.dp.toPx()
             drawRoundRect(
-                color = faded(colors.forEvent(Color(event.color))),
+                color = faded(colors.eventFill(colors.forEvent(Color(event.color)))),
                 topLeft = Offset(markerLeft, markerAreaTop + (markerBandPx - markerHeight) / 2f),
                 size = Size(markerWidth, markerHeight),
                 cornerRadius = CornerRadius(2.dp.toPx()),
@@ -4335,10 +4335,10 @@ private fun StaticMonthGrid(
                             val width = fromWidth + (chipWidth - fromWidth) * morph
                             val height = fromHeight + (chipHeightPx - fromHeight) * morph
                             val eventColor = colors.forEvent(Color(event.color))
-                            // The same fill and hairline edge the full-size
-                            // event card wears, so a day's cards and its
-                            // agenda entries read as one family.
-                            val chipColor = colors.tint(eventColor, .12f, colors.Panel)
+                            // The very swatch the compact marker wears, so
+                            // the card it unfolds into is the same color at
+                            // every size and only its shape ever changes.
+                            val chipColor = colors.eventFill(eventColor)
                             val outerCorner = with(density) { 2.dp.toPx() } +
                                 (chipCornerPx - with(density) { 2.dp.toPx() }) * morph
                             val leftCorner = outerCorner * if (span.continuesFromPrevious) 1f - morph else 1f
@@ -4375,7 +4375,7 @@ private fun StaticMonthGrid(
                             }
                             drawPath(
                                 chipPath(),
-                                color = faded(lerpColor(eventColor, chipColor, morph), chipFade),
+                                color = faded(chipColor, chipFade),
                             )
                             if (morph > .01f && !span.isSpan) {
                                 drawPath(
@@ -4397,7 +4397,10 @@ private fun StaticMonthGrid(
                             }
                         } else if (hasMarker) {
                             drawRoundRect(
-                                color = faded(colors.forEvent(Color(event.color)), 1f - detailProgress),
+                                color = faded(
+                                    colors.eventFill(colors.forEvent(Color(event.color))),
+                                    1f - detailProgress,
+                                ),
                                 topLeft = Offset(markerX, markerTop),
                                 size = Size(markerWidth, markerHeight),
                                 cornerRadius = CornerRadius(2.dp.toPx()),
@@ -4425,6 +4428,35 @@ private fun StaticMonthGrid(
                 // individual day segment. Draw it after the cell clips so it
                 // can use the complete connected width.
                 if (detailProgress > .01f) {
+                    // The run grows out of its first day's marker the way
+                    // a single-day card does, so re-derive the marker a lane
+                    // occupies in a cell with the same math the cells use.
+                    fun laneMarker(cellIndex: Int, lane: Int): Rect? {
+                        val widths = compactMarkerWidths[cellIndex]
+                        if (lane >= widths.size) return null
+                        val gaps = eventMarkerGapPx * (widths.size - 1).coerceAtLeast(0)
+                        var rawTotal = gaps
+                        widths.forEach { width -> rawTotal += width }
+                        val scale = if (rawTotal > 0f) {
+                            min(1f, (cellWidthPx - gaps).coerceAtLeast(1f) / rawTotal)
+                        } else {
+                            1f
+                        }
+                        val markerRow = cellIndex / 7
+                        val markerColumn = cellIndex % 7
+                        var left = gridLeftPx + cellWidthPx * markerColumn +
+                            (cellWidthPx - rawTotal * scale) / 2f
+                        repeat(lane) { earlier -> left += widths[earlier] * scale + eventMarkerGapPx }
+                        val width = widths[lane] * scale
+                        val height = with(density) {
+                            if (cellEvents[cellIndex][lane].allDay) 3.dp.toPx() else 5.dp.toPx()
+                        }
+                        val areaTop = dateTopFor(markerRow, markerColumn) +
+                            (compactDateSizePx + (detailedDateSizePx - compactDateSizePx) * detailProgress) +
+                            dateGapPx
+                        val markerTop = areaTop + (eventAreaHeightPx - height) / 2f
+                        return Rect(left, markerTop, left + width, markerTop + height)
+                    }
                     repeat(rows) { row ->
                         repeat(7) { column ->
                             val index = row * 7 + column
@@ -4445,17 +4477,44 @@ private fun StaticMonthGrid(
                                     if (span.continuesFromPreviousWeek) 0f else chipHorizontalPaddingPx
                                 val barRight = gridLeftPx + cellWidthPx * (endColumn + 1) -
                                     if (endSpan.continuesToNextWeek) 0f else chipHorizontalPaddingPx
-                                val top = rowTopFor(row) + dateTopPaddingPx +
+                                val chipTop = rowTopFor(row) + dateTopPaddingPx +
                                     (compactDateSizePx + (detailedDateSizePx - compactDateSizePx) * detailProgress) +
                                     dateGapPx + chipPitchPx * lane
-                                val bottom = top + chipHeightPx
+                                // Run the whole bar through the marker-to-card
+                                // morph its day segments take, so a span opens
+                                // and closes with the rest of the grid instead
+                                // of fading in over it at full width.
+                                val startMarker = laneMarker(index, lane)
+                                val endMarker = laneMarker(row * 7 + endColumn, lane)
+                                val morph = if (startMarker != null && endMarker != null) detailProgress else 1f
+                                val fromLeft = startMarker?.left ?: barLeft
+                                val fromTop = startMarker?.top ?: chipTop
+                                val fromHeight = startMarker?.height ?: chipHeightPx
+                                // Reaching from the first marker to the last
+                                // one starts the bar at nearly its full width,
+                                // so it can only appear rather than arrive.
+                                // Instead it sits exactly on the first day's
+                                // own card and unrolls from there across the
+                                // run, closing one gutter after another.
+                                val firstChipRight = gridLeftPx + cellWidthPx * (column + 1) -
+                                    if (span.continuesToNext) 0f else chipHorizontalPaddingPx
+                                val firstRight = startMarker?.let {
+                                    it.right + (firstChipRight - it.right) * morph
+                                } ?: firstChipRight
+                                val join = smoothStep(((morph - .4f) / .6f).coerceIn(0f, 1f))
+                                val leftEdge = fromLeft + (barLeft - fromLeft) * morph
+                                val rightEdge = firstRight + (barRight - firstRight) * join
+                                val top = fromTop + (chipTop - fromTop) * morph
+                                val bottom = top + fromHeight + (chipHeightPx - fromHeight) * morph
+                                val markerCornerPx = with(density) { 2.dp.toPx() }
+                                val runCornerPx = markerCornerPx + (chipCornerPx - markerCornerPx) * morph
                                 fun weeklyPath(inset: Float = 0f): Path {
-                                    val left = barLeft + inset
-                                    val right = barRight - inset
+                                    val left = leftEdge + inset
+                                    val right = rightEdge - inset
                                     val pathTop = top + inset
                                     val pathBottom = bottom - inset
                                     val pathHeight = (pathBottom - pathTop).coerceAtLeast(0f)
-                                    val corner = (chipCornerPx - inset).coerceAtLeast(0f)
+                                    val corner = (runCornerPx - inset).coerceAtLeast(0f)
                                     val arrow = min((right - left) / 3f, pathHeight * .42f)
                                     return if (
                                         span.continuesFromPreviousWeek || endSpan.continuesToNextWeek
@@ -4494,15 +4553,21 @@ private fun StaticMonthGrid(
                                     }
                                 }
                                 val eventColor = colors.forEvent(Color(event.color))
+                                // Sitting on a card that is already drawn,
+                                // the bar needs no fade of its own; a lane
+                                // with no marker to grow from still does.
+                                val runFade = if (startMarker != null) 1f else detailProgress
                                 drawPath(
                                     weeklyPath(),
-                                    color = faded(colors.tint(eventColor, .12f, colors.Panel), detailProgress),
+                                    color = faded(colors.eventFill(eventColor), runFade),
                                 )
                                 drawPath(
                                     weeklyPath(chipBorderPx / 2f),
-                                    color = faded(eventColor.copy(alpha = .16f), detailProgress),
+                                    color = faded(eventColor.copy(alpha = .16f), morph * runFade),
                                     style = Stroke(width = chipBorderPx),
                                 )
+                                val textProgress = smoothStep(((morph - .5f) / .5f).coerceIn(0f, 1f)) * runFade
+                                if (textProgress <= .01f) return@forEachIndexed
                                 val arrow = min((barRight - barLeft) / 3f, chipHeightPx * .42f)
                                 val textLeft = barLeft +
                                     if (span.continuesFromPreviousWeek) arrow + chipTextStartPx / 2f else chipTextStartPx
@@ -4517,14 +4582,20 @@ private fun StaticMonthGrid(
                                         maxWidth = (textRight - textLeft).roundToInt().coerceAtLeast(1),
                                     ),
                                 )
-                                drawText(
-                                    titleLayout,
-                                    topLeft = Offset(
-                                        textLeft,
-                                        top + (chipHeightPx - titleLayout.size.height) / 2f,
-                                    ),
-                                    color = faded(colors.Ink, detailProgress),
-                                )
+                                // The title is laid out for the finished run,
+                                // so keep it inside the bar that is still
+                                // unrolling: it is uncovered as the days join
+                                // rather than lying across bare paper.
+                                clipRect(left = leftEdge, top = top, right = rightEdge, bottom = bottom) {
+                                    drawText(
+                                        titleLayout,
+                                        topLeft = Offset(
+                                            textLeft + (leftEdge - barLeft),
+                                            (top + bottom) / 2f - titleLayout.size.height / 2f,
+                                        ),
+                                        color = faded(colors.Ink, textProgress),
+                                    )
+                                }
                             }
                         }
                     }
