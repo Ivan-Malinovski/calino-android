@@ -16,7 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Journal create / edit / delete and mode changes.
+ * Journal create / edit / delete and overview changes.
  *
  * The Journal surface is reachable without setting a preference first, because
  * the fixture data contains entries and `featureAvailabilityAfter` turns a
@@ -41,6 +41,16 @@ class JournalFlowTest : CalinoUiTest() {
 
         compose.onNodeWithContentDescription("Edit journal entry").assertIsDisplayed()
         compose.onNodeWithContentDescription("Journal title").assertIsDisplayed()
+    }
+
+    @Test fun pagesBetweenEntriesWithoutClosingTheReader() {
+        openEntry()
+
+        compose.onNodeWithContentDescription("Previous journal entry").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Journal title").assertTextContains("Design Sprint — Day 1")
+        compose.onNodeWithContentDescription("Edit journal entry").assertIsDisplayed()
     }
 
     @Test fun createsAnEntry() {
@@ -112,16 +122,45 @@ class JournalFlowTest : CalinoUiTest() {
         awaitNoDescribed("Open journal entry $Existing")
     }
 
-    @Test fun switchesBetweenListModes() {
+    @Test fun previewsTheJournalBody() {
+        openEntry()
+        beginEditing()
+
+        compose.onNodeWithContentDescription("Journal editor mode: Preview").performClick()
+        compose.waitForIdle()
+
+        // Preview swaps the editable field out for rendered markdown, so the
+        // body field's absence is what actually distinguishes the two modes;
+        // the excerpt text alone also matches the list card behind the modal.
+        compose.onNodeWithContentDescription("Journal body").assertDoesNotExist()
+
+        compose.onNodeWithContentDescription("Journal editor mode: Write").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Journal body").assertExists()
+    }
+
+    @Test fun boldFormattingWrapsInsertedText() {
+        openJournal()
+        compose.onNodeWithContentDescription("New entry. Swipe up to search").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Journal body").performTextInput("formatted")
+
+        compose.onNodeWithContentDescription("Bold").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Journal body").assertTextContains("formatted****")
+    }
+
+    @Test fun togglesTheMonthOverview() {
         openJournal()
 
-        compose.onNodeWithContentDescription("Journal list view: By month").performClick()
+        compose.onNodeWithContentDescription("Change journal overview, level 1 of 2").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("MAY 2026").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Previous month").assertIsDisplayed()
 
-        compose.onNodeWithContentDescription("Journal list view: All entries").performClick()
+        compose.onNodeWithContentDescription("Change journal overview, level 2 of 2").performClick()
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("Open journal entry $Existing").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Change journal overview, level 1 of 2").assertIsDisplayed()
     }
 
     private fun openJournal() {

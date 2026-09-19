@@ -1855,6 +1855,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         openEntryId = journalOpenEntryId,
                         onOpenEntryConsumed = { journalOpenEntryId = null },
                         onOpenMenu = { sidebarVisible = true },
+                        onOpenSearch = {
+                            searchOriginRoute = PockRoute.Journal
+                            searchVisible = true
+                        },
                         startEntryRequest = journalEntryRequest,
                     )
                     PockRoute.Contacts -> ContactsSurface(
