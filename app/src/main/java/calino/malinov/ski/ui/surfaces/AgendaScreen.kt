@@ -29,7 +29,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,6 +78,7 @@ import calino.malinov.ski.state.FixtureNow
 import calino.malinov.ski.state.LocalCalinoNow
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.ui.home.MonthPagerPageCount
+import calino.malinov.ski.ui.home.PillSwipeDays
 import calino.malinov.ski.ui.home.dateForDayPage
 import calino.malinov.ski.ui.home.monthEventIndex
 import calino.malinov.ski.ui.home.monthForPage
@@ -86,9 +90,28 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+
+/** No drag owns the pill's label; there is no page to measure travel from. */
+private const val NoSwipeBase = Int.MIN_VALUE
+
+/**
+ * What [page] is showing: the day its own list has under the focus line, or --
+ * before that page has ever been laid out -- the day of the month [current] is
+ * on, kept where it can exist so paging forward from the 31st does not jump.
+ */
+private fun focusedDayOnPage(
+    pageFocus: Map<Int, LocalDate>,
+    page: Int,
+    current: LocalDate,
+): LocalDate {
+    val month = monthForPage(page)
+    pageFocus[page]?.takeIf { YearMonth.from(it) == month }?.let { return it }
+    return month.atDay(current.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
+}
 
 private val AgendaDayFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
 
@@ -106,6 +129,16 @@ fun AgendaScreen(
     initialDate: LocalDate = FixtureNow.today,
     onOpenMenu: (() -> Unit)? = null,
     onDateChanged: (LocalDate) -> Unit = {},
+    /**
+     * The two days a live month swipe has the add pill's label between, or
+     * null whenever no drag owns it. Null at rest rather than the committed
+     * day twice: a scroll that moves the focused date is a settled relabel
+     * the pill slides vertically, and a pair standing in the lane would take
+     * that motion away from it.
+     */
+    onSwipeLabelDaysChanged: (PillSwipeDays?) -> Unit = {},
+    /** Where between them it sits, read per frame from the pill's own scopes. */
+    onSwipeLabelTravel: (() -> Float) -> Unit = {},
     /** Carries the row's own day: an agenda row is not always the selected date. */
     onEventClick: ((LocalDate, CalEvent) -> Unit)? = null,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
@@ -123,6 +156,15 @@ fun AgendaScreen(
 
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = monthPageFor(YearMonth.from(initialDate))) { MonthPagerPageCount }
+
+    // What each composed page's list is actually resting on, keyed by page.
+    // A month page keeps its own scroll position, and a page arrived at for
+    // the first time opens at its start -- so which day a month is showing is
+    // the page's own business, not something the day-of-month arithmetic can
+    // work out from the month being left. Both the label riding a swipe and
+    // the date the swipe commits read the arriving page from here, so they
+    // name the same day and the pill has nothing to correct afterwards.
+    val pageFocus = remember { mutableStateMapOf<Int, LocalDate>() }
 
     // Only a user drag may commit a month. Programmatic syncs must not feed
     // intermediate pages back into the selected date, the same discipline the
@@ -144,14 +186,58 @@ fun AgendaScreen(
                 val month = monthForPage(page)
                 val current = LocalDate.ofEpochDay(currentSelectedEpoch.value)
                 if (YearMonth.from(current) == month) return@collect
-                // Keep the day-of-month where it can exist, so paging a month
-                // forward from the 31st does not silently jump elsewhere.
-                val day = current.dayOfMonth.coerceAtMost(month.lengthOfMonth())
-                val next = month.atDay(day)
+                val next = focusedDayOnPage(pageFocus, page, current)
                 selectedEpoch = next.toEpochDay()
                 onDateChanged(next)
             }
     }
+    // A month change made with the finger is a horizontal move, the same one
+    // the calendar's pagers hand the pill, so the label rides the drag across
+    // instead of being swapped once the page has settled and sliding up like
+    // a scroll. Only a drag steers it: the pager is also animated to follow a
+    // tapped month, and chasing that would walk the label through the months
+    // in between.
+    val swipeLabelDays by remember(pagerState) {
+        derivedStateOf {
+            val committed = LocalDate.ofEpochDay(selectedEpoch)
+            if (dragOrigin == null || dragOrigin != selectedEpoch) {
+                return@derivedStateOf NoSwipeBase to null
+            }
+            val dayAt: (Int) -> LocalDate = { page ->
+                focusedDayOnPage(pageFocus, page.coerceIn(0, MonthPagerPageCount - 1), committed)
+            }
+            val base = floor(pagerState.currentPage + pagerState.currentPageOffsetFraction).toInt()
+            base to PillSwipeDays(from = dayAt(base), to = dayAt(base + 1))
+        }
+    }
+    val daysReporter = rememberUpdatedState(onSwipeLabelDaysChanged)
+    // The page the pair the pill is holding was built from. The pair reaches
+    // the pill through a recomposition while the travel below is read in the
+    // frame it is drawn, so measuring the travel from the base that was
+    // actually reported is what keeps the two describing one picture.
+    val reportedBase = remember { mutableIntStateOf(NoSwipeBase) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { swipeLabelDays }.collect { (base, days) ->
+            reportedBase.intValue = base
+            daysReporter.value(days)
+        }
+    }
+    val travelReporter = rememberUpdatedState(onSwipeLabelTravel)
+    val swipeLabelTravel = remember {
+        {
+            val base = reportedBase.intValue
+            if (base == NoSwipeBase) 0f
+            else (pagerState.currentPage + pagerState.currentPageOffsetFraction - base).coerceIn(0f, 1f)
+        }
+    }
+    DisposableEffect(Unit) {
+        travelReporter.value(swipeLabelTravel)
+        onDispose {
+            travelReporter.value { 0f }
+            daysReporter.value(null)
+        }
+    }
+
     LaunchedEffect(selectedEpoch) {
         val target = monthPageFor(YearMonth.from(LocalDate.ofEpochDay(selectedEpoch)))
         if (pagerState.currentPage != target && !pagerState.isScrollInProgress) {
@@ -197,6 +283,11 @@ fun AgendaScreen(
             AgendaMonthPage(
                 month = monthForPage(page),
                 selected = selected,
+                onFocusedDayPreview = { day -> pageFocus[page] = day },
+                // A page that has left the pager's reach loses its list, and
+                // with it the position this was recording. Left behind, the
+                // entry would name a day the page no longer opens on.
+                onDisposed = { pageFocus.remove(page) },
                 reportsFocusedDate = page == pagerState.settledPage && !pagerState.isScrollInProgress,
                 onFocusedDateChanged = { day ->
                     if (day.toEpochDay() != currentSelectedEpoch.value) {
@@ -244,6 +335,15 @@ fun AgendaScreen(
 private fun AgendaMonthPage(
     month: YearMonth,
     selected: LocalDate,
+    /**
+     * Where this page is resting, reported whether or not it is the page the
+     * agenda is on. A neighbour is composed a page ahead of the finger, so
+     * this is what lets the pill name the day the swipe is arriving at while
+     * it is still arriving.
+     */
+    onFocusedDayPreview: (LocalDate) -> Unit,
+    /** Called when this page leaves the composition, so its record can go with it. */
+    onDisposed: () -> Unit,
     reportsFocusedDate: Boolean,
     onFocusedDateChanged: (LocalDate) -> Unit,
     events: List<CalEvent>,
@@ -287,6 +387,17 @@ private fun AgendaMonthPage(
             }?.index
             focusedIndex?.let(days::getOrNull)
         }
+    }
+
+    val currentOnDisposed = rememberUpdatedState(onDisposed)
+    DisposableEffect(Unit) { onDispose { currentOnDisposed.value() } }
+
+    val currentOnFocusedDayPreview = rememberUpdatedState(onFocusedDayPreview)
+    LaunchedEffect(listState, initialPositioningComplete) {
+        if (!initialPositioningComplete) return@LaunchedEffect
+        snapshotFlow { focusedDay }
+            .distinctUntilChanged()
+            .collect { day -> day?.let(currentOnFocusedDayPreview.value) }
     }
 
     val currentOnFocusedDateChanged = rememberUpdatedState(onFocusedDateChanged)

@@ -871,6 +871,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // own state: the pill reads it inside its own draw and measure passes, so
     // a drag moves the label without recomposing this screen per frame.
     var swipeLabelTravel by remember { mutableStateOf<() -> Float>({ 0f }) }
+    // The agenda keeps its own pair and travel rather than sharing the
+    // calendar's. One screen leaves as the other arrives, and the departing
+    // one clears the lane on its way out -- into whatever the arriving one had
+    // just put there.
+    var agendaSwipeLabelDays by remember { mutableStateOf<PillSwipeDays?>(null) }
+    var agendaSwipeLabelTravel by remember { mutableStateOf<() -> Float>({ 0f }) }
     // Connecting the first account mid-session moves the calendar to today
     // for the same reason.
     LaunchedEffect(pocViewModel.hasLiveData) {
@@ -1713,6 +1719,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             agendaPillLabelDirection = it.compareTo(selectedDate)
                             selectCalendarDate(it)
                         },
+                        onSwipeLabelDaysChanged = { agendaSwipeLabelDays = it },
+                        onSwipeLabelTravel = { agendaSwipeLabelTravel = it },
                         onEventClick = { day, event ->
                             selectedEventId = event.id
                             selectedEventOccurrenceDay = day.toEpochDay()
@@ -2332,11 +2340,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 // A swipe names both of the days it is between and lets the
                 // pill carry them across the gesture, rather than renaming
                 // itself once everything has settled.
-                swipeLabels = swipeLabelDays
-                    ?.takeIf { !rangeSpansDays }
-                    ?.takeIf { rootRoute == PockRoute.Day || rootRoute == PockRoute.Range }
-                    ?.let { "Add on ${it.from.format(DateLabel)}" to "Add on ${it.to.format(DateLabel)}" },
-                swipeTravel = { swipeLabelTravel() },
+                swipeLabels = when {
+                    rangeSpansDays -> null
+                    rootRoute == PockRoute.Agenda -> agendaSwipeLabelDays
+                    rootRoute == PockRoute.Day || rootRoute == PockRoute.Range -> swipeLabelDays
+                    else -> null
+                }?.let { "Add on ${it.from.format(DateLabel)}" to "Add on ${it.to.format(DateLabel)}" },
+                swipeTravel = {
+                    if (rootRoute == PockRoute.Agenda) agendaSwipeLabelTravel() else swipeLabelTravel()
+                },
                 confirmationActive = pendingEventDelete != null || pendingTaskDelete != null,
                 onConfirmationExpired = {
                     pendingEventDelete = null
