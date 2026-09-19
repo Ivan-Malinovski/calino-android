@@ -5,6 +5,23 @@ history and their tags.
 
 ## 0.2.1 — 2026-09-19
 
+### Added
+
+- **Show the phone's own calendars.** Settings → Calendars lists the calendars
+  other apps on the device already sync — Google, Exchange and any others — and
+  a toggle each. An imported calendar is read-only wherever it appears: the app
+  that owns a calendar is the one that may change it.
+- **An imported calendar is quiet by default.** Whoever owns it is already
+  notifying for it, and Calino cannot silence them, so *Also remind me in
+  Calino* is the person's deliberate opt-in per calendar rather than two
+  notifications for one event.
+- **Let other calendar apps see Calino's events.** Opted-in CalDAV calendars are
+  projected into Android's `CalendarContract` under a Calino-owned account, so
+  the system calendar picker, a watch face, Android Auto or a third-party widget
+  can read them, and an edit made in another app is ingested back through
+  Calino's own write pipeline. `docs/calendar-provider.md` records the ownership
+  rules this follows and the risks the design had to answer by construction.
+
 ### Fixed
 
 - A side panel's card draws its whole shadow. The event preview puts each event
