@@ -2,7 +2,6 @@ package calino.malinov.ski.ui.components
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,13 +36,14 @@ fun BottomDetailCard(
         pill = pill,
     ) { overlayModifier ->
         val mode = LocalCalinoSurfaceMode.current
-        // The end-panel host reserves a shadow bleed on both sides; paying it
+        // The end-panel host reserves a shadow bleed on every side; paying it
         // back here keeps the card where it was and leaves the bleed free for
         // the card's own shadow.
-        val inset = calinoSurfaceShadowBleedPadding(
-            if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp,
-        )
-        Box(overlayModifier.padding(horizontal = inset)) {
+        Box(
+            overlayModifier.calinoSurfaceShadowBleed(
+                horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp,
+            ),
+        ) {
             AdaptiveDetailCard(
                 visible = visible,
                 onDismiss = onDismiss,

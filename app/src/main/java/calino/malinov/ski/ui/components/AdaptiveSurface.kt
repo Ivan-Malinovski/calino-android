@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -53,6 +54,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -318,7 +323,7 @@ fun AdaptiveSurfaceHost(
             label = "adaptive side panel width",
         )
         val sideWidth = settledSideWidth
-        val sideHeight = (paneHeight - 24.dp).coerceAtLeast(1.dp)
+        val sideHeight = (paneHeight - EndPanelCardVerticalMargin * 2).coerceAtLeast(1.dp)
         val bottomHeightTarget = when {
             paneHeight < 520.dp -> paneHeight * .96f
             kind == CalinoSurfaceKind.CompactPreview -> minOf(paneHeight * .5f, surfaceHeightCap)
@@ -404,26 +409,24 @@ fun AdaptiveSurfaceHost(
                     .width(floatingWidth)
                     .height(floatingHeight)
             }
-            // Widened by the shadow bleed on both sides and shifted half of
-            // it toward the window edge, so the card keeps the position and
-            // width it had while the panel gains room around it. A surface
-            // whose content clips -- the event preview's pager clips every
-            // page -- pays that bleed back as padding and can then draw its
-            // whole shadow inside its own page.
+            // Grown past the card on every side, so that nothing the panel
+            // clips -- its card's shadow, or a page being swiped out of it --
+            // is cut on a line the window shows. Three of those lines land on
+            // the window's own edges; only the leading one is inside the
+            // window, and it gets the bleed, which a surface that clips pays
+            // back as padding (see [Modifier.calinoSurfaceShadowBleed]) so
+            // the card keeps the size and position it had.
             CalinoSurfaceMode.EndPanel ->
                 Modifier
                     .align(Alignment.TopStart)
                     .absoluteOffset(
-                        // The bleed is subtracted after the clamp, not inside
-                        // it: it is overhang the panel is meant to have, and
-                        // folding it into the clamp let a full-width lane push
-                        // the card back inward by the amount it overhangs.
-                        x = paneLeft + (paneWidth - sideWidth - 16.dp).coerceAtLeast(0.dp) -
+                        x = paneLeft +
+                            (paneWidth - sideWidth - EndPanelCardMargin).coerceAtLeast(0.dp) -
                             CalinoSurfaceShadowBleed,
-                        y = paneTop + 12.dp,
+                        y = paneTop,
                     )
-                    .width(sideWidth + CalinoSurfaceShadowBleed * 2)
-                    .height(sideHeight)
+                    .width(sideWidth + CalinoSurfaceShadowBleed + EndPanelCardMargin)
+                    .height(paneHeight)
         }
 
         // The scrim is already visible behind the pill. Keep it outside the
@@ -554,7 +557,14 @@ fun AdaptiveSurfaceHost(
                     when (mode) {
                         CalinoSurfaceMode.BottomSheet ->
                             Modifier.align(Alignment.BottomCenter).padding(bottom = PillLaneInset)
-                        else -> panelModifier.padding(bottom = PillLaneInset)
+                        // The end panel reaches the window's bottom edge; the
+                        // pill belongs to the card's, which is a margin above.
+                        else -> panelModifier.padding(
+                            bottom = PillLaneInset +
+                                if (mode == CalinoSurfaceMode.EndPanel) {
+                                    EndPanelCardVerticalMargin
+                                } else 0.dp,
+                        )
                     },
                     contentAlignment = Alignment.BottomCenter,
                 ) { laneContent() }
@@ -601,33 +611,91 @@ private const val FloatingExitMillis = 200
 /** A height-independent lift keeps compact and tall bottom cards aligned. */
 private val BottomSheetLift = 36.dp
 
-/** The pill's distance from the bottom of its lane, shared with the root pill. */
+/** An end panel's card sits this far from the window's side and bottom. */
+internal val EndPanelCardMargin = 16.dp
+
+/** ...and this far from the top and bottom of its pane. */
+internal val EndPanelCardVerticalMargin = 12.dp
+
 /**
- * Room an end-panel host keeps around its card purely for the card's shadow.
+ * Room an end-panel host keeps inside the panel but outside the card, on the
+ * one side where the panel's edge is not the window's.
  *
  * A side panel's card is elevated, and an elevation shadow is drawn outside
- * the card's own bounds. Any container between the host and the card that
- * clips -- the event preview puts each event on a `HorizontalPager` page, and
- * a pager clips its pages along the scroll axis -- cuts that shadow off at a
- * hard vertical line a few dp from the card. The host reserves this much extra
- * width on each side; a clipping surface adds it to its own horizontal padding
- * (see [calinoSurfaceShadowBleedPadding]) so the card lands back where it was
- * with the bleed left over for the shadow.
+ * the card's own bounds; the surface in the panel may also clip -- the event
+ * preview puts each event on a `HorizontalPager` page, and a pager clips its
+ * pages. Against the window's edges a clip cannot be seen. Against the panel's
+ * leading edge, which is inside the window, it showed as a hard vertical line
+ * a few dp from the card: the shadow ended there, and so did a page being
+ * swiped away. This is the room that line is pushed out by, and faded across
+ * (see [Modifier.calinoSurfaceEdgeFade]).
  *
  * Comfortably more than the ~14dp an 18dp elevation actually reaches.
  */
 val CalinoSurfaceShadowBleed = 22.dp
 
 /**
- * The horizontal page padding a clipping end-panel surface should use in place
- * of [normal], so [CalinoSurfaceShadowBleed] stays free around the card.
+ * Pays back what an end-panel host reserved around its card, on top of the
+ * [horizontal] padding this surface wanted anyway.
+ *
+ * Outside an end panel the host reserves nothing, and this is just that
+ * padding.
  */
 @Composable
-fun calinoSurfaceShadowBleedPadding(normal: Dp): Dp =
+fun Modifier.calinoSurfaceShadowBleed(horizontal: Dp = 0.dp): Modifier =
     if (LocalCalinoSurfaceMode.current == CalinoSurfaceMode.EndPanel) {
-        normal + CalinoSurfaceShadowBleed
-    } else normal
+        // Absolute sides, like the pane geometry the host places the panel
+        // with: the end lane is the right-hand one whatever the layout
+        // direction, so the leading edge is always the left.
+        absolutePadding(
+            left = horizontal + CalinoSurfaceShadowBleed,
+            right = horizontal + EndPanelCardMargin,
+            top = EndPanelCardVerticalMargin,
+            bottom = EndPanelCardVerticalMargin,
+        )
+    } else padding(horizontal = horizontal)
 
+/**
+ * Dissolves the edge an end-panel surface clips its own content against.
+ *
+ * A pager clips its pages, so an event swiped out of a side panel does not
+ * leave: it is cut by a hard vertical line at the panel's leading edge and
+ * vanishes an edge at a time. This masks that same line with a short gradient,
+ * so the page that reaches it fades out there instead.
+ *
+ * The mask has to composite against the surface alone, so it needs an
+ * offscreen layer -- which clips to these bounds. That is only safe because of
+ * the room the host keeps here: the card's shadow, the one thing that draws
+ * outside the card, still falls inside the panel, and the panel's other three
+ * edges are the window's own.
+ *
+ * [active] is the surface's own answer to "is anything moving toward that
+ * edge". Only then is there something to fade, and an offscreen buffer renders
+ * the card's shadow a shade flatter than the window does -- invisible while a
+ * card is in flight, but not something a card sitting still should wear.
+ */
+@Composable
+fun Modifier.calinoSurfaceEdgeFade(active: Boolean, width: Dp = 28.dp): Modifier {
+    if (!active || LocalCalinoSurfaceMode.current != CalinoSurfaceMode.EndPanel) return this
+    return graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            // The clipped edge is this node's own leading edge, so the band
+            // starts there. It stays clear of the card at rest, which sits a
+            // whole bleed -- plus its surface's own padding -- further in.
+            drawRect(
+                Brush.horizontalGradient(
+                    0f to Color.Transparent,
+                    1f to Color.Black,
+                    startX = 0f,
+                    endX = width.toPx(),
+                ),
+                blendMode = BlendMode.DstIn,
+            )
+        }
+}
+
+/** The pill's distance from the bottom of its lane, shared with the root pill. */
 private val PillLaneInset = 20.dp
 
 /**

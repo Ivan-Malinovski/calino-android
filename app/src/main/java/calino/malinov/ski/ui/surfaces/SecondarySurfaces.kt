@@ -82,6 +82,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -168,7 +169,8 @@ import calino.malinov.ski.design.eventTint
 import calino.malinov.ski.qa.TaskBucket
 import calino.malinov.ski.qa.taskBucket
 import calino.malinov.ski.ui.components.BottomDetailOverlay
-import calino.malinov.ski.ui.components.calinoSurfaceShadowBleedPadding
+import calino.malinov.ski.ui.components.calinoSurfaceEdgeFade
+import calino.malinov.ski.ui.components.calinoSurfaceShadowBleed
 import calino.malinov.ski.ui.components.AdaptiveDetailCard
 import calino.malinov.ski.ui.components.AdaptiveSurfaceHost
 import calino.malinov.ski.ui.components.BottomDetailCard
@@ -645,10 +647,8 @@ fun DayModalSurface(
             DetailCardSurface(
                 Modifier
                     .fillMaxSize()
-                    .padding(
-                        horizontal = calinoSurfaceShadowBleedPadding(
-                            if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp,
-                        ),
+                    .calinoSurfaceShadowBleed(
+                        horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp,
                     )
                     .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) },
             ) { _ ->
@@ -778,6 +778,11 @@ fun EventDetailSurface(
         // clamps this anyway; asking for more here only hides that.
         ).coerceAtMost(560).dp
     var pillState by remember { mutableStateOf(EventPreviewPillState(false, false, {}, {}, {}, {}, {})) }
+    // Derived, so the fade is switched on and off once per swipe instead of
+    // recomposing the card on every frame of one.
+    val paging by remember(pager) {
+        derivedStateOf { pager.isScrollInProgress || pager.currentPageOffsetFraction != 0f }
+    }
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
@@ -820,7 +825,9 @@ fun EventDetailSurface(
             key = { events[it].id },
             beyondViewportPageCount = 1,
             userScrollEnabled = shown,
-            modifier = overlayModifier,
+            // The page that leaves is clipped by the pager at the panel's
+            // leading edge; fade it out on that line instead of cutting it.
+            modifier = overlayModifier.calinoSurfaceEdgeFade(active = paging),
         ) { page ->
             val pageEvent = events[page]
             val detailListState = rememberLazyListState()
@@ -828,7 +835,7 @@ fun EventDetailSurface(
             // shadow has to fit inside this padding or it ends at a hard
             // vertical line. The host reserves the same bleed in the panel it
             // hands down, so widening the padding does not narrow the card.
-            Box(Modifier.fillMaxSize().padding(horizontal = calinoSurfaceShadowBleedPadding(10.dp))) {
+            Box(Modifier.fillMaxSize().calinoSurfaceShadowBleed(horizontal = 10.dp)) {
                 AdaptiveDetailCard(
                     visible = shown,
                     onDismiss = { closeAfterAnimation(onBack) },
