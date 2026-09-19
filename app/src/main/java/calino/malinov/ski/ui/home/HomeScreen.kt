@@ -3796,10 +3796,23 @@ private fun StaticMonthGrid(
                 with(density) { 2.dp.toPx() }
             ).coerceAtLeast(0f)
         val chipCapacity = monthCellChipCapacity(chipAreaHeightPx, chipHeightPx, chipGapPx, eventDensity.maxItems)
-        val shownCounts = remember(geometry, events, chipCapacity) {
-            cellEvents.map { dayEvents -> monthCellShownCount(dayEvents.size, chipCapacity) }
+        // The "+n" line is 14dp of text, not a 20dp card, so a rolled-up day
+        // charges it at that height instead of surrendering a whole card slot.
+        // In the band where a cell holds two cards and no more, that is the
+        // difference between one card under a "+2" and two under a "+1".
+        val overflowChipCapacity = monthCellOverflowChipCapacity(
+            chipAreaHeightPx,
+            chipHeightPx,
+            chipGapPx,
+            overflowHeightPx,
+            eventDensity.maxItems,
+        )
+        val shownCounts = remember(geometry, events, chipCapacity, overflowChipCapacity) {
+            cellEvents.map { dayEvents ->
+                monthCellShownCount(dayEvents.size, chipCapacity, overflowChipCapacity)
+            }
         }
-        val overflowLayouts = remember(geometry, events, chipCapacity, density) {
+        val overflowLayouts = remember(geometry, events, chipCapacity, overflowChipCapacity, density) {
             cellEvents.mapIndexed { index, dayEvents ->
                 val overflow = dayEvents.size - shownCounts[index]
                 if (overflow > 0) {
@@ -4930,12 +4943,38 @@ internal fun monthCellChipCapacity(chipAreaHeightPx: Float, chipHeightPx: Float,
 
 /**
  * How many of a day's [eventCount] events get their own card. A day rolls up
- * only once it genuinely overruns its cell, and when it does the last slot
- * goes to the "+n" line rather than to a card, so the count itself is never
- * the thing pushed out of view.
+ * only once it genuinely overruns its cell. When it does, the "+n" line has to
+ * be paid for -- but it is a 14dp text line, not a 20dp card, so it is charged
+ * at its own height via [overflowCapacity] (how many cards still fit once the
+ * line is reserved) rather than by evicting a whole card. Those two are equal
+ * when the line happens to cost a full slot, which is why a caller with only
+ * one number can pass it twice.
  */
-internal fun monthCellShownCount(eventCount: Int, capacity: Int): Int =
-    if (eventCount <= capacity) eventCount else (capacity - 1).coerceAtLeast(0)
+internal fun monthCellShownCount(eventCount: Int, capacity: Int, overflowCapacity: Int = capacity - 1): Int =
+    if (eventCount <= capacity) {
+        eventCount
+    } else {
+        // Never the whole count: a day that rolls up must still have something
+        // left to roll up, or the "+n" would be counting nothing.
+        overflowCapacity.coerceIn(0, eventCount - 1)
+    }
+
+/**
+ * How many cards fit beside the "+n" line: the same measurement as
+ * [monthCellChipCapacity], with the line's own height taken off the top.
+ */
+internal fun monthCellOverflowChipCapacity(
+    chipAreaHeightPx: Float,
+    chipHeightPx: Float,
+    chipGapPx: Float,
+    overflowHeightPx: Float,
+    densityCap: Int,
+): Int = monthCellChipCapacity(
+    (chipAreaHeightPx - overflowHeightPx - chipGapPx).coerceAtLeast(0f),
+    chipHeightPx,
+    chipGapPx,
+    densityCap,
+)
 
 /**
  * Converts a held month-card drag into a grid date, or null when the finger

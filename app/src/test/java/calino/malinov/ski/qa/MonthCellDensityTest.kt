@@ -2,6 +2,7 @@ package calino.malinov.ski.qa
 
 import calino.malinov.ski.ui.home.monthCellChipCapacity
 import calino.malinov.ski.ui.home.monthCellMarkerCap
+import calino.malinov.ski.ui.home.monthCellOverflowChipCapacity
 import calino.malinov.ski.ui.home.monthCellShownCount
 import calino.malinov.ski.util.CalinoEventDensity
 import org.junit.Assert.assertEquals
@@ -18,6 +19,8 @@ class MonthCellDensityTest {
     // The metrics the grid draws with: 20dp cards, 2dp apart, at 1x density.
     private val chipHeight = 20f
     private val chipGap = 2f
+    private val overflowHeight = 14f
+    private val denseCap = CalinoEventDensity.Dense.maxItems
 
     private fun capacity(areaHeight: Float) = monthCellChipCapacity(areaHeight, chipHeight, chipGap)
 
@@ -78,10 +81,50 @@ class MonthCellDensityTest {
     }
 
     @Test
-    fun `overrunning days give the last slot to the count`() {
+    fun `a caller with one number still pays a whole slot for the count`() {
+        // The morph path measures cards and nothing else, so its "+n" can only
+        // come out of a card slot.
         assertEquals(2, monthCellShownCount(4, 3))
         assertEquals(2, monthCellShownCount(40, 3))
         assertEquals(0, monthCellShownCount(2, 1))
         assertEquals(0, monthCellShownCount(2, 0))
+    }
+
+    @Test
+    fun `the count line is charged at its own height, not a card's`() {
+        // A cell that holds two cards and 16dp of slack: the "+n" fits in the
+        // slack, so both cards stay and only the third event rolls up. This is
+        // the case that used to read "one card, +2" with the cell half empty.
+        val area = 58f
+        val chips = capacity(area)
+        val withCount = monthCellOverflowChipCapacity(area, chipHeight, chipGap, overflowHeight, denseCap)
+        assertEquals(2, chips)
+        assertEquals(2, withCount)
+        assertEquals(2, monthCellShownCount(3, chips, withCount))
+        assertEquals(2, monthCellShownCount(9, chips, withCount))
+    }
+
+    @Test
+    fun `a card goes when the line genuinely does not fit beside it`() {
+        // 46dp holds two cards with only 4dp left: the line cannot sit under
+        // them, so it does take a card's place.
+        val area = 46f
+        assertEquals(2, capacity(area))
+        assertEquals(1, monthCellOverflowChipCapacity(area, chipHeight, chipGap, overflowHeight, denseCap))
+    }
+
+    @Test
+    fun `a rolled-up day never hides everything it counts`() {
+        // The line must have something left to count: shown is capped below
+        // the event total however little room the cell has.
+        assertEquals(2, monthCellShownCount(3, 2, 5))
+        assertEquals(0, monthCellShownCount(1, 0, 4))
+        assertEquals(0, monthCellOverflowChipCapacity(20f, chipHeight, chipGap, overflowHeight, denseCap))
+    }
+
+    @Test
+    fun `the density setting caps the cards beside a count line too`() {
+        assertEquals(2, monthCellOverflowChipCapacity(200f, chipHeight, chipGap, overflowHeight, CalinoEventDensity.Quiet.maxItems))
+        assertEquals(4, monthCellOverflowChipCapacity(200f, chipHeight, chipGap, overflowHeight, CalinoEventDensity.Balanced.maxItems))
     }
 }
