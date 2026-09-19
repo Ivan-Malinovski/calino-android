@@ -5,7 +5,9 @@ import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
@@ -31,6 +33,11 @@ class TaskInteractionTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Complete $Task").performClick()
         compose.waitForIdle()
 
+        // A completed task moves to the Completed bucket at the bottom of the
+        // list, which is not composed until it is scrolled to. Still asserted
+        // as displayed, just at the place the list actually put it.
+        compose.onNodeWithTag("task-list")
+            .performScrollToNode(hasContentDescription("$Task, completed"))
         compose.onNodeWithContentDescription("$Task, completed").assertIsDisplayed()
     }
 
@@ -153,7 +160,9 @@ class TaskInteractionTest : CalinoUiTest() {
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Open task: $DatedTask").performTouchInput { longClick() }
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("Save task").assertIsDisplayed()
+        // Save only occupies its lane once the draft is dirty, so it cannot
+        // stand for "the detail opened". Cancel is always on the pill.
+        compose.onNodeWithContentDescription("Cancel task editing").assertIsDisplayed()
     }
 
     @Test fun theTaskFilterHidesCompletedWork() {

@@ -34,8 +34,14 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ModalDismissalTest : CalinoUiTest() {
 
+    /**
+     * Deliberately a one-off event. A series asks which occurrences to remove
+     * before it asks whether to remove them at all, so a recurring event never
+     * reaches the confirm stage this test is about; [OneOffEvent] goes
+     * straight there.
+     */
     @Test fun eventDeleteConfirmationStaysOnThePill() {
-        compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
+        compose.onNodeWithContentDescription(OneOffEvent).performClick()
         awaitDescribed("Delete event")
 
         // Keep the test clock inside the real 3.6-second confirmation window;
@@ -43,10 +49,17 @@ class ModalDismissalTest : CalinoUiTest() {
         compose.mainClock.autoAdvance = false
         compose.onNodeWithContentDescription("Delete event").performClick()
         compose.mainClock.advanceTimeBy(200L)
+        // The pill *becomes* the question: pill actions now size to their own
+        // content, so "it is wide" no longer says that. What does say it is
+        // that confirming is the only action left in the lane -- every other
+        // lane stands down until the question is answered -- and that no
+        // dialog was raised to ask it.
         compose.onNodeWithContentDescription("Confirm Delete event")
             .assertExists()
-            .assertWidthIsAtLeast(280.dp)
+            .assertIsDisplayed()
         compose.onNodeWithContentDescription("Open event").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Close event preview").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Delete event").assertDoesNotExist()
         compose.onNodeWithText("Remove this event?").assertDoesNotExist()
 
         compose.onNodeWithContentDescription("Confirm Delete event").performClick()
@@ -171,6 +184,11 @@ class ModalDismissalTest : CalinoUiTest() {
 
         assertFalse("event preview returned after editor dismissal", compose.hasDescribedNode("Close event preview"))
         assertTrue("calendar was not restored", compose.hasDescribedNode("Design review, 10:00 AM, Studio"))
+    }
+
+    private companion object {
+        /** The May 18 fixture event with no RRULE. */
+        const val OneOffEvent = "Lunch with Maya, 12:30 PM, Café Lumen"
     }
 
     private fun openQuickAdd() {

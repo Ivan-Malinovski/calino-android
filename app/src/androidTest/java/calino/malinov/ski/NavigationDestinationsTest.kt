@@ -177,7 +177,9 @@ class NavigationDestinationsTest : CalinoUiTest() {
             .performClick()
         compose.waitForIdle()
 
-        compose.onNodeWithContentDescription("Save task").assertIsDisplayed()
+        // Save appears only once the draft is dirty; Cancel is the pill
+        // action that proves the task detail opened.
+        compose.onNodeWithContentDescription("Cancel task editing").assertIsDisplayed()
         assertFalse(compose.hasDescribedNode("Dismiss"))
     }
 

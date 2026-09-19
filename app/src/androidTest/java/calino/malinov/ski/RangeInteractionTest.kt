@@ -28,12 +28,19 @@ class RangeInteractionTest : CalinoUiTest() {
         }
         designReviews[visibleEvent].performClick()
         awaitDescribed("Close event preview")
-        compose.onNodeWithText("Cancel").performClick()
+        // The cancel lane is a glyph now, so it carries no text node; its
+        // description is the stable handle.
+        compose.onNodeWithContentDescription("Close event preview").performClick()
         awaitNoDescribed("Close event preview")
 
+        // The range header is the anchor proof: the page came back to the
+        // days it was on, not to today.
         compose.onNodeWithText("May 24 – May 26").assertIsDisplayed()
-        awaitDescribed("Add on Sun, 24 May. Swipe up to search")
-        compose.onNodeWithContentDescription("Add on Sun, 24 May. Swipe up to search").assertIsDisplayed()
+        // A multi-day range names no single day, so the pill's add form is
+        // "New event" rather than a dated label; what matters here is that the
+        // lane went back to being an add pill at all.
+        awaitDescribed("New event. Swipe up to search")
+        compose.onNodeWithContentDescription("New event. Swipe up to search").assertIsDisplayed()
     }
 
     @Test fun todayReturnsFromAnotherRangePage() {

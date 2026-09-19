@@ -2028,7 +2028,10 @@ fun TasksSurface(
                     // The floating add pill is drawn by the shell over this
                     // list, so the reservation belongs in the scroll content.
                     contentPadding = PaddingValues(bottom = CalinoSpacing.PillClearance),
-                    modifier = Modifier.fillMaxSize(),
+                    // The Completed bucket sits below the fold and is not
+                    // composed until scrolled to, so a test that follows a row
+                    // there needs a handle on the list itself.
+                    modifier = Modifier.fillMaxSize().testTag("task-list"),
                 ) {
                     TaskBucket(
                         "Overdue",
