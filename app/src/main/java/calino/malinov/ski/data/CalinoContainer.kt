@@ -1,6 +1,10 @@
 package calino.malinov.ski.data
 
 import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.CalendarContract
 import calino.malinov.ski.data.caldav.CalDavConnectionManager
 import calino.malinov.ski.data.caldav.CalDavDiscovery
 import calino.malinov.ski.data.caldav.CalDavFetcher
@@ -20,15 +24,21 @@ import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalinoRepository
 import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.FixtureRepository
+import calino.malinov.ski.data.repository.ImportingRepository
 import calino.malinov.ski.data.repository.SharedPreferencesWebcalPersistence
 import calino.malinov.ski.data.repository.WebcalSubscriptionStore
 import calino.malinov.ski.data.repository.WriteResult
+import calino.malinov.ski.data.repository.visibleCalendarIds
 import calino.malinov.ski.data.webcal.FileWebcalCache
 import calino.malinov.ski.data.webcal.WebcalFetcher
 import calino.malinov.ski.data.webcal.WebcalManager
 import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
+import calino.malinov.ski.platform.AndroidCalendarSource
+import calino.malinov.ski.platform.CalendarProjection
+import calino.malinov.ski.platform.CalendarProjectionBridge
+import calino.malinov.ski.platform.CalinoAccounts
 import calino.malinov.ski.state.CalinoPreferenceStore
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.widget.CalinoWidgetBridge
@@ -144,6 +154,23 @@ class CalinoContainer private constructor(context: Context) {
     @Volatile
     private var widgetUpdating = false
 
+    @Volatile
+    private var projecting = false
+
+    /**
+     * The device's own calendars Calino shows, and the wrapper that shows
+     * them.
+     *
+     * The wrapper exists only while the set is non-empty. That is the point:
+     * someone who never opts in gets the bare repository, no content
+     * observer, and no provider query at all.
+     */
+    private var importedCalendarIds: Set<String> = emptySet()
+
+    private var importing: ImportingRepository? = null
+
+    private var importObserver: ContentObserver? = null
+
     /**
      * Keeps the durable reminder schedule level with whatever the repository
      * is currently publishing.
@@ -151,10 +178,24 @@ class CalinoContainer private constructor(context: Context) {
     /** Keeps the home screen widget level with the repository. */
     val widgetBridge = CalinoWidgetBridge(application)
 
+    /**
+     * Keeps `CalendarContract` level with the repository, while projection is
+     * on. Attached by [startCalendarProjection] rather than at construction,
+     * for the same reason the widget bridge is: a process woken to re-arm one
+     * alarm has no business reconciling the calendar store.
+     */
+    val calendarProjectionBridge = CalendarProjectionBridge(
+        context = application,
+        accounts = { accountStore.accounts() },
+        optedIn = { projectedCalendarIds },
+    )
+
     val reminderBridge = ReminderSchedulerBridge(
         preferences = preferenceStore,
         store = Reminders.scheduleStore(application),
         scheduler = Reminders.scheduler(application),
+        projectedCalendarIds = { projectedCalendars() },
+        importedCalendarsRemindedElsewhere = { importedCalendarsRemindedElsewhere() },
     )
 
     init {
@@ -180,7 +221,9 @@ class CalinoContainer private constructor(context: Context) {
         cacheRestored = true
         connections.restore()
         webcal.restore()
+        restoreImport()
         updateActiveRepository()
+        restoreProjection()
     }
 
     /**
@@ -295,12 +338,139 @@ class CalinoContainer private constructor(context: Context) {
         connected = true
         connections.onAccountConnected(account, form.password)
         updateActiveRepository()
+        syncAndroidAccounts()
     }
 
     fun onAccountRemoved(accountId: String) {
         accountStore.removeAccount(accountId)
         connections.onAccountRemoved(accountId)
         updateActiveRepository()
+        syncAndroidAccounts()
+    }
+
+    /**
+     * Whether Calino owns Android accounts and projects calendars into
+     * `CalendarContract`.
+     *
+     * Off until someone opts in. An Android account appearing in Settings is
+     * user-visible, so it must not be a side effect of connecting to a CalDAV
+     * server -- see `docs/calendar-provider.md`. Turned on and off only
+     * through [setProjectedCalendars], so the flag and the list of opted-in
+     * calendars cannot disagree.
+     */
+    var calendarProjectionEnabled: Boolean = false
+        private set(value) {
+            if (field == value) return
+            field = value
+            syncAndroidAccounts()
+        }
+
+    /**
+     * Makes the Android account list match the connected CalDAV accounts, or
+     * empties it while projection is off.
+     */
+    private fun syncAndroidAccounts() {
+        if (calendarProjectionEnabled) {
+            CalinoAccounts.sync(application, accountStore.accounts())
+            startCalendarProjection()
+        } else {
+            // Calendars first: removing the account would take its calendars
+            // with it, but only after the provider had already told every
+            // calendar app they vanished without explanation.
+            CalendarProjection.clear(application)
+            calendarProjectionBridge.detach()
+            projecting = false
+            CalinoAccounts.clear(application)
+        }
+        // Reminder ownership follows projection, so a toggle has to re-plan:
+        // turning projection off must give Calino its own alarms back, and
+        // the schedule is only rebuilt when something asks it to be.
+        reminderBridge.refresh()
+    }
+
+    /**
+     * The calendars projected into `CalendarContract`, or null while every
+     * visible one is.
+     *
+     * Written only by [setProjectedCalendars] and [restoreProjection], so the
+     * null case survives for the sync adapter's benefit rather than as a
+     * state the opt-in can produce.
+     */
+    var projectedCalendarIds: Set<String>? = null
+        private set
+
+    /**
+     * Publish exactly [ids] into the calendar provider, and persist that
+     * choice.
+     *
+     * An empty set is how projection is turned off: there is no second switch
+     * to keep in step with the list, so "nothing is opted in" and "the feature
+     * is off" cannot disagree.
+     *
+     * The caller is responsible for holding `WRITE_CALENDAR` before opting the
+     * first calendar in. Refusal is a supported state, and reaches here as an
+     * unchanged set.
+     */
+    fun setProjectedCalendars(ids: Set<String>) {
+        if (ids == projectedCalendarIds) return
+        preferenceStore.saveProjectedCalendarIds(ids)
+        projectedCalendarIds = ids
+        val enabled = ids.isNotEmpty()
+        if (enabled == calendarProjectionEnabled) {
+            // The switch did not move, so its setter will not reconcile. A
+            // calendar added to or dropped from the set still has to be.
+            if (enabled) projectCalendars()
+        } else {
+            calendarProjectionEnabled = enabled
+        }
+    }
+
+    /**
+     * Bring back the opt-in from a previous run.
+     *
+     * Called from [ensureConnected] rather than construction, because
+     * enabling projection touches `AccountManager` and the calendar provider:
+     * a process woken to redraw a widget or re-arm an alarm must not do that.
+     */
+    private fun restoreProjection() {
+        val stored = preferenceStore.loadProjectedCalendarIds()
+        if (stored.isEmpty() || projectedCalendarIds != null) return
+        projectedCalendarIds = stored
+        calendarProjectionEnabled = true
+    }
+
+    /**
+     * Start projecting into the calendar provider. Only the UI process needs
+     * this, and only while projection is on.
+     */
+    fun startCalendarProjection() {
+        if (projecting) return
+        projecting = true
+        observeRepository { repository -> calendarProjectionBridge.attach(repository, scope) }
+    }
+
+    /**
+     * The calendars currently projected into `CalendarContract`.
+     *
+     * Empty while projection is off, which is what makes reminder ownership
+     * follow the projection without a second switch to keep in step.
+     */
+    fun projectedCalendars(): Set<String> {
+        if (!calendarProjectionEnabled) return emptySet()
+        return projectedCalendarIds
+            ?: visibleCalendarIds(activeRepository.snapshot().calendars)
+    }
+
+    /**
+     * Reconcile the calendar provider once, now.
+     *
+     * For the sync adapter: after ingesting foreign edits it must put the
+     * provider back in agreement with Calino, and a rejected edit publishes
+     * no snapshot for the bridge to react to.
+     */
+    fun projectCalendars() {
+        if (!calendarProjectionEnabled) return
+        calendarProjectionBridge.projectNow(activeRepository.snapshot())
     }
 
     fun onCalendarsToggled() = connections.onCalendarsToggled()
@@ -329,8 +499,135 @@ class CalinoContainer private constructor(context: Context) {
 
     suspend fun syncWebcalAll() = webcal.syncAll()
 
+    /**
+     * The calendars imported from the device, and the ones Calino also
+     * reminds for.
+     */
+    val importedCalendars: Set<String> get() = importedCalendarIds
+
+    var importedReminderCalendarIds: Set<String> = emptySet()
+        private set
+
+    /**
+     * Choose which of the device's calendars Calino shows.
+     *
+     * Wraps or unwraps the repository as the set becomes non-empty or empty,
+     * so the composite is in the graph only while it has something to add.
+     */
+    fun setImportedCalendars(ids: Set<String>) {
+        if (ids == importedCalendarIds) return
+        preferenceStore.saveImportedCalendarIds(ids)
+        importedCalendarIds = ids
+        // A calendar that is no longer imported cannot keep a reminder
+        // preference; leaving one behind would silently re-apply if it were
+        // ever imported again.
+        setImportedReminderCalendars(importedReminderCalendarIds intersect ids)
+        updateActiveRepository()
+        refreshImport()
+    }
+
+    /** Choose which imported calendars Calino delivers reminders for. */
+    fun setImportedReminderCalendars(ids: Set<String>) {
+        val next = ids intersect importedCalendarIds
+        if (next == importedReminderCalendarIds) return
+        preferenceStore.saveImportedReminderCalendarIds(next)
+        importedReminderCalendarIds = next
+        reminderBridge.refresh()
+    }
+
+    /**
+     * The imported calendars whose reminders somebody else delivers.
+     *
+     * The inverse of the projection's rule, and the reason it is worded this
+     * way round: an imported calendar's own app is already notifying for it,
+     * so Calino stays quiet unless asked. It cannot silence that app, which
+     * is why opting in is the person's deliberate choice.
+     */
+    fun importedCalendarsRemindedElsewhere(): Set<String> =
+        importedCalendarIds - importedReminderCalendarIds
+
+    private fun restoreImport() {
+        if (importedCalendarIds.isNotEmpty()) return
+        importedCalendarIds = preferenceStore.loadImportedCalendarIds()
+        importedReminderCalendarIds =
+            preferenceStore.loadImportedReminderCalendarIds() intersect importedCalendarIds
+    }
+
+    /**
+     * Re-read the device's calendars off the main thread and republish.
+     *
+     * A daily series over the projection window is hundreds of instance rows,
+     * so this is not work for a frame.
+     */
+    private fun refreshImport() {
+        val target = importing ?: return
+        val wanted = importedCalendarIds
+        scope.launch {
+            val read = AndroidCalendarSource.read(application, wanted)
+            // The set can have changed while the query ran -- a person can
+            // toggle faster than the provider answers -- and publishing a
+            // stale read would show a calendar they just turned off.
+            if (wanted == importedCalendarIds) target.setImported(read)
+        }
+    }
+
+    /**
+     * Follow changes another app makes to its own calendars.
+     *
+     * Registered only while something is imported. The provider notifies
+     * generously -- a Google sync touches the URI repeatedly -- so the work
+     * this triggers stays a read and a republish, never a write.
+     */
+    private fun updateImportObserver() {
+        val wanted = importedCalendarIds.isNotEmpty()
+        val existing = importObserver
+        if (wanted == (existing != null)) return
+        if (!wanted) {
+            existing?.let { application.contentResolver.unregisterContentObserver(it) }
+            importObserver = null
+            return
+        }
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) = refreshImport()
+        }
+        runCatching {
+            application.contentResolver.registerContentObserver(
+                CalendarContract.CONTENT_URI,
+                true,
+                observer,
+            )
+            importObserver = observer
+        }
+    }
+
     private fun updateActiveRepository() {
-        val next: CalinoRepository = if (hasLiveData) calDavRepository else fixtureRepository
+        // hasLiveData, not hasAccounts: a subscription with no account
+        // behind it is still live data, and fixtures would hide it.
+        val base: CalinoRepository = if (hasLiveData) calDavRepository else fixtureRepository
+        val next: CalinoRepository = if (importedCalendarIds.isEmpty()) {
+            importing?.close()
+            importing = null
+            base
+        } else {
+            val existing = importing
+            // Rebuilt rather than re-pointed when the primary swaps: the
+            // wrapper holds one subscription to the primary for its lifetime,
+            // and moving that is more machinery than dropping the wrapper.
+            if (existing != null && existing.observes(base)) {
+                existing
+            } else {
+                // Carry the last read across a rebuild, so swapping fixture
+                // for CalDAV does not blank the imported events for as long
+                // as the re-read takes.
+                ImportingRepository(base, existing?.imported ?: AndroidCalendarSource.Import())
+                    .also {
+                        existing?.close()
+                        importing = it
+                        refreshImport()
+                    }
+            }
+        }
+        updateImportObserver()
         if (next === activeRepository) return
         activeRepository = next
         repositoryListeners.forEach { it(next) }

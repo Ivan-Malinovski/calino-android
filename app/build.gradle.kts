@@ -64,8 +64,15 @@ android {
             // application instead of having one replace the other.
             applicationIdSuffix = ".nativeDebug"
             versionNameSuffix = "-debug"
+            // The account type must differ too. Debug and release can be
+            // installed at once, and two authenticators claiming one type
+            // would leave the calendar projection unable to say which app
+            // owns an account -- which is the boundary that keeps it off the
+            // person's Google and Exchange rows.
+            resValue("string", "calino_account_type", "calino.malinov.ski.nativeDebug")
         }
         getByName("release") {
+            resValue("string", "calino_account_type", "calino.malinov.ski")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

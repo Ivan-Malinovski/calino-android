@@ -22,7 +22,36 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!--
+        Calendar Provider projection (docs/calendar-provider.md). Requested at
+        the moment a calendar is opted in, never at launch: with nothing opted
+        in, Calino never touches the provider. Ownership of every row we read,
+        write or delete is scoped by our own account type and name, so this
+        cannot reach the person's Google or Exchange calendars.
+
+        The sync-settings permissions are what let the sync adapter be
+        registered against the account at all.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!--
+        Package visibility for the "is a calendar app installed" probe. The
+        provider stores reminders but does not post notifications for them.
+        A calendar app does, off the provider's broadcast, so Calino must
+        keep its own scheduling when there is none. Without this element the
+        probe returns a false negative on API 30 and above, and reminders
+        would stay local forever.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.INSERT" />
+            <data android:mimeType="vnd.android.cursor.dir/event" />
+        </intent>
+    </queries>
 
     <application
         android:label="@string/app_name"
@@ -84,6 +113,40 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <!--
+            The account authenticator. Exported because the framework binds it
+            from the system process; it issues no tokens and holds no
+            credential, so there is nothing here to take.
+        -->
+        <service
+            android:name=".platform.CalinoAuthenticatorService"
+            android:exported="true"
+            android:permission="android.permission.ACCOUNT_MANAGER">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/authenticator" />
+        </service>
+
+        <!--
+            The calendar sync adapter. Exported because the sync manager binds
+            it from the system process; it accepts no intent of its own and
+            only ever reads rows under Calino's own account type.
+        -->
+        <service
+            android:name=".platform.CalinoSyncService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ADAPTER_SERVICE">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/syncadapter" />
+        </service>
+
         <!-- The armed reminder alarm fires here. Explicitly targeted; never broadcast to. -->
         <receiver
             android:name=".notify.ReminderAlarmReceiver"

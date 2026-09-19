@@ -12,6 +12,5 @@ app/build/
 scripts/live-caldav/state/
 
 # Local development notes
-/AGENTS.md
 /HANDOFF.md
 /TODO.md

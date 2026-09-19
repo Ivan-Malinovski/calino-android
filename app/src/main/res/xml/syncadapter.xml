@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Registers Calino as a sync adapter for the calendar provider, which is what
+    lets Android schedule us when another app edits one of our rows.
+
+    supportsUploading is true and that is the whole point: the "upload" is
+    Calino reading a foreign edit back out of the provider and routing it
+    through its own CalDAV write pipeline. userVisible is true so the sync
+    appears in Settings next to the account, because a person who can see the
+    calendars should be able to see what is keeping them level.
+
+    The account type is a build-type resource for the same reason
+    authenticator.xml's is: debug installs beside release.
+-->
+<sync-adapter xmlns:android="http://schemas.android.com/apk/res/android"
+    android:contentAuthority="com.android.calendar"
+    android:accountType="@string/calino_account_type"
+    android:supportsUploading="true"
+    android:userVisible="true"
+    android:allowParallelSyncs="false"
+    android:isAlwaysSyncable="true" />

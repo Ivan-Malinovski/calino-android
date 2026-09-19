@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,10 +46,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import calino.malinov.ski.platform.AndroidCalendarSource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -91,6 +97,11 @@ import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.calinoPressable
 import kotlinx.coroutines.delay
 
+private val CalendarPermissions = arrayOf(
+    android.Manifest.permission.READ_CALENDAR,
+    android.Manifest.permission.WRITE_CALENDAR,
+)
+
 private const val SheetExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
 
 /**
@@ -107,6 +118,16 @@ fun CalendarAccountsSurface(
     onCalendarEnabled: (accountId: String, calendarId: String, enabled: Boolean) -> Unit,
     onAddressBookEnabled: (accountId: String, addressBookId: String, enabled: Boolean) -> Unit = { _, _, _ -> },
     onRemoveAccount: (accountId: String) -> Unit,
+    /** The calendars currently published into Android's calendar store. */
+    projectedCalendarIds: Set<String> = emptySet(),
+    onProjectedCalendarsChanged: (Set<String>) -> Unit = {},
+    /** The device's own calendars, discovered from the provider. */
+    availableDeviceCalendars: List<AndroidCalendarSource.ImportableCalendar> = emptyList(),
+    /** Those of them Calino shows, and those it also reminds for. */
+    importedCalendarIds: Set<String> = emptySet(),
+    onImportedCalendarsChanged: (Set<String>) -> Unit = {},
+    importedReminderCalendarIds: Set<String> = emptySet(),
+    onImportedReminderCalendarsChanged: (Set<String>) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenMenu: (() -> Unit)? = null,
     startAdding: Boolean = false,
@@ -134,6 +155,62 @@ fun CalendarAccountsSurface(
     // "Manage" row has to bring that account into view rather than restoring
     // wherever the list happened to be left.
     val listState = rememberLazyListState()
+
+    // Publishing to the calendar store needs the calendar permissions, and
+    // they are asked for here -- at the moment of opting in -- rather than at
+    // launch, because until now there was nothing to publish. Refusal is a
+    // supported state: the set is left alone, so the toggle springs back.
+    val context = LocalContext.current
+    var pendingProjection by remember { mutableStateOf<Set<String>?>(null) }
+    val calendarPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        val requested = pendingProjection
+        pendingProjection = null
+        if (requested != null && granted.values.all { it }) onProjectedCalendarsChanged(requested)
+    }
+    val setProjected: (Set<String>) -> Unit = { next ->
+        val hasPermission = CalendarPermissions.all { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+        // Only opting *in* needs the permission. Opting out must work even
+        // after a revoke, or the projection could never be turned off.
+        if (hasPermission || next.size <= projectedCalendarIds.size) {
+            onProjectedCalendarsChanged(next)
+        } else {
+            pendingProjection = next
+            calendarPermissions.launch(CalendarPermissions)
+        }
+    }
+
+    // The import side asks for the same permission, through the same
+    // launcher, at the same moment -- opting in. Only READ_CALENDAR is
+    // strictly needed to read another app's calendar, but a second array
+    // would mean a second dialog for what a person experiences as one
+    // decision about calendars.
+    var pendingImport by remember { mutableStateOf<Set<String>?>(null) }
+    val importPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        val requested = pendingImport
+        pendingImport = null
+        if (requested != null && granted.values.all { it }) onImportedCalendarsChanged(requested)
+    }
+    val setImported: (Set<String>) -> Unit = { next ->
+        val hasPermission = CalendarPermissions.all { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+        // As with publishing: only opting *in* needs the permission. Opting
+        // out after a revoke must still work, or the import could never be
+        // turned off.
+        if (hasPermission || next.size <= importedCalendarIds.size) {
+            onImportedCalendarsChanged(next)
+        } else {
+            pendingImport = next
+            importPermissions.launch(CalendarPermissions)
+        }
+    }
+
     LaunchedEffect(focusAccountId, accounts) {
         val index = accounts.indexOfFirst { it.id == focusAccountId }
         if (focusAccountId != null && index >= 0) {
@@ -197,6 +274,40 @@ fun CalendarAccountsSurface(
                                 onAddressBookEnabled(account.id, addressBookId, enabled)
                             },
                             onRemove = { onRemoveAccount(account.id) },
+                            projectedCalendarIds = projectedCalendarIds,
+                            onProjectionChanged = { calendarId, published ->
+                                setProjected(
+                                    if (published) projectedCalendarIds + calendarId
+                                    else projectedCalendarIds - calendarId,
+                                )
+                            },
+                        )
+                    }
+                }
+                // Shown when there is something to offer, and also when
+                // something is already imported but the roster came back
+                // empty -- which is what a revoked permission looks like.
+                // Hiding it then would strand the import switched on with no
+                // way to reach it, the exact thing the "opting out never
+                // needs permission" rule exists to prevent.
+                if (availableDeviceCalendars.isNotEmpty() || importedCalendarIds.isNotEmpty()) {
+                    item {
+                        DeviceCalendarsCard(
+                            calendars = availableDeviceCalendars,
+                            importedCalendarIds = importedCalendarIds,
+                            onImportChanged = { calendarId, imported ->
+                                setImported(
+                                    if (imported) importedCalendarIds + calendarId
+                                    else importedCalendarIds - calendarId,
+                                )
+                            },
+                            reminderCalendarIds = importedReminderCalendarIds,
+                            onReminderChanged = { calendarId, remind ->
+                                onImportedReminderCalendarsChanged(
+                                    if (remind) importedReminderCalendarIds + calendarId
+                                    else importedReminderCalendarIds - calendarId,
+                                )
+                            },
                         )
                     }
                 }
@@ -389,6 +500,94 @@ private fun formatSyncTime(instant: java.time.Instant, timeFormat: CalinoTimeFor
         java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault()),
     )
 
+/**
+ * The calendars already on the device, and whether Calino shows them.
+ *
+ * Its own card rather than a section of [AccountCard]: these belong to
+ * Google, Exchange or whatever else is installed, and have no CalDAV account
+ * to hang off. Grouped by owning account so a person can tell whose calendar
+ * each one is before deciding.
+ */
+@Composable
+private fun DeviceCalendarsCard(
+    calendars: List<AndroidCalendarSource.ImportableCalendar>,
+    importedCalendarIds: Set<String>,
+    onImportChanged: (calendarId: String, imported: Boolean) -> Unit,
+    reminderCalendarIds: Set<String>,
+    onReminderChanged: (calendarId: String, remind: Boolean) -> Unit,
+) = EditorSection(null) {
+    EditorLabel("On this device")
+    Text(
+        "Calino can show the calendars other apps on this phone already sync -- " +
+            "Google, Exchange, and any others. They stay read-only: the app that " +
+            "owns a calendar is the one that can change it.",
+        style = CalinoTypography.bodySmall,
+        color = CalinoColors.Ink3,
+    )
+    if (calendars.isEmpty()) {
+        // Reached only with something still imported, so say what happened
+        // and offer the way out rather than leaving a card with nothing in
+        // it.
+        HorizontalDivider(color = CalinoColors.Line)
+        Text(
+            "Calino cannot read this device's calendars without the calendar " +
+                "permission. Whatever was showing is hidden until it is granted " +
+                "again in Android's settings.",
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink2,
+        )
+        TextButton(
+            onClick = { importedCalendarIds.forEach { onImportChanged(it, false) } },
+            modifier = Modifier.heightIn(min = 44.dp)
+                .semantics { contentDescription = "Stop showing this device's calendars" },
+        ) {
+            Text("Stop showing them", color = CalinoColors.Rose)
+        }
+    }
+    calendars.groupBy { it.accountName }.forEach { (accountName, owned) ->
+        HorizontalDivider(color = CalinoColors.Line)
+        EditorLabel(accountName.ifBlank { "This device" })
+        owned.forEach { calendar ->
+            val imported = calendar.id in importedCalendarIds
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    CalinoIcons.Calendar,
+                    contentDescription = null,
+                    tint = Color(calendar.color),
+                    modifier = Modifier.size(18.dp),
+                )
+                Box(Modifier.weight(1f).padding(start = 10.dp)) {
+                    CalinoToggleRow(
+                        label = calendar.name,
+                        checked = imported,
+                        onCheckedChange = { onImportChanged(calendar.id, it) },
+                    )
+                }
+            }
+            if (imported) {
+                Box(Modifier.padding(start = 28.dp)) {
+                    CalinoToggleRow(
+                        label = "Also remind me in Calino",
+                        checked = calendar.id in reminderCalendarIds,
+                        onCheckedChange = { onReminderChanged(calendar.id, it) },
+                    )
+                }
+                Text(
+                    // Said plainly, because it is the one thing about this
+                    // feature Calino cannot fix. The owning app's own
+                    // notification is not ours to switch off.
+                    "Off by default. " + accountName.ifBlank { "The owning app" } +
+                        " already notifies for this calendar, so turning this on " +
+                        "may mean two notifications for one event.",
+                    style = CalinoTypography.bodySmall,
+                    color = CalinoColors.Ink3,
+                    modifier = Modifier.padding(start = 28.dp),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun EmptyAccountsCard() = EditorSection("No accounts yet") {
     Text(
@@ -405,6 +604,8 @@ private fun AccountCard(
     onCalendarEnabled: (calendarId: String, enabled: Boolean) -> Unit,
     onAddressBookEnabled: (addressBookId: String, enabled: Boolean) -> Unit,
     onRemove: () -> Unit,
+    projectedCalendarIds: Set<String>,
+    onProjectionChanged: (calendarId: String, published: Boolean) -> Unit,
 ) = EditorSection(null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -447,6 +648,35 @@ private fun AccountCard(
                         label = if (addressBook.readOnly) "${addressBook.name} · read only" else addressBook.name,
                         checked = addressBook.enabled,
                         onCheckedChange = { onAddressBookEnabled(addressBook.id, it) },
+                    )
+                }
+            }
+        }
+    }
+    val publishable = account.calendars.filter { it.enabled }
+    if (publishable.isNotEmpty()) {
+        HorizontalDivider(color = CalinoColors.Line)
+        EditorLabel("Publish to Android")
+        Text(
+            "A published calendar appears in the device's calendar store, so other " +
+                "calendar apps, watch faces and Android Auto can show it and edit it. " +
+                "Nothing leaves the device by this route.",
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink3,
+        )
+        publishable.forEach { calendar ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    CalinoIcons.Calendar,
+                    contentDescription = null,
+                    tint = CalinoColors.Accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                Box(Modifier.weight(1f).padding(start = 10.dp)) {
+                    CalinoToggleRow(
+                        label = calendar.name,
+                        checked = calendar.id in projectedCalendarIds,
+                        onCheckedChange = { onProjectionChanged(calendar.id, it) },
                     )
                 }
             }

@@ -157,6 +157,7 @@ import calino.malinov.ski.data.repository.duplicateTask
 import calino.malinov.ski.data.repository.duplicateEvent
 import calino.malinov.ski.data.repository.convertTaskToEvent
 import calino.malinov.ski.data.repository.convertEventToTask
+import calino.malinov.ski.platform.AndroidCalendarSource
 import calino.malinov.ski.data.repository.moveEventToDate
 import calino.malinov.ski.data.repository.moveEventToDateTime
 import calino.malinov.ski.data.repository.accepts
@@ -351,6 +352,14 @@ class MainActivity : ComponentActivity() {
         private set
 
     /**
+     * Settings asking Calino to add an account, through the account
+     * authenticator. Held like the other pending intents because the
+     * composition that owns the route does not exist yet on a cold start.
+     */
+    var addAccountPending by mutableStateOf(false)
+        private set
+
+    /**
      * A notification tap, waiting for a snapshot that can resolve it.
      *
      * Held rather than acted on: a cold start arrives here before the calendar
@@ -402,8 +411,11 @@ class MainActivity : ComponentActivity() {
 
     fun consumeSearchShortcut() { searchShortcutPending = false }
 
+    fun consumeAddAccount() { addAccountPending = false }
+
     private fun consumeLauncherShortcut(intent: Intent?) {
         if (intent?.action == ActionSearch) searchShortcutPending = true
+        if (intent?.action == ActionAddAccount) addAccountPending = true
     }
 
     private fun consumeReminderIntent(intent: Intent?) {
@@ -464,8 +476,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val ActionSearch = "calino.malinov.ski.action.SEARCH"
+    companion object {
+        private const val ActionSearch = "calino.malinov.ski.action.SEARCH"
+
+        /** Sent by [calino.malinov.ski.platform.CalinoAuthenticator]. */
+        const val ActionAddAccount = "calino.malinov.ski.action.ADD_ACCOUNT"
     }
 }
 
@@ -559,6 +574,44 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     fun onCalendarColorChanged(accountId: String, calendarId: String, color: Long) {
         container.accountStore.updateCalendarPresentation(accountId, calendarId, color = color)
         container.onCalendarsToggled()
+    }
+
+    /** The calendars published into Android's calendar store. */
+    var projectedCalendarIds by mutableStateOf(container.projectedCalendarIds.orEmpty())
+        private set
+
+    fun onProjectedCalendarsChanged(ids: Set<String>) {
+        container.setProjectedCalendars(ids)
+        projectedCalendarIds = container.projectedCalendarIds.orEmpty()
+    }
+
+    /** The device's own calendars Calino shows, and which it reminds for. */
+    var importedCalendarIds by mutableStateOf(container.importedCalendars)
+        private set
+
+    var importedReminderCalendarIds by mutableStateOf(container.importedReminderCalendarIds)
+        private set
+
+    /**
+     * The device's calendars, as a roster to choose from.
+     *
+     * Read on demand rather than observed: which calendars *exist* changes
+     * when an account is added in system Settings, which is a trip out of
+     * Calino and back. Their contents are followed by a content observer in
+     * the container; this is only the list of names.
+     */
+    fun availableDeviceCalendars(): List<AndroidCalendarSource.ImportableCalendar> =
+        AndroidCalendarSource.availableCalendars(getApplication())
+
+    fun onImportedCalendarsChanged(ids: Set<String>) {
+        container.setImportedCalendars(ids)
+        importedCalendarIds = container.importedCalendars
+        importedReminderCalendarIds = container.importedReminderCalendarIds
+    }
+
+    fun onImportedReminderCalendarsChanged(ids: Set<String>) {
+        container.setImportedReminderCalendars(ids)
+        importedReminderCalendarIds = container.importedReminderCalendarIds
     }
 
     fun onAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
@@ -1130,6 +1183,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         searchOriginRoute = route
         sidebarVisible = false
         searchVisible = true
+    }
+
+    /**
+     * Android Settings sent the person here to add an account. There is one
+     * add-account flow, and this is how the authenticator reaches it rather
+     * than growing a second one.
+     */
+    LaunchedEffect(activity.addAccountPending) {
+        if (!activity.addAccountPending) return@LaunchedEffect
+        activity.consumeAddAccount()
+        sidebarVisible = false
+        route = PockRoute.Accounts
     }
 
     /** The same editor, seeded from a record that already exists. */
@@ -1862,6 +1927,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,
+                        // Re-read whenever the surface is entered: a person
+                        // who leaves to add a Google account in Settings
+                        // comes back expecting to see it here.
+                        availableDeviceCalendars = remember(route) {
+                            pocViewModel.availableDeviceCalendars()
+                        },
+                        importedCalendarIds = pocViewModel.importedCalendarIds,
+                        onImportedCalendarsChanged = {
+                            pocViewModel.onImportedCalendarsChanged(it)
+                        },
+                        importedReminderCalendarIds = pocViewModel.importedReminderCalendarIds,
+                        onImportedReminderCalendarsChanged = {
+                            pocViewModel.onImportedReminderCalendarsChanged(it)
+                        },
                         client = pocViewModel.calDavClient,
                         onAddAccount = { form, calendars -> pocViewModel.onAccountConnected(form, calendars) },
                         onCalendarEnabled = { accountId, calendarId, enabled ->
@@ -1871,6 +1950,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             pocViewModel.onAddressBookEnabled(accountId, addressBookId, enabled)
                         },
                         onRemoveAccount = { pocViewModel.onAccountRemoved(it) },
+                        projectedCalendarIds = pocViewModel.projectedCalendarIds,
+                        onProjectedCalendarsChanged = { pocViewModel.onProjectedCalendarsChanged(it) },
                         syncState = snapshot.sync,
                         onRefresh = { pocViewModel.refresh() },
                         pendingChanges = pendingChanges,

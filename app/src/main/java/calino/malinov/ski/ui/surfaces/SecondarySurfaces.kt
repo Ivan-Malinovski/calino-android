@@ -145,6 +145,7 @@ import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.util.formatRecurrenceRule
 import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.model.WebcalSubscription
+import calino.malinov.ski.platform.AndroidCalendarId
 import calino.malinov.ski.data.parser.PocQuickAddKind
 import calino.malinov.ski.data.parser.parseQuickAdd
 import calino.malinov.ski.design.CalinoColors
@@ -850,8 +851,12 @@ fun EventDetailSurface(
                         // Read per page, not per card: the pager can reach a
                         // neighbour in a different calendar from the one the
                         // card opened on.
+                        // Both kinds of borrowed calendar refuse writes: a
+                        // subscription has no server to write back to, and an
+                        // imported one belongs to another app on the device.
                         readOnly = readOnly ||
-                            WebcalSubscription.isWebcalCalendarId(pageEvent.calendarId),
+                            WebcalSubscription.isWebcalCalendarId(pageEvent.calendarId) ||
+                            AndroidCalendarId.isImported(pageEvent.calendarId),
                         // Only the page the card opened on is the occurrence
                         // that was tapped; a paged-to neighbour states its own
                         // date.

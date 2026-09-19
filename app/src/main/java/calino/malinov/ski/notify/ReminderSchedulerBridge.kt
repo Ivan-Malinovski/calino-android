@@ -25,6 +25,24 @@ class ReminderSchedulerBridge(
     private val preferences: CalinoPreferenceStore,
     private val store: ReminderScheduleStore,
     private val scheduler: ReminderScheduler,
+    /**
+     * The calendars currently projected into `CalendarContract`, or empty
+     * when nothing is.
+     *
+     * Read fresh on every plan rather than captured: projection can be turned
+     * off between one sync and the next, and a stale set would leave a
+     * calendar with nobody reminding for it.
+     */
+    private val projectedCalendarIds: () -> Set<String> = { emptySet() },
+    /**
+     * The imported calendars whose own app does the reminding, read fresh for
+     * the same reason.
+     *
+     * Defaults to every imported calendar: somebody is already notifying for
+     * one of these, and Calino joining in unasked would simply mean two
+     * notifications for one meeting.
+     */
+    private val importedCalendarsRemindedElsewhere: () -> Set<String> = { emptySet() },
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val now: () -> Instant = { Instant.now() },
 ) {
@@ -73,6 +91,20 @@ class ReminderSchedulerBridge(
             options = ReminderPlanOptions(
                 eventRemindersEnabled = preferences.loadEventRemindersEnabled(),
                 taskRemindersEnabled = preferences.loadTaskRemindersEnabled(),
+                // Only when the person has handed delivery over. Both halves
+                // are required: a projected calendar with the setting off is
+                // still Calino's to remind for, and the setting on with
+                // nothing projected changes nothing.
+                //
+                // The imported half is added unconditionally and works the
+                // other way round: an imported calendar's own app already
+                // notifies for it, so Calino stays quiet unless the person
+                // opts that calendar back out of this set.
+                providerOwnedCalendarIds = if (preferences.loadProviderRemindersEnabled()) {
+                    projectedCalendarIds() + importedCalendarsRemindedElsewhere()
+                } else {
+                    importedCalendarsRemindedElsewhere()
+                },
             ),
         )
         store.replace(firings, at, currentZone)
