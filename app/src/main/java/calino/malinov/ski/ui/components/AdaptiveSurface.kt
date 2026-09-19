@@ -404,14 +404,25 @@ fun AdaptiveSurfaceHost(
                     .width(floatingWidth)
                     .height(floatingHeight)
             }
+            // Widened by the shadow bleed on both sides and shifted half of
+            // it toward the window edge, so the card keeps the position and
+            // width it had while the panel gains room around it. A surface
+            // whose content clips -- the event preview's pager clips every
+            // page -- pays that bleed back as padding and can then draw its
+            // whole shadow inside its own page.
             CalinoSurfaceMode.EndPanel ->
                 Modifier
                     .align(Alignment.TopStart)
                     .absoluteOffset(
-                        x = paneLeft + (paneWidth - sideWidth - 16.dp).coerceAtLeast(0.dp),
+                        // The bleed is subtracted after the clamp, not inside
+                        // it: it is overhang the panel is meant to have, and
+                        // folding it into the clamp let a full-width lane push
+                        // the card back inward by the amount it overhangs.
+                        x = paneLeft + (paneWidth - sideWidth - 16.dp).coerceAtLeast(0.dp) -
+                            CalinoSurfaceShadowBleed,
                         y = paneTop + 12.dp,
                     )
-                    .width(sideWidth)
+                    .width(sideWidth + CalinoSurfaceShadowBleed * 2)
                     .height(sideHeight)
         }
 
@@ -591,6 +602,32 @@ private const val FloatingExitMillis = 200
 private val BottomSheetLift = 36.dp
 
 /** The pill's distance from the bottom of its lane, shared with the root pill. */
+/**
+ * Room an end-panel host keeps around its card purely for the card's shadow.
+ *
+ * A side panel's card is elevated, and an elevation shadow is drawn outside
+ * the card's own bounds. Any container between the host and the card that
+ * clips -- the event preview puts each event on a `HorizontalPager` page, and
+ * a pager clips its pages along the scroll axis -- cuts that shadow off at a
+ * hard vertical line a few dp from the card. The host reserves this much extra
+ * width on each side; a clipping surface adds it to its own horizontal padding
+ * (see [calinoSurfaceShadowBleedPadding]) so the card lands back where it was
+ * with the bleed left over for the shadow.
+ *
+ * Comfortably more than the ~14dp an 18dp elevation actually reaches.
+ */
+val CalinoSurfaceShadowBleed = 22.dp
+
+/**
+ * The horizontal page padding a clipping end-panel surface should use in place
+ * of [normal], so [CalinoSurfaceShadowBleed] stays free around the card.
+ */
+@Composable
+fun calinoSurfaceShadowBleedPadding(normal: Dp): Dp =
+    if (LocalCalinoSurfaceMode.current == CalinoSurfaceMode.EndPanel) {
+        normal + CalinoSurfaceShadowBleed
+    } else normal
+
 private val PillLaneInset = 20.dp
 
 /**

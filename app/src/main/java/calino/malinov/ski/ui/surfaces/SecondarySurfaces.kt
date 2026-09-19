@@ -168,6 +168,7 @@ import calino.malinov.ski.design.eventTint
 import calino.malinov.ski.qa.TaskBucket
 import calino.malinov.ski.qa.taskBucket
 import calino.malinov.ski.ui.components.BottomDetailOverlay
+import calino.malinov.ski.ui.components.calinoSurfaceShadowBleedPadding
 import calino.malinov.ski.ui.components.AdaptiveDetailCard
 import calino.malinov.ski.ui.components.AdaptiveSurfaceHost
 import calino.malinov.ski.ui.components.BottomDetailCard
@@ -644,7 +645,11 @@ fun DayModalSurface(
             DetailCardSurface(
                 Modifier
                     .fillMaxSize()
-                    .padding(horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp)
+                    .padding(
+                        horizontal = calinoSurfaceShadowBleedPadding(
+                            if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp,
+                        ),
+                    )
                     .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) },
             ) { _ ->
                 AnimatedContent(
@@ -819,7 +824,11 @@ fun EventDetailSurface(
         ) { page ->
             val pageEvent = events[page]
             val detailListState = rememberLazyListState()
-            Box(Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
+            // A pager clips its pages along the scroll axis, so the card's
+            // shadow has to fit inside this padding or it ends at a hard
+            // vertical line. The host reserves the same bleed in the panel it
+            // hands down, so widening the padding does not narrow the card.
+            Box(Modifier.fillMaxSize().padding(horizontal = calinoSurfaceShadowBleedPadding(10.dp))) {
                 AdaptiveDetailCard(
                     visible = shown,
                     onDismiss = { closeAfterAnimation(onBack) },

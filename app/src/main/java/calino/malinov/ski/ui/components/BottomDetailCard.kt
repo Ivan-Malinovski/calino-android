@@ -37,7 +37,13 @@ fun BottomDetailCard(
         pill = pill,
     ) { overlayModifier ->
         val mode = LocalCalinoSurfaceMode.current
-        Box(overlayModifier.padding(horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp)) {
+        // The end-panel host reserves a shadow bleed on both sides; paying it
+        // back here keeps the card where it was and leaves the bleed free for
+        // the card's own shadow.
+        val inset = calinoSurfaceShadowBleedPadding(
+            if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp,
+        )
+        Box(overlayModifier.padding(horizontal = inset)) {
             AdaptiveDetailCard(
                 visible = visible,
                 onDismiss = onDismiss,
