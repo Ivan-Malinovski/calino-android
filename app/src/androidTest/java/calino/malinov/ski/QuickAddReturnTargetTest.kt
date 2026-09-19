@@ -49,7 +49,9 @@ class QuickAddReturnTargetTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Cancel journal editing").performClick()
         compose.waitForIdle()
 
-        compose.onNodeWithText("A place for what the calendar cannot hold.").assertIsDisplayed()
+        // The Journal header's subtitle is now a live entry total, so key the
+        // return claim on the surface's own search affordance instead.
+        compose.onNodeWithContentDescription("Search journal").assertIsDisplayed()
     }
 
     @Test fun cancellingFromTheCalendarReturnsToTheCalendar() {
