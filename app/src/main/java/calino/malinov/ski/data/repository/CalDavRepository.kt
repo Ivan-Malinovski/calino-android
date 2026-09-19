@@ -79,6 +79,12 @@ data class CardDavSource(
     val metadataFresh: Boolean = false,
 )
 
+/** Read-only ICS overlay, merged at compose time so it never hits CalDAV writes. */
+data class WebcalOverlay(
+    val calendars: List<CalinoCalendar> = emptyList(),
+    val events: List<CalEvent> = emptyList(),
+)
+
 /**
  * A [CalinoRepository] backed by real CalDAV collections.
  *
@@ -118,6 +124,9 @@ class CalDavRepository(
 
     /** What the server last gave us. */
     private var fetched = FetchedData()
+
+    /** Subscribed .ics feeds. Replaced as a whole; never written through DAV. */
+    private var webcal = WebcalOverlay()
 
     /** Local, unsynced edits layered over [fetched]. */
     private val overlay = LocalOverlay()
@@ -182,6 +191,15 @@ class CalDavRepository(
     }
 
     override fun snapshot(): CalinoSnapshot = current
+
+    /**
+     * Replaces the ICS overlay. An empty overlay is how a removed subscription
+     * disappears from the grid; it is not a no-op.
+     */
+    fun setWebcalOverlay(overlay: WebcalOverlay) {
+        webcal = overlay
+        publish()
+    }
 
     /** A complete, raw export. Failure is propagated so callers never label a partial cache as a backup. */
     suspend fun exportCalendarEvents(calendarId: String): String {
@@ -4048,8 +4066,8 @@ class CalDavRepository(
                 visible = source.visible,
                 showTasksInViews = source.showTasksInViews,
             )
-        }
-        val events = overlay.applyToEvents(fetched.events)
+        } + webcal.calendars
+        val events = overlay.applyToEvents(fetched.events + webcal.events)
         val tasks = overlay.applyToTasks(fetched.tasks)
         val journals = overlay.applyToJournals(fetched.journals)
         val contacts = overlay.applyToContacts(fetched.contacts)

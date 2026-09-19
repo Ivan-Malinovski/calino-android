@@ -152,8 +152,14 @@ fun SettingsSurface(
     openAiVisionRequest: Int = 0,
     onImportCalendar: () -> Unit = {},
     onExportCalendar: () -> Unit = {},
+    webcalSubscriptions: List<calino.malinov.ski.data.model.WebcalSubscription> = emptyList(),
+    onSubscribeWebcal: suspend (calino.malinov.ski.data.model.WebcalForm) -> Unit = {},
+    onRemoveWebcal: (String) -> Unit = {},
+    onSyncWebcal: (String) -> Unit = {},
+    onToggleWebcalNotify: (String, Boolean) -> Unit = { _, _ -> },
 ) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.General.name) }
+    var subscribeOpen by rememberSaveable { mutableStateOf(false) }
     val section = remember(sectionName) {
         runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.General)
     }
@@ -226,7 +232,20 @@ fun SettingsSurface(
                 beyondViewportPageCount = 1,
                 key = { page -> SettingsSection.entries[page].name },
             ) { page ->
-                SettingsSectionContent(SettingsSection.entries[page], onOpenNotifications, calDavAccounts, onOpenAccounts, onImportCalendar, onExportCalendar)
+                SettingsSectionContent(
+                    SettingsSection.entries[page],
+                    onOpenNotifications,
+                    calDavAccounts,
+                    onOpenAccounts,
+                    onImportCalendar,
+                    onExportCalendar,
+                    webcalSubscriptions,
+                    onSubscribeWebcal,
+                    onRemoveWebcal,
+                    onSyncWebcal,
+                    onToggleWebcalNotify,
+                    onOpenSubscribe = { subscribeOpen = true },
+                )
             }
         }
 
@@ -317,6 +336,15 @@ fun SettingsSurface(
                 pager(Modifier.weight(1f).fillMaxWidth())
             }
         }
+        // Only compose the sheet while it is open. BottomDetailCard's host is a
+        // full-window overlay; leaving it mounted with visible=false still
+        // intercepts every tap on Settings.
+        if (subscribeOpen) {
+            WebcalSubscribeSheet(
+                onDismiss = { subscribeOpen = false },
+                onSubscribe = onSubscribeWebcal,
+            )
+        }
     }
 }
 
@@ -375,6 +403,12 @@ private fun SettingsSectionContent(
     onOpenAccounts: (Boolean, String?) -> Unit,
     onImportCalendar: () -> Unit,
     onExportCalendar: () -> Unit,
+    webcalSubscriptions: List<calino.malinov.ski.data.model.WebcalSubscription>,
+    onSubscribeWebcal: suspend (calino.malinov.ski.data.model.WebcalForm) -> Unit,
+    onRemoveWebcal: (String) -> Unit,
+    onSyncWebcal: (String) -> Unit,
+    onToggleWebcalNotify: (String, Boolean) -> Unit,
+    onOpenSubscribe: () -> Unit,
 ) {
     when (section) {
         SettingsSection.General -> GeneralSettings()
@@ -383,7 +417,15 @@ private fun SettingsSectionContent(
         SettingsSection.Events -> EventSettings()
         SettingsSection.Categories -> CategoriesSettings()
         SettingsSection.Notifications -> NotificationSettings(onOpenNotifications)
-        SettingsSection.Sync -> SyncSettings(calDavAccounts, onOpenAccounts)
+        SettingsSection.Sync -> SyncSettings(
+            calDavAccounts,
+            onOpenAccounts,
+            webcalSubscriptions,
+            onRemoveWebcal,
+            onSyncWebcal,
+            onToggleWebcalNotify,
+            onOpenSubscribe,
+        )
         SettingsSection.Data -> DataSettings(onImportCalendar, onExportCalendar)
         SettingsSection.AiVision -> AiVisionSettingsPage()
     }
@@ -730,7 +772,15 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
 }
 
 @Composable
-private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean, String?) -> Unit) {
+private fun SyncSettings(
+    accounts: List<CalDavAccount>,
+    onOpenAccounts: (Boolean, String?) -> Unit,
+    webcalSubscriptions: List<calino.malinov.ski.data.model.WebcalSubscription>,
+    onRemoveWebcal: (String) -> Unit,
+    onSyncWebcal: (String) -> Unit,
+    onToggleWebcalNotify: (String, Boolean) -> Unit,
+    onOpenSubscribe: () -> Unit,
+) {
     val preferences = LocalCalinoPreferences.current
     SettingsPage {
         SettingsGroup("Connected accounts") {
@@ -773,6 +823,49 @@ private fun SyncSettings(accounts: List<CalDavAccount>, onOpenAccounts: (Boolean
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)
                     .semantics { contentDescription = "Add calendar account" },
             ) { Text("+  Add calendar account", color = CalinoColors.Accent) }
+        }
+        SettingsGroup("Subscribed calendars") {
+            if (webcalSubscriptions.isEmpty()) {
+                Text(
+                    "Read-only overlays from a public .ics or webcal URL. They are not a CalDAV account.",
+                    style = CalinoTypography.bodySmall,
+                    color = CalinoColors.Ink2,
+                    modifier = Modifier.padding(18.dp),
+                )
+            } else {
+                webcalSubscriptions.forEachIndexed { index, subscription ->
+                    if (index > 0) SettingDivider()
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp)) {
+                        Text(subscription.name, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                        Text(
+                            calino.malinov.ski.data.webcal.WebcalUrl.hostOf(subscription.url),
+                            style = CalinoTypography.bodySmall,
+                            color = CalinoColors.Ink2,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        Row(
+                            Modifier.padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TextButton(onClick = { onSyncWebcal(subscription.id) }) { Text("Sync now") }
+                            TextButton(
+                                onClick = { onToggleWebcalNotify(subscription.id, !subscription.notifyReminders) },
+                            ) {
+                                Text(if (subscription.notifyReminders) "Mute reminders" else "Fire reminders")
+                            }
+                            TextButton(onClick = { onRemoveWebcal(subscription.id) }) {
+                                Text("Remove", color = CalinoColors.Rose)
+                            }
+                        }
+                    }
+                }
+            }
+            SettingDivider()
+            TextButton(
+                onClick = onOpenSubscribe,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)
+                    .semantics { contentDescription = "Subscribe to calendar" },
+            ) { Text("+  Subscribe to calendar (.ics)", color = CalinoColors.Accent) }
         }
         SettingsGroup("Sync settings") {
             SettingChoiceRow(

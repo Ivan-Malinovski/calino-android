@@ -83,6 +83,7 @@ import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.repository.CalinoCalendar
+import calino.malinov.ski.data.model.WebcalSubscription
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.ui.surfaces.PockRoute
@@ -356,11 +357,63 @@ fun NavSidebar(
     }
 }
 
-private data class SidebarCalendarRow(
+internal data class SidebarCalendarRow(
     val accountId: String?,
     val calendar: CalinoCalendar,
     val enabled: Boolean = true,
 )
+
+/**
+ * CalDAV rows come from the account store; webcal rows always come from the
+ * snapshot, even when there is no CalDAV account. The empty-account branch is
+ * fixture-only. Mixing webcal into it kept rename/colour in `remember` state
+ * and threw them away when the sidebar left composition.
+ */
+internal fun sidebarCalendarRows(
+    snapshot: CalinoSnapshot,
+    accounts: List<CalDavAccount>,
+    fixtureCalendarNames: Map<String, String> = emptyMap(),
+    fixtureCalendarColors: Map<String, Long> = emptyMap(),
+): List<SidebarCalendarRow> {
+    val accountRows = accounts.flatMap { account ->
+        account.calendars.map { calendar ->
+            SidebarCalendarRow(
+                accountId = account.id,
+                calendar = CalinoCalendar(
+                    id = calendar.id,
+                    name = calendar.name,
+                    color = calendar.color,
+                    readOnly = calendar.readOnly,
+                    visible = calendar.visible,
+                    showTasksInViews = calendar.showTasksInViews,
+                ),
+                enabled = calendar.enabled,
+            )
+        }
+    }
+    val knownIds = accountRows.map { it.calendar.id }.toSet()
+    val webcalRows = snapshot.calendars
+        .filter { WebcalSubscription.isWebcalCalendarId(it.id) }
+        .filter { it.id !in knownIds }
+        .map { calendar ->
+            SidebarCalendarRow(
+                accountId = WebcalSubscription.AccountId,
+                calendar = calendar,
+            )
+        }
+    if (accountRows.isNotEmpty() || webcalRows.isNotEmpty()) {
+        return accountRows + webcalRows
+    }
+    return snapshot.calendars.map { calendar ->
+        SidebarCalendarRow(
+            accountId = null,
+            calendar = calendar.copy(
+                name = fixtureCalendarNames[calendar.id] ?: calendar.name,
+                color = fixtureCalendarColors[calendar.id] ?: calendar.color,
+            ),
+        )
+    }
+}
 
 internal fun sidebarMonthCells(
     month: YearMonth,
@@ -665,34 +718,12 @@ private fun SidebarExtras(
     var editedCalendarName by remember { mutableStateOf("") }
     var fixtureCalendarNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var fixtureCalendarColors by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
-    val rows = if (accounts.isEmpty()) {
-        snapshot.calendars.map { calendar ->
-            SidebarCalendarRow(
-                accountId = null,
-                calendar = calendar.copy(
-                    name = fixtureCalendarNames[calendar.id] ?: calendar.name,
-                    color = fixtureCalendarColors[calendar.id] ?: calendar.color,
-                ),
-            )
-        }
-    } else {
-        accounts.flatMap { account ->
-            account.calendars.map { calendar ->
-                SidebarCalendarRow(
-                    accountId = account.id,
-                    calendar = CalinoCalendar(
-                        id = calendar.id,
-                        name = calendar.name,
-                        color = calendar.color,
-                        readOnly = calendar.readOnly,
-                        visible = calendar.visible,
-                        showTasksInViews = calendar.showTasksInViews,
-                    ),
-                    enabled = calendar.enabled,
-                )
-            }
-        }
-    }
+    val rows = sidebarCalendarRows(
+        snapshot = snapshot,
+        accounts = accounts,
+        fixtureCalendarNames = fixtureCalendarNames,
+        fixtureCalendarColors = fixtureCalendarColors,
+    )
 
     Row(
         Modifier
