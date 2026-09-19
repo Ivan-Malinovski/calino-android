@@ -595,6 +595,14 @@ fun HomeScreen(
     /** Reports whether the large split month layout is active. */
     onSplitPaneChanged: (Boolean) -> Unit = {},
     /**
+     * Whether a single day is actually in focus on screen. False at the month
+     * endpoint, where the grid fills the surface and picking a day out of it
+     * takes a modal, so the shell's add pill can stay generic rather than
+     * naming a day nobody chose. The split layout keeps its day pane's date,
+     * since that pane is a day in focus.
+     */
+    onDayInFocusChanged: (Boolean) -> Unit = {},
+    /**
      * The two days the add pill's label sits between. Always reported, never
      * null: at rest both halves are the committed day, which draws exactly as
      * a single label would. Changes once per page crossing, not per frame.
@@ -1489,6 +1497,16 @@ fun HomeScreen(
     // the day pane is collapsed and expanded.
     LaunchedEffect(splitLayout) { onSplitPaneChanged(splitLayout) }
     DisposableEffect(Unit) { onDispose { onSplitPaneChanged(false) } }
+    // The day is in focus for as long as any of it is on screen. At the month
+    // endpoint nothing of it is, and the split layout answers with its day
+    // pane instead of the zoom it has pinned open.
+    val agendaInView by remember(zoomState) {
+        derivedStateOf { calendarTransitionFrame(zoomState.value).agendaVisible }
+    }
+    val dayInFocus = if (splitLayout) !dayPaneCollapsed else agendaInView
+    val focusReporter = rememberUpdatedState(onDayInFocusChanged)
+    LaunchedEffect(dayInFocus) { focusReporter.value(dayInFocus) }
+    DisposableEffect(Unit) { onDispose { focusReporter.value(true) } }
     if (splitLayout) {
         SplitHomeLayout(
             modifier = foldMorph,

@@ -949,6 +949,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // even while the day pane itself is collapsed. That keeps the affordance
     // anchored when the pane opens or closes.
     var splitMonthLayoutVisible by remember { mutableStateOf(false) }
+    // Whether the calendar has a day in focus. At the fully expanded month it
+    // does not, and the add pill stops naming one.
+    var calendarDayInFocus by remember { mutableStateOf(true) }
     var journalEntryRequest by rememberSaveable { mutableIntStateOf(0) }
     var contactRequest by rememberSaveable { mutableIntStateOf(0) }
     var writeError by remember { mutableStateOf<String?>(null) }
@@ -1674,6 +1677,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         },
                         onTaskAction = ::handleTaskAction,
                         onSplitPaneChanged = { splitMonthLayoutVisible = it },
+                        onDayInFocusChanged = { calendarDayInFocus = it },
                     )
                     PockRoute.Range -> RangeScreen(
                         events = calendarEvents,
@@ -2268,12 +2272,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         // A 3- or 7-day range shows no selected day, so naming one here would
         // name a day the person never picked. The pill stays generic and the
         // editor it opens anchors on the first day on screen.
+        // The fully expanded month is the same story: the grid fills the
+        // surface, no day is picked out of it, and only the tablet split --
+        // which keeps a day pane beside the grid -- still has a day to name.
         val rangeSpansDays = rootRoute == PockRoute.Range && preferences.rangeMode.dayCount > 1
+        val monthNamesNoDay = rootRoute == PockRoute.Day && !calendarDayInFocus
         val addPillLabel = when {
             rootRoute == PockRoute.Tasks -> "New task"
             rootRoute == PockRoute.Journal -> "New entry"
             rootRoute == PockRoute.Contacts -> "New contact"
-            rangeSpansDays -> "New event"
+            rangeSpansDays || monthNamesNoDay -> "New event"
             else -> "Add on ${selectedDate.format(DateLabel)}"
         }
         androidx.compose.runtime.SideEffect { pillLane.addPillLabel = addPillLabel }
@@ -2341,7 +2349,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 // pill carry them across the gesture, rather than renaming
                 // itself once everything has settled.
                 swipeLabels = when {
-                    rangeSpansDays -> null
+                    rangeSpansDays || monthNamesNoDay -> null
                     rootRoute == PockRoute.Agenda -> agendaSwipeLabelDays
                     rootRoute == PockRoute.Day || rootRoute == PockRoute.Range -> swipeLabelDays
                     else -> null
