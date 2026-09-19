@@ -3074,11 +3074,26 @@ fun CalinoScrim(visible: Boolean, modifier: Modifier = Modifier, onDismiss: (() 
         exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
         modifier = modifier,
     ) {
+        // No indication: a ripple on a window-sized scrim is a veil of its
+        // own, washing everything behind the surface from the moment the
+        // scrim is touched until the host is disposed.
+        val interaction = remember { MutableInteractionSource() }
         Box(
             Modifier
                 .fillMaxSize()
                 .background(CalinoColors.Scrim)
-                .then(if (onDismiss != null) Modifier.clickable(role = Role.Button, onClick = onDismiss) else Modifier)
+                .then(
+                    if (onDismiss != null) {
+                        Modifier.clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            role = Role.Button,
+                            onClick = onDismiss,
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
                 .semantics { contentDescription = "Dismiss" },
         )
     }

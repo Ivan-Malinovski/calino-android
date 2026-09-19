@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
@@ -168,6 +170,7 @@ val LocalCalinoSurfaceMode = androidx.compose.runtime.staticCompositionLocalOf {
 internal fun StatusBarScrimExtension(
     color: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
+    alpha: () -> Float = { 1f },
 ) {
     val density = LocalDensity.current
     val statusBarHeight = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
@@ -176,7 +179,7 @@ internal fun StatusBarScrimExtension(
             .offset(y = -statusBarHeight)
             .fillMaxWidth()
             .height(statusBarHeight)
-            .background(color),
+            .drawBehind { drawRect(color, alpha = alpha().coerceIn(0f, 1f)) },
     )
 }
 
@@ -421,20 +424,35 @@ fun AdaptiveSurfaceHost(
         val scrimColor = CalinoColors.scrim(scrimProgress * (1f - predictiveBackProgress))
         StatusBarScrimExtension(
             color = scrimColor,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                // Match the sidebar: reveal the underlying surface in direct
-                // proportion to the card's live dismissal travel. Reading the
-                // progress in a layer keeps finger-follow frames out of
-                // composition.
-                .graphicsLayer { alpha = 1f - dismissDrag.progress },
+            modifier = Modifier.align(Alignment.TopStart),
+            // Match the sidebar: reveal the underlying surface in direct
+            // proportion to the card's live dismissal travel. This has to
+            // reach the slice as a draw-time alpha and never as a
+            // graphicsLayer: the slice is drawn outside its own bounds, and
+            // any layer alpha below 1 renders it offscreen and clips that
+            // drawing away. The status bar then cleared in one step the
+            // instant a drag began, while the scrim below it followed the
+            // finger. Reading the progress in a draw block keeps the
+            // finger-follow frames out of composition just as well.
+            alpha = { 1f - dismissDrag.progress },
         )
+        // No indication: a ripple on a window-sized scrim is a veil of its
+        // own. It washes the whole surface behind the card the moment the
+        // scrim is tapped and only clears when this host is disposed, which
+        // left the content dimmed for a beat after the scrim itself -- and
+        // the status-bar slice above it -- had already faded out.
+        val scrimInteraction = remember { MutableInteractionSource() }
         Box(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = 1f - dismissDrag.progress }
                 .background(scrimColor)
-                .clickable(enabled = visible, onClick = onDismiss)
+                .clickable(
+                    interactionSource = scrimInteraction,
+                    indication = null,
+                    enabled = visible,
+                    onClick = onDismiss,
+                )
                 .semantics { this.contentDescription = contentDescription },
         )
 
