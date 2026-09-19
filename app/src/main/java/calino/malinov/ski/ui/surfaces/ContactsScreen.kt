@@ -514,7 +514,13 @@ private fun ContactDetailPane(
     Column(modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp),
+            // In the lane the pill floats over the card, so the list runs the
+            // full height and the tail keeps the lane's clearance instead.
+            contentPadding = PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                bottom = if (pillInLane) CalinoSpacing.PillClearance else 16.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             item(key = "contact-heading") {
@@ -571,10 +577,7 @@ private fun ContactDetailPane(
             }
             if (contact.note.isNotBlank()) item(key = "notes") { DetailRow(CalinoIcon.Note, "Notes", contact.note) }
         }
-        if (pillInLane) {
-            // The pill stands in the lane outside this card; hold its room.
-            Spacer(Modifier.height(CalinoSpacing.PillClearance))
-        } else {
+        if (!pillInLane) {
             // The split layout has no card and no lane: the pane keeps its
             // own pill in flow, where it has always been.
             ContactDetailPill(
@@ -719,7 +722,7 @@ private fun ContactEditor(
                     Text(if (isNew) "New contact" else "Edit contact", style = CalinoTypography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, top = 15.dp, end = 20.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, top = 15.dp, end = 20.dp, bottom = CalinoSpacing.PillClearance), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { CalinoTextField(displayName, { displayName = it }, "Display name", placeholder = "Full name") }
                     item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { CalinoTextField(givenName, { givenName = it }, "Given", Modifier.weight(1f)); CalinoTextField(familyName, { familyName = it }, "Family", Modifier.weight(1f)) } }
                     item { CalinoTextField(organization, { organization = it }, "Organization", placeholder = "Where they work") }
@@ -748,7 +751,6 @@ private fun ContactEditor(
                 }
                 // Room for the pill, which stands in the pill lane outside
                 // this card so it can change shape there instead of leaving.
-                Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
         },
     )
