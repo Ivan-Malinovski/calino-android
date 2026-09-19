@@ -474,12 +474,17 @@ private fun JournalMonthGrid(
     Column(
         Modifier
             .fillMaxWidth()
+            // The clip has to sit OUTSIDE the layout below. The layout reports a
+            // shrunken height while the grid unrolls but still places the
+            // full-height panel; a clip placed after it only ever sees that
+            // full-height placeable, so the grid bleeds through the handle, the
+            // month rule and the list for the whole drag.
+            .clipToBounds()
             .layout { measurable, constraints ->
                 val placeable = measurable.measure(constraints)
                 val shownHeight = (placeable.height * progress.coerceIn(0f, 1f)).toInt()
                 layout(placeable.width, shownHeight) { placeable.placeRelative(0, 0) }
             }
-            .clipToBounds()
             .padding(horizontal = CalinoSpacing.Screen)
             .clip(RoundedCornerShape(CalinoShapes.Card))
             .background(CalinoColors.Panel)
