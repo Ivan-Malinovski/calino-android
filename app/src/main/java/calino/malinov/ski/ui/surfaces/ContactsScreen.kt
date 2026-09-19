@@ -36,13 +36,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,7 +54,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -330,47 +332,27 @@ private fun ContactDirectory(
 ) {
     Column(modifier) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 14.dp, top = 18.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.Top,
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             onOpenMenu?.let { MenuButton(onClick = it, modifier = Modifier.padding(end = 6.dp)) }
-            Column(Modifier.weight(1f)) {
-                Text("Contacts", style = CalinoTypography.displayLarge)
-                Text(
-                    "People who make the neighborhood feel close.",
-                    style = CalinoTypography.bodyMedium,
-                    color = CalinoColors.Ink2,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
+            Text("Contacts", style = CalinoTypography.displayLarge, modifier = Modifier.weight(1f))
         }
-        TextField(
-            value = query,
-            onValueChange = onQueryChanged,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).semantics { contentDescription = "Search contacts" },
-            placeholder = { Text("Search people, numbers, tags…") },
-            leadingIcon = { Icon(CalinoIcons.Search, contentDescription = null) },
-            singleLine = true,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = CalinoColors.Panel,
-                unfocusedContainerColor = CalinoColors.Panel,
-                focusedIndicatorColor = CalinoColors.Accent,
-                unfocusedIndicatorColor = CalinoColors.Line,
-            ),
-        )
+        ContactSearchField(query, onQueryChanged)
         if (addressBooks.size > 1) {
             ContactFilterRow("Address books", addressBooks.map { it.id to it.name }, bookFilter, onBookFilterChanged)
         }
         if (tags.isNotEmpty()) {
             ContactTagRow(tags, tagFilter, onTagFilterChanged)
         }
+        HorizontalDivider(Modifier.padding(top = 10.dp), color = CalinoColors.Line)
         if (contacts.isEmpty()) {
             ContactEmptySearch(query)
         } else {
             val groups = groupContactsByAlpha(contacts)
             LazyColumn(
                 Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = CalinoSpacing.PillClearance),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = CalinoSpacing.PillClearance),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 groups.forEach { (key, members) ->
@@ -387,13 +369,51 @@ private fun ContactDirectory(
 }
 
 @Composable
+private fun ContactSearchField(query: String, onQueryChanged: (String) -> Unit) {
+    val focused = remember { mutableStateOf(false) }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .heightIn(min = 40.dp)
+            .clip(RoundedCornerShape(CalinoShapes.Pill))
+            .background(CalinoColors.Panel)
+            .border(
+                1.dp,
+                if (focused.value) CalinoColors.Accent.copy(.35f) else CalinoColors.Line,
+                RoundedCornerShape(CalinoShapes.Pill),
+            )
+            .padding(horizontal = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(CalinoIcons.Search, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp))
+        Box(Modifier.weight(1f).padding(start = 9.dp), contentAlignment = Alignment.CenterStart) {
+            if (query.isEmpty()) {
+                Text("Search people, numbers, tags…", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink3)
+            }
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChanged,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focused.value = it.isFocused }
+                    .semantics { contentDescription = "Search contacts" },
+                singleLine = true,
+                textStyle = CalinoTypography.bodyMedium.copy(color = CalinoColors.Ink),
+                cursorBrush = SolidColor(CalinoColors.Accent),
+            )
+        }
+    }
+}
+
+@Composable
 private fun ContactFilterRow(
     label: String,
     options: List<Pair<String, String>>,
     selected: String?,
     onSelected: (String?) -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().padding(start = 20.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label.uppercase(), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(end = 8.dp))
         androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp), contentPadding = PaddingValues(end = 20.dp)) {
             item { CalinoChip("All", selected == null, "show every address book", { onSelected(null) }) }
@@ -405,7 +425,7 @@ private fun ContactFilterRow(
 @Composable
 private fun ContactTagRow(tags: List<String>, selected: String?, onSelected: (String?) -> Unit) {
     androidx.compose.foundation.lazy.LazyRow(
-        Modifier.fillMaxWidth().padding(top = 7.dp),
+        Modifier.fillMaxWidth().padding(top = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         contentPadding = PaddingValues(horizontal = 20.dp),
     ) {
