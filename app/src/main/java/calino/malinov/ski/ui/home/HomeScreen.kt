@@ -2169,6 +2169,22 @@ private fun SplitHomeLayout(
     // The grid is drawn at its detailed endpoint and stays there. MonthPager
     // reads this as a plain State, so a constant is all the zoom it needs.
     val pinnedZoom = remember { mutableFloatStateOf(2f) }
+    // The pinned grid carries the second level's selected-day marker, so it
+    // owes the reader the second level's motion as well. That motion is not an
+    // animation of its own: the marker is simply where the day pane currently
+    // is, read from the pager every frame. Running a second spring beside the
+    // pane's scroll put the two on different clocks, and the marker visibly
+    // arrived after the day it was naming.
+    val selectedDayPage = dayPageFor(selected)
+    val daySelectorTravel = remember(dayPagerState, selectedDayPage) {
+        derivedStateOf {
+            // Distance from where the pane is to the committed day's page, so
+            // it closes to zero as the pane settles and the marker lands with
+            // it. A swipe of the pane itself drives it the same way.
+            val distance = dayPagerState.getOffsetDistanceInPages(selectedDayPage)
+            if (abs(distance) <= .001f) null else distance
+        }
+    }
     val settledPaneWidth by animateDpAsState(
         targetValue = if (dayPaneCollapsed) 0.dp else SplitPaneWidthDp.dp,
         animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
@@ -2218,8 +2234,9 @@ private fun SplitHomeLayout(
                     visibleGridHeight = { gridHeight },
                     compactDay = selected,
                     compactSelectorIndex = { selected.weekdayColumn(weekStart).toFloat() },
-                    compactDayPagerTravel = { null },
+                    compactDayPagerTravel = { daySelectorTravel.value },
                     monthSelectorCrossing = { null },
+                    selectionVisibleWhenExpanded = !dayPaneCollapsed,
                     compactBoundaryTransition = false,
                     compactLaneOwnedByWeek = remember { mutableStateOf(false) },
                     modifier = Modifier.fillMaxSize(),
@@ -2894,6 +2911,12 @@ private fun MonthPager(
     compactSelectorIndex: () -> Float,
     compactDayPagerTravel: () -> Float?,
     monthSelectorCrossing: () -> MonthSelectorCrossing?,
+    // The expanded month normally drops its selected-day marker: on a phone
+    // the open grid is the only surface there is, and the day it was opened
+    // from is not what the reader is looking at. Beside a day pane it is,
+    // so the marker the second level uses stays on to name the day the pane
+    // is showing.
+    selectionVisibleWhenExpanded: Boolean = false,
     compactBoundaryTransition: Boolean,
     compactLaneOwnedByWeek: androidx.compose.runtime.State<Boolean>,
     modifier: Modifier,
@@ -2982,6 +3005,7 @@ private fun MonthPager(
                         compactSelectorIndex = compactSelectorIndex,
                         compactDayPagerTravel = compactDayPagerTravel,
                         monthSelectorCrossing = monthSelectorCrossing,
+                        selectionVisibleWhenExpanded = selectionVisibleWhenExpanded,
                         interactionEnabled = monthInteractive,
                         onDay = onDay,
                         onEventClick = onEventClick,
@@ -3658,6 +3682,7 @@ private fun StaticMonthGrid(
     compactSelectorIndex: () -> Float,
     compactDayPagerTravel: () -> Float?,
     monthSelectorCrossing: () -> MonthSelectorCrossing?,
+    selectionVisibleWhenExpanded: Boolean = false,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)? = null,
@@ -3839,6 +3864,12 @@ private fun StaticMonthGrid(
                 // morphing.
                 val sharedCompactRow = zoom <= .001f
                 val detailProgress = transition.detailProgress
+                // How much of the selected-day marker survives the last
+                // level. It leaves with the expansion rather than at the
+                // moment the grid passes level 2, so the dot and the white
+                // number go together instead of one blinking out.
+                val expandedSelectionAlpha =
+                    if (selectionVisibleWhenExpanded) 1f else 1f - detailProgress
                 val compactWeekStart = compactDay.startOfWeek(weekStart)
                 val compactWeekRow = ((compactWeekStart.toEpochDay() - start.toEpochDay()) / 7L)
                     .toInt()
@@ -4107,7 +4138,7 @@ private fun StaticMonthGrid(
                         )
                     }
                 }
-                if (!sharedCompactRow && zoom <= 1f) {
+                if (!sharedCompactRow && (zoom <= 1f || expandedSelectionAlpha > .001f)) {
                     val pillHeight = min(
                         with(density) { CompactWeekMetrics.PillHeight.toPx() },
                         naturalWeekHeight.coerceAtLeast(1f),
@@ -4133,7 +4164,8 @@ private fun StaticMonthGrid(
                                 placement.row,
                                 selectorColumn.roundToInt().coerceIn(0, 6),
                             )
-                            val selectorSize = compactDateSizePx
+                            val selectorSize = compactDateSizePx +
+                                (detailedDateSizePx - compactDateSizePx) * detailProgress
                             val targetTopLeft = Offset(
                                 gridLeftPx + cellWidthPx * (selectorColumn + .5f) - selectorSize / 2f,
                                 selectorDateTop,
@@ -4147,7 +4179,7 @@ private fun StaticMonthGrid(
                             val selectorHeight = pillHeight + (selectorSize - pillHeight) * selectorMorph
                             val selectorCorner = compactCorner + (selectorSize / 2f - compactCorner) * selectorMorph
                             drawRoundRect(
-                                color = faded(colors.SelectionFill, placement.alpha),
+                                color = faded(colors.SelectionFill, placement.alpha * expandedSelectionAlpha),
                                 topLeft = selectorTopLeft,
                                 size = Size(selectorWidth, selectorHeight),
                                 cornerRadius = CornerRadius(selectorCorner),
@@ -4158,7 +4190,7 @@ private fun StaticMonthGrid(
                                 // reading a pixel wider than the fill.
                                 val strokePx = with(density) { 1.dp.toPx() }
                                 drawRoundRect(
-                                    color = faded(colors.SelectionBorder, placement.alpha),
+                                    color = faded(colors.SelectionBorder, placement.alpha * expandedSelectionAlpha),
                                     topLeft = selectorTopLeft + Offset(strokePx / 2f, strokePx / 2f),
                                     size = Size(selectorWidth - strokePx, selectorHeight - strokePx),
                                     cornerRadius = CornerRadius((selectorCorner - strokePx / 2f).coerceAtLeast(0f)),
@@ -4210,7 +4242,8 @@ private fun StaticMonthGrid(
                             if (placement.row != row) weight else max(
                                 weight,
                                 (1f - abs(placement.column.coerceIn(-1f, 7f) - column.toFloat()))
-                                    .coerceIn(0f, 1f) * placement.alpha * (1f - compactProgress),
+                                    .coerceIn(0f, 1f) * placement.alpha * (1f - compactProgress) *
+                                    expandedSelectionAlpha,
                             )
                         }
                     }
