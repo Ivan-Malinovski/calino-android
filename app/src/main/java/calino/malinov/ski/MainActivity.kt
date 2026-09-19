@@ -911,6 +911,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var quickAddKind by rememberSaveable(stateSaver = QuickAddKindSaver) { mutableStateOf(QuickAddKind.Event) }
     var quickAddSeed by rememberSaveable { mutableStateOf("") }
     var quickAddStartMinute by rememberSaveable { mutableStateOf<Int?>(null) }
+    // A multi-day range has no selected day to speak of, so its add pill opens
+    // an editor anchored on the first day on screen rather than on whichever
+    // day the pager last settled on. Held as an epoch day so it survives the
+    // same process death the rest of the quick-add state does.
+    var quickAddDateEpoch by rememberSaveable { mutableStateOf<Long?>(null) }
+    var rangeFirstVisibleEpoch by rememberSaveable { mutableStateOf<Long?>(null) }
     var quickAddParentTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var quickAddMorphFromAddPill by rememberSaveable { mutableStateOf(false) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
@@ -1095,11 +1101,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         morphFromAddPill: Boolean = false,
         parentTaskId: String? = null,
         startMinute: Int? = null,
+        date: LocalDate? = null,
     ) {
         externalDraft = null
         editEventId = null
         quickAddSeed = ""
         quickAddStartMinute = startMinute
+        quickAddDateEpoch = date?.toEpochDay()
         quickAddParentTaskId = parentTaskId
         quickAddMorphFromAddPill = morphFromAddPill
         quickAddKind = kind
@@ -1129,6 +1137,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         editEventId = event.id
         quickAddSeed = ""
         quickAddStartMinute = null
+        quickAddDateEpoch = null
         quickAddParentTaskId = null
         // The detail card's edit action is the source pill for the editor,
         // just like the root add pill is when creating a new event.
@@ -1378,6 +1387,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         aiQueue = emptyList()
         quickAddParentTaskId = null
         quickAddStartMinute = null
+        quickAddDateEpoch = null
         quickAddMorphFromAddPill = false
         if (closeDetailStack && quickAddOrigin == PocReturnTarget.Detail) {
             selectedEventId = null
@@ -1666,6 +1676,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         modifier = Modifier.fillMaxSize(),
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = ::selectCalendarDate,
+                        onFirstVisibleDayChanged = { rangeFirstVisibleEpoch = it.toEpochDay() },
                         onEventClick = { day, event ->
                             selectedEventId = event.id
                             selectedEventOccurrenceDay = day.toEpochDay()
@@ -2087,11 +2098,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         when (route) {
             PockRoute.QuickAdd -> {
                 val editing = editEventId?.let { id -> snapshot.events.firstOrNull { it.id == id } }
+                val quickAddDate = quickAddDateEpoch?.let(LocalDate::ofEpochDay) ?: selectedDate
                 QuickAddSheet(
                     state = QuickAddSheetState(
                         visible = true,
                         kind = quickAddKind,
-                        date = selectedDate,
+                        date = quickAddDate,
                         morphFromAddPill = quickAddMorphFromAddPill,
                         draft = editing
                             ?.let(::editorDraftFor)
@@ -2101,7 +2113,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 val defaults = LocalCalinoPreferences.current
                                 blankEditorDraft(
                                     kind = quickAddKind.toParserKind(),
-                                    date = selectedDate,
+                                    date = quickAddDate,
                                     title = quickAddSeed,
                                     defaultDurationMinutes = defaults.defaultDuration.minutes,
                                     defaultReminderMinutes = defaults.defaultReminder.minutesBefore,
@@ -2245,10 +2257,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         // What the root pill says, published whether or not it is on screen:
         // a modal pill morphs back into this exact label, and it can change
         // (the selected day moves) while a modal holds the lane.
-        val addPillLabel = when (rootRoute) {
-            PockRoute.Tasks -> "New task"
-            PockRoute.Journal -> "New entry"
-            PockRoute.Contacts -> "New contact"
+        // A 3- or 7-day range shows no selected day, so naming one here would
+        // name a day the person never picked. The pill stays generic and the
+        // editor it opens anchors on the first day on screen.
+        val rangeSpansDays = rootRoute == PockRoute.Range && preferences.rangeMode.dayCount > 1
+        val addPillLabel = when {
+            rootRoute == PockRoute.Tasks -> "New task"
+            rootRoute == PockRoute.Journal -> "New entry"
+            rootRoute == PockRoute.Contacts -> "New contact"
+            rangeSpansDays -> "New event"
             else -> "Add on ${selectedDate.format(DateLabel)}"
         }
         androidx.compose.runtime.SideEffect { pillLane.addPillLabel = addPillLabel }
@@ -2316,6 +2333,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 // pill carry them across the gesture, rather than renaming
                 // itself once everything has settled.
                 swipeLabels = swipeLabelDays
+                    ?.takeIf { !rangeSpansDays }
                     ?.takeIf { rootRoute == PockRoute.Day || rootRoute == PockRoute.Range }
                     ?.let { "Add on ${it.from.format(DateLabel)}" to "Add on ${it.to.format(DateLabel)}" },
                 swipeTravel = { swipeLabelTravel() },
@@ -2351,7 +2369,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)
                         PockRoute.Journal -> journalEntryRequest += 1
                         PockRoute.Contacts -> contactRequest += 1
-                        PockRoute.Range -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Range, morphFromAddPill = true)
+                        PockRoute.Range -> openQuickAdd(
+                            QuickAddKind.Event,
+                            PocReturnTarget.Range,
+                            morphFromAddPill = true,
+                            date = if (rangeSpansDays) {
+                                rangeFirstVisibleEpoch?.let(LocalDate::ofEpochDay)
+                            } else {
+                                null
+                            },
+                        )
                         // The agenda used to fall through to the calendar's
                         // origin, so finishing an event there put the person
                         // in the month view they never asked for. Every root

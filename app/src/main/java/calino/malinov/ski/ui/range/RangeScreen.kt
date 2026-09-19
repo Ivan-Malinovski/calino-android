@@ -120,6 +120,10 @@ fun RangeScreen(
     modifier: Modifier = Modifier,
     onOpenMenu: () -> Unit,
     onDateChanged: (LocalDate) -> Unit,
+    // The first day currently on screen, which is not the same as the selected
+    // date once a multi-day range is showing: the add pill creates there, and
+    // only this screen knows where the pager has come to rest.
+    onFirstVisibleDayChanged: (LocalDate) -> Unit,
     onEventClick: (LocalDate, CalEvent) -> Unit,
     onEventAction: (EventMenuAction, CalEvent) -> Unit,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
@@ -162,6 +166,8 @@ fun RangeScreen(
     }
 
     val visibleDays = rangeDays(anchor, mode, weekStart)
+    val firstVisibleDay = visibleDays.first()
+    LaunchedEffect(firstVisibleDay) { onFirstVisibleDayChanged(firstVisibleDay) }
     val subtitle = if (visibleDays.size == 1) {
         visibleDays.single().format(RangeDate)
     } else {
@@ -525,7 +531,7 @@ private fun RangePage(
                 val timed = remember(eventIndex, day) { eventIndex.eventsOn(day).filterNot { it.allDay } }
                 Box(
                     Modifier.weight(1f).border(0.5.dp, CalinoColors.Line2)
-                        .rangeEmptyDoubleTap(
+                        .rangeEmptyLongPress(
                             isOccupied = { point ->
                                 val minute = point.y /
                                     with(density) { (62 * timelineScale).dp.toPx() } * 60f
@@ -536,7 +542,7 @@ private fun RangePage(
                                     minute >= startMinute && minute <= startMinute + duration
                                 }
                             },
-                            onDoubleTap = { point ->
+                            onLongPress = { point ->
                                 val raw = (point.y / with(density) { (62 * timelineScale).dp.toPx() } * 60f)
                                 val minute = ((raw / 15f).roundToInt() * 15).coerceIn(0, 23 * 60 + 45)
                                 onCreateEventAt(LocalDateTime.of(day, java.time.LocalTime.MIDNIGHT.plusMinutes(minute.toLong())))
@@ -702,46 +708,38 @@ private fun Modifier.rangeTimelineLiftDrag(
 }
 
 /**
- * Observes taps on a day column without claiming the pointer stream from event
- * cards, scrolling, or the horizontal pager. Only a second stationary tap on
- * genuinely empty timeline space creates an event.
+ * Observes a press on a day column without claiming the pointer stream from
+ * event cards, scrolling, or the horizontal pager. A stationary hold on
+ * genuinely empty timeline space creates an event there; anything that moves,
+ * lifts early, or lands on a card is left to whoever else wants it.
  */
-private fun Modifier.rangeEmptyDoubleTap(
+private fun Modifier.rangeEmptyLongPress(
     isOccupied: (androidx.compose.ui.geometry.Offset) -> Boolean,
-    onDoubleTap: (androidx.compose.ui.geometry.Offset) -> Unit,
+    onLongPress: (androidx.compose.ui.geometry.Offset) -> Unit,
 ): Modifier = composed {
     val currentIsOccupied by rememberUpdatedState(isOccupied)
-    val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val haptics = LocalHapticFeedback.current
     pointerInput(Unit) {
-        var previousTapTime = 0L
-        var previousTapPosition = androidx.compose.ui.geometry.Offset.Unspecified
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+            if (currentIsOccupied(down.position)) return@awaitEachGesture
             val pointerId = down.id
-            var moved = false
-            var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
-            while (up == null) {
-                val event = awaitPointerEvent(PointerEventPass.Final)
-                val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
-                if (!change.pressed) up = change
-            }
-            val release = up
-            if (!moved && release != null && !currentIsOccupied(release.position)) {
-                val elapsed = release.uptimeMillis - previousTapTime
-                val closeEnough = previousTapPosition.isSpecified &&
-                    (release.position - previousTapPosition).getDistance() <= viewConfiguration.touchSlop * 2f
-                if (elapsed in viewConfiguration.doubleTapMinTimeMillis..viewConfiguration.doubleTapTimeoutMillis && closeEnough) {
-                    currentOnDoubleTap(release.position)
-                    previousTapTime = 0L
-                    previousTapPosition = androidx.compose.ui.geometry.Offset.Unspecified
-                } else {
-                    previousTapTime = release.uptimeMillis
-                    previousTapPosition = release.position
+            // The hold is only a hold while the finger neither travels nor
+            // lifts, so the window is spent waiting for either -- a timeout
+            // rather than a sleep, or a scroll that started here would still
+            // spawn an editor once it stopped.
+            val ended = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Final)
+                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                    if (!change.pressed) break
+                    if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
                 }
-            } else {
-                previousTapTime = 0L
-                previousTapPosition = androidx.compose.ui.geometry.Offset.Unspecified
+            }
+            if (ended == null) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                currentOnLongPress(down.position)
             }
         }
     }
