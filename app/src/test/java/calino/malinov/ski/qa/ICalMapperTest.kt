@@ -139,6 +139,59 @@ class ICalMapperTest {
     }
 
     @Test
+    fun `a recurring VTODO with only DUE still expands`() {
+        // tasks.org and other task clients omit DTSTART entirely. Issue #3.
+        val tasks = ICalMapper(ZoneId.of("America/Chicago")).parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTODO
+            UID:towels
+            DTSTAMP:20260918T203424Z
+            DUE;TZID=America/Chicago:20260922T153001
+            RRULE:FREQ=WEEKLY;BYDAY=TU,FR
+            PRIORITY:9
+            STATUS:NEEDS-ACTION
+            SUMMARY:Towels
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "towels.ics",
+            windowStart = LocalDate.of(2026, 9, 20), windowEnd = LocalDate.of(2026, 9, 30),
+        ).tasks
+
+        assertEquals(
+            listOf(22, 25, 29).map { LocalDate.of(2026, 9, it) },
+            tasks.map { it.due },
+        )
+        assertEquals(LocalTime.of(15, 30, 1), tasks.first().dueTime)
+        assertTrue(tasks.all { it.startDate == null })
+    }
+
+    @Test
+    fun `a yearly DUE-only VTODO expands across the window`() {
+        val tasks = ICalMapper(ZoneId.of("America/Chicago")).parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTODO
+            UID:solar
+            DUE;TZID=America/Chicago:20260921T130001
+            RRULE:FREQ=YEARLY;INTERVAL=1
+            STATUS:NEEDS-ACTION
+            SUMMARY:Reset Solar
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "solar.ics",
+            windowStart = LocalDate.of(2026, 1, 1), windowEnd = LocalDate.of(2028, 12, 31),
+        ).tasks
+
+        assertEquals(
+            listOf(LocalDate.of(2026, 9, 21), LocalDate.of(2027, 9, 21), LocalDate.of(2028, 9, 21)),
+            tasks.map { it.due },
+        )
+    }
+
+    @Test
     fun `undated VTODO remains visible`() {
         val task = mapper.parse(
             """

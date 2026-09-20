@@ -487,7 +487,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val exceptionKeys = master.getProperties(ExceptionDates::class.java)
             .flatMap { it.values.orEmpty() }.map(::recurrenceKey).toSet()
         val generated = mutableListOf<CalTask>()
-        val iterator = master.getDateIterator(tz)
+        val iterator = seriesIterationComponent(master, carrier).getDateIterator(tz)
         iterator.advanceTo(Date.from(from))
         while (iterator.hasNext() && generated.size < MaxOccurrencesPerSeries) {
             val occurrence = iterator.next()
@@ -510,6 +510,24 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             )
         }
         detached + generated
+    }
+
+    /**
+     * The component biweekly may iterate for a recurring VTODO.
+     *
+     * `getDateIterator` reads DTSTART and nothing else, but RFC 5545 lets a
+     * VTODO carry only DUE -- which is what tasks.org and other task clients
+     * emit. Without this, such a series produced no occurrences at all and the
+     * task vanished from every surface. The copy exists purely to feed the
+     * iterator; the mapped fields all come from the real master.
+     */
+    private fun seriesIterationComponent(master: VTodo, carrier: DateOrDateTimeProperty): VTodo {
+        if (master.dateStart != null) return master
+        val copy = master.copy()
+        copy.dateStart = biweekly.property.DateStart(carrier.value).also { start ->
+            carrier.getParameter("TZID")?.let { start.setParameter("TZID", it) }
+        }
+        return copy
     }
 
     private fun recurrenceKey(value: ICalDate): String = if (value.hasTime()) {
