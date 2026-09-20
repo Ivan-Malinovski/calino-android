@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    DAV servers are chosen by the person using the app. Honor CA certificates
+    they deliberately installed for private/self-hosted servers as well as
+    Android's system roots. Chain and hostname validation still apply.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

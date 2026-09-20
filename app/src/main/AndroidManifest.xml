@@ -58,6 +58,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.CalinoPoc"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="false"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true">
