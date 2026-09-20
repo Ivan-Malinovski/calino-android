@@ -3,6 +3,45 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.2.2 — 2026-09-20
+
+### Added
+
+- **A journal month overview.** The All-entries / By-month control is replaced
+  by a month scrubber that opens into a month grid, using the calendar's own
+  zoom vocabulary. The level never filters the list — a tap scrolls to the
+  month instead.
+- **An entry can change its day.** The journal editor gained a date chip on the
+  Write/Preview line, and a moved entry travels the write path that already
+  existed, replacing `DTSTART` on the server's VJOURNAL.
+- **Swipe between journal entries.** The read modal pages like the event
+  detail does, so the two chevrons in its footer are gone.
+- **A markdown toolbar and a preview.** The journal editor has a
+  selection-aware toolbar and a Write/Preview control.
+
+### Fixed
+
+- **A repeating task that carries only a due date now shows up.** A VTODO with
+  an `RRULE` but no `DTSTART` — what tasks.org and other task clients emit —
+  expanded to nothing, and the task vanished from every surface instead of
+  merely losing its repeats. One-time tasks were never affected. (#3)
+- The journal month grid is clipped while it unrolls. It used to draw straight
+  through the handle, the month rule and the list cards beneath it for the
+  whole drag.
+- The sticky month rule no longer ignores the first visible entry, so an entry
+  moved into a new month updates the rule and the scrubber without waiting for
+  a scroll.
+
+### Changed
+
+- Journal entry cards carry an accent spine and a word count, and drop the date
+  line the date column already states.
+- The journal read modal reads as an editorial page: an accent date line, a
+  headline title, and words-and-read-time meta between rules.
+- The journal month block closes on the same hairline the day group headers
+  use elsewhere.
+- Event and task card interactions were refined.
+
 ## 0.2.1 — 2026-09-19
 
 ### Added
