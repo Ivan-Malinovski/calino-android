@@ -3,6 +3,17 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.3.0 — 2026-09-20
+
+### Fixed
+
+- **Self-hosted DAV servers can use a CA installed by the phone owner.** Calino
+  now honors Android's user certificate store as well as its system roots, so
+  a private CalDAV or CardDAV server works after its CA certificate is
+  deliberately installed on the device. Certificate-chain and hostname
+  validation still apply, and release builds continue to reject cleartext
+  connections. (#4)
+
 ## 0.2.2 — 2026-09-20
 
 ### Added
