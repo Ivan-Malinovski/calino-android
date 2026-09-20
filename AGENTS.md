@@ -265,8 +265,13 @@ The instrumented suite is a **separate** check, because it needs a booted
 emulator. Run it before a handoff that touches UI:
 
 ```bash
-distrobox enter android-sdk -- bash -lc './gradlew :app:connectedDebugAndroidTest'
+distrobox enter android-sdk -- bash -lc \
+  'ANDROID_SERIAL=emulator-5554 ./gradlew :app:connectedDebugAndroidTest'
 ```
+
+This pin is mandatory and enforced by Gradle. Connected Android test tasks
+refuse to run unless `ANDROID_SERIAL` names an emulator, so an attached phone
+can never receive the regression suite by accident.
 
 The debug APK is:
 

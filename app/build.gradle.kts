@@ -91,6 +91,22 @@ composeCompiler {
     metricsDestination = layout.buildDirectory.dir("compose_compiler")
 }
 
+// Instrumented tests rewrite app state and must never fan out to a person's
+// attached phone. AGP's connected task targets every visible device when no
+// serial is pinned, so make the safe target an enforced precondition rather
+// than relying on whoever runs Gradle to remember the environment variable.
+tasks.configureEach {
+    if (name.startsWith("connected") && name.endsWith("AndroidTest")) {
+        doFirst {
+            val serial = System.getenv("ANDROID_SERIAL")
+            check(serial?.startsWith("emulator-") == true) {
+                "Refusing to run $path: set ANDROID_SERIAL to an emulator serial (for example emulator-5554). " +
+                    "Connected tests are forbidden on physical devices."
+            }
+        }
+    }
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))
     implementation("androidx.activity:activity-compose:1.11.0")

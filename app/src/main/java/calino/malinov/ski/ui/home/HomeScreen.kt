@@ -742,12 +742,20 @@ fun HomeScreen(
         compactSelectorPosition.snapTo(selected.weekdayColumn(weekStart).toFloat())
     }
 
-    LaunchedEffect(selectorWeekdayIndex) {
+    LaunchedEffect(selectorWeekdayIndex, compactSelectorHandoff) {
         val target = selectorWeekdayIndex.toFloat()
-        if (compactSelectorHandoff == target) {
-            compactSelectorPosition.snapTo(target)
+        val handoff = compactSelectorHandoff
+        if (handoff != null) {
+            // A week settle can preserve the weekday column. In that case the
+            // selector key does not change, so an effect keyed only on the
+            // column never consumed this bridge and it overrode every later
+            // tap until another swipe. Consume every handoff when published,
+            // whether or not it moved the selector.
+            if (handoff == target) compactSelectorPosition.snapTo(target)
             compactSelectorHandoff = null
-        } else if (abs(compactSelectorPosition.value - target) > 3f) {
+            if (handoff == target) return@LaunchedEffect
+        }
+        if (abs(compactSelectorPosition.value - target) > 3f) {
             // Sunday/Monday crossings deliberately traverse the row in one
             // uninterrupted linear motion. Keeping this a single animation
             // avoids the old off-screen wrap and its visible edge snap.
