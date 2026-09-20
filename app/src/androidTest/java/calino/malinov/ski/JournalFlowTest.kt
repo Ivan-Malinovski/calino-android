@@ -9,6 +9,13 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
+import calino.malinov.ski.ui.components.SwipeDownDismissTag
+import calino.malinov.ski.ui.surfaces.JournalEntryPagerTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -43,14 +50,93 @@ class JournalFlowTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Journal title").assertIsDisplayed()
     }
 
-    @Test fun pagesBetweenEntriesWithoutClosingTheReader() {
+    /**
+     * The reader pages by swipe. Entries are sorted newest first, so a swipe
+     * to the right -- back a page -- lands on the next entry *up* the list,
+     * which is the day after the one that was open.
+     */
+    @Test fun swipingBackPagesToTheNewerEntry() {
         openEntry()
 
-        compose.onNodeWithContentDescription("Previous journal entry").performClick()
+        compose.onNodeWithTag(JournalEntryPagerTag).performTouchInput { swipeRight() }
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Journal title").assertTextContains("Design Sprint — Day 1")
         compose.onNodeWithContentDescription("Edit journal entry").assertIsDisplayed()
+    }
+
+    @Test fun swipingForwardPagesToTheOlderEntry() {
+        openEntry()
+
+        compose.onNodeWithTag(JournalEntryPagerTag).performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+
+        // The oldest fixture entry has no title, so the reader states that.
+        compose.onNodeWithContentDescription("Journal title").assertTextContains("Untitled note")
+    }
+
+    /** There is nothing past the oldest entry, and the reader must not leave it. */
+    @Test fun swipingPastTheLastEntryStaysPut() {
+        openEntry()
+        compose.onNodeWithTag(JournalEntryPagerTag).performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(JournalEntryPagerTag).performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+
+        compose.onNodeWithContentDescription("Journal title").assertTextContains("Untitled note")
+        compose.onNodeWithContentDescription("Edit journal entry").assertIsDisplayed()
+    }
+
+    /** The pager must not have taken the modal's downward dismissal with it. */
+    @Test fun aFullSwipeDownStillDismissesTheReader() {
+        openEntry()
+
+        // Every page carries its own card, so pick the one on screen rather
+        // than the neighbours parked to either side of it. A page the pager
+        // has clipped away reports empty bounds, not offset ones, so width is
+        // what separates the card on screen from the two that are not.
+        val cards = compose.onAllNodesWithTag(SwipeDownDismissTag)
+        val visible = cards.fetchSemanticsNodes().indexOfFirst {
+            val bounds = it.boundsInRoot
+            bounds.width > 1f && bounds.height > 1f
+        }
+        assertTrue("no visible journal card", visible >= 0)
+        cards[visible].performTouchInput {
+            swipeDown(startY = top + (height * .1f), endY = bottom)
+        }
+        compose.waitForIdle()
+
+        // The card leaves on its own close animation, so wait it out rather
+        // than reading the frame the gesture happened to end on.
+        awaitNoDescribed("Edit journal entry")
+    }
+
+    /** An editor being written to keeps its pointer stream instead of paging. */
+    @Test fun aDirtyEditorDoesNotPage() {
+        openEntry()
+        beginEditing()
+        compose.onNodeWithContentDescription("Journal title").performTextInput(Edited)
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(JournalEntryPagerTag).performTouchInput { swipeRight() }
+        compose.waitForIdle()
+
+        // Still the same entry, still mid-edit: the date row is the entry's
+        // own, and an unsaved change is still waiting to be saved.
+        compose.onNodeWithContentDescription("Save journal entry").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Date: Friday 15 May 2026").assertIsDisplayed()
+    }
+
+    /** An entry can be moved to another day, so the edit pane states its date. */
+    @Test fun theEditPaneCarriesTheEntryDate() {
+        openEntry()
+
+        compose.onNodeWithContentDescription("Date: Friday 15 May 2026").assertDoesNotExist()
+
+        beginEditing()
+
+        compose.onNodeWithContentDescription("Date: Friday 15 May 2026").assertIsDisplayed()
     }
 
     @Test fun createsAnEntry() {

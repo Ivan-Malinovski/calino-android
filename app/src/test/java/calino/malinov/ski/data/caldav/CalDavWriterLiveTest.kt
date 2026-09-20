@@ -143,6 +143,29 @@ class CalDavWriterLiveTest {
                 ),
             )
             assertTrue(journal!!.ics.contains("UID:$journalUid"))
+            assertTrue(journal!!.ics.contains("DTSTART;VALUE=DATE:20300104"))
+
+            // Moving a journal entry to another day is a patch of the resource
+            // the server already holds, so prove DTSTART actually moves rather
+            // than trusting that the modeled date reached the writer.
+            journal = writer.putJournal(
+                calendar,
+                credentials,
+                JournalEntry(
+                    id = journalUid,
+                    uid = journalUid,
+                    href = journal!!.href,
+                    etag = journal!!.etag,
+                    date = LocalDate.of(2030, 2, 11),
+                    title = "Calino live journal",
+                    body = "Round trip",
+                ),
+            )
+            assertTrue(
+                "the moved day did not reach the server: ${journal!!.ics}",
+                journal!!.ics.contains("DTSTART;VALUE=DATE:20300211"),
+            )
+            assertTrue("the old day survived the patch", !journal!!.ics.contains("20300104"))
 
             writer.delete(calendar, credentials, event!!.href, eventUid, event!!.etag)
             writer.delete(calendar, credentials, task!!.href, taskUid, task!!.etag)

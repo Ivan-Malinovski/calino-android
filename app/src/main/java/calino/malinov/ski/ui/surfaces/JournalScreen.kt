@@ -19,6 +19,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +36,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -48,11 +51,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -85,9 +91,15 @@ import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.CompactSegmentedControl
-import calino.malinov.ski.ui.components.BottomDetailCard
+import calino.malinov.ski.ui.components.AdaptiveDetailCard
+import calino.malinov.ski.ui.components.BottomDetailOverlay
+import calino.malinov.ski.ui.components.LocalCalinoSurfaceMode
+import calino.malinov.ski.ui.components.calinoSurfaceEdgeFade
+import calino.malinov.ski.ui.components.calinoSurfaceShadowBleed
+import calino.malinov.ski.ui.components.rememberDatePicker
 import calino.malinov.ski.ui.components.ModalActionPill
 import calino.malinov.ski.state.CalinoSurfaceKind
+import calino.malinov.ski.state.CalinoSurfaceMode
 import calino.malinov.ski.state.LocalCalinoNow
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.util.dayOfWeekForColumn
@@ -106,6 +118,9 @@ private val JournalTouchLane = 44.dp
 
 /** How far the handle drag travels before the grid is fully unrolled. */
 private val JournalHandleDragRange = 160.dp
+
+/** The read modal's entry pager, driven directly in the device tests. */
+const val JournalEntryPagerTag = "journal-entry-pager"
 
 private val JournalDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
 private val JournalEditorialDateFormat = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.US)
@@ -282,8 +297,15 @@ fun JournalSurface(
                 LaunchedEffect(listState, sorted) {
                     snapshotFlow { listState.firstVisibleItemIndex }
                         .collect { index ->
-                            if (!programmaticScroll && index > 0) {
-                                sorted.getOrNull(index - 1)?.let { visibleEpochMonth = YearMonth.from(it.date).journalEpochMonth() }
+                            // The sticky rule is item 0, so the entry under it
+                            // is one back -- and at the very top of the list
+                            // that is the first entry itself. Clamping rather
+                            // than skipping index 0 is what re-labels the rule
+                            // when an entry is moved into a new month and
+                            // lands at the head of the list.
+                            if (!programmaticScroll) {
+                                sorted.getOrNull((index - 1).coerceAtLeast(0))
+                                    ?.let { visibleEpochMonth = YearMonth.from(it.date).journalEpochMonth() }
                             }
                         }
                 }
@@ -297,6 +319,9 @@ fun JournalSurface(
                 entries = sorted,
                 onNavigate = { selectEditor(it.id) },
                 onDismiss = { closeEntry(currentEntry) },
+                // A draft's date lives in the host, which rebuilds the
+                // synthetic entry from it, so the editor hands it back here.
+                onDraftDateChange = { picked -> draftDateEpochDay = picked.toEpochDay() },
                 onSave = { updated ->
                     if (draft?.id == updated.id) {
                         draft?.commit(updated.title, updated.body)?.let(onCreate)
@@ -654,6 +679,12 @@ private fun JournalEmptyState() {
 
 private val WordBoundaryPattern = Regex("\\s+")
 
+/** A rememberSaveable saver for the editor's working date. */
+private val EpochDaySaver = androidx.compose.runtime.saveable.Saver<LocalDate, Long>(
+    save = { it.toEpochDay() },
+    restore = LocalDate::ofEpochDay,
+)
+
 @Composable
 private fun JournalEditor(
     entry: JournalEntry,
@@ -662,22 +693,30 @@ private fun JournalEditor(
     onDismiss: () -> Unit,
     onSave: (JournalEntry) -> Unit,
     onDelete: (JournalEntry) -> Unit,
+    onDraftDateChange: (LocalDate) -> Unit,
 ) {
     var title by rememberSaveable(entry.id) { mutableStateOf(entry.title) }
     var body by rememberSaveable(entry.id, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(entry.body)) }
     val isNewEntry = entry.id.startsWith("draft-journal-")
+    // A draft's date belongs to the host, which rebuilds the synthetic entry
+    // from it; an existing entry's date is editor state until it is saved.
+    var editedDate by rememberSaveable(entry.id, stateSaver = EpochDaySaver) { mutableStateOf(entry.date) }
+    val date = if (isNewEntry) entry.date else editedDate
     var isEditing by rememberSaveable(entry.id) { mutableStateOf(isNewEntry) }
     var editorMode by rememberSaveable(entry.id) { mutableStateOf(0) }
     var confirmDelete by rememberSaveable(entry.id) { mutableStateOf(false) }
     var showDiscard by rememberSaveable(entry.id) { mutableStateOf(false) }
-    val dirty = title != entry.title || body.text != entry.body
+    val dirty = title != entry.title || body.text != entry.body || date != entry.date
     val canSave = title.isNotBlank() || body.text.isNotBlank()
     val focusTitle = isNewEntry
     val titleFocusRequester = remember { FocusRequester() }
     val wordCount = remember(body.text) { body.text.trim().let { if (it.isEmpty()) 0 else it.split(WordBoundaryPattern).size } }
     val headerTint = CalinoColors.AccentSoft.copy(alpha = .42f)
 
-    var shown by remember(entry.id) { mutableStateOf(true) }
+    // Not keyed on the entry: the card stays on screen while the pager moves
+    // between entries, and re-seeding this at every settle would restart the
+    // entry animation under a finger that never asked for one.
+    var shown by remember { mutableStateOf(true) }
     var closeAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     fun closeAnimated(action: () -> Unit) {
         if (shown) { closeAction = action; shown = false }
@@ -705,17 +744,41 @@ private fun JournalEditor(
         }
     }
 
-    BottomDetailCard(
+    // An uncommitted draft is the only entry on offer: swiping off it would
+    // either strand unsaved text or page into a neighbour the host would then
+    // have to reconcile with a draft it still holds.
+    val pages = if (isNewEntry) listOf(entry) else entries
+    val pager = rememberPagerState(
+        initialPage = pages.indexOfFirst { it.id == entry.id }.coerceAtLeast(0),
+        pageCount = { pages.size },
+    )
+    val currentNavigate by rememberUpdatedState(onNavigate)
+    val currentEntryId by rememberUpdatedState(entry.id)
+    LaunchedEffect(pager, pages) {
+        snapshotFlow { pager.settledPage }.collect { page ->
+            pages.getOrNull(page)?.takeIf { it.id != currentEntryId }?.let(currentNavigate)
+        }
+    }
+    // The host can also change the open entry on its own -- a deep link, or a
+    // save that re-sorts the list -- so follow it, but never mid-gesture.
+    LaunchedEffect(entry.id, pages) {
+        val target = pages.indexOfFirst { it.id == entry.id }
+        if (target >= 0 && target != pager.currentPage && !pager.isScrollInProgress) {
+            pager.scrollToPage(target)
+        }
+    }
+    // Derived, so the fade is switched on and off once per swipe instead of
+    // recomposing every page on every frame of one.
+    val paging by remember(pager) {
+        derivedStateOf { pager.isScrollInProgress || pager.currentPageOffsetFraction != 0f }
+    }
+    val mode = LocalCalinoSurfaceMode.current
+
+    BottomDetailOverlay(
         visible = shown,
         onDismiss = ::dismissEditor,
         modifier = Modifier.fillMaxSize(),
-        dismissDistance = 720.dp,
         surfaceKind = CalinoSurfaceKind.Editor,
-        handleColor = headerTint,
-        // A dirty-editor dismissal opens the confirmation bar instead of
-        // leaving the editor. Changing this key asks the gesture surface to
-        // spring back underneath that prompt.
-        resetKey = showDiscard,
         pill = {
             ModalActionPill(
                 addLabel = if (focusTitle) "New entry" else "Edit entry",
@@ -727,7 +790,7 @@ private fun JournalEditor(
                 cancelDescription = if (isEditing) "Cancel journal editing" else "Close journal entry",
                 primaryLabel = if (isEditing) "Save" else "Edit",
                 onPrimary = {
-                    if (isEditing) closeAnimated { onSave(entry.copy(title = title.trim(), body = body.text.trim())) }
+                    if (isEditing) closeAnimated { onSave(entry.copy(date = date, title = title.trim(), body = body.text.trim())) }
                     else isEditing = true
                 },
                 // Reading an entry, Edit is always on offer; writing one, Save
@@ -740,95 +803,191 @@ private fun JournalEditor(
                 deleteDescription = "Delete journal entry",
             )
         },
-    ) { editorModifier ->
-        Column(
-            editorModifier.fillMaxSize().background(CalinoColors.Canvas),
-        ) {
-        AnimatedContent(
-            targetState = isEditing,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            transitionSpec = {
-                val direction = if (targetState) 1 else -1
-                (slideInHorizontally(tween(220)) { direction * it / 3 } + fadeIn(tween(170))) togetherWith
-                    (slideOutHorizontally(tween(180)) { -direction * it / 3 } + fadeOut(tween(130)))
-            },
-            label = "journal view edit transition",
-        ) { editing ->
-            if (editing) {
-                JournalEditPane(
-                    title = title,
-                    onTitleChange = { title = it },
-                    body = body,
-                    onBodyChange = { body = it },
-                    wordCount = wordCount,
-                    mode = editorMode,
-                    onModeChange = { editorMode = it },
-                    headerTint = headerTint,
-                    focusTitle = focusTitle,
-                    titleFocusRequester = titleFocusRequester,
-                )
-            } else {
-                JournalReadPane(
-                    entry = entry,
-                    title = title,
-                    body = body.text,
-                    entries = entries,
-                    navigationEnabled = !dirty && !showDiscard && !confirmDelete,
-                    onNavigate = onNavigate,
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = confirmDelete,
-            enter = fadeIn(tween(150)) + expandVertically(tween(180)),
-            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(CalinoShapes.Row))
-                    .background(CalinoColors.Rose.copy(alpha = .09f))
-                    .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+    ) { overlayModifier ->
+        HorizontalPager(
+            state = pager,
+            key = { pages[it].id },
+            beyondViewportPageCount = 1,
+            // Paging is a reading gesture. A modal that is being written to,
+            // or that is asking a question, keeps its pointer stream.
+            userScrollEnabled = shown && pages.size > 1 && !isEditing && !showDiscard && !confirmDelete,
+            // The page that leaves is clipped by the pager at the panel's
+            // leading edge; fade it out on that line instead of cutting it.
+            modifier = overlayModifier.testTag(JournalEntryPagerTag).calinoSurfaceEdgeFade(active = paging),
+        ) { page ->
+            val pageEntry = pages[page]
+            val current = pageEntry.id == entry.id
+            // A pager clips its pages along the scroll axis, so the card's
+            // shadow has to fit inside this padding or it ends at a hard
+            // vertical line. The end-panel host reserves the bleed itself.
+            Box(
+                Modifier.fillMaxSize().calinoSurfaceShadowBleed(
+                    horizontal = if (mode == CalinoSurfaceMode.BottomSheet) 10.dp else 0.dp,
+                ),
             ) {
-                Text("Remove this note?", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
-                TextButton(onClick = { closeAnimated { onDelete(entry) } }, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Confirm delete journal entry" }) {
-                    Text("Delete", color = CalinoColors.Rose)
+                AdaptiveDetailCard(
+                    visible = shown,
+                    onDismiss = ::dismissEditor,
+                    modifier = Modifier.fillMaxSize(),
+                    dismissDistance = 720.dp,
+                    // A dirty-editor dismissal opens the confirmation bar instead of
+                    // leaving the editor. Changing this key asks the gesture surface to
+                    // spring back underneath that prompt.
+                    resetKey = if (current) showDiscard else false,
+                    handleColor = headerTint,
+                ) { cardModifier ->
+                    Column(
+                        cardModifier.fillMaxSize().background(CalinoColors.Canvas),
+                    ) {
+                        if (!current) {
+                            // A neighbour is only ever read: the editing state
+                            // above belongs to the entry the card opened on.
+                            JournalReadPane(
+                                entry = pageEntry,
+                                title = pageEntry.title,
+                                body = pageEntry.body,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                labelTitle = false,
+                            )
+                            Spacer(Modifier.height(CalinoSpacing.PillClearance))
+                            return@Column
+                        }
+                        JournalEditorContent(
+                            entry = entry,
+                            title = title,
+                            onTitleChange = { title = it },
+                            body = body,
+                            onBodyChange = { body = it },
+                            date = date,
+                            onDateChange = { picked ->
+                                if (isNewEntry) onDraftDateChange(picked) else editedDate = picked
+                            },
+                            wordCount = wordCount,
+                            isEditing = isEditing,
+                            editorMode = editorMode,
+                            onModeChange = { editorMode = it },
+                            headerTint = headerTint,
+                            focusTitle = focusTitle,
+                            titleFocusRequester = titleFocusRequester,
+                            confirmDelete = confirmDelete,
+                            onConfirmDelete = { closeAnimated { onDelete(entry) } },
+                            showDiscard = showDiscard,
+                            onKeepEditing = { showDiscard = false },
+                            onDiscard = {
+                                title = entry.title
+                                body = TextFieldValue(entry.body)
+                                editedDate = entry.date
+                                showDiscard = false
+                                if (isNewEntry) closeAnimated(onDismiss) else isEditing = false
+                            },
+                        )
+                    }
                 }
             }
         }
+    }
+}
 
-        AnimatedVisibility(
-            visible = showDiscard,
-            enter = fadeIn(tween(150)) + expandVertically(tween(180)),
-            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
-        ) {
-            Row(
-                Modifier.fillMaxWidth().background(CalinoColors.Ink).padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Discard your changes?", style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
-                TextButton(
-                    onClick = { showDiscard = false },
-                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Keep editing journal entry" },
-                ) { Text("Keep editing", color = CalinoColors.Panel) }
-                TextButton(
-                    onClick = {
-                        title = entry.title
-                        body = TextFieldValue(entry.body)
-                        showDiscard = false
-                        if (isNewEntry) closeAnimated(onDismiss) else isEditing = false
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" },
-                ) { Text("Discard", color = CalinoColors.AccentSoft) }
-            }
-        }
-
-        // The pill itself lives in the pill lane, outside this card; this
-        // reserves the room it occupies over the card's tail.
-        Spacer(Modifier.height(CalinoSpacing.PillClearance))
+/** The card's own contents for the entry the editor is actually working on. */
+@Composable
+private fun ColumnScope.JournalEditorContent(
+    entry: JournalEntry,
+    title: String,
+    onTitleChange: (String) -> Unit,
+    body: TextFieldValue,
+    onBodyChange: (TextFieldValue) -> Unit,
+    date: LocalDate,
+    onDateChange: (LocalDate) -> Unit,
+    wordCount: Int,
+    isEditing: Boolean,
+    editorMode: Int,
+    onModeChange: (Int) -> Unit,
+    headerTint: Color,
+    focusTitle: Boolean,
+    titleFocusRequester: FocusRequester,
+    confirmDelete: Boolean,
+    onConfirmDelete: () -> Unit,
+    showDiscard: Boolean,
+    onKeepEditing: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    AnimatedContent(
+        targetState = isEditing,
+        modifier = Modifier.weight(1f).fillMaxWidth(),
+        transitionSpec = {
+            val direction = if (targetState) 1 else -1
+            (slideInHorizontally(tween(220)) { direction * it / 3 } + fadeIn(tween(170))) togetherWith
+                (slideOutHorizontally(tween(180)) { -direction * it / 3 } + fadeOut(tween(130)))
+        },
+        label = "journal view edit transition",
+    ) { editing ->
+        if (editing) {
+            JournalEditPane(
+                title = title,
+                onTitleChange = onTitleChange,
+                body = body,
+                onBodyChange = onBodyChange,
+                date = date,
+                onDateChange = onDateChange,
+                wordCount = wordCount,
+                mode = editorMode,
+                onModeChange = onModeChange,
+                headerTint = headerTint,
+                focusTitle = focusTitle,
+                titleFocusRequester = titleFocusRequester,
+            )
+        } else {
+            JournalReadPane(
+                entry = entry.copy(date = date),
+                title = title,
+                body = body.text,
+            )
         }
     }
+
+    AnimatedVisibility(
+        visible = confirmDelete,
+        enter = fadeIn(tween(150)) + expandVertically(tween(180)),
+        exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(CalinoShapes.Row))
+                .background(CalinoColors.Rose.copy(alpha = .09f))
+                .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Remove this note?", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
+            TextButton(onClick = onConfirmDelete, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Confirm delete journal entry" }) {
+                Text("Delete", color = CalinoColors.Rose)
+            }
+        }
+    }
+
+    AnimatedVisibility(
+        visible = showDiscard,
+        enter = fadeIn(tween(150)) + expandVertically(tween(180)),
+        exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().background(CalinoColors.Ink).padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Discard your changes?", style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
+            TextButton(
+                onClick = onKeepEditing,
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Keep editing journal entry" },
+            ) { Text("Keep editing", color = CalinoColors.Panel) }
+            TextButton(
+                onClick = onDiscard,
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" },
+            ) { Text("Discard", color = CalinoColors.AccentSoft) }
+        }
+    }
+
+    // The pill itself lives in the pill lane, outside this card; this
+    // reserves the room it occupies over the card's tail.
+    Spacer(Modifier.height(CalinoSpacing.PillClearance))
 }
 
 @Composable
@@ -837,6 +996,8 @@ private fun JournalEditPane(
     onTitleChange: (String) -> Unit,
     body: TextFieldValue,
     onBodyChange: (TextFieldValue) -> Unit,
+    date: LocalDate,
+    onDateChange: (LocalDate) -> Unit,
     wordCount: Int,
     mode: Int,
     onModeChange: (Int) -> Unit,
@@ -872,6 +1033,17 @@ private fun JournalEditPane(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item(key = "editor-date") {
+                val pickDate = rememberDatePicker({ date }, onDateChange)
+                // The same row the event and task editors use, so a journal
+                // date reads and behaves like every other date in the app.
+                EditorValueRow(
+                    CalinoIcon.Calendar,
+                    "Date",
+                    date.format(JournalEditorialDateFormat),
+                    pickDate,
+                )
+            }
             item(key = "editor-mode") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     CompactSegmentedControl(
@@ -936,18 +1108,16 @@ private fun JournalReadPane(
     entry: JournalEntry,
     title: String,
     body: String,
-    entries: List<JournalEntry>,
-    navigationEnabled: Boolean,
-    onNavigate: (JournalEntry) -> Unit,
+    modifier: Modifier = Modifier,
+    // Only the entry the card opened on answers to "Journal title": a pager
+    // keeps its neighbours composed, and two nodes wearing the same label
+    // make the title ambiguous to a screen reader and to the tests.
+    labelTitle: Boolean = true,
 ) {
     val wordCount = remember(body) { body.trim().let { if (it.isEmpty()) 0 else it.split(WordBoundaryPattern).size } }
     val readingMinutes = maxOf(1, (wordCount + 199) / 200)
-    val index = entries.indexOfFirst { it.id == entry.id }
-    val previous = entries.getOrNull(index - 1)
-    val next = entries.getOrNull(index + 1)
-    val showFooter = !entry.id.startsWith("draft-journal-") && entries.size > 1 && index >= 0
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 18.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -959,7 +1129,7 @@ private fun JournalReadPane(
                 title.ifBlank { "Untitled note" },
                 style = CalinoTypography.headlineLarge,
                 color = if (title.isBlank()) CalinoColors.Ink3 else CalinoColors.Ink,
-                modifier = Modifier.semantics { contentDescription = "Journal title" },
+                modifier = if (labelTitle) Modifier.semantics { contentDescription = "Journal title" } else Modifier,
             )
         }
         if (wordCount > 0) {
@@ -975,43 +1145,6 @@ private fun JournalReadPane(
         item(key = "read-preview") {
             if (body.isBlank()) Text("No note text", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
             else CalinoMarkdown(body)
-        }
-        if (showFooter) {
-            item(key = "read-footer") {
-                Column {
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-                    Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
-                        JournalPagingButton("Previous journal entry", CalinoIcons.ChevronLeft, previous, navigationEnabled, onNavigate)
-                        Spacer(Modifier.width(4.dp))
-                        JournalPagingButton("Next journal entry", CalinoIcons.ChevronRight, next, navigationEnabled, onNavigate)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun JournalPagingButton(
-    description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    target: JournalEntry?,
-    navigationEnabled: Boolean,
-    onNavigate: (JournalEntry) -> Unit,
-) {
-    val enabled = target != null && navigationEnabled
-    Box(
-        Modifier.size(44.dp).alpha(if (enabled) 1f else .4f)
-            .semantics { contentDescription = description; if (!enabled) disabled() }
-            .then(if (enabled) Modifier.clickable { onNavigate(target!!) } else Modifier),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier.size(36.dp).clip(RoundedCornerShape(CalinoShapes.Row)).background(CalinoColors.Panel)
-                .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Row)),
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.material3.Icon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(16.dp), contentDescription = null)
         }
     }
 }
