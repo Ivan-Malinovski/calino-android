@@ -394,6 +394,12 @@ private fun JournalOverview(
                 onProgrammaticScroll(month, index)
             },
         )
+        // The month block is this surface's header, so it closes on the same
+        // hairline the day group headers elsewhere draw with.
+        Box(
+            Modifier.fillMaxWidth().padding(horizontal = CalinoSpacing.Screen)
+                .height(1.dp).background(CalinoColors.Line2),
+        )
         JournalMonthGrid(
             month = visibleMonth,
             entries = entries,
@@ -1033,34 +1039,30 @@ private fun JournalEditPane(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item(key = "editor-date") {
-                val pickDate = rememberDatePicker({ date }, onDateChange)
-                // The same row the event and task editors use, so a journal
-                // date reads and behaves like every other date in the app.
-                EditorValueRow(
-                    CalinoIcon.Calendar,
-                    "Date",
-                    date.format(JournalEditorialDateFormat),
-                    pickDate,
-                )
-            }
             item(key = "editor-mode") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    CompactSegmentedControl(
-                        options = listOf("Write", "Preview"),
-                        selectedIndex = mode,
-                        onSelected = onModeChange,
-                        modifier = Modifier.weight(1f),
-                        semanticLabel = "Journal editor mode",
-                        maxControlWidth = 200.dp,
-                    )
-                    Spacer(Modifier.weight(1f))
+                // The gaps are reserved by the arrangement, not by spacers: the
+                // segmented control takes whatever width is left, so a spacer
+                // measured after it would have nothing to occupy.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    JournalDateChip(date = date, onDateChange = onDateChange)
                     Text(
                         "$wordCount ${if (wordCount == 1) "word" else "words"}",
                         modifier = Modifier.clip(RoundedCornerShape(50)).background(CalinoColors.Panel)
                             .padding(horizontal = 9.dp, vertical = 4.dp),
                         style = CalinoTypography.labelSmall,
                         color = CalinoColors.Ink3,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    CompactSegmentedControl(
+                        options = listOf("Write", "Preview"),
+                        selectedIndex = mode,
+                        onSelected = onModeChange,
+                        semanticLabel = "Journal editor mode",
+                        maxControlWidth = 168.dp,
                     )
                 }
             }
@@ -1099,6 +1101,38 @@ private fun JournalEditPane(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The entry's day, opening the shared date picker.
+ *
+ * Compact on purpose: it shares its line with the word count and the
+ * Write/Preview control, so it states the day the way the list cards do and
+ * leaves the full date to the semantics.
+ */
+@Composable
+private fun JournalDateChip(date: LocalDate, onDateChange: (LocalDate) -> Unit) {
+    val pickDate = rememberDatePicker({ date }, onDateChange)
+    val description = "Date: ${date.format(JournalEditorialDateFormat)}"
+    Box(
+        Modifier.heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = pickDate)
+            .semantics(mergeDescendants = true) { contentDescription = description }
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CalinoIcon(CalinoIcon.Calendar, tint = CalinoColors.Ink3, modifier = Modifier.size(16.dp), contentDescription = null)
+            Text(
+                date.format(JournalDateFormat),
+                modifier = Modifier.padding(start = 7.dp),
+                style = CalinoTypography.labelSmall,
+                color = CalinoColors.Ink2,
+                maxLines = 1,
+            )
         }
     }
 }

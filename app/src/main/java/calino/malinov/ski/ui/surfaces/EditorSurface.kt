@@ -656,7 +656,7 @@ private fun EditorChoiceBlock(content: @Composable () -> Unit) {
 }
 
 @Composable
-internal fun EditorValueRow(
+private fun EditorValueRow(
     icon: calino.malinov.ski.ui.components.CalinoIcon,
     label: String,
     value: String,
