@@ -2099,7 +2099,7 @@ fun HomeScreen(
                                 } else {
                                     0f
                                 }
-                            }.background(CalinoColors.Canvas),
+                            }.background(CalinoColors.Canvas).padding(top = laneOverlap),
                         ) {
                             SelectedDayAgendaPage(
                                 day = previewDay,

@@ -82,6 +82,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -1316,17 +1317,36 @@ fun CalinoMonthHeading(
         Column(Modifier.weight(1f).padding(horizontal = 2.dp).offset(y = 2.dp)) {
             if (monthPagerState != null && monthForPage != null) {
                 val centerPage = monthPagerState.currentPage
-                Box(Modifier.fillMaxWidth().height(30.dp).clipToBounds()) {
-                    ((centerPage - 1).coerceAtLeast(0)..(centerPage + 1).coerceAtMost(monthPagerState.pageCount - 1)).forEach { page ->
-                        MonthHeadingLabel(
-                            month = monthForPage(page),
-                            modifier = Modifier.fillMaxWidth().graphicsLayer {
-                                val distance = monthPagerState.getOffsetDistanceInPages(page)
-                                translationX = distance * size.width
-                                alpha = (1f - kotlin.math.abs(distance)).coerceIn(0f, 1f)
-                            },
-                        )
+                val headingFollowsPager by remember(monthPagerState, monthForPage) {
+                    derivedStateOf {
+                        val position = monthPagerState.currentPage +
+                            monthPagerState.currentPageOffsetFraction
+                        val firstPage = kotlin.math.floor(position).toInt()
+                            .coerceIn(0, monthPagerState.pageCount - 1)
+                        val secondPage = kotlin.math.ceil(position).toInt()
+                            .coerceIn(0, monthPagerState.pageCount - 1)
+                        monthForPage(firstPage) != monthForPage(secondPage)
                     }
+                }
+                if (headingFollowsPager) {
+                    Box(Modifier.fillMaxWidth().height(30.dp).clipToBounds()) {
+                        ((centerPage - 1).coerceAtLeast(0)..(centerPage + 1).coerceAtMost(monthPagerState.pageCount - 1)).forEach { page ->
+                            MonthHeadingLabel(
+                                month = monthForPage(page),
+                                modifier = Modifier.fillMaxWidth().graphicsLayer {
+                                    val distance = monthPagerState.getOffsetDistanceInPages(page)
+                                    translationX = distance * size.width
+                                    alpha = (1f - kotlin.math.abs(distance)).coerceIn(0f, 1f)
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    // A week pager can move without changing the represented
+                    // month. Keep one title fixed in that case; sliding two
+                    // identical labels reads as a month transition that never
+                    // happened.
+                    MonthHeadingLabel(monthForPage(centerPage))
                 }
             } else {
                 AnimatedContent(
