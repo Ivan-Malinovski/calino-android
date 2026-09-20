@@ -53,6 +53,7 @@ class ImportedCalendarPreferenceTest {
     @Before fun clear() {
         store.saveImportedCalendarIds(emptySet())
         store.saveImportedReminderCalendarIds(emptySet())
+        store.saveWritableImportedCalendarIds(emptySet())
     }
 
     @After fun tidy() {
@@ -65,6 +66,7 @@ class ImportedCalendarPreferenceTest {
     @Test fun nothingIsImportedByDefault() {
         assertEquals(emptySet<String>(), store.loadImportedCalendarIds())
         assertEquals(emptySet<String>(), store.loadImportedReminderCalendarIds())
+        assertEquals(emptySet<String>(), store.loadWritableImportedCalendarIds())
     }
 
     @Test fun theOptInSurvivesAReload() {
@@ -84,6 +86,16 @@ class ImportedCalendarPreferenceTest {
         store.saveImportedCalendarIds(store.loadImportedCalendarIds() - first)
 
         assertEquals(setOf(second), store.loadImportedCalendarIds())
+    }
+
+    @Test fun theWriteSetIsSeparateOffByDefaultAndSurvivesToo() {
+        val id = AndroidCalendarId.calendar(11)
+        store.saveImportedCalendarIds(setOf(id))
+        store.saveWritableImportedCalendarIds(setOf(id))
+
+        val reloaded = SharedPreferencesPreferenceStore(context)
+        assertEquals(setOf(id), reloaded.loadImportedCalendarIds())
+        assertEquals(setOf(id), reloaded.loadWritableImportedCalendarIds())
     }
 
     @Test fun theReminderSetIsSeparateAndSurvivesToo() {
@@ -144,7 +156,9 @@ class ImportedCalendarPreferenceTest {
         val import = AndroidCalendarSource.read(context, setOf(calendarId))
 
         assertEquals(1, import.calendars.size)
-        assertTrue("the calendar must be read-only", import.calendars.single().readOnly)
+        assertTrue("read opt-in alone must remain read-only", import.calendars.single().readOnly)
+        val writableImport = AndroidCalendarSource.read(context, setOf(calendarId), setOf(calendarId))
+        assertFalse("explicit write opt-in should expose editor access", writableImport.calendars.single().readOnly)
         assertTrue(
             "expected the one-off event among ${import.events.map { it.title }}",
             import.events.any { it.title == "Dentist" },

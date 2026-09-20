@@ -905,7 +905,7 @@ private fun EventDetailContent(
     var occurrencesExpanded by remember(event.id) { mutableStateOf(false) }
     var saving by remember(event.id) { mutableStateOf(false) }
     var saveScope by remember(event.id) {
-        mutableStateOf(if (event.recurrenceId != null || event.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All)
+        mutableStateOf(if (event.providerRecurring || event.recurrenceId != null || event.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All)
     }
     var pendingOpen by remember(event.id) { mutableStateOf(false) }
     var scopePrompt by remember(event.id) { mutableStateOf(false) }
@@ -1117,7 +1117,7 @@ private fun EventDetailContent(
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
                 Text("Apply changes to", style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    RecurrenceEditScope.entries.forEach { option ->
+                    (if (event.providerRecurring) listOf(RecurrenceEditScope.This, RecurrenceEditScope.All) else RecurrenceEditScope.entries).forEach { option ->
                         val text = when(option) { RecurrenceEditScope.This -> "This"; RecurrenceEditScope.Future -> "This and future"; RecurrenceEditScope.All -> "Entire series" }
                         CalinoChip(text, saveScope == option, "Save $text", onClick = { saveScope = option }, semanticsRole = Role.RadioButton)
                     }
@@ -1139,7 +1139,7 @@ private fun EventDetailContent(
             ) {
                 Text("Choose which part of the series to remove.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    RecurrenceEditScope.entries.forEach { option ->
+                    (if (event.providerRecurring) listOf(RecurrenceEditScope.This, RecurrenceEditScope.All) else RecurrenceEditScope.entries).forEach { option ->
                         val label = when (option) {
                             RecurrenceEditScope.This -> "This event"
                             RecurrenceEditScope.Future -> "This and future"
@@ -1327,7 +1327,7 @@ private fun PreviewStaticRow(icon: CalinoIcon, labelText: String, value: String)
 
 /** True when the event is a series master, a detached override, or an expansion. */
 fun isRecurringEvent(event: CalEvent): Boolean =
-    event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null
+    event.providerRecurring || event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null
 
 /**
  * The scope a delete confirmation should open on. A single occurrence defaults
@@ -1335,7 +1335,7 @@ fun isRecurringEvent(event: CalEvent): Boolean =
  * removes more of the series than the user pointed at.
  */
 fun defaultEventDeleteScope(event: CalEvent): RecurrenceEditScope =
-    if (event.recurrenceId != null || event.recurrenceDate != null) {
+    if (event.providerRecurring || event.recurrenceId != null || event.recurrenceDate != null) {
         RecurrenceEditScope.This
     } else {
         RecurrenceEditScope.All

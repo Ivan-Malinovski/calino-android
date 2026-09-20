@@ -205,6 +205,8 @@ interface CalinoPreferenceStore {
     fun saveImportedCalendarIds(ids: Set<String>)
     fun loadImportedReminderCalendarIds(): Set<String>
     fun saveImportedReminderCalendarIds(ids: Set<String>)
+    fun loadWritableImportedCalendarIds(): Set<String>
+    fun saveWritableImportedCalendarIds(ids: Set<String>)
     fun loadSidebarCalendarExpanded(): Boolean
     fun saveSidebarCalendarExpanded(expanded: Boolean)
     fun loadDayTasksExpanded(): Boolean
@@ -278,6 +280,7 @@ interface CalinoPreferenceStore {
         private var dayTasksExpanded = true
         private var imported = emptySet<String>()
         private var importedReminders = emptySet<String>()
+        private var writableImported = emptySet<String>()
         override fun loadEventRemindersEnabled() = eventReminders
         override fun saveEventRemindersEnabled(enabled: Boolean) { eventReminders = enabled }
         override fun loadTaskRemindersEnabled() = taskReminders
@@ -290,6 +293,8 @@ interface CalinoPreferenceStore {
         override fun saveImportedCalendarIds(ids: Set<String>) { imported = ids }
         override fun loadImportedReminderCalendarIds() = importedReminders
         override fun saveImportedReminderCalendarIds(ids: Set<String>) { importedReminders = ids }
+        override fun loadWritableImportedCalendarIds() = writableImported
+        override fun saveWritableImportedCalendarIds(ids: Set<String>) { writableImported = ids }
         override fun loadSidebarCalendarExpanded() = sidebarCalendarExpanded
         override fun saveSidebarCalendarExpanded(expanded: Boolean) { sidebarCalendarExpanded = expanded }
         override fun loadDayTasksExpanded() = dayTasksExpanded
@@ -384,6 +389,11 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveImportedReminderCalendarIds(ids: Set<String>) {
         prefs.edit().putStringSet(ImportedReminderCalendarsKey, ids).apply()
     }
+    override fun loadWritableImportedCalendarIds(): Set<String> =
+        prefs.getStringSet(WritableImportedCalendarsKey, emptySet()).orEmpty().toSet()
+    override fun saveWritableImportedCalendarIds(ids: Set<String>) {
+        prefs.edit().putStringSet(WritableImportedCalendarsKey, ids).apply()
+    }
     override fun loadSidebarCalendarExpanded(): Boolean = prefs.getBoolean(SidebarCalendarExpandedKey, false)
     override fun saveSidebarCalendarExpanded(expanded: Boolean) = putBoolean(SidebarCalendarExpandedKey, expanded)
     override fun loadDayTasksExpanded(): Boolean = prefs.getBoolean(DayTasksExpandedKey, true)
@@ -414,6 +424,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ProjectedCalendarsKey = "projected_calendar_ids"
         const val ImportedCalendarsKey = "imported_calendar_ids"
         const val ImportedReminderCalendarsKey = "imported_reminder_calendar_ids"
+        const val WritableImportedCalendarsKey = "writable_imported_calendar_ids"
         const val SidebarCalendarExpandedKey = "sidebar_calendar_expanded"
         const val DayTasksExpandedKey = "day_tasks_expanded"
         const val NotificationPromptKey = "notification_prompt_shown"

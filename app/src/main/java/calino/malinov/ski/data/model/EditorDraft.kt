@@ -62,6 +62,8 @@ data class EditorDraft(
     val sequence: Int? = null,
     val recurrenceChanged: Boolean = false,
     val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,
+    /** CalendarContract recurrence without borrowing CalDAV identity fields. */
+    val providerRecurring: Boolean = false,
     /** Hidden VTODO DTSTART fields retained while the editor changes DUE. */
     val taskStartDate: LocalDate? = null,
     val taskStartTime: LocalTime? = null,
@@ -264,11 +266,12 @@ fun editorDraftFor(event: CalEvent): EditorDraft {
         // An expanded occurrence is a concrete detached target. Editing it
         // should affect that occurrence unless the person explicitly chooses
         // a wider scope; a series master still defaults to the whole series.
-        recurrenceScope = if (event.recurrenceId != null || event.recurrenceDate != null) {
+        recurrenceScope = if (event.providerRecurring || event.recurrenceId != null || event.recurrenceDate != null) {
             RecurrenceEditScope.This
         } else {
             RecurrenceEditScope.All
         },
+        providerRecurring = event.providerRecurring,
     )
 }
 

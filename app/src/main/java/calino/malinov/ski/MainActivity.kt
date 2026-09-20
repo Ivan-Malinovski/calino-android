@@ -157,6 +157,7 @@ import calino.malinov.ski.data.repository.duplicateTask
 import calino.malinov.ski.data.repository.duplicateEvent
 import calino.malinov.ski.data.repository.convertTaskToEvent
 import calino.malinov.ski.data.repository.convertEventToTask
+import calino.malinov.ski.platform.AndroidCalendarId
 import calino.malinov.ski.platform.AndroidCalendarSource
 import calino.malinov.ski.data.repository.moveEventToDate
 import calino.malinov.ski.data.repository.moveEventToDateTime
@@ -592,6 +593,9 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     var importedReminderCalendarIds by mutableStateOf(container.importedReminderCalendarIds)
         private set
 
+    var writableImportedCalendarIds by mutableStateOf(container.writableImportedCalendarIds)
+        private set
+
     /**
      * The device's calendars, as a roster to choose from.
      *
@@ -607,6 +611,12 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         container.setImportedCalendars(ids)
         importedCalendarIds = container.importedCalendars
         importedReminderCalendarIds = container.importedReminderCalendarIds
+        writableImportedCalendarIds = container.writableImportedCalendarIds
+    }
+
+    fun onWritableImportedCalendarsChanged(ids: Set<String>) {
+        container.setWritableImportedCalendars(ids)
+        writableImportedCalendarIds = container.writableImportedCalendarIds
     }
 
     fun onImportedReminderCalendarsChanged(ids: Set<String>) {
@@ -1942,6 +1952,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             pocViewModel.onImportedCalendarsChanged(it)
                         },
                         importedReminderCalendarIds = pocViewModel.importedReminderCalendarIds,
+                        writableImportedCalendarIds = pocViewModel.writableImportedCalendarIds,
+                        onWritableImportedCalendarsChanged = pocViewModel::onWritableImportedCalendarsChanged,
                         onImportedReminderCalendarsChanged = {
                             pocViewModel.onImportedReminderCalendarsChanged(it)
                         },
@@ -2236,7 +2248,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 )
                             },
                     ),
-                    calendars = snapshot.calendars,
+                    calendars = remember(snapshot.calendars, editEventId) {
+                        val editing = snapshot.events.firstOrNull { it.id == editEventId }
+                        if (editing == null) snapshot.calendars
+                        else if (AndroidCalendarId.isImported(editing.calendarId)) {
+                            snapshot.calendars.filter { it.id == editing.calendarId }
+                        } else {
+                            snapshot.calendars.filterNot { AndroidCalendarId.isImported(it.id) }
+                        }
+                    },
                     categories = snapshot.categories,
                     relatedCandidates = remember(snapshot.tasks) {
                         snapshot.tasks.filterNot { it.done }.map { it.id to it.title }

@@ -480,19 +480,29 @@ private fun EventEditorFields(
         EditorChoiceBlock { ReminderChips(draft.reminders, single = false) { onDraft(draft.copy(reminders = it)) } }
     }
     EditorDivider()
-    EditorValueRow(
-        icon = CalinoIcon.Repeat,
-        label = "Repeat",
-        value = draft.recurrence?.let { formatRecurrenceRule(it, draft.date) } ?: "Don't repeat",
-        onClick = onRecurrenceOpen,
-    )
-    EditorReveal(recurrenceOpen) {
-        EditorChoiceBlock { RecurrenceEditor(draft, onDraft, pickUntil) }
+    if (calino.malinov.ski.platform.AndroidCalendarId.isImported(draft.calendarId)) {
+        Text(
+            if (draft.providerRecurring) "Repeats · rule managed by the owning calendar"
+            else "Repeat rules are managed by the owning calendar",
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink3,
+            modifier = Modifier.padding(vertical = 10.dp),
+        )
+    } else {
+        EditorValueRow(
+            icon = CalinoIcon.Repeat,
+            label = "Repeat",
+            value = draft.recurrence?.let { formatRecurrenceRule(it, draft.date) } ?: "Don't repeat",
+            onClick = onRecurrenceOpen,
+        )
+        EditorReveal(recurrenceOpen) {
+            EditorChoiceBlock { RecurrenceEditor(draft, onDraft, pickUntil) }
+        }
     }
     // Turning repeat on while editing conjures this whole block. It is the
     // same kind of optional detail as the reveals above it, so it arrives the
     // same way rather than displacing the rows below in one frame.
-    EditorReveal(draft.isEditing && (draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null)) {
+    EditorReveal(draft.isEditing && (draft.providerRecurring || draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null)) {
         RecurrenceScopeSelector(draft, onDraft)
     }
     EditorDivider()
@@ -891,7 +901,7 @@ private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            val scopes = if (draft.kind == PocQuickAddKind.Task) {
+            val scopes = if (draft.kind == PocQuickAddKind.Task || draft.providerRecurring) {
                 listOf(RecurrenceEditScope.This, RecurrenceEditScope.All)
             } else {
                 RecurrenceEditScope.entries

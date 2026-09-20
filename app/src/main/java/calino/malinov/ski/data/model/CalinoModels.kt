@@ -59,6 +59,8 @@ data class CalEvent(
     val recurrenceDate: LocalDate? = null,
     /** Server SEQUENCE, preserved for conflict-aware writes. */
     val sequence: Int? = null,
+    /** Recurrence marker for CalendarContract instances; not CalDAV identity. */
+    val providerRecurring: Boolean = false,
 )
 
 /** Date-aware event matching shared by calendar and day-modal renderers. */

@@ -11,13 +11,14 @@ import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.platform.AndroidCalendarId
 import calino.malinov.ski.platform.AndroidCalendarSource
+import calino.malinov.ski.platform.AndroidCalendarWriter
 import java.io.Closeable
 import java.time.LocalDate
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * A repository that shows a second, read-only source beside the real one.
+ * A repository that shows a second provider-backed source beside the real one.
  *
  * Calino's repository has always been a single source: fixtures when no
  * account is connected, CalDAV when one is. Showing the device's own Google
@@ -29,10 +30,9 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Two properties are deliberate and easy to lose in a later edit:
  *
- * - **Writes belong to the primary.** Every mutation delegates, except one
- *   naming an imported calendar, which is refused. That branch is the
- *   write-back seam: today it returns a rejection, and a later version fills
- *   it with provider operations without anything above here changing.
+ * - **Writes stay in their store.** Primary records delegate to the primary;
+ *   explicitly opted-in imported events go straight to CalendarContract.
+ *   Neither route can move a record into the other store.
  * - **It is only in the graph when it is earning its place.** The container
  *   unwraps it entirely when nothing is imported, so a person who never opts
  *   in pays nothing at all -- no wrapper, no observer, no provider query.
@@ -50,6 +50,9 @@ class ImportingRepository(
      * rather than on whoever happens to call [snapshot].
      */
     imported: AndroidCalendarSource.Import = AndroidCalendarSource.Import(),
+    private val writer: AndroidCalendarWriter? = null,
+    private val writableCalendarIds: () -> Set<String> = { emptySet() },
+    private val refreshImport: () -> Unit = {},
 ) : CalinoRepository {
 
     private val listeners = CopyOnWriteArrayList<(CalinoSnapshot) -> Unit>()
@@ -137,15 +140,10 @@ class ImportingRepository(
     // ------------------------------------------------------------- the seam
 
     /**
-     * Why a write to an imported calendar is refused.
-     *
-     * Shown to a person, so it says what is true rather than what failed: the
-     * owning app is authoritative for these rows, and Calino is looking at
-     * them. In a later version this branch performs the write instead.
+     * Why a write without a live route and explicit write consent is refused.
      */
     private fun rejection(): WriteResult.Rejected = WriteResult.Rejected(
-        "That calendar belongs to another app on this device. Calino can show " +
-            "it, but not change it.",
+        "Editing is not enabled for that device calendar.",
     )
 
     private fun isImported(id: String?) = id != null && AndroidCalendarId.isImported(id)
@@ -156,22 +154,40 @@ class ImportingRepository(
             it.id == id && AndroidCalendarId.isImported(it.calendarId)
         }
 
-    override suspend fun addEvent(input: NewEvent): WriteResult<CalEvent> =
-        if (isImported(input.calendarId)) rejection() else primary.addEvent(input)
+    override suspend fun addEvent(input: NewEvent): WriteResult<CalEvent> {
+        if (!isImported(input.calendarId)) return primary.addEvent(input)
+        val calendar = imported.calendars.firstOrNull { it.id == input.calendarId }
+        val source = AndroidCalendarSource.availableCalendarsFor(imported, input.calendarId)
+        val result = if (writer == null || calendar == null || source == null) rejection()
+            else writer.create(input, source, writableCalendarIds())
+        if (result is WriteResult.Applied) refreshImport()
+        return result
+    }
 
-    override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> =
-        if (importedRecord(id) || isImported(input.calendarId)) {
-            rejection()
-        } else {
-            primary.updateEvent(id, input)
+    override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
+        val route = imported.routes[id]
+        if (route != null) {
+            val result = writer?.update(route, input, input.recurrenceScope, writableCalendarIds()) ?: rejection()
+            if (result is WriteResult.Applied) refreshImport()
+            return result
         }
+        if (isImported(input.calendarId) || AndroidCalendarId.isImported(id)) return rejection()
+        return primary.updateEvent(id, input)
+    }
 
     override suspend fun deleteEvent(
         id: String,
         scope: RecurrenceEditScope,
         occurrenceDate: LocalDate?,
-    ): WriteResult<Unit> =
-        if (importedRecord(id)) rejection() else primary.deleteEvent(id, scope, occurrenceDate)
+    ): WriteResult<Unit> {
+        val route = imported.routes[id]
+        if (route != null) {
+            val result = writer?.delete(route, scope, writableCalendarIds()) ?: rejection()
+            if (result is WriteResult.Applied) refreshImport()
+            return result
+        }
+        return if (importedRecord(id)) rejection() else primary.deleteEvent(id, scope, occurrenceDate)
+    }
 
     override fun addLocalEvent(input: NewEvent): CalEvent = primary.addLocalEvent(input)
 

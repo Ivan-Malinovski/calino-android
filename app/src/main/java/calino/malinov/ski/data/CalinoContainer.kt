@@ -36,6 +36,7 @@ import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
 import calino.malinov.ski.platform.AndroidCalendarSource
+import calino.malinov.ski.platform.AndroidCalendarWriter
 import calino.malinov.ski.platform.CalendarProjection
 import calino.malinov.ski.platform.CalendarProjectionBridge
 import calino.malinov.ski.platform.CalinoAccounts
@@ -45,6 +46,7 @@ import calino.malinov.ski.widget.CalinoWidgetBridge
 import java.io.File
 import java.time.ZoneId
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -166,6 +168,12 @@ class CalinoContainer private constructor(context: Context) {
      * observer, and no provider query at all.
      */
     private var importedCalendarIds: Set<String> = emptySet()
+
+    var writableImportedCalendarIds: Set<String> = emptySet()
+        private set
+
+    private val androidCalendarWriter = AndroidCalendarWriter(application)
+    private val importGeneration = AtomicLong(0)
 
     private var importing: ImportingRepository? = null
 
@@ -522,7 +530,21 @@ class CalinoContainer private constructor(context: Context) {
         // preference; leaving one behind would silently re-apply if it were
         // ever imported again.
         setImportedReminderCalendars(importedReminderCalendarIds intersect ids)
+        setWritableImportedCalendars(writableImportedCalendarIds intersect ids)
         updateActiveRepository()
+        refreshImport()
+    }
+
+    /** Independently allow writes only for imported, provider-writable calendars. */
+    fun setWritableImportedCalendars(ids: Set<String>) {
+        val eligible = AndroidCalendarSource.availableCalendars(application)
+            .filter { it.canWrite }
+            .map { it.id }
+            .toSet()
+        val next = ids intersect importedCalendarIds intersect eligible
+        if (next == writableImportedCalendarIds) return
+        preferenceStore.saveWritableImportedCalendarIds(next)
+        writableImportedCalendarIds = next
         refreshImport()
     }
 
@@ -551,6 +573,8 @@ class CalinoContainer private constructor(context: Context) {
         importedCalendarIds = preferenceStore.loadImportedCalendarIds()
         importedReminderCalendarIds =
             preferenceStore.loadImportedReminderCalendarIds() intersect importedCalendarIds
+        writableImportedCalendarIds =
+            preferenceStore.loadWritableImportedCalendarIds() intersect importedCalendarIds
     }
 
     /**
@@ -562,12 +586,16 @@ class CalinoContainer private constructor(context: Context) {
     private fun refreshImport() {
         val target = importing ?: return
         val wanted = importedCalendarIds
+        val writable = writableImportedCalendarIds
+        val generation = importGeneration.incrementAndGet()
         scope.launch {
-            val read = AndroidCalendarSource.read(application, wanted)
-            // The set can have changed while the query ran -- a person can
-            // toggle faster than the provider answers -- and publishing a
-            // stale read would show a calendar they just turned off.
-            if (wanted == importedCalendarIds) target.setImported(read)
+            val read = AndroidCalendarSource.read(application, wanted, writable)
+            // Both opt-in sets and the generation must still match. A read
+            // started before a provider write must never overwrite the
+            // canonical post-write refresh, even when both used the same ids.
+            if (generation == importGeneration.get() && wanted == importedCalendarIds &&
+                writable == writableImportedCalendarIds
+            ) target.setImported(read)
         }
     }
 
@@ -619,8 +647,13 @@ class CalinoContainer private constructor(context: Context) {
                 // Carry the last read across a rebuild, so swapping fixture
                 // for CalDAV does not blank the imported events for as long
                 // as the re-read takes.
-                ImportingRepository(base, existing?.imported ?: AndroidCalendarSource.Import())
-                    .also {
+                ImportingRepository(
+                    primary = base,
+                    imported = existing?.imported ?: AndroidCalendarSource.Import(),
+                    writer = androidCalendarWriter,
+                    writableCalendarIds = { writableImportedCalendarIds },
+                    refreshImport = ::refreshImport,
+                ).also {
                         existing?.close()
                         importing = it
                         refreshImport()

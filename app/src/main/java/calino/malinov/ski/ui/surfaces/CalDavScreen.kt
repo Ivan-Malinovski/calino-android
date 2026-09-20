@@ -101,6 +101,8 @@ private val CalendarPermissions = arrayOf(
     android.Manifest.permission.READ_CALENDAR,
     android.Manifest.permission.WRITE_CALENDAR,
 )
+private val ImportPermissions = arrayOf(android.Manifest.permission.READ_CALENDAR)
+private val ImportWritePermissions = arrayOf(android.Manifest.permission.WRITE_CALENDAR)
 
 private const val SheetExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
 
@@ -128,6 +130,8 @@ fun CalendarAccountsSurface(
     onImportedCalendarsChanged: (Set<String>) -> Unit = {},
     importedReminderCalendarIds: Set<String> = emptySet(),
     onImportedReminderCalendarsChanged: (Set<String>) -> Unit = {},
+    writableImportedCalendarIds: Set<String> = emptySet(),
+    onWritableImportedCalendarsChanged: (Set<String>) -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenMenu: (() -> Unit)? = null,
     startAdding: Boolean = false,
@@ -183,11 +187,8 @@ fun CalendarAccountsSurface(
         }
     }
 
-    // The import side asks for the same permission, through the same
-    // launcher, at the same moment -- opting in. Only READ_CALENDAR is
-    // strictly needed to read another app's calendar, but a second array
-    // would mean a second dialog for what a person experiences as one
-    // decision about calendars.
+    // Showing a foreign calendar asks only for READ_CALENDAR. Write access is
+    // a separate decision below and requests WRITE_CALENDAR only then.
     var pendingImport by remember { mutableStateOf<Set<String>?>(null) }
     val importPermissions = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -197,17 +198,36 @@ fun CalendarAccountsSurface(
         if (requested != null && granted.values.all { it }) onImportedCalendarsChanged(requested)
     }
     val setImported: (Set<String>) -> Unit = { next ->
-        val hasPermission = CalendarPermissions.all { permission ->
+        val hasPermission = ImportPermissions.all { permission ->
             ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
         }
-        // As with publishing: only opting *in* needs the permission. Opting
-        // out after a revoke must still work, or the import could never be
-        // turned off.
+        // Read consent only needs READ_CALENDAR. WRITE_CALENDAR is requested
+        // later, only if editing is independently enabled.
         if (hasPermission || next.size <= importedCalendarIds.size) {
             onImportedCalendarsChanged(next)
         } else {
             pendingImport = next
-            importPermissions.launch(CalendarPermissions)
+            importPermissions.launch(ImportPermissions)
+        }
+    }
+
+    var pendingWritableImport by remember { mutableStateOf<Set<String>?>(null) }
+    val importWritePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        val requested = pendingWritableImport
+        pendingWritableImport = null
+        if (requested != null && granted.values.all { it }) onWritableImportedCalendarsChanged(requested)
+    }
+    val setWritableImported: (Set<String>) -> Unit = { next ->
+        val hasPermission = ImportWritePermissions.all { permission ->
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        }
+        if (hasPermission || next.size <= writableImportedCalendarIds.size) {
+            onWritableImportedCalendarsChanged(next)
+        } else {
+            pendingWritableImport = next
+            importWritePermission.launch(ImportWritePermissions)
         }
     }
 
@@ -299,6 +319,13 @@ fun CalendarAccountsSurface(
                                 setImported(
                                     if (imported) importedCalendarIds + calendarId
                                     else importedCalendarIds - calendarId,
+                                )
+                            },
+                            writableCalendarIds = writableImportedCalendarIds,
+                            onWritableChanged = { calendarId, writable ->
+                                setWritableImported(
+                                    if (writable) writableImportedCalendarIds + calendarId
+                                    else writableImportedCalendarIds - calendarId,
                                 )
                             },
                             reminderCalendarIds = importedReminderCalendarIds,
@@ -515,12 +542,13 @@ private fun DeviceCalendarsCard(
     onImportChanged: (calendarId: String, imported: Boolean) -> Unit,
     reminderCalendarIds: Set<String>,
     onReminderChanged: (calendarId: String, remind: Boolean) -> Unit,
+    writableCalendarIds: Set<String>,
+    onWritableChanged: (calendarId: String, writable: Boolean) -> Unit,
 ) = EditorSection(null) {
     EditorLabel("On this device")
     Text(
-        "Calino can show the calendars other apps on this phone already sync -- " +
-            "Google, Exchange, and any others. They stay read-only: the app that " +
-            "owns a calendar is the one that can change it.",
+        "Calino can show calendars other apps on this phone already sync. " +
+            "Editing is a separate per-calendar choice; the owning provider remains authoritative.",
         style = CalinoTypography.bodySmall,
         color = CalinoColors.Ink3,
     )
@@ -565,6 +593,22 @@ private fun DeviceCalendarsCard(
                 }
             }
             if (imported) {
+                if (calendar.canWrite) {
+                    Box(Modifier.padding(start = 28.dp)) {
+                        CalinoToggleRow(
+                            label = "Allow editing in Calino",
+                            checked = calendar.id in writableCalendarIds,
+                            onCheckedChange = { onWritableChanged(calendar.id, it) },
+                        )
+                    }
+                } else {
+                    Text(
+                        "Read only in the owning provider",
+                        style = CalinoTypography.bodySmall,
+                        color = CalinoColors.Ink3,
+                        modifier = Modifier.padding(start = 28.dp),
+                    )
+                }
                 Box(Modifier.padding(start = 28.dp)) {
                     CalinoToggleRow(
                         label = "Also remind me in Calino",

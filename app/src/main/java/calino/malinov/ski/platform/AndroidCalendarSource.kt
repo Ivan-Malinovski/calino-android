@@ -39,12 +39,55 @@ object AndroidCalendarSource {
         val accountType: String,
         val name: String,
         val color: Long,
+        val accessLevel: Int = CalendarContract.Calendars.CAL_ACCESS_READ,
+        val ownerAccount: String = accountName,
+    ) {
+        val canWrite: Boolean
+            get() = accessLevel >= CalendarContract.Calendars.CAL_ACCESS_EDITOR
+    }
+
+    /** Modeled provider fields used to reject stale writes instead of overwriting them. */
+    data class ProviderBaseline(
+        val calendarRowId: Long,
+        val title: String?,
+        val description: String?,
+        val location: String?,
+        val start: Long?,
+        val end: Long?,
+        val duration: String?,
+        val allDay: Boolean,
+        val availability: Int?,
+        val recurrenceRule: String?,
+        val status: Int?,
+        val alertReminders: List<Int>,
     )
 
-    /** What one read produced: the calendars asked for, and their occurrences. */
+    /** In-memory routing metadata. It is never confused with CalDAV identity. */
+    data class ProviderEvent(
+        val eventRowId: Long,
+        val masterRowId: Long,
+        val originalInstanceTime: Long,
+        val instanceBegin: Long,
+        val instanceEnd: Long?,
+        val originalAllDay: Boolean,
+        val recurring: Boolean,
+        val existingException: Boolean,
+        val calendarId: String,
+        val calendarRowId: Long,
+        val accountName: String,
+        val accountType: String,
+        val ownerAccount: String,
+        val color: Long,
+        val baseline: ProviderBaseline,
+        val masterBaseline: ProviderBaseline,
+    )
+
+    /** What one read produced: the calendars asked for, their occurrences and write routes. */
     data class Import(
         val calendars: List<CalinoCalendar> = emptyList(),
         val events: List<CalEvent> = emptyList(),
+        val routes: Map<String, ProviderEvent> = emptyMap(),
+        val sources: List<ImportableCalendar> = emptyList(),
     ) {
         val isEmpty: Boolean get() = calendars.isEmpty() && events.isEmpty()
     }
@@ -77,6 +120,26 @@ object AndroidCalendarSource {
         CalendarContract.Calendars.ACCOUNT_TYPE,
         CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
         CalendarContract.Calendars.CALENDAR_COLOR,
+        CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
+        CalendarContract.Calendars.OWNER_ACCOUNT,
+    )
+
+    private val EventColumns = arrayOf(
+        CalendarContract.Events._ID,
+        CalendarContract.Events.CALENDAR_ID,
+        CalendarContract.Events.TITLE,
+        CalendarContract.Events.DESCRIPTION,
+        CalendarContract.Events.EVENT_LOCATION,
+        CalendarContract.Events.DTSTART,
+        CalendarContract.Events.DTEND,
+        CalendarContract.Events.DURATION,
+        CalendarContract.Events.ALL_DAY,
+        CalendarContract.Events.AVAILABILITY,
+        CalendarContract.Events.RRULE,
+        CalendarContract.Events.STATUS,
+        CalendarContract.Events.ORIGINAL_ID,
+        CalendarContract.Events.ORIGINAL_INSTANCE_TIME,
+        CalendarContract.Events.ORIGINAL_ALL_DAY,
     )
 
     private val InstanceColumns = arrayOf(
@@ -157,6 +220,8 @@ object AndroidCalendarSource {
                         // like a layout bug rather than a missing byte.
                         color = ((cursor.takeIf { !it.isNull(4) }?.getInt(4) ?: DefaultColor)
                             .toLong() and 0xffffffL) or 0xff000000L,
+                        accessLevel = if (cursor.isNull(5)) CalendarContract.Calendars.CAL_ACCESS_NONE else cursor.getInt(5),
+                        ownerAccount = cursor.getString(6).orEmpty(),
                     )
                 }
             }
@@ -180,6 +245,7 @@ object AndroidCalendarSource {
     fun read(
         context: Context,
         calendarIds: Set<String>,
+        writableCalendarIds: Set<String> = emptySet(),
         zone: ZoneId = ZoneId.systemDefault(),
         now: Instant = Instant.now(),
     ): Import {
@@ -193,11 +259,9 @@ object AndroidCalendarSource {
                     id = calendar.id,
                     name = calendar.name,
                     color = calendar.color,
-                    // The owning app is authoritative for every one of these
-                    // rows, and v1 never writes one. Marking it read-only is
-                    // what keeps the editor from offering an edit that the
-                    // repository would then have to refuse.
-                    readOnly = true,
+                    // Import and write consent are independent. Provider
+                    // access alone never makes a foreign calendar editable.
+                    readOnly = calendar.id !in writableCalendarIds || !calendar.canWrite,
                     // The provider has no table for tasks or journal entries,
                     // so saying VEVENT is not a restriction, it is the truth.
                     components = setOf("VEVENT"),
@@ -205,7 +269,8 @@ object AndroidCalendarSource {
                 )
             }
             val byRow = wanted.associateBy { it.rowId }
-            Import(calendars, readEvents(context, byRow, zone, now))
+            val (events, routes) = readEvents(context, byRow, zone, now)
+            Import(calendars, events, routes, wanted)
         }.getOrDefault(Import())
     }
 
@@ -214,7 +279,7 @@ object AndroidCalendarSource {
         byRow: Map<Long, ImportableCalendar>,
         zone: ZoneId,
         now: Instant,
-    ): List<CalEvent> {
+    ): Pair<List<CalEvent>, Map<String, ProviderEvent>> {
         val start = now.toEpochMilli() - ProviderIdentity.PastDays * DayMillis
         val end = now.toEpochMilli() + ProviderIdentity.FutureDays * DayMillis
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
@@ -228,6 +293,9 @@ object AndroidCalendarSource {
             postfix = ")",
         )
         val events = mutableListOf<CalEvent>()
+        val routes = mutableMapOf<String, ProviderEvent>()
+        val metadata = mutableMapOf<Long, EventMetadata?>()
+        val baselines = mutableMapOf<Long, ProviderBaseline?>()
         // Reminder rows hang off the event, not the instance, so every
         // occurrence of one series shares them. Reading them once per event
         // rather than once per occurrence turns ~840 queries for a daily
@@ -256,17 +324,40 @@ object AndroidCalendarSource {
                     if (cursor.isNull(1)) continue
                     val eventRowId = cursor.getLong(0)
                     val reminders = if (cursor.getInt(10) == 1) {
-                        remindersByEvent.getOrPut(eventRowId) {
-                            remindersFor(context, eventRowId)
-                        }
-                    } else {
-                        emptyList()
-                    }
-                    events += toEvent(cursor.row(eventRowId), calendar, reminders, zone)
-                        ?: continue
+                        remindersByEvent.getOrPut(eventRowId) { remindersFor(context, eventRowId) }
+                    } else emptyList()
+                    val row = cursor.row(eventRowId)
+                    val meta = metadata.getOrPut(eventRowId) { eventMetadata(context, eventRowId) }
+                    val recurring = meta?.recurrenceRule != null || meta?.originalId != null
+                    val slot = meta?.originalInstanceTime ?: row.beginMillis
+                    val master = meta?.originalId ?: eventRowId
+                    val id = AndroidCalendarId.event(master, slot)
+                    val event = toEvent(row, calendar, reminders, zone, id, recurring) ?: continue
+                    events += event
+                    val baseline = baselines.getOrPut(eventRowId) { providerBaseline(context, eventRowId) } ?: continue
+                    routes[id] = ProviderEvent(
+                        eventRowId = eventRowId,
+                        masterRowId = master,
+                        originalInstanceTime = slot,
+                        instanceBegin = row.beginMillis,
+                        instanceEnd = row.endMillis,
+                        originalAllDay = meta?.originalAllDay ?: row.allDay,
+                        recurring = recurring,
+                        existingException = meta?.originalId != null,
+                        calendarId = calendar.id,
+                        calendarRowId = calendar.rowId,
+                        accountName = calendar.accountName,
+                        accountType = calendar.accountType,
+                        ownerAccount = calendar.ownerAccount,
+                        color = calendar.color,
+                        baseline = baseline,
+                        masterBaseline = if (master == eventRowId) baseline else {
+                            baselines.getOrPut(master) { providerBaseline(context, master) } ?: continue
+                        },
+                    )
                 }
             }
-        return events
+        return events to routes
     }
 
     private fun Cursor.row(eventRowId: Long) = InstanceRow(
@@ -300,6 +391,8 @@ object AndroidCalendarSource {
         calendar: ImportableCalendar,
         reminders: List<Reminder>,
         zone: ZoneId,
+        id: String = AndroidCalendarId.event(row.eventRowId, row.beginMillis),
+        providerRecurring: Boolean = false,
     ): CalEvent? {
         val begin = row.beginMillis
         val finish = row.endMillis
@@ -315,7 +408,7 @@ object AndroidCalendarSource {
         }
 
         return CalEvent(
-            id = AndroidCalendarId.event(row.eventRowId, begin),
+            id = id,
             title = row.title?.takeIf { it.isNotBlank() } ?: "(no title)",
             color = calendar.color,
             start = if (row.allDay) {
@@ -351,8 +444,76 @@ object AndroidCalendarSource {
             etag = null,
             recurrenceId = null,
             sequence = null,
+            providerRecurring = providerRecurring,
         )
     }
+
+    private data class EventMetadata(
+        val recurrenceRule: String?,
+        val originalId: Long?,
+        val originalInstanceTime: Long?,
+        val originalAllDay: Boolean?,
+    )
+
+    private fun eventMetadata(context: Context, eventRowId: Long): EventMetadata? = runCatching {
+        context.contentResolver.query(
+            android.content.ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventRowId),
+            arrayOf(
+                CalendarContract.Events.RRULE,
+                CalendarContract.Events.ORIGINAL_ID,
+                CalendarContract.Events.ORIGINAL_INSTANCE_TIME,
+                CalendarContract.Events.ORIGINAL_ALL_DAY,
+            ),
+            null, null, null,
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) null else EventMetadata(
+                recurrenceRule = cursor.getString(0)?.takeIf { it.isNotBlank() },
+                originalId = if (cursor.isNull(1)) null else cursor.getLong(1),
+                originalInstanceTime = if (cursor.isNull(2)) null else cursor.getLong(2),
+                originalAllDay = if (cursor.isNull(3)) null else cursor.getInt(3) == 1,
+            )
+        }
+    }.getOrNull()
+
+    /** Re-reads exactly the modeled baseline used by the optimistic write guard. */
+    fun providerBaseline(context: Context, eventRowId: Long): ProviderBaseline? = runCatching {
+        context.contentResolver.query(
+            android.content.ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventRowId),
+            EventColumns,
+            null, null, null,
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) null else ProviderBaseline(
+                calendarRowId = cursor.getLong(1),
+                title = cursor.getString(2),
+                description = cursor.getString(3),
+                location = cursor.getString(4),
+                start = if (cursor.isNull(5)) null else cursor.getLong(5),
+                end = if (cursor.isNull(6)) null else cursor.getLong(6),
+                duration = cursor.getString(7),
+                allDay = cursor.getInt(8) == 1,
+                availability = if (cursor.isNull(9)) null else cursor.getInt(9),
+                recurrenceRule = cursor.getString(10),
+                status = if (cursor.isNull(11)) null else cursor.getInt(11),
+                alertReminders = alertReminderMinutes(context, eventRowId),
+            )
+        }
+    }.getOrNull()
+
+    private fun alertReminderMinutes(context: Context, eventRowId: Long): List<Int> {
+        val result = mutableListOf<Int>()
+        context.contentResolver.query(
+            CalendarContract.Reminders.CONTENT_URI,
+            arrayOf(CalendarContract.Reminders.MINUTES),
+            "${CalendarContract.Reminders.EVENT_ID} = ? AND ${CalendarContract.Reminders.METHOD} = ? AND " +
+                "${CalendarContract.Reminders.MINUTES} >= 0",
+            arrayOf(eventRowId.toString(), CalendarContract.Reminders.METHOD_ALERT.toString()),
+            null,
+        )?.use { cursor -> while (cursor.moveToNext()) result += cursor.getInt(0) }
+        return result.distinct().sorted()
+    }
+
+    fun availableCalendarsFor(import: Import, calendarId: String): ImportableCalendar? =
+        import.sources.firstOrNull { it.id == calendarId }
 
     private fun remindersFor(context: Context, eventRowId: Long): List<Reminder> {
         val minutes = mutableListOf<Int>()
