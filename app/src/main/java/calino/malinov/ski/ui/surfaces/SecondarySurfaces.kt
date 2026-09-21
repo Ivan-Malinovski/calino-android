@@ -144,6 +144,7 @@ import calino.malinov.ski.data.model.blankEditorDraft
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.util.formatRecurrenceRule
 import calino.malinov.ski.data.repository.CalinoCalendar
+import calino.malinov.ski.data.repository.asUpdate
 import calino.malinov.ski.data.model.WebcalSubscription
 import calino.malinov.ski.platform.AndroidCalendarId
 import calino.malinov.ski.data.parser.PocQuickAddKind
@@ -184,6 +185,7 @@ import calino.malinov.ski.ui.components.CalinoScrim
 import calino.malinov.ski.ui.components.CalinoSheet
 import calino.malinov.ski.ui.components.CalinoMarkdown
 import calino.malinov.ski.ui.components.CalinoMarkdownEditor
+import calino.malinov.ski.ui.components.toggleCalinoMarkdownTask
 import calino.malinov.ski.ui.components.ModalActionPill
 import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.CompactSegmentedControl
@@ -897,6 +899,7 @@ private fun EventDetailContent(
         eventPreviewDraft(event).let { draft -> occurrenceDate?.let { draft.copy(date = it) } ?: draft }
     }
     var draft by remember(event.id, event.etag, occurrenceDate) { mutableStateOf(original) }
+    var savedDraft by remember(event.id, event.etag, occurrenceDate) { mutableStateOf(original) }
     var error by remember(event.id) { mutableStateOf<String?>(null) }
     // The card is height-capped by its surface kind, so the open list scrolls
     // inside it rather than growing it; the state stays local because nothing
@@ -919,7 +922,7 @@ private fun EventDetailContent(
     var deleteScope by remember(event.id, event.recurrenceId, event.recurrenceDate) {
         mutableStateOf(defaultEventDeleteScope(event))
     }
-    val dirty = draft != original && !readOnly
+    val dirty = draft != savedDraft && !readOnly
 
     /**
      * The only way the draft changes.
@@ -951,6 +954,7 @@ private fun EventDetailContent(
             val saved = onInlineSave(event, draft.toNewEvent(event, saveScope), saveScope)
             saving = false
             if (saved) {
+                savedDraft = draft
                 scopePrompt = false
                 if (openAfter || pendingOpen) onPrimary()
             }
@@ -1109,7 +1113,28 @@ private fun EventDetailContent(
             }
             if (event.attendees.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Users, "Attendees", event.attendees.joinToString { it.name.ifBlank { it.email } }) }
             item { HorizontalDivider(Modifier.padding(vertical = 6.dp), color = CalinoColors.Ink.copy(.1f)) }
-            item { PreviewEditRow(CalinoIcon.Note, "Description", draft.description, if (draft.description.isBlank()) "+ Add description" else "") { value -> edit { it.copy(description = value) } } }
+            item {
+                if (draft.description.isBlank()) {
+                    PreviewStaticRow(CalinoIcon.Note, "Description", "+ Add description")
+                } else {
+                    DetailRow(CalinoIcon.Note, "Description", draft.description, markdown = true) { taskIndex, checked ->
+                        if (!readOnly && !saving) {
+                            val before = draft
+                            val changed = toggleCalinoMarkdownTask(before.description, taskIndex, checked)
+                            if (changed != before.description) {
+                                draft = before.copy(description = changed)
+                                saving = true
+                                coroutineScope.launch {
+                                    val checkboxScope = if (isRecurringEvent(event)) RecurrenceEditScope.This else RecurrenceEditScope.All
+                                    val saved = onInlineSave(event, draft.toNewEvent(event, checkboxScope), checkboxScope)
+                                    saving = false
+                                    if (saved) savedDraft = draft else draft = before
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             error?.let { message -> item { Text(message, color = CalinoColors.Rose, style = CalinoTypography.bodySmall, modifier = Modifier.padding(12.dp)) } }
         }
         AnimatedVisibility(scopePrompt) {
@@ -1498,6 +1523,7 @@ fun TaskDetailSurface(
     tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
     onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+    onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
     onDelete: () -> Unit = {},
     onAddSubtask: () -> Unit = {},
 ) {
@@ -1505,6 +1531,7 @@ fun TaskDetailSurface(
     var title by remember(task.id) { mutableStateOf(task.title) }
     var category by remember(task.id) { mutableStateOf(task.category.orEmpty()) }
     var notes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
+    var savedNotes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var due by remember(task.id) { mutableStateOf(task.due) }
     var done by remember(task.id) { mutableStateOf(task.done) }
     var priority by remember(task.id) { mutableIntStateOf(task.priority) }
@@ -1514,6 +1541,9 @@ fun TaskDetailSurface(
     var pendingDelete by remember(task.id) { mutableStateOf(false) }
     var confirmingDelete by remember(task.id) { mutableStateOf(false) }
     var requestedDone by remember(task.id) { mutableStateOf<Boolean?>(null) }
+    var savingNotes by remember(task.id) { mutableStateOf(false) }
+    var editingNotes by remember(task.id) { mutableStateOf(task.notes.isNullOrBlank()) }
+    val coroutineScope = rememberCoroutineScope()
     val detailScrollState = rememberScrollState()
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
     val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
@@ -1581,7 +1611,7 @@ fun TaskDetailSurface(
             // waiting to be saved.
             val dirty = title != task.title ||
                 category != task.category.orEmpty() ||
-                notes != task.notes.orEmpty() ||
+                notes != savedNotes ||
                 due != task.due ||
                 priority != task.priority ||
                 percentComplete != task.percentComplete
@@ -1671,7 +1701,38 @@ fun TaskDetailSurface(
             ) {
                 PreviewEditRow(CalinoIcon.Filter, "Category", category, "Add category") { category = it }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                PreviewEditRow(CalinoIcon.Note, "Notes", notes, "Add task notes") { notes = it }
+                if (editingNotes) {
+                    CalinoMarkdownEditor(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                        label = "Task notes",
+                        placeholder = "Add task notes",
+                    )
+                } else {
+                    Column {
+                        DetailRow(CalinoIcon.Note, "Notes", notes, markdown = true) { taskIndex, checked ->
+                            if (!savingNotes) {
+                                val before = notes
+                                val changed = toggleCalinoMarkdownTask(before, taskIndex, checked)
+                                if (changed != before) {
+                                    notes = changed
+                                    savingNotes = true
+                                    coroutineScope.launch {
+                                        val input = task.asUpdate().copy(notes = changed.trim().ifEmpty { null })
+                                        val saved = onInlineNotesSave(input, done)
+                                        savingNotes = false
+                                        if (saved) savedNotes = changed else notes = before
+                                    }
+                                }
+                            }
+                        }
+                        TextButton(
+                            onClick = { editingNotes = true },
+                            modifier = Modifier.heightIn(min = 44.dp).align(Alignment.End),
+                        ) { Text("Edit notes", color = CalinoColors.Accent) }
+                    }
+                }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                 val subtasks = tasks.filter { it.parentTaskId == task.id }
                 Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -1818,14 +1879,26 @@ private fun eventHeaderText(
 }
 
 @Composable
-private fun DetailRow(icon: String, name: String, value: String, markdown: Boolean = false) {
+private fun DetailRow(
+    icon: CalinoIcon,
+    name: String,
+    value: String,
+    markdown: Boolean = false,
+    onTaskCheckedChange: ((Int, Boolean) -> Unit)? = null,
+) {
     Column(Modifier.fillMaxWidth().padding(vertical = 15.dp)) {
         Row(verticalAlignment = Alignment.Top) {
-            Text(icon, fontSize = 20.sp, color = CalinoColors.Ink3, modifier = Modifier.width(38.dp).padding(top = 1.dp))
+            Box(Modifier.width(38.dp).padding(top = 1.dp)) {
+                CalinoIcon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+            }
             Column(Modifier.weight(1f)) {
                 label(name)
                 if (markdown) {
-                    CalinoMarkdown(value, modifier = Modifier.padding(top = 6.dp))
+                    CalinoMarkdown(
+                        value,
+                        modifier = Modifier.padding(top = 6.dp),
+                        onTaskCheckedChange = onTaskCheckedChange,
+                    )
                 } else {
                     Text(value, style = CalinoTypography.bodyLarge)
                 }
@@ -2765,9 +2838,10 @@ fun TaskDetail(
     tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
     onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+    onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
     onDelete: () -> Unit = {},
     onAddSubtask: () -> Unit = {},
-) = TaskDetailSurface(task, tasks, onBack, onSave, onDelete, onAddSubtask)
+) = TaskDetailSurface(task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask)
 
 /** Task ledger; horizontal drag reveals completion/rescheduling affordances. */
 @Composable

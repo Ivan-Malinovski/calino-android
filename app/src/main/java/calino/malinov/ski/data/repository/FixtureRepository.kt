@@ -573,8 +573,25 @@ private fun fixtureEvents(): List<CalEvent> {
     val weeklyCall = "FREQ=WEEKLY;BYDAY=TH;UNTIL=20260630T235959Z"
     return listOf(
         // Existing POC identity and May 18 records stay stable.
-        timed("evt-design", "Design review", FixtureRepository.FixtureDate, Blue, LocalTime.of(10, 0), 60, "FREQ=WEEKLY;BYDAY=MO;UNTIL=20260630T235959Z", "Studio", attendees = listOf(Attendee("Maya", "maya@example.com"), Attendee("Ivo", "ivo@example.com")), calendarId = "work"),
-        timed("evt-lunch", "Lunch with Maya", FixtureRepository.FixtureDate, Rose, LocalTime.of(12, 30), 90, location = "Café Lumen", calendarId = "personal"),
+        timed(
+            "evt-design", "Design review", FixtureRepository.FixtureDate, Blue, LocalTime.of(10, 0), 60,
+            "FREQ=WEEKLY;BYDAY=MO;UNTIL=20260630T235959Z", "Studio",
+            notes = """## Review checklist
+
+- [x] Share the prototype
+- [ ] Capture decisions
+- [ ] Send the follow-up
+
+Open the [design brief](https://example.com/calino-design-brief) before the meeting.""",
+            attendees = listOf(Attendee("Maya", "maya@example.com"), Attendee("Ivo", "ivo@example.com")),
+            calendarId = "work",
+        ),
+        timed(
+            "evt-lunch", "Lunch with Maya", FixtureRepository.FixtureDate, Rose, LocalTime.of(12, 30), 90,
+            location = "Café Lumen",
+            notes = "**Booking:** [View the reservation](https://example.com/reservation)",
+            calendarId = "personal",
+        ),
         allDay("evt-flight", "Flight to Berlin", may(24), Amber, "travel"),
 
         // Adjacent dates make the horizontal month pager useful at its edges.
@@ -629,9 +646,19 @@ private fun fixtureEvents(): List<CalEvent> {
 private fun fixtureTasks(): List<CalTask> {
     val day = FixtureRepository.FixtureDate
     return listOf(
-        CalTask("task-inbox", "Review calendar notes", Green, day, category = "Work"),
+        CalTask(
+            "task-inbox", "Review calendar notes", Green, day, category = "Work",
+            notes = "Read the [CalDAV notes](https://example.com/caldav-notes) and add comments.",
+        ),
         CalTask("task-overdue", "Send itinerary", Amber, day.minusDays(2), category = "Travel", priority = 1),
-        CalTask("task-buy", "Buy flowers", Rose, null, category = "Personal"),
+        CalTask(
+            "task-buy", "Buy flowers", Rose, null, category = "Personal",
+            notes = """### Groceries
+
+- [ ] Tulips
+- [ ] Oat milk
+- [x] Coffee beans""",
+        ),
         CalTask("task-done", "Book accommodation", Blue, day.minusDays(1), done = true, category = "Travel"),
         CalTask("task-renew", "Renew car insurance", Rose, LocalDate.of(2026, 5, 28), category = "Admin", priority = 6),
         CalTask("task-dentist", "Schedule dentist appointment", Blue, LocalDate.of(2026, 5, 25)),

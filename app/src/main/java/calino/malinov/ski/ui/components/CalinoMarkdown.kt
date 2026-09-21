@@ -115,6 +115,7 @@ sealed interface CalinoMarkdownBlock {
 data class CalinoMarkdownListItem(
     val blocks: List<CalinoMarkdownBlock>,
     val checked: Boolean? = null,
+    val taskIndex: Int? = null,
 )
 
 data class CalinoMarkdownTableRow(
@@ -152,35 +153,40 @@ private val CalinoMarkdownParser: Parser = Parser.builder()
  */
 fun parseCalinoMarkdown(markdown: String): CalinoMarkdownDocument {
     val root = CalinoMarkdownParser.parse(markdown)
-    return CalinoMarkdownDocument(parseBlocks(root))
+    return CalinoMarkdownDocument(parseBlocks(root, MarkdownParseState()))
 }
 
-private fun parseBlocks(parent: Node): List<CalinoMarkdownBlock> = childrenOf(parent).flatMap { node ->
+private class MarkdownParseState(var nextTaskIndex: Int = 0)
+
+private fun parseBlocks(parent: Node, state: MarkdownParseState): List<CalinoMarkdownBlock> = childrenOf(parent).flatMap { node ->
     when (node) {
         is Paragraph -> listOf(CalinoMarkdownBlock.Paragraph(parseInline(node)))
         is Heading -> listOf(CalinoMarkdownBlock.Heading(node.level, parseInline(node)))
-        is BlockQuote -> listOf(CalinoMarkdownBlock.Quote(parseBlocks(node)))
-        is BulletList -> listOf(parseList(node))
-        is OrderedList -> listOf(parseList(node))
+        is BlockQuote -> listOf(CalinoMarkdownBlock.Quote(parseBlocks(node, state)))
+        is BulletList -> listOf(parseList(node, state))
+        is OrderedList -> listOf(parseList(node, state))
         is FencedCodeBlock -> listOf(CalinoMarkdownBlock.CodeBlock(node.literal.orEmpty(), node.info.trim().ifEmpty { null }))
         is IndentedCodeBlock -> listOf(CalinoMarkdownBlock.CodeBlock(node.literal.orEmpty(), null))
         is ThematicBreak -> listOf(CalinoMarkdownBlock.ThematicBreak)
         is TableBlock -> listOf(parseTable(node))
         is HtmlBlock -> listOf(CalinoMarkdownBlock.Paragraph(listOf(CalinoMarkdownInline.Text(node.literal.orEmpty()))))
         is LinkReferenceDefinition -> emptyList()
-        is CustomBlock -> parseBlocks(node)
+        is CustomBlock -> parseBlocks(node, state)
         else -> emptyList()
     }
 }
 
-private fun parseList(list: ListBlock): CalinoMarkdownBlock.ListBlock =
+private fun parseList(list: ListBlock, state: MarkdownParseState): CalinoMarkdownBlock.ListBlock =
     CalinoMarkdownBlock.ListBlock(
         ordered = list is OrderedList,
         start = (list as? OrderedList)?.startNumber ?: 1,
         items = childrenOf(list).filterIsInstance<ListItem>().map { item ->
+            val marker = findTaskMarker(item)
+            val taskIndex = marker?.let { state.nextTaskIndex++ }
             CalinoMarkdownListItem(
-                blocks = parseBlocks(item),
-                checked = findTaskMarker(item)?.isChecked,
+                blocks = parseBlocks(item, state),
+                checked = marker?.isChecked,
+                taskIndex = taskIndex,
             )
         },
         tight = list.isTight,
@@ -263,6 +269,7 @@ fun CalinoMarkdown(
     markdown: String,
     modifier: Modifier = Modifier,
     emptyText: String = "Nothing to preview yet.",
+    onTaskCheckedChange: ((taskIndex: Int, checked: Boolean) -> Unit)? = null,
 ) {
     if (markdown.isBlank()) {
         Text(emptyText, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = modifier)
@@ -275,7 +282,7 @@ fun CalinoMarkdown(
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
         document.blocks.forEachIndexed { index, block ->
-            CalinoMarkdownBlockView(block, isFirst = index == 0)
+            CalinoMarkdownBlockView(block, isFirst = index == 0, onTaskCheckedChange = onTaskCheckedChange)
         }
     }
 }
@@ -339,7 +346,11 @@ fun CalinoMarkdownEditor(
 }
 
 @Composable
-private fun CalinoMarkdownBlockView(block: CalinoMarkdownBlock, isFirst: Boolean = false) {
+private fun CalinoMarkdownBlockView(
+    block: CalinoMarkdownBlock,
+    isFirst: Boolean = false,
+    onTaskCheckedChange: ((taskIndex: Int, checked: Boolean) -> Unit)? = null,
+) {
     when (block) {
         is CalinoMarkdownBlock.Paragraph -> CalinoMarkdownInlineText(
             block.content,
@@ -363,10 +374,10 @@ private fun CalinoMarkdownBlockView(block: CalinoMarkdownBlock, isFirst: Boolean
                 Modifier.padding(end = 10.dp).width(3.dp).height(28.dp).background(CalinoColors.Accent),
             )
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                block.blocks.forEach { CalinoMarkdownBlockView(it) }
+                block.blocks.forEach { CalinoMarkdownBlockView(it, onTaskCheckedChange = onTaskCheckedChange) }
             }
         }
-        is CalinoMarkdownBlock.ListBlock -> MarkdownListView(block)
+        is CalinoMarkdownBlock.ListBlock -> MarkdownListView(block, onTaskCheckedChange)
         is CalinoMarkdownBlock.CodeBlock -> CodeBlockView(block)
         CalinoMarkdownBlock.ThematicBreak -> HorizontalDivider(
             modifier = Modifier.padding(vertical = 6.dp),
@@ -377,7 +388,10 @@ private fun CalinoMarkdownBlockView(block: CalinoMarkdownBlock, isFirst: Boolean
 }
 
 @Composable
-private fun MarkdownListView(block: CalinoMarkdownBlock.ListBlock) {
+private fun MarkdownListView(
+    block: CalinoMarkdownBlock.ListBlock,
+    onTaskCheckedChange: ((taskIndex: Int, checked: Boolean) -> Unit)?,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         block.items.forEachIndexed { index, item ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -390,16 +404,22 @@ private fun MarkdownListView(block: CalinoMarkdownBlock.ListBlock) {
                     )
                     else -> Checkbox(
                         checked = item.checked,
-                        onCheckedChange = null,
-                        enabled = false,
-                        modifier = Modifier.size(24.dp).padding(end = 2.dp),
+                        onCheckedChange = item.taskIndex?.let { taskIndex ->
+                            { checked -> onTaskCheckedChange?.invoke(taskIndex, checked) }
+                        },
+                        enabled = onTaskCheckedChange != null,
+                        modifier = Modifier.size(44.dp).padding(end = 8.dp).semantics {
+                            contentDescription = if (item.checked) "Mark checklist item open" else "Mark checklist item done"
+                        },
                     )
                 }
                 Column(
                     Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(if (block.tight) 2.dp else 6.dp),
                 ) {
-                    item.blocks.forEach { child -> CalinoMarkdownBlockView(child) }
+                    item.blocks.forEach { child ->
+                        CalinoMarkdownBlockView(child, onTaskCheckedChange = onTaskCheckedChange)
+                    }
                 }
             }
         }
@@ -544,6 +564,16 @@ private fun AnnotatedString.Builder.appendCalinoMarkdownInline(
 
 private fun isSafeMarkdownUri(destination: String): Boolean =
     destination.trim().lowercase().let { it.startsWith("https://") || it.startsWith("http://") || it.startsWith("mailto:") }
+
+private val MarkdownTaskMarker = Regex("(?m)^(\\s*(?:[-+*]|\\d+[.)])\\s+)\\[([ xX])]((?=\\s)|$)")
+
+/** Rewrites one rendered GFM task marker without touching its surrounding Markdown. */
+fun toggleCalinoMarkdownTask(markdown: String, taskIndex: Int, checked: Boolean): String {
+    if (taskIndex < 0) return markdown
+    val match = MarkdownTaskMarker.findAll(markdown).elementAtOrNull(taskIndex) ?: return markdown
+    val marker = if (checked) "[x]" else "[ ]"
+    return markdown.replaceRange(match.groups[2]!!.range.first - 1, match.groups[2]!!.range.last + 2, marker)
+}
 
 private fun Modifier.clipAndBorder(borderColor: Color, backgroundColor: Color): Modifier =
     clip(RoundedCornerShape(CalinoShapes.Row))

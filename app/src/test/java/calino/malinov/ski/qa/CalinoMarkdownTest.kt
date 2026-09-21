@@ -5,6 +5,7 @@ import calino.malinov.ski.ui.components.CalinoMarkdownAlignment
 import calino.malinov.ski.ui.components.CalinoMarkdownInline
 import calino.malinov.ski.ui.components.CalinoMarkdownListItem
 import calino.malinov.ski.ui.components.parseCalinoMarkdown
+import calino.malinov.ski.ui.components.toggleCalinoMarkdownTask
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,6 +37,7 @@ class CalinoMarkdownTest {
             listOf(true, false),
             list.items.map(CalinoMarkdownListItem::checked),
         )
+        assertEquals(listOf(0, 1), list.items.map(CalinoMarkdownListItem::taskIndex))
         val table = document.blocks[1] as CalinoMarkdownBlock.Table
         assertEquals(2, table.header.cells.size)
         assertEquals(1, table.rows.size)
@@ -43,6 +45,17 @@ class CalinoMarkdownTest {
             listOf(CalinoMarkdownAlignment.Left, CalinoMarkdownAlignment.Right),
             table.header.alignments,
         )
+    }
+
+    @Test
+    fun togglesOnlyTheSelectedTaskMarkerAndPreservesMarkdown() {
+        val source = "Intro [x] text\n- [ ] Milk\n  - [x] Coffee\n1. [ ] Bread"
+
+        assertEquals(
+            "Intro [x] text\n- [ ] Milk\n  - [ ] Coffee\n1. [ ] Bread",
+            toggleCalinoMarkdownTask(source, taskIndex = 1, checked = false),
+        )
+        assertEquals(source, toggleCalinoMarkdownTask(source, taskIndex = 8, checked = true))
     }
 
     @Test

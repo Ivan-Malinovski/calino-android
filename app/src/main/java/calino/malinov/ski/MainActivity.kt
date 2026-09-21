@@ -2209,6 +2209,25 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             restoreTaskDetailOrigin()
                         }
                     },
+                    onInlineNotesSave = { input, done ->
+                        writeError = null
+                        savePillLane.saveStarted(PillWriteKind.Save)
+                        var landed = false
+                        try {
+                            when (val result = repository.updateTask(task.id, input, done)) {
+                                is WriteResult.Applied -> true.also { landed = true }
+                                is WriteResult.Queued -> true.also { landed = true }
+                                is WriteResult.Rejected -> { writeError = result.reason; false }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            writeError = error.message ?: "That checklist change could not be saved."
+                            false
+                        } finally {
+                            savePillLane.saveFinished(writeScope, success = landed)
+                        }
+                    },
                     onDelete = {
                         launchWrite(
                             { repository.deleteTask(task.id, task.recurrenceScope) },
