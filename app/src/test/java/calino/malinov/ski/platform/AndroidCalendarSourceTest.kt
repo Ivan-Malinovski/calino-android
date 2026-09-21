@@ -7,6 +7,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,6 +55,14 @@ class AndroidCalendarSourceTest {
 
     private fun map(row: AndroidCalendarSource.InstanceRow, reminders: List<Reminder> = emptyList()) =
         AndroidCalendarSource.toEvent(row, calendar, reminders, zone)
+
+    @Test
+    fun providerAccessStillNeedsRuntimeWritePermission() {
+        assertTrue(AndroidCalendarSource.providerWriteCapability(600, true))
+        assertTrue(AndroidCalendarSource.providerWriteCapability(700, true))
+        assertFalse(AndroidCalendarSource.providerWriteCapability(500, true))
+        assertFalse(AndroidCalendarSource.providerWriteCapability(700, false))
+    }
 
     @Test
     fun aTimedRowKeepsItsWallClockTimeInTheDeviceZone() {

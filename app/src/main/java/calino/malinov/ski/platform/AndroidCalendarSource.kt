@@ -1,6 +1,5 @@
 package calino.malinov.ski.platform
 
-import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -44,9 +43,10 @@ object AndroidCalendarSource {
         val color: Long,
         val accessLevel: Int = CalendarContract.Calendars.CAL_ACCESS_READ,
         val ownerAccount: String = accountName,
+        val hasWritePermission: Boolean = true,
     ) {
         val canWrite: Boolean
-            get() = accessLevel >= CalendarContract.Calendars.CAL_ACCESS_EDITOR
+            get() = providerWriteCapability(accessLevel, hasWritePermission)
     }
 
     /** Modeled provider fields used to reject stale writes instead of overwriting them. */
@@ -62,7 +62,7 @@ object AndroidCalendarSource {
         val availability: Int?,
         val recurrenceRule: String?,
         val status: Int?,
-        val eventTimezone: String?,
+        val timeZone: String?,
         val deleted: Boolean,
         val alertReminders: List<Int>,
     )
@@ -197,6 +197,10 @@ object AndroidCalendarSource {
     fun availableCalendars(context: Context): List<ImportableCalendar> =
         runCatching {
             val ours = CalinoAccounts.accountType(context)
+            val hasWritePermission = ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.WRITE_CALENDAR,
+            ) == PackageManager.PERMISSION_GRANTED
             val found = mutableListOf<ImportableCalendar>()
             context.contentResolver.query(
                 CalendarContract.Calendars.CONTENT_URI,
@@ -229,6 +233,7 @@ object AndroidCalendarSource {
                             .toLong() and 0xffffffL) or 0xff000000L,
                         accessLevel = if (cursor.isNull(5)) CalendarContract.Calendars.CAL_ACCESS_NONE else cursor.getInt(5),
                         ownerAccount = cursor.getString(6).orEmpty(),
+                        hasWritePermission = hasWritePermission,
                     )
                 }
             }
@@ -261,10 +266,6 @@ object AndroidCalendarSource {
             val wanted = availableCalendars(context).filter { it.id in calendarIds }
             if (wanted.isEmpty()) return@runCatching Import()
 
-            val hasWritePermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.WRITE_CALENDAR,
-            ) == PackageManager.PERMISSION_GRANTED
             val calendars = wanted.map { calendar ->
                 CalinoCalendar(
                     id = calendar.id,
@@ -272,7 +273,7 @@ object AndroidCalendarSource {
                     color = calendar.color,
                     // Import and write consent are independent. Provider
                     // access alone never makes a foreign calendar editable.
-                    readOnly = !hasWritePermission || calendar.id !in writableCalendarIds || !calendar.canWrite,
+                    readOnly = calendar.id !in writableCalendarIds || !calendar.canWrite,
                     // The provider has no table for tasks or journal entries,
                     // so saying VEVENT is not a restriction, it is the truth.
                     components = setOf("VEVENT"),
@@ -505,22 +506,12 @@ object AndroidCalendarSource {
                 availability = if (cursor.isNull(9)) null else cursor.getInt(9),
                 recurrenceRule = cursor.getString(10),
                 status = if (cursor.isNull(11)) null else cursor.getInt(11),
-                eventTimezone = cursor.getString(15),
+                timeZone = cursor.getString(15),
                 deleted = cursor.getInt(16) == 1,
                 alertReminders = alertReminderMinutes(context, eventRowId),
             )
         }
     }.getOrNull()
-
-    fun hasException(context: Context, masterRowId: Long, originalInstanceTime: Long): Boolean = runCatching {
-        context.contentResolver.query(
-            CalendarContract.Events.CONTENT_URI,
-            arrayOf(CalendarContract.Events._ID),
-            "${CalendarContract.Events.ORIGINAL_ID} = ? AND ${CalendarContract.Events.ORIGINAL_INSTANCE_TIME} = ?",
-            arrayOf(masterRowId.toString(), originalInstanceTime.toString()),
-            null,
-        )?.use { it.moveToFirst() } == true
-    }.getOrDefault(true)
 
     private fun alertReminderMinutes(context: Context, eventRowId: Long): List<Int> {
         val result = mutableListOf<Int>()
@@ -560,6 +551,10 @@ object AndroidCalendarSource {
 
     private fun utcDate(millis: Long): LocalDate =
         Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+
+    /** Access metadata and runtime permission are both required for editing. */
+    fun providerWriteCapability(accessLevel: Int, hasWritePermission: Boolean): Boolean =
+        hasWritePermission && accessLevel >= CalendarContract.Calendars.CAL_ACCESS_EDITOR
 
     /** Used when a provider row carries no colour of its own. */
     private const val DefaultColor = 0x5B8DEF

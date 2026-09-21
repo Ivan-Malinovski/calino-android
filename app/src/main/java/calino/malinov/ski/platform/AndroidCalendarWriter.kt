@@ -4,6 +4,7 @@ import android.content.ContentProviderOperation
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.provider.CalendarContract
 import calino.malinov.ski.data.model.Availability
 import calino.malinov.ski.data.model.CalEvent
@@ -18,7 +19,8 @@ import java.time.ZoneOffset
  *
  * All operations intentionally use ordinary provider URIs. Calino is not the
  * sync adapter for these rows and must leave provider-specific columns alone,
- * so event updates are partial and reminders are reconciled separately.
+ * so event updates are partial and event/reminder changes use one provider
+ * transaction.
  */
 class AndroidCalendarWriter(private val context: Context) {
     private val resolver get() = context.contentResolver
@@ -29,23 +31,26 @@ class AndroidCalendarWriter(private val context: Context) {
         writeOptIn: Set<String>,
     ): WriteResult<CalEvent> = guarded {
         validateCalendar(calendar, input.calendarId, writeOptIn)?.let { return@guarded it }
-        unsupportedFields(input)?.let { return@guarded rejected(it) }
-        if (input.recurrence != null) {
+        unsupportedFields(input)?.let { return@guarded it }
+        if (input.recurrence != null || input.recurrenceChanged) {
             return@guarded rejected("Creating a repeating event in a device calendar is not supported yet.")
+        }
+
+        val modeled = input.reminders.map { it.minutesBefore }.filter { it >= 0 }.distinct()
+        val values = eventValues(input).apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendar.rowId)
+            put(CalendarContract.Events.HAS_ALARM, if (modeled.isEmpty()) 0 else 1)
         }
         val operations = arrayListOf(
             ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI)
-                .withValues(eventValues(input, calendar.rowId, includeCalendar = true).apply {
-                    put(CalendarContract.Events.HAS_ALARM, if (input.reminders.any { it.minutesBefore >= 0 }) 1 else 0)
-                })
+                .withValues(values)
                 .build(),
         )
-        input.reminders.map { it.minutesBefore }.filter { it >= 0 }.distinct().forEach { minutes ->
-            operations += reminderInsertBackReference(0, minutes, CalendarContract.Reminders.METHOD_ALERT)
-        }
+        modeled.forEach { minutes -> operations += reminderInsertBackReference(0, minutes, AlertMethod) }
         val results = resolver.applyBatch(CalendarContract.AUTHORITY, operations)
         val uri = results.firstOrNull()?.uri
-            ?: return@guarded rejected("The calendar provider did not accept the new event.")
+            ?: error("The calendar provider did not return the new event identity.")
+        require(results.drop(1).all { it.uri != null }) { "The calendar provider did not save every reminder." }
         val rowId = ContentUris.parseId(uri)
         WriteResult.Applied(input.toEvent(AndroidCalendarId.event(rowId, startMillis(input)), calendar.color))
     }
@@ -57,30 +62,37 @@ class AndroidCalendarWriter(private val context: Context) {
         writeOptIn: Set<String>,
     ): WriteResult<CalEvent> = guarded {
         validateRoute(route, input.calendarId, scope, writeOptIn)?.let { return@guarded it }
-        unsupportedFields(input)?.let { return@guarded rejected(it) }
+        unsupportedFields(input)?.let { return@guarded it }
         if (scope == RecurrenceEditScope.Future) {
             return@guarded rejected("Device calendars support changing this event or the entire series, not future events.")
         }
-        if (route.recurring && input.recurrenceChanged) {
+        if (input.recurrenceChanged || input.recurrence != null) {
             return@guarded rejected("Changing an existing device calendar recurrence rule is not supported yet.")
         }
 
-        val target = when {
-            !route.recurring -> route.eventRowId
-            scope == RecurrenceEditScope.All -> route.masterRowId
-            route.existingException -> route.eventRowId
-            else -> insertException(route, input, canceled = false)
-                ?: return@guarded rejected("The calendar provider did not accept the occurrence exception.")
-        }
-        if (!(route.recurring && scope == RecurrenceEditScope.This && !route.existingException)) {
-            val values = if (route.recurring && scope == RecurrenceEditScope.All) {
-                masterEventValues(input, route)
-            } else eventValues(input, route.calendarRowId, eventTimezone = route.baseline.eventTimezone)
-            val results = applyEventAndModeledReminders(target, values, input.reminders.map { it.minutesBefore })
-            if (results.firstOrNull()?.count != 1) {
-                return@guarded rejected("The event changed in its owning app. Refresh and try again.")
+        if (route.recurring && scope == RecurrenceEditScope.This && !route.existingException) {
+            existingException(route)?.let {
+                return@guarded rejected("That occurrence already changed in its owning app. Refresh the calendar and try again.")
             }
+            insertExceptionAtomic(route, input, canceled = false)
+            return@guarded WriteResult.Applied(
+                input.toEvent(AndroidCalendarId.event(route.masterRowId, route.originalInstanceTime), route.color),
+            )
         }
+
+        val target = if (route.recurring && scope == RecurrenceEditScope.All) route.masterRowId else route.eventRowId
+        val baseline = if (route.recurring && scope == RecurrenceEditScope.All) route.masterBaseline else route.baseline
+        val values = if (route.recurring && scope == RecurrenceEditScope.All) {
+            masterEventValues(input, route)
+        } else {
+            eventValues(
+                input = input,
+                preservedTimeZone = baseline.timeZone,
+                originalBegin = route.instanceBegin,
+                originalAllDay = baseline.allDay,
+            )
+        }
+        updateEventAndRemindersAtomic(target, values, input.reminders.map { it.minutesBefore })
         WriteResult.Applied(input.toEvent(AndroidCalendarId.event(route.masterRowId, route.originalInstanceTime), route.color))
     }
 
@@ -101,15 +113,17 @@ class AndroidCalendarWriter(private val context: Context) {
                 }
             }
             route.existingException -> {
-                val values = ContentValues().apply {
-                    put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED)
-                }
-                if (resolver.update(eventUri(route.eventRowId), values, null, null) != 1) {
-                    return@guarded rejected("The occurrence changed in its owning app. Refresh and try again.")
-                }
+                val operation = ContentProviderOperation.newUpdate(eventUri(route.eventRowId))
+                    .withValue(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED)
+                    .withExpectedCount(1)
+                    .build()
+                resolver.applyBatch(CalendarContract.AUTHORITY, arrayListOf(operation))
             }
-            else -> if (insertException(route, null, canceled = true) == null) {
-                return@guarded rejected("The calendar provider did not accept the canceled occurrence.")
+            else -> {
+                existingException(route)?.let {
+                    return@guarded rejected("That occurrence already changed in its owning app. Refresh the calendar and try again.")
+                }
+                insertExceptionAtomic(route, input = null, canceled = true)
             }
         }
         WriteResult.Applied(Unit)
@@ -135,13 +149,8 @@ class AndroidCalendarWriter(private val context: Context) {
         val checkedRow = if (all) route.masterRowId else route.eventRowId
         val current = AndroidCalendarSource.providerBaseline(context, checkedRow)
             ?: return rejected("That event was removed by its owning app. Refresh the calendar.")
-        if (current != baseline || current.deleted) {
+        if (current != baseline) {
             return rejected("That event changed in its owning app. Refresh the calendar and try again.")
-        }
-        if (route.recurring && scope == RecurrenceEditScope.This && !route.existingException &&
-            AndroidCalendarSource.hasException(context, route.masterRowId, route.originalInstanceTime)
-        ) {
-            return rejected("That occurrence changed in its owning app. Refresh the calendar and try again.")
         }
         return null
     }
@@ -159,90 +168,121 @@ class AndroidCalendarWriter(private val context: Context) {
         if (current.rowId != calendar.rowId || current.accountName != calendar.accountName ||
             current.accountType != calendar.accountType || current.ownerAccount != calendar.ownerAccount
         ) return rejected("That device calendar changed ownership. Turn editing off and on again before retrying.")
-        if (!current.canWrite) return rejected("That device calendar is read-only.")
+        if (!current.canWrite) return rejected("That device calendar is read-only or calendar write permission was revoked.")
         if (current.accountType.equals(CalinoAccounts.accountType(context), ignoreCase = true)) {
             return rejected("Calino cannot import or edit its own Android projection.")
         }
         return null
     }
 
-    private fun insertException(
+    /** Reject fields CalendarContract write-back deliberately does not model. */
+    private fun unsupportedFields(input: NewEvent): WriteResult.Rejected? {
+        val changed = buildList {
+            if (input.attendees.isNotEmpty()) add("attendees")
+            if (input.categories.isNotEmpty()) add("categories")
+            if (input.relatedTo.isNotEmpty()) add("relationships")
+            if (input.travelTimeMinutes != null) add("travel time")
+            if (input.url != null) add("URL")
+        }
+        return changed.takeIf { it.isNotEmpty() }?.let {
+            rejected("Device calendars do not support changing ${it.joinToString()}. Clear those fields and try again.")
+        }
+    }
+
+    /** Any detached, canceled, or deleted row occupies the recurrence slot. */
+    private fun existingException(route: AndroidCalendarSource.ProviderEvent): Long? {
+        resolver.query(
+            CalendarContract.Events.CONTENT_URI,
+            arrayOf(CalendarContract.Events._ID),
+            "${CalendarContract.Events.ORIGINAL_ID} = ? AND ${CalendarContract.Events.ORIGINAL_INSTANCE_TIME} = ? AND " +
+                "${CalendarContract.Events.CALENDAR_ID} = ?",
+            arrayOf(
+                route.masterRowId.toString(),
+                route.originalInstanceTime.toString(),
+                route.calendarRowId.toString(),
+            ),
+            null,
+        )?.use { cursor -> if (cursor.moveToFirst()) return cursor.getLong(0) }
+        return null
+    }
+
+    private fun insertExceptionAtomic(
         route: AndroidCalendarSource.ProviderEvent,
         input: NewEvent?,
         canceled: Boolean,
-    ): Long? {
-        val values = if (input != null) eventValues(input, route.calendarRowId, includeCalendar = true) else {
+    ): Long {
+        val sourceReminders = reminderRows(route.eventRowId)
+        val modeled = input?.reminders.orEmpty().map { it.minutesBefore }.filter { it >= 0 }.distinct()
+        val reminders = if (input == null) sourceReminders else {
+            sourceReminders.filterNot(ReminderRow::modeledAlert) + modeled.map { ReminderRow(it, AlertMethod) }
+        }
+        val values = if (input != null) {
+            eventValues(
+                input = input,
+                preservedTimeZone = route.masterBaseline.timeZone,
+                originalBegin = route.instanceBegin,
+                originalAllDay = route.originalAllDay,
+            )
+        } else {
             ContentValues().apply {
-                put(CalendarContract.Events.CALENDAR_ID, route.calendarRowId)
                 put(CalendarContract.Events.TITLE, route.baseline.title)
                 put(CalendarContract.Events.DTSTART, route.instanceBegin)
                 route.instanceEnd?.let { put(CalendarContract.Events.DTEND, it) }
                 put(CalendarContract.Events.ALL_DAY, if (route.originalAllDay) 1 else 0)
-                put(CalendarContract.Events.EVENT_TIMEZONE, if (route.originalAllDay) "UTC" else route.masterBaseline.eventTimezone ?: ZoneId.systemDefault().id)
+                put(CalendarContract.Events.EVENT_TIMEZONE, route.masterBaseline.timeZone ?: if (route.originalAllDay) "UTC" else ZoneId.systemDefault().id)
             }
+        }.apply {
+            put(CalendarContract.Events.CALENDAR_ID, route.calendarRowId)
+            put(CalendarContract.Events.ORIGINAL_ID, route.masterRowId)
+            put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, route.originalInstanceTime)
+            put(CalendarContract.Events.ORIGINAL_ALL_DAY, if (route.originalAllDay) 1 else 0)
+            put(CalendarContract.Events.HAS_ALARM, if (reminders.isEmpty()) 0 else 1)
+            if (canceled) put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED)
         }
-        values.put(CalendarContract.Events.ORIGINAL_ID, route.masterRowId)
-        values.put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, route.originalInstanceTime)
-        values.put(CalendarContract.Events.ORIGINAL_ALL_DAY, if (route.originalAllDay) 1 else 0)
-        if (canceled) values.put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED)
 
-        val sourceReminders = reminderRows(route.eventRowId)
-        val reminders = if (input == null) {
-            sourceReminders
-        } else {
-            sourceReminders.filterNot { (minutes, method) ->
-                method == CalendarContract.Reminders.METHOD_ALERT && minutes >= 0
-            } + input.reminders.map { it.minutesBefore }
-                .filter { it >= 0 }
-                .distinct()
-                .map { it to CalendarContract.Reminders.METHOD_ALERT }
-        }
-        values.put(CalendarContract.Events.HAS_ALARM, if (reminders.isNotEmpty()) 1 else 0)
         val operations = arrayListOf(
-            ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI)
-                .withValues(values)
-                .build(),
+            ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI).withValues(values).build(),
         )
-        reminders.forEach { (minutes, method) ->
-            operations += reminderInsertBackReference(0, minutes, method)
-        }
-        val inserted = resolver.applyBatch(CalendarContract.AUTHORITY, operations).firstOrNull()?.uri ?: return null
-        return ContentUris.parseId(inserted)
+        reminders.forEach { row -> operations += reminderInsertBackReference(0, row.minutes, row.method) }
+        val results = resolver.applyBatch(CalendarContract.AUTHORITY, operations)
+        val uri = results.firstOrNull()?.uri ?: error("The calendar provider did not return the exception identity.")
+        require(results.drop(1).all { it.uri != null }) { "The calendar provider did not save every exception reminder." }
+        return ContentUris.parseId(uri)
     }
 
-    /** Updates the event and its modeled reminders in one provider transaction. */
-    private fun applyEventAndModeledReminders(
-        eventId: Long,
-        values: ContentValues,
-        minutes: List<Int>,
-    ): Array<android.content.ContentProviderResult> {
-        val unsupportedRemain = reminderRows(eventId).any { (value, method) ->
-            method != CalendarContract.Reminders.METHOD_ALERT || value < 0
-        }
+    private fun updateEventAndRemindersAtomic(eventId: Long, values: ContentValues, minutes: List<Int>) {
+        val unsupported = reminderRows(eventId).filterNot(ReminderRow::modeledAlert)
         val modeled = minutes.filter { it >= 0 }.distinct()
-        values.put(CalendarContract.Events.HAS_ALARM, if (unsupportedRemain || modeled.isNotEmpty()) 1 else 0)
         val operations = arrayListOf(
-            ContentProviderOperation.newUpdate(eventUri(eventId)).withValues(values).build(),
+            ContentProviderOperation.newUpdate(eventUri(eventId))
+                .withValues(values)
+                .withExpectedCount(1)
+                .build(),
             ContentProviderOperation.newDelete(CalendarContract.Reminders.CONTENT_URI)
                 .withSelection(
                     "${CalendarContract.Reminders.EVENT_ID} = ? AND ${CalendarContract.Reminders.METHOD} = ? AND " +
                         "${CalendarContract.Reminders.MINUTES} >= 0",
-                    arrayOf(eventId.toString(), CalendarContract.Reminders.METHOD_ALERT.toString()),
+                    arrayOf(eventId.toString(), AlertMethod.toString()),
                 )
                 .build(),
         )
-        modeled.forEach { value ->
-            operations += ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
-                .withValue(CalendarContract.Reminders.EVENT_ID, eventId)
-                .withValue(CalendarContract.Reminders.MINUTES, value)
-                .withValue(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
-                .build()
+        modeled.forEach { value -> operations += reminderInsert(eventId, value, AlertMethod) }
+        operations += ContentProviderOperation.newUpdate(eventUri(eventId))
+            .withValue(CalendarContract.Events.HAS_ALARM, if (unsupported.isNotEmpty() || modeled.isNotEmpty()) 1 else 0)
+            .withExpectedCount(1)
+            .build()
+        val results = resolver.applyBatch(CalendarContract.AUTHORITY, operations)
+        require(modeled.indices.all { results[2 + it].uri != null }) {
+            "The calendar provider did not save every reminder."
         }
-        return resolver.applyBatch(CalendarContract.AUTHORITY, operations)
     }
 
-    private fun reminderRows(eventId: Long): List<Pair<Int, Int>> {
-        val rows = mutableListOf<Pair<Int, Int>>()
+    private data class ReminderRow(val minutes: Int, val method: Int) {
+        fun modeledAlert(): Boolean = method == AlertMethod && minutes >= 0
+    }
+
+    private fun reminderRows(eventId: Long): List<ReminderRow> {
+        val rows = mutableListOf<ReminderRow>()
         resolver.query(
             CalendarContract.Reminders.CONTENT_URI,
             arrayOf(CalendarContract.Reminders.MINUTES, CalendarContract.Reminders.METHOD),
@@ -250,31 +290,36 @@ class AndroidCalendarWriter(private val context: Context) {
             arrayOf(eventId.toString()),
             null,
         )?.use { cursor ->
-            while (cursor.moveToNext()) rows += cursor.getInt(0) to cursor.getInt(1)
-        }
+            while (cursor.moveToNext()) rows += ReminderRow(cursor.getInt(0), cursor.getInt(1))
+        } ?: error("The calendar provider did not return reminder state.")
         return rows
     }
 
-    private fun reminderInsertBackReference(eventOperationIndex: Int, minutes: Int, method: Int) =
+    private fun reminderInsert(eventId: Long, minutes: Int, method: Int) =
         ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
-            .withValueBackReference(CalendarContract.Reminders.EVENT_ID, eventOperationIndex)
+            .withValue(CalendarContract.Reminders.EVENT_ID, eventId)
+            .withValue(CalendarContract.Reminders.MINUTES, minutes)
+            .withValue(CalendarContract.Reminders.METHOD, method)
+            .build()
+
+    private fun reminderInsertBackReference(eventOperation: Int, minutes: Int, method: Int) =
+        ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
+            .withValueBackReference(CalendarContract.Reminders.EVENT_ID, eventOperation)
             .withValue(CalendarContract.Reminders.MINUTES, minutes)
             .withValue(CalendarContract.Reminders.METHOD, method)
             .build()
 
     /** Apply an occurrence's date/time delta to the master instead of replacing it with that occurrence's slot. */
-    private fun masterEventValues(
-        input: NewEvent,
-        route: AndroidCalendarSource.ProviderEvent,
-    ): ContentValues {
+    private fun masterEventValues(input: NewEvent, route: AndroidCalendarSource.ProviderEvent): ContentValues {
         val editedOccurrenceStart = startMillis(input)
         val masterStart = route.masterBaseline.start ?: editedOccurrenceStart
         val shiftedMasterStart = masterStart + (editedOccurrenceStart - route.instanceBegin)
         return eventValues(
-            input,
-            route.calendarRowId,
+            input = input,
+            preservedTimeZone = route.masterBaseline.timeZone,
+            originalBegin = route.instanceBegin,
+            originalAllDay = route.masterBaseline.allDay,
             startOverride = shiftedMasterStart,
-            eventTimezone = route.masterBaseline.eventTimezone,
         ).apply {
             remove(CalendarContract.Events.DTEND)
             val duration = if (input.allDay) {
@@ -283,33 +328,36 @@ class AndroidCalendarWriter(private val context: Context) {
                     (input.endDate ?: input.date).plusDays(1),
                 ).coerceAtLeast(1)
                 "P${days}D"
-            } else {
-                "PT${(input.durationMinutes ?: 0).coerceAtLeast(0)}M"
-            }
+            } else "PT${(input.durationMinutes ?: 0).coerceAtLeast(0)}M"
             put(CalendarContract.Events.DURATION, duration)
         }
     }
 
     private fun eventValues(
         input: NewEvent,
-        calendarRowId: Long,
-        includeCalendar: Boolean = false,
+        preservedTimeZone: String? = null,
+        originalBegin: Long? = null,
+        originalAllDay: Boolean? = null,
         startOverride: Long? = null,
-        eventTimezone: String? = null,
     ) = ContentValues().apply {
-            if (includeCalendar) put(CalendarContract.Events.CALENDAR_ID, calendarRowId)
-            put(CalendarContract.Events.TITLE, input.title)
-            put(CalendarContract.Events.DESCRIPTION, input.notes)
-            put(CalendarContract.Events.EVENT_LOCATION, input.location)
-            put(CalendarContract.Events.ALL_DAY, if (input.allDay) 1 else 0)
-            put(CalendarContract.Events.AVAILABILITY, if (input.availability == Availability.Free) {
-                CalendarContract.Events.AVAILABILITY_FREE
-            } else CalendarContract.Events.AVAILABILITY_BUSY)
-            val start = startOverride ?: startMillis(input)
-            put(CalendarContract.Events.DTSTART, start)
-            put(CalendarContract.Events.DTEND, endMillis(input, start))
-            put(CalendarContract.Events.EVENT_TIMEZONE, if (input.allDay) "UTC" else eventTimezone ?: ZoneId.systemDefault().id)
-        }
+        put(CalendarContract.Events.TITLE, input.title)
+        put(CalendarContract.Events.DESCRIPTION, input.notes)
+        put(CalendarContract.Events.EVENT_LOCATION, input.location)
+        put(CalendarContract.Events.ALL_DAY, if (input.allDay) 1 else 0)
+        put(CalendarContract.Events.AVAILABILITY, if (input.availability == Availability.Free) {
+            CalendarContract.Events.AVAILABILITY_FREE
+        } else CalendarContract.Events.AVAILABILITY_BUSY)
+        val inputStart = startMillis(input)
+        val start = startOverride ?: inputStart
+        put(CalendarContract.Events.DTSTART, start)
+        put(CalendarContract.Events.DTEND, endMillis(input, start))
+        val placementUnchanged = originalBegin != null && inputStart == originalBegin && input.allDay == originalAllDay
+        put(
+            CalendarContract.Events.EVENT_TIMEZONE,
+            if (placementUnchanged && !preservedTimeZone.isNullOrBlank()) preservedTimeZone
+            else if (input.allDay) "UTC" else ZoneId.systemDefault().id,
+        )
+    }
 
     private fun startMillis(input: NewEvent): Long = if (input.allDay) {
         input.date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
@@ -322,16 +370,7 @@ class AndroidCalendarWriter(private val context: Context) {
         (input.endDate ?: input.date).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
     } else start + (input.durationMinutes ?: 0).coerceAtLeast(0) * 60_000L
 
-    private fun unsupportedFields(input: NewEvent): String? = when {
-        input.attendees.isNotEmpty() -> "Attendee editing is not supported for device calendars."
-        input.categories.isNotEmpty() -> "Category editing is not supported for device calendars."
-        input.travelTimeMinutes != null -> "Travel-time editing is not supported for device calendars."
-        input.relatedTo.isNotEmpty() -> "Related-record editing is not supported for device calendars."
-        !input.url.isNullOrBlank() -> "URL editing is not supported for device calendars."
-        else -> null
-    }
-
-    private fun eventUri(rowId: Long) = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, rowId)
+    private fun eventUri(rowId: Long): Uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, rowId)
 
     private inline fun <T> guarded(block: () -> WriteResult<T>): WriteResult<T> = try {
         block()
@@ -367,4 +406,8 @@ class AndroidCalendarWriter(private val context: Context) {
         sequence = null,
         providerRecurring = false,
     )
+
+    private companion object {
+        const val AlertMethod = CalendarContract.Reminders.METHOD_ALERT
+    }
 }

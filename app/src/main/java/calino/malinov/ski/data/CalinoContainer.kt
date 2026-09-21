@@ -541,7 +541,12 @@ class CalinoContainer private constructor(context: Context) {
             .filter { it.canWrite }
             .map { it.id }
             .toSet()
-        val next = ids intersect importedCalendarIds intersect eligible
+        // A permission revoke removes current capability, not remembered
+        // consent. Existing choices survive while removals still work;
+        // newly enabling a calendar requires capability right now.
+        val retained = writableImportedCalendarIds intersect ids intersect importedCalendarIds
+        val additions = (ids - writableImportedCalendarIds) intersect importedCalendarIds intersect eligible
+        val next = retained + additions
         if (next == writableImportedCalendarIds) return
         preferenceStore.saveWritableImportedCalendarIds(next)
         writableImportedCalendarIds = next
@@ -583,6 +588,9 @@ class CalinoContainer private constructor(context: Context) {
      * A daily series over the projection window is hundreds of instance rows,
      * so this is not work for a frame.
      */
+    /** Revalidate provider access and runtime permissions on foreground entry. */
+    fun refreshImportedCalendars() = refreshImport()
+
     private fun refreshImport() {
         val target = importing ?: return
         val wanted = importedCalendarIds

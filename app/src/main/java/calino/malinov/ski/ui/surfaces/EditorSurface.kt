@@ -517,6 +517,7 @@ private fun EventEditorFields(
         attendeeInput = attendeeInput,
         onAttendeeInput = onAttendeeInput,
         onDraft = onDraft,
+        providerOwned = calino.malinov.ski.platform.AndroidCalendarId.isImported(draft.calendarId),
     )
 }
 
@@ -781,7 +782,14 @@ private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onD
                 DropdownMenuItem(
                     text = { Text(calendar.name) },
                     onClick = {
-                        onDraft(draft.copy(calendarId = calendar.id))
+                        onDraft(
+                            draft.copy(
+                                calendarId = calendar.id,
+                                color = if (calino.malinov.ski.platform.AndroidCalendarId.isImported(calendar.id)) {
+                                    calendar.color
+                                } else draft.color,
+                            ),
+                        )
                         open = false
                     },
                 )
@@ -976,6 +984,7 @@ private fun MoreSection(
     attendeeInput: String,
     onAttendeeInput: (String) -> Unit,
     onDraft: (EditorDraft) -> Unit,
+    providerOwned: Boolean,
 ) {
     EditorValueRow(
         icon = calino.malinov.ski.ui.components.CalinoIcon.More,
@@ -984,75 +993,85 @@ private fun MoreSection(
         onClick = onToggle,
     )
     EditorReveal(open) {
-        Column(Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             EditorSwitchRow(CalinoIcon.Clock, "Available", draft.availability == Availability.Free) { free ->
                 onDraft(draft.copy(availability = if (free) Availability.Free else Availability.Busy))
             }
-
-            EditorLabel("Travel time")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                TravelTimeChoices.forEach { minutes ->
-                    CalinoChip(
-                        text = minutes?.let(::formatEditorDuration) ?: "None",
-                        selected = draft.travelTimeMinutes == minutes,
-                        description = "Travel time",
-                        semanticsRole = Role.RadioButton,
-                        onClick = { onDraft(draft.copy(travelTimeMinutes = minutes)) },
-                    )
-                }
-            }
-
-            if (categories.isNotEmpty()) CategoriesSection(draft, categories, single = false, onDraft = onDraft)
-
-            if (relatedCandidates.isNotEmpty()) {
-                EditorLabel("Related to")
+            if (providerOwned) {
+                Text(
+                    "Travel time, categories, task relationships, attendees, and event color are managed by the owning app.",
+                    style = CalinoTypography.bodySmall,
+                    color = CalinoColors.Ink3,
+                )
+            } else {
+                EditorLabel("Travel time")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    relatedCandidates.forEach { (id, label) ->
-                        val on = id in draft.relatedTo
+                    TravelTimeChoices.forEach { minutes ->
                         CalinoChip(
-                            text = label,
-                            selected = on,
-                            description = "Attach task",
-                            semanticsRole = Role.Checkbox,
-                            onClick = {
-                                onDraft(draft.copy(relatedTo = if (on) draft.relatedTo - id else draft.relatedTo + id))
-                            },
+                            text = minutes?.let(::formatEditorDuration) ?: "None",
+                            selected = draft.travelTimeMinutes == minutes,
+                            description = "Travel time",
+                            semanticsRole = Role.RadioButton,
+                            onClick = { onDraft(draft.copy(travelTimeMinutes = minutes)) },
                         )
                     }
                 }
-            }
-
-            EditorLabel("Attendees")
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CalinoTextField(
-                    value = attendeeInput,
-                    onValueChange = onAttendeeInput,
-                    label = "Attendee email",
-                    placeholder = "Add attendee email…",
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    enabled = attendeeInput.contains('@'),
-                    onClick = {
-                        val email = attendeeInput.trim()
-                        onDraft(draft.copy(attendees = draft.attendees + Attendee(email.substringBefore('@'), email)))
-                        onAttendeeInput("")
-                    },
-                ) { Text("Add") }
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                draft.attendees.forEach { attendee ->
-                    CalinoChip(
-                        text = attendee.name,
-                        selected = true,
-                        description = "Remove ${attendee.email}",
-                        onClick = { onDraft(draft.copy(attendees = draft.attendees - attendee)) },
-                    )
+                if (categories.isNotEmpty()) CategoriesSection(draft, categories, single = false, onDraft = onDraft)
+                if (relatedCandidates.isNotEmpty()) {
+                    EditorLabel("Related to")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        relatedCandidates.forEach { (id, label) ->
+                            val on = id in draft.relatedTo
+                            CalinoChip(
+                                text = label,
+                                selected = on,
+                                description = "Attach task",
+                                semanticsRole = Role.Checkbox,
+                                onClick = {
+                                    onDraft(draft.copy(relatedTo = if (on) draft.relatedTo - id else draft.relatedTo + id))
+                                },
+                            )
+                        }
+                    }
                 }
-            }
-
-            CalinoColorSwatchRow(Color(draft.color)) { picked ->
-                onDraft(draft.copy(color = picked.toArgb().toLong() and 0xffffffffL))
+                EditorLabel("Attendees")
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CalinoTextField(
+                        value = attendeeInput,
+                        onValueChange = onAttendeeInput,
+                        label = "Attendee email",
+                        placeholder = "Add attendee email…",
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        enabled = attendeeInput.contains('@'),
+                        onClick = {
+                            val email = attendeeInput.trim()
+                            onDraft(draft.copy(attendees = draft.attendees + Attendee(email.substringBefore('@'), email)))
+                            onAttendeeInput("")
+                        },
+                    ) { Text("Add") }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    draft.attendees.forEach { attendee ->
+                        CalinoChip(
+                            text = attendee.name,
+                            selected = true,
+                            description = "Remove ${attendee.email}",
+                            onClick = { onDraft(draft.copy(attendees = draft.attendees - attendee)) },
+                        )
+                    }
+                }
+                CalinoColorSwatchRow(Color(draft.color)) { picked ->
+                    onDraft(draft.copy(color = picked.toArgb().toLong() and 0xffffffffL))
+                }
             }
         }
     }

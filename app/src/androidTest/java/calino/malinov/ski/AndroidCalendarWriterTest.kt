@@ -1,5 +1,6 @@
 package calino.malinov.ski
 
+import android.content.ContentProviderOperation
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
@@ -21,6 +22,7 @@ import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -58,6 +60,25 @@ class AndroidCalendarWriterTest {
         context.contentResolver.delete(uri, null, null)
     }
 
+    @Test fun providerBatchRollsBackEarlierOperationsWhenAChildFails() {
+        val rowId = insertOneOff("Before batch")
+        val operations = arrayListOf(
+            ContentProviderOperation.newUpdate(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, rowId))
+                .withValue(CalendarContract.Events.TITLE, "Must roll back")
+                .withExpectedCount(1)
+                .build(),
+            ContentProviderOperation.newUpdate(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, Long.MAX_VALUE))
+                .withValue(CalendarContract.Events.TITLE, "Missing")
+                .withExpectedCount(1)
+                .build(),
+        )
+
+        assertTrue(runCatching {
+            context.contentResolver.applyBatch(CalendarContract.AUTHORITY, operations)
+        }.isFailure)
+        assertEquals("Before batch", eventColumn(rowId, CalendarContract.Events.TITLE))
+    }
+
     @Test fun createAndUpdatePreserveUnsupportedReminderRows() = runBlocking {
         val date = LocalDate.now().plusDays(2)
         val created = writer.create(
@@ -83,6 +104,12 @@ class AndroidCalendarWriterTest {
         })
 
         val imported = AndroidCalendarSource.read(context, setOf(source.id), setOf(source.id))
+        assertEquals(
+            "unsupported reminder methods must not become modeled alerts",
+            listOf(15),
+            imported.events.first { AndroidCalendarId.eventRow(it.id)?.first == rowId }
+                .reminders.map { it.minutesBefore },
+        )
         val route = imported.routes.values.first { it.eventRowId == rowId }
         val updated = writer.update(
             route,
@@ -100,6 +127,12 @@ class AndroidCalendarWriterTest {
         )
         assertTrue("$updated", updated is WriteResult.Applied)
         assertEquals(setOf(5 to CalendarContract.Reminders.METHOD_ALERT, 7 to CalendarContract.Reminders.METHOD_DEFAULT), reminders(rowId).toSet())
+        val reread = AndroidCalendarSource.read(context, setOf(source.id), setOf(source.id))
+        assertEquals(
+            listOf(5),
+            reread.events.first { AndroidCalendarId.eventRow(it.id)?.first == rowId }
+                .reminders.map { it.minutesBefore },
+        )
     }
 
     @Test fun generatedOccurrenceUpdateCreatesAnExceptionWithOriginalIdentity() = runBlocking {
@@ -133,17 +166,18 @@ class AndroidCalendarWriterTest {
     }
 
     @Test fun entireSeriesTargetsMasterWithoutMovingItToTheSelectedOccurrence() = runBlocking {
-        val master = insertSeries("Series all")
+        val master = insertSeries("Series all", timeZone = "America/New_York")
         val originalStart = eventLong(master, CalendarContract.Events.DTSTART)
         val route = occurrenceRoute(master, index = 2)
-        val occurrenceDate = Instant.ofEpochMilli(route.instanceBegin).atZone(ZoneId.systemDefault()).toLocalDate()
+        val occurrence = Instant.ofEpochMilli(route.instanceBegin).atZone(ZoneId.systemDefault()).toLocalDateTime()
+        assertEquals("America/New_York", route.masterBaseline.timeZone)
 
         val result = writer.update(
             route,
             NewEvent(
                 title = "Whole series",
-                date = occurrenceDate,
-                startTime = LocalTime.of(9, 0),
+                date = occurrence.toLocalDate(),
+                startTime = occurrence.toLocalTime(),
                 durationMinutes = 30,
                 allDay = false,
                 calendarId = source.id,
@@ -157,6 +191,56 @@ class AndroidCalendarWriterTest {
         assertEquals(originalStart, eventLong(master, CalendarContract.Events.DTSTART))
         assertEquals("Whole series", eventColumn(master, CalendarContract.Events.TITLE))
         assertEquals("FREQ=DAILY;COUNT=4", eventColumn(master, CalendarContract.Events.RRULE))
+        assertEquals("America/New_York", eventColumn(master, CalendarContract.Events.EVENT_TIMEZONE))
+    }
+
+    @Test fun staleGeneratedSlotDoesNotCreateADuplicateException() = runBlocking {
+        val master = insertSeries("Duplicate guard")
+        val route = occurrenceRoute(master, index = 1)
+        insertExceptionRow(route, CalendarContract.Events.STATUS_CANCELED)
+        val occurrence = Instant.ofEpochMilli(route.instanceBegin).atZone(ZoneId.systemDefault()).toLocalDateTime()
+
+        val result = writer.update(
+            route,
+            NewEvent(
+                title = "Must not duplicate",
+                date = occurrence.toLocalDate(),
+                startTime = occurrence.toLocalTime(),
+                durationMinutes = 30,
+                allDay = false,
+                calendarId = source.id,
+                recurrenceScope = RecurrenceEditScope.This,
+            ),
+            RecurrenceEditScope.This,
+            setOf(source.id),
+        )
+
+        assertTrue("$result", result is WriteResult.Rejected)
+        assertEquals(1, exceptionCount(master, route.originalInstanceTime))
+    }
+
+    @Test fun unsupportedEditorFieldsAreRejectedBeforeMutation() = runBlocking {
+        val master = insertSeries("Unsupported")
+        val route = occurrenceRoute(master, index = 0)
+        val occurrence = Instant.ofEpochMilli(route.instanceBegin).atZone(ZoneId.systemDefault()).toLocalDateTime()
+
+        val result = writer.update(
+            route,
+            NewEvent(
+                title = "Should not land",
+                date = occurrence.toLocalDate(),
+                startTime = occurrence.toLocalTime(),
+                durationMinutes = 30,
+                allDay = false,
+                calendarId = source.id,
+                categories = listOf("Private"),
+            ),
+            RecurrenceEditScope.All,
+            setOf(source.id),
+        )
+
+        assertTrue("$result", result is WriteResult.Rejected)
+        assertEquals("Unsupported", eventColumn(master, CalendarContract.Events.TITLE))
     }
 
     @Test fun deletingOneGeneratedOccurrenceCreatesACanceledTombstone() = runBlocking {
@@ -169,6 +253,40 @@ class AndroidCalendarWriterTest {
         val exception = exceptionFor(master, route.originalInstanceTime)
         assertNotNull(exception)
         assertEquals(CalendarContract.Events.STATUS_CANCELED, exception!!.status)
+    }
+
+    @Test fun deletedStateParticipatesInTheStaleBaseline() = runBlocking {
+        val master = insertSeries("Deleted elsewhere")
+        val route = occurrenceRoute(master, index = 0)
+        assertFalse(route.masterBaseline.deleted)
+        val syncUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, master).buildUpon()
+            .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
+            .appendQueryParameter(CalendarContract.Events.ACCOUNT_NAME, account)
+            .appendQueryParameter(CalendarContract.Events.ACCOUNT_TYPE, AccountType)
+            .build()
+        context.contentResolver.update(
+            syncUri,
+            ContentValues().apply { put(CalendarContract.Events.DELETED, 1) },
+            null,
+            null,
+        )
+        val occurrence = Instant.ofEpochMilli(route.instanceBegin).atZone(ZoneId.systemDefault()).toLocalDateTime()
+
+        val result = writer.update(
+            route,
+            NewEvent(
+                title = "Must stay deleted",
+                date = occurrence.toLocalDate(),
+                startTime = occurrence.toLocalTime(),
+                durationMinutes = 30,
+                allDay = false,
+                calendarId = source.id,
+            ),
+            RecurrenceEditScope.All,
+            setOf(source.id),
+        )
+
+        assertTrue("$result", result is WriteResult.Rejected)
     }
 
     @Test fun staleBaselineIsRejectedWithoutOverwritingProviderChange() = runBlocking {
@@ -227,7 +345,18 @@ class AndroidCalendarWriterTest {
         return ContentUris.parseId(inserted)
     }
 
-    private fun insertSeries(title: String): Long {
+    private fun insertOneOff(title: String): Long {
+        val start = LocalDate.now().plusDays(1).atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        return ContentUris.parseId(context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarRowId)
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DTSTART, start)
+            put(CalendarContract.Events.DTEND, start + 30 * 60_000L)
+            put(CalendarContract.Events.EVENT_TIMEZONE, ZoneId.systemDefault().id)
+        })!!)
+    }
+
+    private fun insertSeries(title: String, timeZone: String = ZoneId.systemDefault().id): Long {
         val start = LocalDate.now().plusDays(1).atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, ContentValues().apply {
             put(CalendarContract.Events.CALENDAR_ID, calendarRowId)
@@ -235,10 +364,34 @@ class AndroidCalendarWriterTest {
             put(CalendarContract.Events.DTSTART, start)
             put(CalendarContract.Events.DURATION, "PT30M")
             put(CalendarContract.Events.RRULE, "FREQ=DAILY;COUNT=4")
-            put(CalendarContract.Events.EVENT_TIMEZONE, ZoneId.systemDefault().id)
+            put(CalendarContract.Events.EVENT_TIMEZONE, timeZone)
         })!!
         return ContentUris.parseId(uri)
     }
+
+    private fun insertExceptionRow(route: AndroidCalendarSource.ProviderEvent, status: Int): Long {
+        val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, ContentValues().apply {
+            put(CalendarContract.Events.CALENDAR_ID, calendarRowId)
+            put(CalendarContract.Events.TITLE, "Existing exception")
+            put(CalendarContract.Events.DTSTART, route.instanceBegin)
+            route.instanceEnd?.let { put(CalendarContract.Events.DTEND, it) }
+            put(CalendarContract.Events.EVENT_TIMEZONE, route.masterBaseline.timeZone)
+            put(CalendarContract.Events.ORIGINAL_ID, route.masterRowId)
+            put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, route.originalInstanceTime)
+            put(CalendarContract.Events.ORIGINAL_ALL_DAY, if (route.originalAllDay) 1 else 0)
+            put(CalendarContract.Events.STATUS, status)
+        })!!
+        return ContentUris.parseId(uri)
+    }
+
+    private fun exceptionCount(master: Long, slot: Long): Int =
+        context.contentResolver.query(
+            CalendarContract.Events.CONTENT_URI,
+            arrayOf(CalendarContract.Events._ID),
+            "${CalendarContract.Events.ORIGINAL_ID} = ? AND ${CalendarContract.Events.ORIGINAL_INSTANCE_TIME} = ?",
+            arrayOf(master.toString(), slot.toString()),
+            null,
+        )?.use { it.count } ?: 0
 
     private data class ExceptionRow(
         val originalId: Long,

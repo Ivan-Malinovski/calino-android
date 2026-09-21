@@ -3,6 +3,8 @@ package calino.malinov.ski.qa
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.ui.surfaces.defaultEventDeleteScope
+import calino.malinov.ski.ui.surfaces.eventDeleteScopes
+import calino.malinov.ski.ui.surfaces.eventDetailReadOnly
 import calino.malinov.ski.ui.surfaces.isRecurringEvent
 import java.time.Instant
 import java.time.LocalDate
@@ -25,6 +27,8 @@ class EventDeleteScopeTest {
         recurrence: String? = null,
         recurrenceId: Instant? = null,
         recurrenceDate: LocalDate? = null,
+        calendarId: String = "work",
+        providerRecurring: Boolean = false,
     ) = CalEvent(
         id = "evt",
         title = "Design review",
@@ -34,7 +38,8 @@ class EventDeleteScopeTest {
         recurrence = recurrence,
         recurrenceId = recurrenceId,
         recurrenceDate = recurrenceDate,
-        calendarId = "work",
+        calendarId = calendarId,
+        providerRecurring = providerRecurring,
     )
 
     @Test
@@ -69,6 +74,24 @@ class EventDeleteScopeTest {
         )
         assertTrue(isRecurringEvent(event))
         assertEquals(RecurrenceEditScope.This, defaultEventDeleteScope(event))
+    }
+
+    @Test
+    fun `imported recurrence omits this and future in every shared delete body`() {
+        val event = event(calendarId = "android:7", providerRecurring = true)
+
+        assertEquals(
+            listOf(RecurrenceEditScope.This, RecurrenceEditScope.All),
+            eventDeleteScopes(event),
+        )
+    }
+
+    @Test
+    fun `writable imported detail follows calendar capability rather than its id`() {
+        val imported = event(calendarId = "android:7")
+
+        assertFalse(eventDetailReadOnly(hostReadOnly = false, imported))
+        assertTrue(eventDetailReadOnly(hostReadOnly = true, imported))
     }
 
     @Test

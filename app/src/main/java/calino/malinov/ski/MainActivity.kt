@@ -673,6 +673,8 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    fun refreshImportedCalendars() = container.refreshImportedCalendars()
+
     fun pendingChanges(): List<PendingChange> = container.calDavRepository.pendingChanges()
 
     fun retryPendingChange(id: String): Boolean = container.calDavRepository.retryPendingChange(id)
@@ -1002,6 +1004,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             // to the account-connect and periodic ViewModel triggers.
             pocViewModel.drainPendingWrites()
             pocViewModel.checkForAppUpdate()
+            pocViewModel.refreshImportedCalendars()
             kotlinx.coroutines.awaitCancellation()
         }
     }

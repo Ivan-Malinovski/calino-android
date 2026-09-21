@@ -851,11 +851,11 @@ fun EventDetailSurface(
                         // Read per page, not per card: the pager can reach a
                         // neighbour in a different calendar from the one the
                         // card opened on.
-                        // Subscriptions are always borrowed and read-only.
-                        // Imported provider calendars use the capability that
-                        // MainActivity derived from their explicit write opt-in.
-                        readOnly = readOnly ||
-                            WebcalSubscription.isWebcalCalendarId(pageEvent.calendarId),
+                        // Imported CalendarContract events use the calendar's
+                        // capability passed by the host; their id alone no
+                        // longer makes them read-only. Subscriptions remain
+                        // intrinsically read-only.
+                        readOnly = eventDetailReadOnly(readOnly, pageEvent),
                         // Only the page the card opened on is the occurrence
                         // that was tapped; a paged-to neighbour states its own
                         // date.
@@ -1138,7 +1138,7 @@ private fun EventDetailContent(
             ) {
                 Text("Choose which part of the series to remove.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    (if (event.providerRecurring) listOf(RecurrenceEditScope.This, RecurrenceEditScope.All) else RecurrenceEditScope.entries).forEach { option ->
+                    eventDeleteScopes(event).forEach { option ->
                         val label = when (option) {
                             RecurrenceEditScope.This -> "This event"
                             RecurrenceEditScope.Future -> "This and future"
@@ -1340,6 +1340,18 @@ fun defaultEventDeleteScope(event: CalEvent): RecurrenceEditScope =
         RecurrenceEditScope.All
     }
 
+/** Imported provider series never support the ambiguous This-and-future scope. */
+fun eventDeleteScopes(event: CalEvent): List<RecurrenceEditScope> =
+    if (event.providerRecurring || AndroidCalendarId.isImported(event.calendarId)) {
+        listOf(RecurrenceEditScope.This, RecurrenceEditScope.All)
+    } else {
+        RecurrenceEditScope.entries
+    }
+
+/** Capability supplied by the calendar owns imported-event editability. */
+fun eventDetailReadOnly(hostReadOnly: Boolean, event: CalEvent): Boolean =
+    hostReadOnly || WebcalSubscription.isWebcalCalendarId(event.calendarId)
+
 /**
  * The shared delete confirmation. The detail card expands it inline; the
  * context menu shows it in [EventDeleteSheet]. Both must offer the same scope
@@ -1370,9 +1382,7 @@ fun EventDeleteConfirmBody(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                RecurrenceEditScope.entries
-                    .filterNot { it == RecurrenceEditScope.Future && AndroidCalendarId.isImported(event.calendarId) }
-                    .forEach { option ->
+                eventDeleteScopes(event).forEach { option ->
                     val label = when (option) {
                         RecurrenceEditScope.This -> "This event"
                         RecurrenceEditScope.Future -> "This and future"
