@@ -88,7 +88,7 @@ class ImportedCalendarPreferenceTest {
         assertEquals(setOf(second), store.loadImportedCalendarIds())
     }
 
-    @Test fun theWriteSetIsSeparateOffByDefaultAndSurvivesToo() {
+    @Test fun theWriteSetIsSeparateAndAnExplicitEmptyChoiceSurvivesToo() {
         val id = AndroidCalendarId.calendar(11)
         store.saveImportedCalendarIds(setOf(id))
         store.saveWritableImportedCalendarIds(setOf(id))
@@ -96,6 +96,11 @@ class ImportedCalendarPreferenceTest {
         val reloaded = SharedPreferencesPreferenceStore(context)
         assertEquals(setOf(id), reloaded.loadImportedCalendarIds())
         assertEquals(setOf(id), reloaded.loadWritableImportedCalendarIds())
+
+        reloaded.saveWritableImportedCalendarIds(emptySet())
+        val disabled = SharedPreferencesPreferenceStore(context)
+        assertTrue(disabled.hasWritableImportedCalendarPreference())
+        assertEquals(emptySet<String>(), disabled.loadWritableImportedCalendarIds())
     }
 
     @Test fun theReminderSetIsSeparateAndSurvivesToo() {

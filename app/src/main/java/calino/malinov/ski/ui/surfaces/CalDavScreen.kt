@@ -101,7 +101,10 @@ private val CalendarPermissions = arrayOf(
     android.Manifest.permission.READ_CALENDAR,
     android.Manifest.permission.WRITE_CALENDAR,
 )
-private val ImportPermissions = arrayOf(android.Manifest.permission.READ_CALENDAR)
+private val ImportPermissions = arrayOf(
+    android.Manifest.permission.READ_CALENDAR,
+    android.Manifest.permission.WRITE_CALENDAR,
+)
 private val ImportWritePermissions = arrayOf(android.Manifest.permission.WRITE_CALENDAR)
 
 private const val SheetExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
@@ -187,8 +190,9 @@ fun CalendarAccountsSurface(
         }
     }
 
-    // Showing a foreign calendar asks only for READ_CALENDAR. Write access is
-    // a separate decision below and requests WRITE_CALENDAR only then.
+    // Imported calendars are writable by default when their provider permits
+    // it, so the initial opt-in asks for both capabilities. The edit toggle
+    // remains independent and can still turn writing off afterward.
     var pendingImport by remember { mutableStateOf<Set<String>?>(null) }
     val importPermissions = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -201,8 +205,6 @@ fun CalendarAccountsSurface(
         val hasPermission = ImportPermissions.all { permission ->
             ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
         }
-        // Read consent only needs READ_CALENDAR. WRITE_CALENDAR is requested
-        // later, only if editing is independently enabled.
         if (hasPermission || next.size <= importedCalendarIds.size) {
             onImportedCalendarsChanged(next)
         } else {

@@ -206,6 +206,7 @@ interface CalinoPreferenceStore {
     fun loadImportedReminderCalendarIds(): Set<String>
     fun saveImportedReminderCalendarIds(ids: Set<String>)
     fun loadWritableImportedCalendarIds(): Set<String>
+    fun hasWritableImportedCalendarPreference(): Boolean
     fun saveWritableImportedCalendarIds(ids: Set<String>)
     fun loadSidebarCalendarExpanded(): Boolean
     fun saveSidebarCalendarExpanded(expanded: Boolean)
@@ -281,6 +282,7 @@ interface CalinoPreferenceStore {
         private var imported = emptySet<String>()
         private var importedReminders = emptySet<String>()
         private var writableImported = emptySet<String>()
+        private var hasWritableImportedPreference = false
         override fun loadEventRemindersEnabled() = eventReminders
         override fun saveEventRemindersEnabled(enabled: Boolean) { eventReminders = enabled }
         override fun loadTaskRemindersEnabled() = taskReminders
@@ -294,7 +296,11 @@ interface CalinoPreferenceStore {
         override fun loadImportedReminderCalendarIds() = importedReminders
         override fun saveImportedReminderCalendarIds(ids: Set<String>) { importedReminders = ids }
         override fun loadWritableImportedCalendarIds() = writableImported
-        override fun saveWritableImportedCalendarIds(ids: Set<String>) { writableImported = ids }
+        override fun hasWritableImportedCalendarPreference() = hasWritableImportedPreference
+        override fun saveWritableImportedCalendarIds(ids: Set<String>) {
+            writableImported = ids
+            hasWritableImportedPreference = true
+        }
         override fun loadSidebarCalendarExpanded() = sidebarCalendarExpanded
         override fun saveSidebarCalendarExpanded(expanded: Boolean) { sidebarCalendarExpanded = expanded }
         override fun loadDayTasksExpanded() = dayTasksExpanded
@@ -391,6 +397,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     }
     override fun loadWritableImportedCalendarIds(): Set<String> =
         prefs.getStringSet(WritableImportedCalendarsKey, emptySet()).orEmpty().toSet()
+    override fun hasWritableImportedCalendarPreference(): Boolean =
+        prefs.contains(WritableImportedCalendarsKey)
     override fun saveWritableImportedCalendarIds(ids: Set<String>) {
         prefs.edit().putStringSet(WritableImportedCalendarsKey, ids).apply()
     }

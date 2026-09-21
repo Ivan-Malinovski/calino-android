@@ -3,6 +3,42 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.4.0 — 2026-09-21
+
+### Added
+
+- **Edit opted-in device calendars.** Google, Exchange, and other calendars
+  imported from Android's Calendar Provider are writable by default when the
+  provider permits it, and writing can be turned off one calendar at a time.
+  Their creates, edits, occurrence changes, and deletions
+  go directly through the owning provider and never enter Calino's CalDAV
+  queue.
+- **In-app update notices.** Calino can check its own GitHub releases for a
+  newer stable version and open the matching release page. The check sends no
+  calendar or account data.
+
+### Fixed
+
+- Device-calendar writes now verify ownership, runtime permission, and stale
+  provider state; preserve unsupported reminder rows; reject fields Android
+  cannot represent; and apply related event and reminder mutations atomically.
+- Recurring device events now handle detached and canceled occurrences without
+  offering the unsupported “this and future” scope or silently colliding with
+  an exception created by another calendar app.
+- Compact-week paging keeps its selected-day handoff continuous during both
+  swipe and tap transitions.
+- Shared `.ics` files with common non-conforming details import more
+  tolerantly without weakening normal calendar parsing.
+
+### Known limitations
+
+- **Android Calendar Provider write-back is still lightly field-tested.** It
+  has automated coverage, but has not yet seen much everyday use across the
+  range of Google, Exchange, and manufacturer calendar providers. For now,
+  keeping an imported calendar's **Allow editing in Calino** toggle off is the
+  recommended conservative choice; the calendar will remain visible in
+  Calino but read-only.
+
 ## 0.3.0 — 2026-09-20
 
 ### Fixed

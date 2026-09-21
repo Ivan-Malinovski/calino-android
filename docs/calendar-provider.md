@@ -302,13 +302,16 @@ like a CalDAV resource downstream.
 
 ### Writable imports (v2 amendment)
 
-Approved 2026-09-20. Importing a calendar and allowing Calino to change it are
-two separate per-calendar choices. Write access is off by default, including
-for calendars selected before this amendment, and is available only when the
-provider reports at least `CAL_ACCESS_EDITOR`. Enabling it requests
-`WRITE_CALENDAR` with an explicit warning that changes may be synchronized by
-Google, Exchange, or the owning application. Revoking permission or disabling
-the write choice returns the calendar to read-only without modifying any row.
+Approved 2026-09-20 and amended 2026-09-21. Importing a calendar and allowing
+Calino to change it remain two separate per-calendar choices. Write access
+defaults on when a newly imported calendar reports at least
+`CAL_ACCESS_EDITOR`; the import permission request therefore includes
+`WRITE_CALENDAR`. Calendars already imported before this feature receive that
+default once during migration. An explicitly disabled write choice is stored,
+including an empty set, and remains disabled across later launches. Revoking
+permission or disabling the write choice returns the calendar to read-only
+without modifying any row. Changes may be synchronized by Google, Exchange,
+or the owning application.
 
 Writes continue to route through the composite repository, but its foreign
 branch uses a dedicated Calendar Provider writer. It uses ordinary provider

@@ -47,12 +47,22 @@ import java.io.File
 import java.time.ZoneId
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+internal fun writableImportsAfterSelection(
+    previousImported: Set<String>,
+    selectedImported: Set<String>,
+    currentlyWritable: Set<String>,
+    providerWritable: Set<String>,
+): Set<String> =
+    (currentlyWritable intersect selectedImported) +
+        ((selectedImported - previousImported) intersect providerWritable)
 
 /**
  * The data layer, owned by the process rather than by the Activity.
@@ -524,13 +534,25 @@ class CalinoContainer private constructor(context: Context) {
      */
     fun setImportedCalendars(ids: Set<String>) {
         if (ids == importedCalendarIds) return
+        val previousImported = importedCalendarIds
         preferenceStore.saveImportedCalendarIds(ids)
         importedCalendarIds = ids
         // A calendar that is no longer imported cannot keep a reminder
         // preference; leaving one behind would silently re-apply if it were
         // ever imported again.
         setImportedReminderCalendars(importedReminderCalendarIds intersect ids)
-        setWritableImportedCalendars(writableImportedCalendarIds intersect ids)
+        val providerWritable = AndroidCalendarSource.availableCalendars(application)
+            .filter { it.canWrite }
+            .map { it.id }
+            .toSet()
+        setWritableImportedCalendars(
+            writableImportsAfterSelection(
+                previousImported = previousImported,
+                selectedImported = ids,
+                currentlyWritable = writableImportedCalendarIds,
+                providerWritable = providerWritable,
+            ),
+        )
         updateActiveRepository()
         refreshImport()
     }
@@ -578,8 +600,19 @@ class CalinoContainer private constructor(context: Context) {
         importedCalendarIds = preferenceStore.loadImportedCalendarIds()
         importedReminderCalendarIds =
             preferenceStore.loadImportedReminderCalendarIds() intersect importedCalendarIds
-        writableImportedCalendarIds =
+        writableImportedCalendarIds = if (preferenceStore.hasWritableImportedCalendarPreference()) {
             preferenceStore.loadWritableImportedCalendarIds() intersect importedCalendarIds
+        } else {
+            // 0.4 introduces write-back. Existing imports have never had a
+            // write preference to preserve, so writable provider calendars
+            // adopt the new default once; a deliberately saved empty set must
+            // remain off on every later launch.
+            AndroidCalendarSource.availableCalendars(application)
+                .filter { it.canWrite && it.id in importedCalendarIds }
+                .map { it.id }
+                .toSet()
+                .also(preferenceStore::saveWritableImportedCalendarIds)
+        }
     }
 
     /**

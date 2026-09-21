@@ -60,9 +60,10 @@ done only after the review protocol below has been followed.
   own CalDAV data outward, while this brings third-party account data in. It
   is per-calendar opt-in and off by default, stores no copy beyond the
   in-memory snapshot, and adds no remote host. As of 2026-09-20 the user also
-  approved a separate per-calendar write opt-in, off by default, through the
-  owning Android Calendar Provider; it must never enter the CalDAV queue or
-  conditional-write pipeline. The binding decisions are in the "Reading the
+  approved per-calendar writes through the owning Android Calendar Provider.
+  As of 2026-09-21 writing defaults on when an imported calendar is provider-
+  writable, with a per-calendar toggle to turn it off; it must never enter the
+  CalDAV queue or conditional-write pipeline. The binding decisions are in the "Reading the
   device's calendars" section of
   [`docs/calendar-provider.md`](docs/calendar-provider.md), including the
   single `ACCOUNT_TYPE` predicate that stops Calino importing its own
