@@ -34,6 +34,14 @@ class IcsInteropTest {
         assertTrue(text.contains("BEGIN:VALARM"))
     }
 
+    @Test fun `imports event from exporter that omits UID`() {
+        val parsed = IcsInterop.parseEvents(IcsWithoutUid, zone)
+
+        assertEquals(1, parsed.events.size)
+        assertEquals("Trial lesson", parsed.events.single().title)
+        assertTrue(parsed.events.single().uid?.isNotBlank() == true)
+    }
+
     @Test fun `rejects files without events`() {
         assertThrows(IllegalArgumentException::class.java) {
             IcsInterop.parseEvents("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n", zone)
@@ -41,6 +49,20 @@ class IcsInteropTest {
     }
 
     private companion object {
+        val IcsWithoutUid = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//My italki calendar////
+X-WR-CALDESC:Italki Lessons
+X-WR-CALNAME:Italki Lessons
+BEGIN:VEVENT
+SUMMARY:Trial lesson
+DTSTART;VALUE=DATE-TIME:20260921T170000Z
+DTEND;VALUE=DATE-TIME:20260921T173000Z
+LOCATION:italki.com
+END:VEVENT
+END:VCALENDAR
+""".trimIndent().replace("\n", "\r\n")
+
         val IcsWithTask = """BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//test//EN

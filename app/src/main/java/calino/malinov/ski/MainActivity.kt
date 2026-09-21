@@ -428,7 +428,9 @@ class MainActivity : ComponentActivity() {
 
     private fun consumeAiIntent(intent: Intent?) {
         if (intent == null) return
-        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+        if ((intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) &&
+            intent.type?.startsWith("image/", ignoreCase = true) == true
+        ) {
             @Suppress("DEPRECATION")
             val single = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
             @Suppress("DEPRECATION")
@@ -444,8 +446,16 @@ class MainActivity : ComponentActivity() {
         when {
             intent.action == Intent.ACTION_SEND && intent.type == "text/plain" ->
                 incomingText = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
+            intent.action == Intent.ACTION_SEND &&
+                (intent.type?.contains("calendar", ignoreCase = true) == true ||
+                    intent.type.equals("application/ics", ignoreCase = true)) -> {
+                @Suppress("DEPRECATION")
+                incomingCalendar = intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                    ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+            }
             intent.action == Intent.ACTION_VIEW && intent.data != null &&
                 (intent.type?.contains("calendar", ignoreCase = true) == true ||
+                    intent.type.equals("application/ics", ignoreCase = true) ||
                     intent.data?.lastPathSegment?.endsWith(".ics", ignoreCase = true) == true) ->
                 incomingCalendar = intent.data
             intent.action == Intent.ACTION_INSERT || intent.action == Intent.ACTION_EDIT -> {

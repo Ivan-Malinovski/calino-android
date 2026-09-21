@@ -11,6 +11,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.UUID
 
 data class IcsImportBatch(
     val events: List<CalEvent>,
@@ -41,9 +42,18 @@ object IcsInterop {
         val calendars = runCatching { Biweekly.parse(text).all() }.getOrNull()
             ?.takeIf { it.isNotEmpty() } ?: error("That file is not valid iCalendar data.")
         val unsupported = calendars.sumOf { it.todos.size + it.journals.size }
+        // UID is required by RFC 5545, but several calendar exporters omit it
+        // and Android's calendar importers accept those files. Give such
+        // standalone events an identity at this tolerant import boundary;
+        // the stricter DAV mapper should continue rejecting malformed server
+        // resources rather than inventing stable identities on every sync.
+        calendars.flatMap(ICalendar::getEvents)
+            .filter { it.uid?.value.isNullOrBlank() }
+            .forEach { it.setUid(UUID.randomUUID().toString()) }
+        val normalizedText = calendars.joinToString("\r\n") { Biweekly.write(it).go() }
         val mapper = ICalMapper(zone)
         val parsed = mapper.parse(
-            text,
+            normalizedText,
             calendarId = "import",
             color = 0xFFC2697F,
             href = "import.ics",
