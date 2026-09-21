@@ -67,7 +67,11 @@ done only after the review protocol below has been followed.
   [`docs/calendar-provider.md`](docs/calendar-provider.md), including the
   single `ACCOUNT_TYPE` predicate that stops Calino importing its own
   projection.
-- Those four are the only sanctioned exceptions; webcal, telemetry, and other
+- As of 2026-09-23 the user has also approved a narrowly scoped in-app update
+  check against Calino's own GitHub repository. It may contact only
+  `api.github.com` for the latest stable release and open that release on
+  `github.com`; it must not send calendar/account data or become telemetry.
+- Those five are the only sanctioned exceptions; webcal, telemetry, and other
   remote hosts remain out of scope.
 
 ## CalDAV scope

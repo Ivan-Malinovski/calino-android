@@ -568,6 +568,7 @@ fun CalinoToast(
     actionDescription: String? = null,
     onAction: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
+    dismissDescription: String = "Dismiss notification",
     modifier: Modifier = Modifier,
 ) {
     val tone = if (accent == Color.Unspecified) CalinoColors.Accent else accent
@@ -625,7 +626,7 @@ fun CalinoToast(
                         onClick = onDismiss,
                         modifier = Modifier
                             .size(40.dp)
-                            .semantics { contentDescription = "Dismiss notification" },
+                            .semantics { contentDescription = dismissDescription },
                     ) {
                         Text("×", color = CalinoColors.Ink2, fontSize = 20.sp)
                     }

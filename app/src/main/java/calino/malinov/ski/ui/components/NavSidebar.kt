@@ -131,6 +131,8 @@ fun NavSidebar(
     onTaskClick: (CalTask) -> Unit = {},
     onTaskComplete: (CalTask, Boolean) -> Unit = { _, _ -> },
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
+    updateAvailable: Boolean = false,
+    onUpdateClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val preferences = LocalCalinoPreferences.current
@@ -298,6 +300,26 @@ fun NavSidebar(
                                 style = CalinoTypography.titleLarge.copy(fontSize = 22.sp),
                                 modifier = Modifier.offset(y = 1.dp),
                             )
+                            Spacer(Modifier.weight(1f))
+                            AnimatedVisibility(
+                                visible = updateAvailable,
+                                enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+                                exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
+                            ) {
+                                TextButton(
+                                    onClick = onUpdateClick,
+                                    modifier = Modifier
+                                        .heightIn(min = 44.dp)
+                                        .semantics { contentDescription = "Update available" },
+                                    contentPadding = PaddingValues(horizontal = 4.dp),
+                                ) {
+                                    Text(
+                                        "Update available",
+                                        color = CalinoColors.Accent,
+                                        style = CalinoTypography.labelSmall,
+                                    )
+                                }
+                            }
                         }
                         SidebarMiniCalendar(
                             selectedDate = selectedDate,

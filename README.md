@@ -44,7 +44,9 @@ occurrence, this and future occurrences, or the entire series.
 
 The interface and its platform integrations are native Android. Credentials
 are stored with Android Keystore, cached calendar data never contains account
-passwords, and the app does not include telemetry.
+passwords, and the app does not include telemetry. Once per day while the app
+is opened, Calino may ask its fixed GitHub Releases endpoint whether a newer
+stable version exists; no calendar or account data is included.
 
 With no account connected, Calino uses a frozen May 2026 fixture. Once an
 account is connected, CalDAV and CardDAV data replaces the fixture across the

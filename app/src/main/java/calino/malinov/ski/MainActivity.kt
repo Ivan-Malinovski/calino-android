@@ -141,6 +141,7 @@ import calino.malinov.ski.data.repository.CalDavClient
 import calino.malinov.ski.data.repository.CalinoRepository
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.CalinoContainer
+import calino.malinov.ski.data.update.AppUpdateChecker
 import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.ReminderChannels
 import calino.malinov.ski.notify.AgendaDeepLinks
@@ -527,6 +528,12 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     private val repositoryState = mutableStateOf(container.activeRepository)
     val activeRepository: CalinoRepository get() = repositoryState.value
 
+    private val installedVersion = application.packageManager
+        .getPackageInfo(application.packageName, 0).versionName.orEmpty()
+    private val appUpdateChecker = AppUpdateChecker(application, installedVersion)
+    var appUpdateState by mutableStateOf(appUpdateChecker.cachedState())
+        private set
+
     private val hasAccountsState = mutableStateOf(container.hasAccounts)
     private val hasLiveDataState = mutableStateOf(container.hasLiveData)
 
@@ -645,6 +652,26 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun drainPendingWrites() = container.calDavRepository.drainPendingWrites()
+
+    fun checkForAppUpdate() {
+        // Debug builds are installed beside release and carry a suffixed
+        // version. They must not interrupt deterministic device tests or ask
+        // developers to replace the build they are actively testing.
+        if (getApplication<Application>().applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        ) return
+        viewModelScope.launch { appUpdateState = appUpdateChecker.check() }
+    }
+
+    fun dismissAppUpdate() {
+        appUpdateState.available?.let { appUpdateState = appUpdateChecker.dismiss(it) }
+    }
+
+    fun showAppUpdate() {
+        if (appUpdateState.available != null) {
+            appUpdateState = appUpdateState.copy(promptVisible = true)
+        }
+    }
 
     fun pendingChanges(): List<PendingChange> = container.calDavRepository.pendingChanges()
 
@@ -872,6 +899,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val now = LocalCalinoNow.current
     val preferences = LocalCalinoPreferences.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val appUpdateState = pocViewModel.appUpdateState
     val repository = pocViewModel.activeRepository
     val accountStore = pocViewModel.accountStore
     val snapshot = rememberRepositorySnapshot(repository)
@@ -973,6 +1001,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             // Every foreground is an explicit retry opportunity in addition
             // to the account-connect and periodic ViewModel triggers.
             pocViewModel.drainPendingWrites()
+            pocViewModel.checkForAppUpdate()
             kotlinx.coroutines.awaitCancellation()
         }
     }
@@ -2605,6 +2634,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 }
                 handleTaskAction(action, task)
             },
+            updateAvailable = appUpdateState.available != null,
+            onUpdateClick = {
+                sidebarVisible = false
+                pocViewModel.showAppUpdate()
+            },
         )
     }
     }
@@ -2663,6 +2697,41 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             journals = snapshot.journals,
             onDismiss = { journalReviewVisible = false },
         )
+    }
+
+    val update = appUpdateState.available
+    val updateContext = LocalActivity.current
+    Box(
+        Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+            .padding(top = 10.dp, start = 16.dp, end = 16.dp),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        AnimatedVisibility(
+            visible = update != null && appUpdateState.promptVisible,
+            enter = slideInVertically(CalinoMotion.expressiveSpatial(), initialOffsetY = { -it }) +
+                fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+            exit = slideOutVertically(tween(CalinoMotion.ContentExitMillis), targetOffsetY = { -it }) +
+                fadeOut(tween(CalinoMotion.ContentExitMillis)),
+        ) {
+            update?.let {
+                CalinoToast(
+                    message = "Calino ${it.version} is ready",
+                    icon = CalinoIcon.Repeat,
+                    actionLabel = "View",
+                    actionDescription = "View Calino ${it.version} update",
+                    onAction = {
+                        pocViewModel.dismissAppUpdate()
+                        runCatching {
+                            updateContext?.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it.releaseUrl)))
+                        }
+                    },
+                    onDismiss = pocViewModel::dismissAppUpdate,
+                    dismissDescription = "Dismiss update notice",
+                )
+            }
+        }
     }
 
     importBatch?.let { batch ->

@@ -1,9 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-        CalDAV read access. The app talks only to the server the user enters in
-        the calendar-account flow; there is no analytics, telemetry, or any
-        other outbound traffic.
+        Network access. Calino talks to servers the user explicitly configures,
+        the optional AI provider they choose, and Calino's fixed GitHub release
+        endpoint for its in-app update check. There is no analytics or telemetry.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
