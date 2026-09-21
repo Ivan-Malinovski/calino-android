@@ -284,42 +284,78 @@ inbound can be read-only and still be worth having.
 
 ### Authority: the source app owns every imported row
 
-An imported row is a **read-only view**. The app that owns the account —
-Google Calendar, the Exchange client, whatever created it — is authoritative
-for it in every respect. Calino stores no copy beyond the in-memory snapshot,
-caches nothing to disk, and in v1 never writes to a foreign row at all.
+The app that owns the account — Google Calendar, the Exchange client, whatever
+created it — remains authoritative in every respect. Calino stores no copy
+beyond the in-memory snapshot and caches nothing to disk. A write accepted by
+Android's Calendar Provider means only that the local provider accepted it;
+the owning sync adapter may later upload, rewrite, or reject it, and Calino
+follows the provider on its next read.
 
 This is the mirror image of the outbound rule and has the same consequence: no
 row in this feature is ever the only copy of anything. Turning an import off
 loses nothing, because there was nothing of Calino's there to lose.
 
-An imported `CalinoCalendar` is therefore constructed `readOnly = true`, and an
-imported `CalEvent` carries **no** CalDAV identity: `uid`, `href`, `etag`,
-`sequence` and `recurrenceId` all stay null. A provider row has no such
-identity, and giving it a synthetic one would make it indistinguishable from a
-real CalDAV record to every piece of code downstream. The model already permits
-this — those fields are nullable — so nothing has to change to accommodate it.
+An imported `CalEvent` carries **no** CalDAV identity: `uid`, `href`, `etag`,
+`sequence` and `recurrenceId` all stay null. Provider routing and recurrence
+identity are separate in-memory metadata and can never make a foreign row look
+like a CalDAV resource downstream.
 
-### Read-only in v1, with the seam for later
+### Writable imports (v2 amendment)
 
-Write-back is deliberately deferred, not designed out. It would add the
-provider's recurrence-exception model (`ORIGINAL_ID` plus
-`ORIGINAL_INSTANCE_TIME`), delete-versus-tombstone semantics, and conflict
-handling against another app's sync adapter — roughly triple the work of the
-read path, and the part where other apps push back.
+Approved 2026-09-20. Importing a calendar and allowing Calino to change it are
+two separate per-calendar choices. Write access is off by default, including
+for calendars selected before this amendment, and is available only when the
+provider reports at least `CAL_ACCESS_EDITOR`. Enabling it requests
+`WRITE_CALENDAR` with an explicit warning that changes may be synchronized by
+Google, Exchange, or the owning application. Revoking permission or disabling
+the write choice returns the calendar to read-only without modifying any row.
 
-Two choices are made now so that adding it later is an extension rather than a
-rewrite:
+Writes continue to route through the composite repository, but its foreign
+branch uses a dedicated Calendar Provider writer. It uses ordinary provider
+URIs so the owning sync adapter sees the mutation. It must never use
+`CALLER_IS_SYNCADAPTER`, manipulate `_SYNC_ID`/`SYNC_DATA*`, enter
+`CalDavRepository`, or reuse the CalDAV durable queue, ETag, patch, rebase, or
+move machinery. Calendar Provider dirty rows are the owning adapter's queue;
+Calino adds no durable competing copy or optimistic disk state.
 
-- Writes route through a composite repository that delegates by calendar
-  ownership. In v1 a write naming an imported calendar returns
-  `WriteResult.Rejected`. In v2 the same branch performs provider operations.
-  Nothing above the repository changes.
-- The id scheme is `android:<eventRowId>@<beginMillis>`, deliberately the same
-  `id@instant` shape as `occurrenceId(...)`. A future write-back recovers both
-  `ORIGINAL_ID` and `ORIGINAL_INSTANCE_TIME` by parsing the id alone, with no
-  lookup table — the same reasoning that put identity in `SYNC_DATA1..5`
-  outbound.
+Before every write Calino revalidates the calendar, account, access level,
+non-Calino account type, event ownership, write opt-in, and a baseline of the
+provider fields the editor read. If those fields changed, the write is rejected
+and the person reviews the latest event. Calendar Provider has no ETag or
+compare-and-swap operation, so a narrow query-to-write race remains an accepted
+platform limitation; unconditional local-wins is not an acceptable substitute.
+
+The occurrence identity is based on the master event row and the **original**
+instance slot, not merely the displayed `Instances.BEGIN`. This distinction is
+required for an already-moved exception, whose displayed time differs from
+`ORIGINAL_INSTANCE_TIME`. The raw event/master/exception routing information
+stays in an in-memory sidecar rather than in CalDAV identity fields.
+
+Supported recurrence scopes are **This occurrence** and **Entire series**.
+A generated occurrence is changed by inserting a detached exception with
+`ORIGINAL_ID`, `ORIGINAL_INSTANCE_TIME`, and `ORIGINAL_ALL_DAY`; an existing
+exception is updated directly. Removing one occurrence creates or updates a
+cancelled exception, because deleting the exception row would resurrect the
+master occurrence. Entire-series operations target the master. Existing
+foreign recurrence rules are not edited in this version, and **This and
+future** is deliberately absent: Calendar Provider has no direct RFC
+`THISANDFUTURE` operation, so it would require a non-atomic series split plus
+migration of later exceptions across source adapters with incompatible failure
+behaviour.
+
+One-off creation, update, and deletion use partial provider mutations so fields
+Calino does not model survive. Modelled nonnegative `METHOD_ALERT` reminders may
+be changed while unsupported reminder rows are preserved; a new detached
+exception clones inherited reminder state before applying that modelled diff.
+Provider deletion and tombstone lifecycle belong to the source adapter, so
+Calino never hard-cleans a foreign tombstone.
+
+A date/time change inside the same foreign calendar is supported. Moves between
+CalDAV and foreign calendars, or between separately owned foreign calendars,
+are rejected rather than approximated. A future copy command may create a new
+record explicitly, but must not be presented as an atomic move. A true move
+would need its own destination-first/source-cleanup coordinator and must never
+be encoded as a CalDAV `MOVE`.
 
 ### The loop, and the one predicate that prevents it
 
@@ -372,16 +408,20 @@ knowingly, which is why it is off until they make it.
 ### Reversibility
 
 Turning an imported calendar off drops its events from the next snapshot and
-restores whatever reminder behaviour applied before. There is nothing to clean
-up in the provider, because Calino never wrote there. Turning the last one off
-unwinds the composite repository entirely, so a person who never opts in pays
-nothing at all.
+restores whatever reminder behaviour applied before. It also disables its write
+opt-in. There is no Calino-owned provider projection or durable write state to
+clean up; edits already accepted by the foreign provider remain ordinary edits
+owned by that calendar. Turning the last import off unwinds the composite
+repository entirely, so a person who never opts in pays nothing at all.
 
 Revoking `READ_CALENDAR` degrades to an empty import with a visible
-explanation. It is not a crash, and it is not silent.
+explanation. Revoking `WRITE_CALENDAR` leaves the import readable and prevents
+further writes. Neither state is a crash or a silent permission escalation.
 
-Nothing in this direction ever deletes or modifies a Google, Exchange or other
-foreign row.
+With write access disabled, Calino never deletes or modifies a Google,
+Exchange, or other foreign row. With it explicitly enabled, Calino changes only
+rows in that selected calendar and leaves upload, rejection, and tombstone
+lifecycle to its owning source adapter.
 
 ## Scope note
 

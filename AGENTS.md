@@ -58,9 +58,12 @@ done only after the review protocol below has been followed.
   widget. It is recorded as its own exception rather than folded into item 4,
   because the data-ownership question differs: item 4 publishes the person's
   own CalDAV data outward, while this brings third-party account data in. It
-  is per-calendar opt-in and off by default, read-only in v1, stores no copy
-  beyond the in-memory snapshot, and adds no remote host. The binding
-  decisions are in the "Reading the device's calendars" section of
+  is per-calendar opt-in and off by default, stores no copy beyond the
+  in-memory snapshot, and adds no remote host. As of 2026-09-20 the user also
+  approved a separate per-calendar write opt-in, off by default, through the
+  owning Android Calendar Provider; it must never enter the CalDAV queue or
+  conditional-write pipeline. The binding decisions are in the "Reading the
+  device's calendars" section of
   [`docs/calendar-provider.md`](docs/calendar-provider.md), including the
   single `ACCOUNT_TYPE` predicate that stops Calino importing its own
   projection.

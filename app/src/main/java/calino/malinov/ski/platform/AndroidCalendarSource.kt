@@ -1,8 +1,11 @@
 package calino.malinov.ski.platform
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.provider.CalendarContract
+import androidx.core.content.ContextCompat
 import calino.malinov.ski.data.model.Availability
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.Reminder
@@ -59,6 +62,8 @@ object AndroidCalendarSource {
         val availability: Int?,
         val recurrenceRule: String?,
         val status: Int?,
+        val eventTimezone: String?,
+        val deleted: Boolean,
         val alertReminders: List<Int>,
     )
 
@@ -140,6 +145,8 @@ object AndroidCalendarSource {
         CalendarContract.Events.ORIGINAL_ID,
         CalendarContract.Events.ORIGINAL_INSTANCE_TIME,
         CalendarContract.Events.ORIGINAL_ALL_DAY,
+        CalendarContract.Events.EVENT_TIMEZONE,
+        CalendarContract.Events.DELETED,
     )
 
     private val InstanceColumns = arrayOf(
@@ -254,6 +261,10 @@ object AndroidCalendarSource {
             val wanted = availableCalendars(context).filter { it.id in calendarIds }
             if (wanted.isEmpty()) return@runCatching Import()
 
+            val hasWritePermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_CALENDAR,
+            ) == PackageManager.PERMISSION_GRANTED
             val calendars = wanted.map { calendar ->
                 CalinoCalendar(
                     id = calendar.id,
@@ -261,7 +272,7 @@ object AndroidCalendarSource {
                     color = calendar.color,
                     // Import and write consent are independent. Provider
                     // access alone never makes a foreign calendar editable.
-                    readOnly = calendar.id !in writableCalendarIds || !calendar.canWrite,
+                    readOnly = !hasWritePermission || calendar.id !in writableCalendarIds || !calendar.canWrite,
                     // The provider has no table for tasks or journal entries,
                     // so saying VEVENT is not a restriction, it is the truth.
                     components = setOf("VEVENT"),
@@ -494,10 +505,22 @@ object AndroidCalendarSource {
                 availability = if (cursor.isNull(9)) null else cursor.getInt(9),
                 recurrenceRule = cursor.getString(10),
                 status = if (cursor.isNull(11)) null else cursor.getInt(11),
+                eventTimezone = cursor.getString(15),
+                deleted = cursor.getInt(16) == 1,
                 alertReminders = alertReminderMinutes(context, eventRowId),
             )
         }
     }.getOrNull()
+
+    fun hasException(context: Context, masterRowId: Long, originalInstanceTime: Long): Boolean = runCatching {
+        context.contentResolver.query(
+            CalendarContract.Events.CONTENT_URI,
+            arrayOf(CalendarContract.Events._ID),
+            "${CalendarContract.Events.ORIGINAL_ID} = ? AND ${CalendarContract.Events.ORIGINAL_INSTANCE_TIME} = ?",
+            arrayOf(masterRowId.toString(), originalInstanceTime.toString()),
+            null,
+        )?.use { it.moveToFirst() } == true
+    }.getOrDefault(true)
 
     private fun alertReminderMinutes(context: Context, eventRowId: Long): List<Int> {
         val result = mutableListOf<Int>()
@@ -521,8 +544,8 @@ object AndroidCalendarSource {
             context.contentResolver.query(
                 CalendarContract.Reminders.CONTENT_URI,
                 arrayOf(CalendarContract.Reminders.MINUTES),
-                "${CalendarContract.Reminders.EVENT_ID} = ?",
-                arrayOf(eventRowId.toString()),
+                "${CalendarContract.Reminders.EVENT_ID} = ? AND ${CalendarContract.Reminders.METHOD} = ?",
+                arrayOf(eventRowId.toString(), CalendarContract.Reminders.METHOD_ALERT.toString()),
                 null,
             )?.use { cursor ->
                 while (cursor.moveToNext()) {

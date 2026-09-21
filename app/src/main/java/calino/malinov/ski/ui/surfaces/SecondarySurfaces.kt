@@ -851,12 +851,11 @@ fun EventDetailSurface(
                         // Read per page, not per card: the pager can reach a
                         // neighbour in a different calendar from the one the
                         // card opened on.
-                        // Both kinds of borrowed calendar refuse writes: a
-                        // subscription has no server to write back to, and an
-                        // imported one belongs to another app on the device.
+                        // Subscriptions are always borrowed and read-only.
+                        // Imported provider calendars use the capability that
+                        // MainActivity derived from their explicit write opt-in.
                         readOnly = readOnly ||
-                            WebcalSubscription.isWebcalCalendarId(pageEvent.calendarId) ||
-                            AndroidCalendarId.isImported(pageEvent.calendarId),
+                            WebcalSubscription.isWebcalCalendarId(pageEvent.calendarId),
                         // Only the page the card opened on is the occurrence
                         // that was tapped; a paged-to neighbour states its own
                         // date.
@@ -1371,7 +1370,9 @@ fun EventDeleteConfirmBody(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                RecurrenceEditScope.entries.forEach { option ->
+                RecurrenceEditScope.entries
+                    .filterNot { it == RecurrenceEditScope.Future && AndroidCalendarId.isImported(event.calendarId) }
+                    .forEach { option ->
                     val label = when (option) {
                         RecurrenceEditScope.This -> "This event"
                         RecurrenceEditScope.Future -> "This and future"

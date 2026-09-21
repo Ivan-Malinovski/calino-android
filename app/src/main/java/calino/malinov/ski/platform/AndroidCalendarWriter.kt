@@ -28,6 +28,7 @@ class AndroidCalendarWriter(private val context: Context) {
         writeOptIn: Set<String>,
     ): WriteResult<CalEvent> = guarded {
         validateCalendar(calendar, input.calendarId, writeOptIn)?.let { return@guarded it }
+        unsupportedFields(input)?.let { return@guarded rejected(it) }
         if (input.recurrence != null) {
             return@guarded rejected("Creating a repeating event in a device calendar is not supported yet.")
         }
@@ -47,6 +48,7 @@ class AndroidCalendarWriter(private val context: Context) {
         writeOptIn: Set<String>,
     ): WriteResult<CalEvent> = guarded {
         validateRoute(route, input.calendarId, scope, writeOptIn)?.let { return@guarded it }
+        unsupportedFields(input)?.let { return@guarded rejected(it) }
         if (scope == RecurrenceEditScope.Future) {
             return@guarded rejected("Device calendars support changing this event or the entire series, not future events.")
         }
@@ -64,7 +66,7 @@ class AndroidCalendarWriter(private val context: Context) {
         if (!(route.recurring && scope == RecurrenceEditScope.This && !route.existingException)) {
             val values = if (route.recurring && scope == RecurrenceEditScope.All) {
                 masterEventValues(input, route)
-            } else eventValues(input, route.calendarRowId)
+            } else eventValues(input, route.calendarRowId, eventTimezone = route.baseline.eventTimezone)
             val changed = resolver.update(eventUri(target), values, null, null)
             if (changed != 1) return@guarded rejected("The event changed in its owning app. Refresh and try again.")
         }
@@ -123,8 +125,13 @@ class AndroidCalendarWriter(private val context: Context) {
         val checkedRow = if (all) route.masterRowId else route.eventRowId
         val current = AndroidCalendarSource.providerBaseline(context, checkedRow)
             ?: return rejected("That event was removed by its owning app. Refresh the calendar.")
-        if (current != baseline) {
+        if (current != baseline || current.deleted) {
             return rejected("That event changed in its owning app. Refresh the calendar and try again.")
+        }
+        if (route.recurring && scope == RecurrenceEditScope.This && !route.existingException &&
+            AndroidCalendarSource.hasException(context, route.masterRowId, route.originalInstanceTime)
+        ) {
+            return rejected("That occurrence changed in its owning app. Refresh the calendar and try again.")
         }
         return null
     }
@@ -161,7 +168,7 @@ class AndroidCalendarWriter(private val context: Context) {
                 put(CalendarContract.Events.DTSTART, route.instanceBegin)
                 route.instanceEnd?.let { put(CalendarContract.Events.DTEND, it) }
                 put(CalendarContract.Events.ALL_DAY, if (route.originalAllDay) 1 else 0)
-                put(CalendarContract.Events.EVENT_TIMEZONE, if (route.originalAllDay) "UTC" else ZoneId.systemDefault().id)
+                put(CalendarContract.Events.EVENT_TIMEZONE, if (route.originalAllDay) "UTC" else route.masterBaseline.eventTimezone ?: ZoneId.systemDefault().id)
             }
         }
         values.put(CalendarContract.Events.ORIGINAL_ID, route.masterRowId)
@@ -229,7 +236,12 @@ class AndroidCalendarWriter(private val context: Context) {
         val editedOccurrenceStart = startMillis(input)
         val masterStart = route.masterBaseline.start ?: editedOccurrenceStart
         val shiftedMasterStart = masterStart + (editedOccurrenceStart - route.instanceBegin)
-        return eventValues(input, route.calendarRowId, startOverride = shiftedMasterStart).apply {
+        return eventValues(
+            input,
+            route.calendarRowId,
+            startOverride = shiftedMasterStart,
+            eventTimezone = route.masterBaseline.eventTimezone,
+        ).apply {
             remove(CalendarContract.Events.DTEND)
             val duration = if (input.allDay) {
                 val days = java.time.temporal.ChronoUnit.DAYS.between(
@@ -249,6 +261,7 @@ class AndroidCalendarWriter(private val context: Context) {
         calendarRowId: Long,
         includeCalendar: Boolean = false,
         startOverride: Long? = null,
+        eventTimezone: String? = null,
     ) = ContentValues().apply {
             if (includeCalendar) put(CalendarContract.Events.CALENDAR_ID, calendarRowId)
             put(CalendarContract.Events.TITLE, input.title)
@@ -261,7 +274,7 @@ class AndroidCalendarWriter(private val context: Context) {
             val start = startOverride ?: startMillis(input)
             put(CalendarContract.Events.DTSTART, start)
             put(CalendarContract.Events.DTEND, endMillis(input, start))
-            put(CalendarContract.Events.EVENT_TIMEZONE, if (input.allDay) "UTC" else ZoneId.systemDefault().id)
+            put(CalendarContract.Events.EVENT_TIMEZONE, if (input.allDay) "UTC" else eventTimezone ?: ZoneId.systemDefault().id)
         }
 
     private fun startMillis(input: NewEvent): Long = if (input.allDay) {
@@ -274,6 +287,15 @@ class AndroidCalendarWriter(private val context: Context) {
     private fun endMillis(input: NewEvent, start: Long): Long = if (input.allDay) {
         (input.endDate ?: input.date).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
     } else start + (input.durationMinutes ?: 0).coerceAtLeast(0) * 60_000L
+
+    private fun unsupportedFields(input: NewEvent): String? = when {
+        input.attendees.isNotEmpty() -> "Attendee editing is not supported for device calendars."
+        input.categories.isNotEmpty() -> "Category editing is not supported for device calendars."
+        input.travelTimeMinutes != null -> "Travel-time editing is not supported for device calendars."
+        input.relatedTo.isNotEmpty() -> "Related-record editing is not supported for device calendars."
+        !input.url.isNullOrBlank() -> "URL editing is not supported for device calendars."
+        else -> null
+    }
 
     private fun eventUri(rowId: Long) = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, rowId)
 
