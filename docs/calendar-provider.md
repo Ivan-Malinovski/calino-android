@@ -344,8 +344,10 @@ migration of later exceptions across source adapters with incompatible failure
 behaviour.
 
 One-off creation, update, and deletion use partial provider mutations so fields
-Calino does not model survive. Modelled nonnegative `METHOD_ALERT` reminders may
-be changed while unsupported reminder rows are preserved; a new detached
+Calino does not model survive. Event and reminder mutations are submitted in one
+`applyBatch` transaction, so a rejected reminder operation cannot leave behind
+a partly created or updated event. Modelled nonnegative `METHOD_ALERT` reminders
+may be changed while unsupported reminder rows are preserved; a new detached
 exception clones inherited reminder state before applying that modelled diff.
 Provider deletion and tombstone lifecycle belong to the source adapter, so
 Calino never hard-cleans a foreign tombstone.

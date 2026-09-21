@@ -1,5 +1,6 @@
 package calino.malinov.ski.platform
 
+import android.content.ContentProviderOperation
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
@@ -32,12 +33,20 @@ class AndroidCalendarWriter(private val context: Context) {
         if (input.recurrence != null) {
             return@guarded rejected("Creating a repeating event in a device calendar is not supported yet.")
         }
-        val uri = resolver.insert(
-            CalendarContract.Events.CONTENT_URI,
-            eventValues(input, calendar.rowId, includeCalendar = true),
-        ) ?: return@guarded rejected("The calendar provider did not accept the new event.")
+        val operations = arrayListOf(
+            ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI)
+                .withValues(eventValues(input, calendar.rowId, includeCalendar = true).apply {
+                    put(CalendarContract.Events.HAS_ALARM, if (input.reminders.any { it.minutesBefore >= 0 }) 1 else 0)
+                })
+                .build(),
+        )
+        input.reminders.map { it.minutesBefore }.filter { it >= 0 }.distinct().forEach { minutes ->
+            operations += reminderInsertBackReference(0, minutes, CalendarContract.Reminders.METHOD_ALERT)
+        }
+        val results = resolver.applyBatch(CalendarContract.AUTHORITY, operations)
+        val uri = results.firstOrNull()?.uri
+            ?: return@guarded rejected("The calendar provider did not accept the new event.")
         val rowId = ContentUris.parseId(uri)
-        replaceModeledReminders(rowId, input.reminders.map { it.minutesBefore })
         WriteResult.Applied(input.toEvent(AndroidCalendarId.event(rowId, startMillis(input)), calendar.color))
     }
 
@@ -67,10 +76,11 @@ class AndroidCalendarWriter(private val context: Context) {
             val values = if (route.recurring && scope == RecurrenceEditScope.All) {
                 masterEventValues(input, route)
             } else eventValues(input, route.calendarRowId, eventTimezone = route.baseline.eventTimezone)
-            val changed = resolver.update(eventUri(target), values, null, null)
-            if (changed != 1) return@guarded rejected("The event changed in its owning app. Refresh and try again.")
+            val results = applyEventAndModeledReminders(target, values, input.reminders.map { it.minutesBefore })
+            if (results.firstOrNull()?.count != 1) {
+                return@guarded rejected("The event changed in its owning app. Refresh and try again.")
+            }
         }
-        replaceModeledReminders(target, input.reminders.map { it.minutesBefore })
         WriteResult.Applied(input.toEvent(AndroidCalendarId.event(route.masterRowId, route.originalInstanceTime), route.color))
     }
 
@@ -175,58 +185,82 @@ class AndroidCalendarWriter(private val context: Context) {
         values.put(CalendarContract.Events.ORIGINAL_INSTANCE_TIME, route.originalInstanceTime)
         values.put(CalendarContract.Events.ORIGINAL_ALL_DAY, if (route.originalAllDay) 1 else 0)
         if (canceled) values.put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CANCELED)
-        val inserted = resolver.insert(CalendarContract.Events.CONTENT_URI, values) ?: return null
-        val exceptionId = ContentUris.parseId(inserted)
-        cloneReminders(route.eventRowId, exceptionId)
-        if (input != null) replaceModeledReminders(exceptionId, input.reminders.map { it.minutesBefore })
-        return exceptionId
+
+        val sourceReminders = reminderRows(route.eventRowId)
+        val reminders = if (input == null) {
+            sourceReminders
+        } else {
+            sourceReminders.filterNot { (minutes, method) ->
+                method == CalendarContract.Reminders.METHOD_ALERT && minutes >= 0
+            } + input.reminders.map { it.minutesBefore }
+                .filter { it >= 0 }
+                .distinct()
+                .map { it to CalendarContract.Reminders.METHOD_ALERT }
+        }
+        values.put(CalendarContract.Events.HAS_ALARM, if (reminders.isNotEmpty()) 1 else 0)
+        val operations = arrayListOf(
+            ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI)
+                .withValues(values)
+                .build(),
+        )
+        reminders.forEach { (minutes, method) ->
+            operations += reminderInsertBackReference(0, minutes, method)
+        }
+        val inserted = resolver.applyBatch(CalendarContract.AUTHORITY, operations).firstOrNull()?.uri ?: return null
+        return ContentUris.parseId(inserted)
     }
 
-    private fun cloneReminders(sourceEventId: Long, targetEventId: Long) {
+    /** Updates the event and its modeled reminders in one provider transaction. */
+    private fun applyEventAndModeledReminders(
+        eventId: Long,
+        values: ContentValues,
+        minutes: List<Int>,
+    ): Array<android.content.ContentProviderResult> {
+        val unsupportedRemain = reminderRows(eventId).any { (value, method) ->
+            method != CalendarContract.Reminders.METHOD_ALERT || value < 0
+        }
+        val modeled = minutes.filter { it >= 0 }.distinct()
+        values.put(CalendarContract.Events.HAS_ALARM, if (unsupportedRemain || modeled.isNotEmpty()) 1 else 0)
+        val operations = arrayListOf(
+            ContentProviderOperation.newUpdate(eventUri(eventId)).withValues(values).build(),
+            ContentProviderOperation.newDelete(CalendarContract.Reminders.CONTENT_URI)
+                .withSelection(
+                    "${CalendarContract.Reminders.EVENT_ID} = ? AND ${CalendarContract.Reminders.METHOD} = ? AND " +
+                        "${CalendarContract.Reminders.MINUTES} >= 0",
+                    arrayOf(eventId.toString(), CalendarContract.Reminders.METHOD_ALERT.toString()),
+                )
+                .build(),
+        )
+        modeled.forEach { value ->
+            operations += ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
+                .withValue(CalendarContract.Reminders.EVENT_ID, eventId)
+                .withValue(CalendarContract.Reminders.MINUTES, value)
+                .withValue(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+                .build()
+        }
+        return resolver.applyBatch(CalendarContract.AUTHORITY, operations)
+    }
+
+    private fun reminderRows(eventId: Long): List<Pair<Int, Int>> {
+        val rows = mutableListOf<Pair<Int, Int>>()
         resolver.query(
             CalendarContract.Reminders.CONTENT_URI,
             arrayOf(CalendarContract.Reminders.MINUTES, CalendarContract.Reminders.METHOD),
             "${CalendarContract.Reminders.EVENT_ID} = ?",
-            arrayOf(sourceEventId.toString()),
-            null,
-        )?.use { cursor ->
-            while (cursor.moveToNext()) {
-                resolver.insert(CalendarContract.Reminders.CONTENT_URI, ContentValues().apply {
-                    put(CalendarContract.Reminders.EVENT_ID, targetEventId)
-                    put(CalendarContract.Reminders.MINUTES, cursor.getInt(0))
-                    put(CalendarContract.Reminders.METHOD, cursor.getInt(1))
-                })
-            }
-        }
-    }
-
-    /** Only Calino's modeled nonnegative alert rows are replaced. */
-    private fun replaceModeledReminders(eventId: Long, minutes: List<Int>) {
-        resolver.delete(
-            CalendarContract.Reminders.CONTENT_URI,
-            "${CalendarContract.Reminders.EVENT_ID} = ? AND ${CalendarContract.Reminders.METHOD} = ? AND " +
-                "${CalendarContract.Reminders.MINUTES} >= 0",
-            arrayOf(eventId.toString(), CalendarContract.Reminders.METHOD_ALERT.toString()),
-        )
-        minutes.filter { it >= 0 }.distinct().forEach { value ->
-            resolver.insert(CalendarContract.Reminders.CONTENT_URI, ContentValues().apply {
-                put(CalendarContract.Reminders.EVENT_ID, eventId)
-                put(CalendarContract.Reminders.MINUTES, value)
-                put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
-            })
-        }
-        var hasAny = false
-        resolver.query(
-            CalendarContract.Reminders.CONTENT_URI,
-            arrayOf(CalendarContract.Reminders._ID),
-            "${CalendarContract.Reminders.EVENT_ID} = ?",
             arrayOf(eventId.toString()),
             null,
-        )?.use { hasAny = it.moveToFirst() }
-        resolver.update(eventUri(eventId), ContentValues().apply {
-            put(CalendarContract.Events.HAS_ALARM, if (hasAny) 1 else 0)
-        }, null, null)
+        )?.use { cursor ->
+            while (cursor.moveToNext()) rows += cursor.getInt(0) to cursor.getInt(1)
+        }
+        return rows
     }
+
+    private fun reminderInsertBackReference(eventOperationIndex: Int, minutes: Int, method: Int) =
+        ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
+            .withValueBackReference(CalendarContract.Reminders.EVENT_ID, eventOperationIndex)
+            .withValue(CalendarContract.Reminders.MINUTES, minutes)
+            .withValue(CalendarContract.Reminders.METHOD, method)
+            .build()
 
     /** Apply an occurrence's date/time delta to the master instead of replacing it with that occurrence's slot. */
     private fun masterEventValues(
