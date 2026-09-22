@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,6 +15,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,7 @@ import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
@@ -34,6 +36,9 @@ import androidx.wear.compose.material3.TitleCard
 import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
 import androidx.wear.remote.interactions.RemoteActivityHelper
+import androidx.wear.compose.navigation.composable
+import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import calino.malinov.ski.wearcontract.TaskGroup
 import calino.malinov.ski.wearcontract.WearAckResult
 import calino.malinov.ski.wearcontract.WearCommand
@@ -73,14 +78,28 @@ class WearActivity : ComponentActivity() {
         val state = remember(revision) { WearStore(this).state() }
         var tasksOnly by remember { mutableStateOf(false) }
         var selectedId by remember { mutableStateOf(requestedDetailId) }
-        LaunchedEffect(requestedDetailId) { selectedId = requestedDetailId }
-        val selected = state.snapshot?.record(selectedId)
-        if (selected != null) {
-            val selectedSnapshot = requireNotNull(state.snapshot)
-            BackHandler { selectedId = null }
-            DetailScreen(selected, selectedSnapshot, onClose = { selectedId = null })
-        } else {
-            OverviewScreen(state, tasksOnly, { tasksOnly = !tasksOnly }) { selectedId = rowId(it) }
+        val navController = rememberSwipeDismissableNavController()
+        LaunchedEffect(requestedDetailId) {
+            requestedDetailId?.takeIf { state.snapshot?.record(it) != null }?.let {
+                selectedId = it
+                if (navController.currentDestination?.route != "detail") navController.navigate("detail")
+            }
+        }
+        SwipeDismissableNavHost(navController, startDestination = "overview") {
+            composable("overview") {
+                OverviewScreen(state, tasksOnly, { tasksOnly = !tasksOnly }) {
+                    selectedId = rowId(it)
+                    navController.navigate("detail")
+                }
+            }
+            composable("detail") {
+                val selected = state.snapshot?.record(selectedId)
+                if (selected != null) {
+                    DetailScreen(selected, requireNotNull(state.snapshot))
+                } else {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                }
+            }
         }
     }
 
@@ -108,9 +127,6 @@ class WearActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
                         transformation = SurfaceTransformation(transformation),
                         label = { Text(if (tasksOnly) "Show agenda" else "Show tasks") },
-                        secondaryLabel = {
-                            Text(if (tasksOnly) "Events and due tasks" else "Open tasks by due date")
-                        },
                     )
                 }
                 state.notices.firstOrNull()?.let { acknowledgement ->
@@ -223,10 +239,19 @@ class WearActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun DetailScreen(row: Any, snapshot: WearSnapshot, onClose: () -> Unit) {
+    private fun DetailScreen(row: Any, snapshot: WearSnapshot) {
         val listState = rememberTransformingLazyColumnState()
         val transformation = rememberTransformationSpec()
-        ScreenScaffold(scrollState = listState) { contentPadding ->
+        val haptics = LocalHapticFeedback.current
+        ScreenScaffold(
+            scrollState = listState,
+            edgeButton = {
+                EdgeButton(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    openPhone(row)
+                }) { Text("Phone") }
+            },
+        ) { contentPadding ->
             TransformingLazyColumn(state = listState, contentPadding = contentPadding) {
                 item {
                     ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
@@ -256,7 +281,10 @@ class WearActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
                             transformation = SurfaceTransformation(transformation),
                             colors = true,
-                        ) { command(snapshot, row, WearCommandOp.SET_TASK_DONE, null) }
+                        ) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            command(snapshot, row, WearCommandOp.SET_TASK_DONE, null)
+                        }
                     }
                     item {
                         ActionButton(
@@ -264,24 +292,11 @@ class WearActivity : ComponentActivity() {
                             secondary = "Move the due date",
                             modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
                             transformation = SurfaceTransformation(transformation),
-                        ) { command(snapshot, row, WearCommandOp.RESCHEDULE_TASK, snapshot.tomorrow()) }
+                        ) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            command(snapshot, row, WearCommandOp.RESCHEDULE_TASK, snapshot.tomorrow())
+                        }
                     }
-                }
-                item {
-                    ActionButton(
-                        label = "Open on phone",
-                        secondary = "View and edit full details",
-                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                        transformation = SurfaceTransformation(transformation),
-                    ) { openPhone(row) }
-                }
-                item {
-                    ActionButton(
-                        label = "Back",
-                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                        transformation = SurfaceTransformation(transformation),
-                        onClick = onClose,
-                    )
                 }
             }
         }

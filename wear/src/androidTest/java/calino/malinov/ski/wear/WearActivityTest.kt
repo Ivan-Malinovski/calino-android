@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso
 import androidx.test.platform.app.InstrumentationRegistry
 import calino.malinov.ski.wearcontract.WearCodec
 import calino.malinov.ski.wearcontract.WearEvent
@@ -54,9 +55,9 @@ class WearActivityTest {
         compose.onNodeWithText("Event").assertIsDisplayed()
         compose.onNodeWithText("Studio · Room 4").assertIsDisplayed()
         capture("wear-event-detail.png")
-        repeat(2) { compose.onRoot().performTouchInput { swipeUp() } }
-        compose.onNodeWithText("Back").performClick()
-        compose.onNodeWithText("Agenda").assertIsDisplayed()
+        Espresso.pressBack()
+        compose.onNodeWithContentDescription("Design review, 10:00–10:45, Open details")
+            .assertIsDisplayed()
     }
 
     @Test
@@ -72,13 +73,14 @@ class WearActivityTest {
         compose.onNodeWithContentDescription(
             "Submit report, Due ${calino.malinov.ski.wearcontract.WearFormatting.date(fixture.today)}, Open details",
         ).performClick()
+        compose.onRoot().performTouchInput { swipeUp() }
         compose.onNodeWithText("Complete").assertIsDisplayed()
         capture("wear-task-detail.png")
         compose.onRoot().performTouchInput { swipeUp() }
         compose.onNodeWithText("Tomorrow").assertIsDisplayed()
         capture("wear-task-actions.png")
-        compose.onRoot().performTouchInput { swipeUp() }
-        compose.onNodeWithText("Open on phone").assertIsDisplayed()
+        compose.onNodeWithText("Phone").assertIsDisplayed()
+        capture("wear-phone-edge-action.png")
     }
 
     private fun fixtureSnapshot() = WearSnapshot(

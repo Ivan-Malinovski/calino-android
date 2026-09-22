@@ -48,6 +48,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.wear.compose:compose-material3:1.6.0")
     implementation("androidx.wear.compose:compose-foundation:1.6.0")
+    implementation("androidx.wear.compose:compose-navigation:1.6.0")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("androidx.wear:wear-remote-interactions:1.1.0")
     implementation("androidx.wear.tiles:tiles:1.5.0")
@@ -59,6 +60,7 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2025.10.01"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
