@@ -22,6 +22,7 @@ import calino.malinov.ski.data.repository.CalDavAccountStore
 import calino.malinov.ski.data.repository.CalDavClient
 import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalinoRepository
+import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.FixtureRepository
 import calino.malinov.ski.data.repository.ImportingRepository
@@ -30,6 +31,8 @@ import calino.malinov.ski.data.repository.SyncState
 import calino.malinov.ski.data.repository.WebcalSubscriptionStore
 import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.data.repository.visibleCalendarIds
+import calino.malinov.ski.data.search.CalinoAppSearchIndex
+import calino.malinov.ski.data.search.appSearchRecords
 import calino.malinov.ski.data.webcal.FileWebcalCache
 import calino.malinov.ski.data.webcal.WebcalFetcher
 import calino.malinov.ski.data.webcal.WebcalManager
@@ -47,16 +50,20 @@ import calino.malinov.ski.widget.CalinoWidgetBridge
 import calino.malinov.ski.wear.PhoneWearBridge
 import calino.malinov.ski.wear.isAuthoritativeWearSource
 import java.io.File
+import java.io.Closeable
 import java.time.ZoneId
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 internal fun writableImportsAfterSelection(
     previousImported: Set<String>,
@@ -87,6 +94,15 @@ internal fun writableImportsAfterSelection(
  */
 class CalinoContainer private constructor(context: Context) {
 
+    private data class SearchIndexRequest(
+        val repository: CalinoRepository,
+        val generation: Long,
+        val sequence: Long,
+        val snapshot: CalinoSnapshot,
+        val journalsEnabled: Boolean,
+        val contactsEnabled: Boolean,
+    )
+
     private val application = context.applicationContext
 
     /**
@@ -107,6 +123,21 @@ class CalinoContainer private constructor(context: Context) {
     val webcalStore = WebcalSubscriptionStore(SharedPreferencesWebcalPersistence(application))
 
     val preferenceStore: CalinoPreferenceStore = SharedPreferencesPreferenceStore(application)
+
+    private val appSearchIndex = CalinoAppSearchIndex(application)
+
+    @Volatile private var searchJournalsEnabled = preferenceStore.loadJournalEnabled()
+    @Volatile private var searchContactsEnabled = preferenceStore.loadContactsEnabled()
+
+    @Volatile private var searchIndexing = false
+    private var searchRepositorySubscription: Closeable? = null
+    private val searchIndexMutex = Mutex()
+    private val searchIndexStateLock = Any()
+    private var searchIndexRepository: CalinoRepository? = null
+    private var searchIndexGeneration = 0L
+    private var nextSearchIndexSequence = 0L
+    private var appliedSearchIndexSequence = -1L
+    private var latestSearchIndexRequest: SearchIndexRequest? = null
 
     val calDavClient: CalDavClient = CalDavDiscovery(http)
 
@@ -146,7 +177,7 @@ class CalinoContainer private constructor(context: Context) {
      * The repository in force. With no account connected this is the frozen
      * fixture data, so the app is never an empty shell.
      */
-    var activeRepository: CalinoRepository = fixtureRepository
+    @Volatile var activeRepository: CalinoRepository = fixtureRepository
         private set
 
     val hasAccounts: Boolean get() = accountStore.accounts().isNotEmpty()
@@ -247,6 +278,7 @@ class CalinoContainer private constructor(context: Context) {
         webcal.restore()
         restoreImport()
         updateActiveRepository()
+        startSearchIndexing()
         restoreProjection()
     }
 
@@ -268,6 +300,7 @@ class CalinoContainer private constructor(context: Context) {
         connections.restoreFromCache()
         webcal.restoreFromCache()
         updateActiveRepository()
+        startSearchIndexing()
     }
 
     /**
@@ -392,6 +425,241 @@ class CalinoContainer private constructor(context: Context) {
         updateActiveRepository()
         syncAndroidAccounts()
     }
+
+    /** Keep the private index in step with the feature availability controls. */
+    fun setSearchAvailability(journalsEnabled: Boolean, contactsEnabled: Boolean) {
+        searchJournalsEnabled = journalsEnabled
+        searchContactsEnabled = contactsEnabled
+        if (searchIndexing) reconcileSearchSnapshot(activeRepository, activeRepository.snapshot())
+    }
+
+    /**
+     * Ensures the private index is initialized and reconciles the active
+     * repository's latest snapshot. Workers can call this after sync even when
+     * no Activity ever started the repository observer.
+     */
+    suspend fun reconcilePrivateSearchIndex() {
+        startSearchIndexing()
+        while (true) {
+            val repository = activeRepository
+            val snapshot = repository.snapshot()
+            val indexable = snapshotForPrivateIndex(repository, snapshot) ?: emptySearchSnapshot()
+            val request = publishSearchIndexRequest(
+                repository,
+                indexable,
+                searchJournalsEnabled,
+                searchContactsEnabled,
+            ) ?: continue
+            searchIndexMutex.withLock { reconcileLatestSearchIndexRequest(request) }
+            val stillCurrent = isLatestSearchIndexRequest(request) && repository.snapshot().revision == request.snapshot.revision
+            if (stillCurrent) return
+        }
+    }
+
+    /**
+     * Returns candidates for the active repository's freshest snapshot. A null
+     * result is reserved for the fixture-only path, where in-memory search
+     * remains authoritative and fixture records are never indexed.
+     */
+    suspend fun searchRecordIds(
+        query: String,
+        journalsEnabled: Boolean,
+        contactsEnabled: Boolean,
+    ): Set<String>? = searchIndexMutex.withLock {
+        searchRecordIdsInLane(query, journalsEnabled, contactsEnabled)
+    }
+
+    private suspend fun searchRecordIdsInLane(
+        query: String,
+        journalsEnabled: Boolean,
+        contactsEnabled: Boolean,
+    ): Set<String>? {
+        while (true) {
+            val repository = activeRepository
+            val repositorySnapshot = repository.snapshot()
+            val indexable = snapshotForPrivateIndex(repository, repositorySnapshot) ?: emptySearchSnapshot()
+            val request = publishSearchIndexRequest(repository, indexable, journalsEnabled, contactsEnabled)
+            if (request == null) {
+                if (!searchIndexing) return null
+                continue
+            }
+            if (!isLatestSearchIndexRequest(request)) continue
+            val requestedSnapshot = request.snapshot
+
+            val fixtureKeys = if (hasImportedDataOverFixture(repository)) {
+                appSearchRecords(fixtureRepository.snapshot(), journalsEnabled, contactsEnabled)
+                    .map { it.stableId }.toSet()
+            } else {
+                emptySet()
+            }
+            val indexedCandidates = try {
+                if (repository === fixtureRepository) {
+                    appSearchIndex.reconcile(requestedSnapshot, journalsEnabled, contactsEnabled)
+                    null
+                } else {
+                    appSearchIndex.searchRecords(query, requestedSnapshot, journalsEnabled, contactsEnabled)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep in-memory ranking usable if local AppSearch is temporarily
+                // unavailable. A later snapshot or query retries reconciliation.
+                if (repository === fixtureRepository) null
+                else appSearchRecords(requestedSnapshot, journalsEnabled, contactsEnabled).map { it.stableId }.toSet()
+            }
+
+            val currentRevision = repository.snapshot().revision
+            if (!isLatestSearchIndexRequest(request) || currentRevision != request.snapshot.revision) continue
+            if (indexedCandidates == null) return null
+            markSearchIndexRequestApplied(request)
+            return indexedCandidates + fixtureKeys
+        }
+    }
+
+    @Synchronized
+    private fun startSearchIndexing() {
+        if (searchIndexing) return
+        searchIndexing = true
+        searchJournalsEnabled = preferenceStore.loadJournalEnabled()
+        searchContactsEnabled = preferenceStore.loadContactsEnabled()
+        attachSearchObserver(activeRepository)
+    }
+
+    @Synchronized
+    private fun attachSearchObserver(repository: CalinoRepository) {
+        if (repository !== activeRepository) return
+        searchRepositorySubscription?.close()
+        synchronized(searchIndexStateLock) {
+            if (searchIndexRepository !== repository) {
+                searchIndexRepository = repository
+                searchIndexGeneration += 1
+                latestSearchIndexRequest = null
+                appliedSearchIndexSequence = -1L
+            }
+        }
+        searchRepositorySubscription = repository.observe { snapshot ->
+            reconcileSearchSnapshot(repository, snapshot)
+        }
+    }
+
+    private fun reconcileSearchSnapshot(repository: CalinoRepository, snapshot: CalinoSnapshot) {
+        val indexable = snapshotForPrivateIndex(repository, snapshot) ?: emptySearchSnapshot()
+        val journalsEnabled = searchJournalsEnabled
+        val contactsEnabled = searchContactsEnabled
+        val request = publishSearchIndexRequest(repository, indexable, journalsEnabled, contactsEnabled) ?: return
+        scope.launch {
+            runCatching {
+                searchIndexMutex.withLock { reconcileLatestSearchIndexRequest(request) }
+            }
+        }
+    }
+
+    private fun publishSearchIndexRequest(
+        repository: CalinoRepository,
+        snapshot: CalinoSnapshot,
+        journalsEnabled: Boolean,
+        contactsEnabled: Boolean,
+    ): SearchIndexRequest? = synchronized(searchIndexStateLock) {
+        if (!searchIndexing || repository !== activeRepository || repository !== searchIndexRepository) return null
+        val current = latestSearchIndexRequest
+        if (current?.repository === repository && current.generation == searchIndexGeneration) {
+            val newestSnapshot = if (snapshot.revision < current.snapshot.revision) current.snapshot else snapshot
+            if (newestSnapshot.revision == current.snapshot.revision &&
+                journalsEnabled == current.journalsEnabled && contactsEnabled == current.contactsEnabled
+            ) return current
+            return SearchIndexRequest(
+                repository = repository,
+                generation = searchIndexGeneration,
+                sequence = ++nextSearchIndexSequence,
+                snapshot = newestSnapshot,
+                journalsEnabled = journalsEnabled,
+                contactsEnabled = contactsEnabled,
+            ).also { latestSearchIndexRequest = it }
+        }
+        SearchIndexRequest(
+            repository = repository,
+            generation = searchIndexGeneration,
+            sequence = ++nextSearchIndexSequence,
+            snapshot = snapshot,
+            journalsEnabled = journalsEnabled,
+            contactsEnabled = contactsEnabled,
+        ).also { latestSearchIndexRequest = it }
+    }
+
+    private suspend fun reconcileLatestSearchIndexRequest(initial: SearchIndexRequest) {
+        var request = initial
+        while (true) {
+            val latest = synchronized(searchIndexStateLock) { latestSearchIndexRequest } ?: return
+            if (!isLatestSearchIndexRequest(latest)) return
+            if (latest.sequence != request.sequence) request = latest
+            if (synchronized(searchIndexStateLock) { appliedSearchIndexSequence == request.sequence }) return
+
+            val actualRevision = request.repository.snapshot().revision
+            if (actualRevision > request.snapshot.revision) {
+                request = publishSearchIndexRequest(
+                    request.repository,
+                    snapshotForPrivateIndex(request.repository, request.repository.snapshot()) ?: emptySearchSnapshot(),
+                    searchJournalsEnabled,
+                    searchContactsEnabled,
+                ) ?: return
+                continue
+            }
+
+            appSearchIndex.reconcile(request.snapshot, request.journalsEnabled, request.contactsEnabled)
+            synchronized(searchIndexStateLock) {
+                if (latestSearchIndexRequest?.sequence == request.sequence) {
+                    appliedSearchIndexSequence = request.sequence
+                    return
+                }
+            }
+        }
+    }
+
+    private fun isLatestSearchIndexRequest(request: SearchIndexRequest): Boolean = synchronized(searchIndexStateLock) {
+        request.repository === activeRepository && request.repository === searchIndexRepository &&
+            request.generation == searchIndexGeneration &&
+            latestSearchIndexRequest?.sequence == request.sequence
+    }
+
+    private fun markSearchIndexRequestApplied(request: SearchIndexRequest) {
+        synchronized(searchIndexStateLock) {
+            if (request.repository === activeRepository && request.generation == searchIndexGeneration &&
+                latestSearchIndexRequest?.sequence == request.sequence
+            ) appliedSearchIndexSequence = request.sequence
+        }
+    }
+
+    private fun snapshotForPrivateIndex(
+        repository: CalinoRepository,
+        snapshot: CalinoSnapshot,
+    ): CalinoSnapshot? {
+        if (repository === fixtureRepository) return null
+        if (!hasImportedDataOverFixture(repository)) return snapshot
+        val fixture = fixtureRepository.snapshot()
+        val fixtureEventIds = fixture.events.map { it.id }.toSet()
+        val fixtureTaskIds = fixture.tasks.map { it.id }.toSet()
+        val fixtureJournalIds = fixture.journals.map { it.id }.toSet()
+        val fixtureContactIds = fixture.contacts.map { it.id }.toSet()
+        return snapshot.copy(
+            events = snapshot.events.filterNot { it.id in fixtureEventIds },
+            tasks = snapshot.tasks.filterNot { it.id in fixtureTaskIds },
+            journals = snapshot.journals.filterNot { it.id in fixtureJournalIds },
+            contacts = snapshot.contacts.filterNot { it.id in fixtureContactIds },
+        )
+    }
+
+    private fun hasImportedDataOverFixture(repository: CalinoRepository) =
+        repository is ImportingRepository && !hasAccounts &&
+            webcalStore.subscriptions().isEmpty() && importedCalendarIds.isNotEmpty()
+
+    private fun emptySearchSnapshot() = CalinoSnapshot(
+        events = emptyList(),
+        tasks = emptyList(),
+        journals = emptyList(),
+        contacts = emptyList(),
+        addressBooks = emptyList(),
+        calendars = emptyList(),
+    )
 
     /**
      * Whether Calino owns Android accounts and projects calendars into
@@ -731,6 +999,7 @@ class CalinoContainer private constructor(context: Context) {
         updateImportObserver()
         if (next === activeRepository) return
         activeRepository = next
+        if (searchIndexing) attachSearchObserver(next)
         repositoryListeners.forEach { it(next) }
     }
 

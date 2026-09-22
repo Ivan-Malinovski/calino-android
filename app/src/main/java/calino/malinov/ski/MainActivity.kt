@@ -136,6 +136,7 @@ import calino.malinov.ski.data.ai.AiVisionClient
 import calino.malinov.ski.data.ai.AiVisionSettingsStore
 import calino.malinov.ski.data.parser.PocQuickAddKind
 import calino.malinov.ski.data.search.CalinoSearchResult
+import calino.malinov.ski.data.search.resolveCurrentSearchResult
 import calino.malinov.ski.data.repository.CalDavAccountStore
 import calino.malinov.ski.data.repository.CalDavClient
 import calino.malinov.ski.data.repository.CalinoRepository
@@ -735,6 +736,15 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         container.calDavRepository.refresh()
         container.scope.launch { runCatching { container.syncWebcalAll() } }
     }
+
+    suspend fun searchRecordIds(
+        query: String,
+        journalsEnabled: Boolean,
+        contactsEnabled: Boolean,
+    ): Set<String>? = container.searchRecordIds(query, journalsEnabled, contactsEnabled)
+
+    fun setSearchAvailability(journalsEnabled: Boolean, contactsEnabled: Boolean) =
+        container.setSearchAvailability(journalsEnabled, contactsEnabled)
 }
 
 /** The launch shell for the native app. No WebView or Capacitor is involved. */
@@ -753,6 +763,7 @@ fun CalinoApp() {
         // A reminder switched off must stop arriving now, not after the next
         // sync happens to publish something.
         onRemindersChanged = { pocViewModel.replanReminders() },
+        onSearchAvailabilityChanged = pocViewModel::setSearchAvailability,
     )
     val notificationPermission = rememberNotificationPermission(pocViewModel.preferenceStore)
     LaunchedEffect(preferences.eventSyncRange) {
@@ -2728,8 +2739,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             onQueryChange = { searchQuery = it },
             snapshot = snapshot,
             baseDate = selectedDate,
+            journalsEnabled = preferences.journalEnabled,
+            searchRecords = pocViewModel::searchRecordIds,
             onDismiss = { searchVisible = false; searchQuery = "" },
-            onSelect = { result ->
+            onSelect = selectResult@{ candidate ->
+                val result = resolveCurrentSearchResult(
+                    snapshot = pocViewModel.activeRepository.snapshot(),
+                    result = candidate,
+                    journalsEnabled = preferences.journalEnabled,
+                    contactsEnabled = preferences.contactsEnabled,
+                ) ?: return@selectResult
                 searchVisible = false
                 when (result) {
                     is CalinoSearchResult.NavigateDate -> {
