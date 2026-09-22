@@ -1,13 +1,17 @@
 package calino.malinov.ski.wear
 
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import calino.malinov.ski.wearcontract.WearCodec
 import calino.malinov.ski.wearcontract.WearEvent
 import calino.malinov.ski.wearcontract.WearSnapshot
@@ -32,6 +36,9 @@ class WearActivityTest {
     fun noPhoneSnapshotExplainsSetup() {
         compose.onNodeWithText("Set up Calino on your phone").assertIsDisplayed()
         compose.onNodeWithText("The watch will sync automatically").assertIsDisplayed()
+        capture("wear-empty.png")
+        compose.onRoot().performTouchInput { swipeUp() }
+        capture("wear-setup.png")
     }
 
     @Test
@@ -39,10 +46,15 @@ class WearActivityTest {
         fixture.install(fixtureSnapshot())
         compose.activityRule.scenario.recreate()
 
+        capture("wear-agenda.png")
+        compose.onRoot().performTouchInput { swipeUp() }
+        capture("wear-agenda-record.png")
         compose.onNodeWithContentDescription("Design review, 10:00–10:45, Open details")
             .performClick()
         compose.onNodeWithText("Event").assertIsDisplayed()
         compose.onNodeWithText("Studio · Room 4").assertIsDisplayed()
+        capture("wear-event-detail.png")
+        repeat(2) { compose.onRoot().performTouchInput { swipeUp() } }
         compose.onNodeWithText("Back").performClick()
         compose.onNodeWithText("Agenda").assertIsDisplayed()
     }
@@ -54,12 +66,19 @@ class WearActivityTest {
 
         compose.onNodeWithText("Show tasks").performClick()
         compose.onNodeWithText("Today").assertIsDisplayed()
+        capture("wear-tasks.png")
+        repeat(2) { compose.onRoot().performTouchInput { swipeUp() } }
+        capture("wear-tasks-record.png")
         compose.onNodeWithContentDescription(
             "Submit report, Due ${calino.malinov.ski.wearcontract.WearFormatting.date(fixture.today)}, Open details",
         ).performClick()
-        compose.onNodeWithText("Complete").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Tomorrow").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Open on phone").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Complete").assertIsDisplayed()
+        capture("wear-task-detail.png")
+        compose.onRoot().performTouchInput { swipeUp() }
+        compose.onNodeWithText("Tomorrow").assertIsDisplayed()
+        capture("wear-task-actions.png")
+        compose.onRoot().performTouchInput { swipeUp() }
+        compose.onNodeWithText("Open on phone").assertIsDisplayed()
     }
 
     private fun fixtureSnapshot() = WearSnapshot(
@@ -103,6 +122,16 @@ class WearActivityTest {
             ),
         ),
     )
+
+    private fun capture(name: String) {
+        compose.waitForIdle()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val output = requireNotNull(instrumentation.targetContext.getExternalFilesDir("screenshots"))
+            .resolve(name)
+        output.outputStream().use { stream ->
+            instrumentation.uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, stream)
+        }
+    }
 }
 
 private class WearFixtureRule : ExternalResource() {
