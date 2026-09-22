@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
@@ -73,12 +74,11 @@ class WearActivityTest {
         compose.onNodeWithContentDescription(
             "Submit report, Due ${calino.malinov.ski.wearcontract.WearFormatting.date(fixture.today)}, Open details",
         ).performClick()
-        compose.onRoot().performTouchInput { swipeUp() }
-        compose.onNodeWithText("Complete").assertIsDisplayed()
+        compose.onNodeWithText("Complete").performScrollTo().assertIsDisplayed()
         capture("wear-task-detail.png")
-        compose.onRoot().performTouchInput { swipeUp() }
-        compose.onNodeWithText("Tomorrow").assertIsDisplayed()
+        compose.onNodeWithText("Tomorrow").performScrollTo().assertIsDisplayed()
         capture("wear-task-actions.png")
+        compose.onRoot().performTouchInput { swipeUp() }
         compose.onNodeWithText("Phone").assertIsDisplayed()
         capture("wear-phone-edge-action.png")
     }

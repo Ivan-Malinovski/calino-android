@@ -998,6 +998,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         pocViewModel.extendEventWindowToInclude(date)
     }
 
+    // Most calendar surfaces route changes through selectCalendarDate, but a
+    // restored Activity, reminder deep link, or editor return can assign the
+    // saved date directly. Re-check the committed date after composition so
+    // those entry paths cannot reopen beyond the server window and stay empty.
+    LaunchedEffect(selectedDate, pocViewModel.hasAccounts) {
+        pocViewModel.extendEventWindowToInclude(selectedDate)
+    }
+
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             // Every foreground is an explicit retry opportunity in addition

@@ -21,8 +21,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
-import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
@@ -30,11 +30,8 @@ import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
-import androidx.wear.compose.material3.SurfaceTransformation
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.TitleCard
-import androidx.wear.compose.material3.lazy.rememberTransformationSpec
-import androidx.wear.compose.material3.lazy.transformedHeight
 import androidx.wear.remote.interactions.RemoteActivityHelper
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
@@ -110,22 +107,27 @@ class WearActivity : ComponentActivity() {
         onToggleMode: () -> Unit,
         onOpen: (Any) -> Unit,
     ) {
-        val listState = rememberTransformingLazyColumnState()
-        val transformation = rememberTransformationSpec()
+        val listState = rememberScalingLazyListState()
         val snapshot = state.snapshot
         val today = snapshot?.today() ?: LocalDate.now().toEpochDay()
+        val agendaGroups = remember(snapshot, today) {
+            snapshot?.let { WearSelection.agendaGroups(it, today) }.orEmpty()
+        }
+        val taskSections = remember(snapshot, today) {
+            snapshot?.let { WearSelection.taskSections(it, today) }.orEmpty()
+        }
+        val staleLabel = remember(snapshot) { snapshot?.let(::staleHeader) }
         ScreenScaffold(scrollState = listState) { contentPadding ->
-            TransformingLazyColumn(state = listState, contentPadding = contentPadding) {
+            ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
                 item {
-                    ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                    ListHeader(Modifier.fillMaxWidth()) {
                         Text(if (tasksOnly) "Tasks" else "Agenda")
                     }
                 }
                 item {
                     Button(
                         onClick = onToggleMode,
-                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                        transformation = SurfaceTransformation(transformation),
+                        modifier = Modifier.fillMaxWidth(),
                         label = { Text(if (tasksOnly) "Show agenda" else "Show tasks") },
                     )
                 }
@@ -134,8 +136,7 @@ class WearActivity : ComponentActivity() {
                         InfoCard(
                             title = acknowledgement.notice(),
                             subtitle = "Watch action",
-                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                            transformation = SurfaceTransformation(transformation),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
@@ -144,25 +145,23 @@ class WearActivity : ComponentActivity() {
                         InfoCard(
                             title = "Set up Calino on your phone",
                             subtitle = "The watch will sync automatically",
-                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                            transformation = SurfaceTransformation(transformation),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 } else {
-                    staleHeader(snapshot)?.let { label ->
+                    staleLabel?.let { label ->
                         item {
                             InfoCard(
                                 title = label,
                                 subtitle = "Cached calendar",
-                                modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                                transformation = SurfaceTransformation(transformation),
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }
                     if (tasksOnly) {
-                        WearSelection.taskSections(snapshot, today).forEach { section ->
+                        taskSections.forEach { section ->
                             item {
-                                ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                                ListHeader(Modifier.fillMaxWidth()) {
                                     Text(section.group.label())
                                 }
                             }
@@ -172,15 +171,14 @@ class WearActivity : ComponentActivity() {
                                     task,
                                     snapshot,
                                     task.writeState.name == "PENDING",
-                                    Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                                    SurfaceTransformation(transformation),
+                                    Modifier.fillMaxWidth(),
                                 ) { onOpen(task) }
                             }
                         }
                     } else {
-                        WearSelection.agendaGroups(snapshot, today).forEach { group ->
+                        agendaGroups.forEach { group ->
                             item {
-                                ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                                ListHeader(Modifier.fillMaxWidth()) {
                                     Text(dayHeader(group.epochDay, today))
                                 }
                             }
@@ -190,8 +188,7 @@ class WearActivity : ComponentActivity() {
                                     row,
                                     snapshot,
                                     row is WearTask && row.writeState.name == "PENDING",
-                                    Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                                    SurfaceTransformation(transformation),
+                                    Modifier.fillMaxWidth(),
                                 ) { onOpen(row) }
                             }
                         }
@@ -206,12 +203,10 @@ class WearActivity : ComponentActivity() {
         title: String,
         subtitle: String,
         modifier: Modifier,
-        transformation: SurfaceTransformation,
     ) {
         TitleCard(
             onClick = {},
             modifier = modifier,
-            transformation = transformation,
             title = { Text(title) },
             subtitle = { Text(subtitle) },
         )
@@ -223,16 +218,14 @@ class WearActivity : ComponentActivity() {
         snapshot: WearSnapshot,
         pending: Boolean,
         modifier: Modifier,
-        transformation: SurfaceTransformation,
         onClick: () -> Unit,
     ) {
-        val schedule = rowSchedule(row, snapshot)
+        val schedule = remember(row, snapshot.timeFormat) { rowSchedule(row, snapshot.timeFormat) }
         TitleCard(
             onClick = onClick,
             modifier = modifier.semantics {
                 contentDescription = listOf(rowTitle(row), schedule, "Open details").joinToString(", ")
             },
-            transformation = transformation,
             title = { Text(rowTitle(row)) },
             subtitle = { Text(if (pending) "Pending · $schedule" else schedule) },
         )
@@ -240,8 +233,7 @@ class WearActivity : ComponentActivity() {
 
     @Composable
     private fun DetailScreen(row: Any, snapshot: WearSnapshot) {
-        val listState = rememberTransformingLazyColumnState()
-        val transformation = rememberTransformationSpec()
+        val listState = rememberScalingLazyListState()
         val haptics = LocalHapticFeedback.current
         ScreenScaffold(
             scrollState = listState,
@@ -252,17 +244,16 @@ class WearActivity : ComponentActivity() {
                 }) { Text("Phone") }
             },
         ) { contentPadding ->
-            TransformingLazyColumn(state = listState, contentPadding = contentPadding) {
+            ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
                 item {
-                    ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                    ListHeader(Modifier.fillMaxWidth()) {
                         Text(if (row is WearTask) "Task" else "Event")
                     }
                 }
                 item {
                     TitleCard(
                         onClick = {},
-                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                        transformation = SurfaceTransformation(transformation),
+                        modifier = Modifier.fillMaxWidth(),
                         title = { Text(rowTitle(row)) },
                         subtitle = { Text(detailSchedule(row, snapshot)) },
                         content = {
@@ -278,8 +269,7 @@ class WearActivity : ComponentActivity() {
                         ActionButton(
                             label = "Complete",
                             secondary = "Mark this task done",
-                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                            transformation = SurfaceTransformation(transformation),
+                            modifier = Modifier.fillMaxWidth(),
                             colors = true,
                         ) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -290,8 +280,7 @@ class WearActivity : ComponentActivity() {
                         ActionButton(
                             label = "Tomorrow",
                             secondary = "Move the due date",
-                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
-                            transformation = SurfaceTransformation(transformation),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             command(snapshot, row, WearCommandOp.RESCHEDULE_TASK, snapshot.tomorrow())
@@ -306,7 +295,6 @@ class WearActivity : ComponentActivity() {
     private fun ActionButton(
         label: String,
         modifier: Modifier,
-        transformation: SurfaceTransformation,
         secondary: String? = null,
         colors: Boolean = false,
         onClick: () -> Unit,
@@ -314,7 +302,6 @@ class WearActivity : ComponentActivity() {
         Button(
             onClick = onClick,
             modifier = modifier,
-            transformation = transformation,
             colors = if (colors) ButtonDefaults.filledVariantButtonColors() else ButtonDefaults.buttonColors(),
             label = { Text(label) },
             secondaryLabel = secondary?.let { value -> { Text(value) } },
@@ -366,9 +353,9 @@ private fun dayHeader(day: Long, today: Long) = when (day) {
     today + 1 -> "Tomorrow"
     else -> WearFormatting.date(day)
 }
-private fun rowSchedule(row: Any, snapshot: WearSnapshot) = when (row) {
-    is WearEvent -> WearFormatting.eventTime(row, snapshot.timeFormat)
-    is WearTask -> WearFormatting.taskDue(row, snapshot.timeFormat)
+private fun rowSchedule(row: Any, timeFormat: calino.malinov.ski.wearcontract.WearTimeFormat) = when (row) {
+    is WearEvent -> WearFormatting.eventTime(row, timeFormat)
+    is WearTask -> WearFormatting.taskDue(row, timeFormat)
     else -> ""
 }
 private fun detailSchedule(row: Any, snapshot: WearSnapshot) = when (row) {

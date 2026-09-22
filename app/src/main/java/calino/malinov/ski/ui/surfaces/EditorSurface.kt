@@ -686,7 +686,7 @@ private fun EditorValueRow(
             .heightIn(min = 58.dp)
             .then(pressModifier)
             .semantics(mergeDescendants = true) {
-                contentDescription = "$label: $value"
+                contentDescription = if (label == value) label else "$label: $value"
                 if (!enabled) stateDescription = "Unavailable"
             }
             .padding(vertical = 8.dp),
@@ -815,7 +815,13 @@ private fun DescriptionSection(
     EditorValueRow(
         icon = calino.malinov.ski.ui.components.CalinoIcon.Note,
         label = fieldLabel,
-        value = draft.description?.takeIf { it.isNotBlank() } ?: "Add ${fieldLabel.lowercase(Locale.US)}",
+        // Once expanded, the editor below owns the value. Repeating its first
+        // two raw Markdown lines here made the description appear duplicated.
+        value = if (open) {
+            fieldLabel
+        } else {
+            draft.description?.takeIf { it.isNotBlank() } ?: "Add ${fieldLabel.lowercase(Locale.US)}"
+        },
         onClick = onOpen,
     )
     EditorReveal(open) {
@@ -825,6 +831,8 @@ private fun DescriptionSection(
             modifier = Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 12.dp),
             label = fieldLabel,
             placeholder = "Add more detail",
+            // The expanded row immediately above already names this field.
+            showLabel = false,
         )
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -297,6 +298,7 @@ fun CalinoMarkdownEditor(
     placeholder: String = "Add more detail",
     minLines: Int = 4,
     maxLines: Int = 8,
+    showLabel: Boolean = true,
 ) {
     var preview by rememberSaveable { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -304,7 +306,9 @@ fun CalinoMarkdownEditor(
             Modifier.fillMaxWidth().semantics { contentDescription = "$label mode" },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+            if (showLabel) {
+                Text(label, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+            }
             Spacer(Modifier.weight(1f))
             TextButton(
                 onClick = { preview = false },
@@ -394,7 +398,12 @@ private fun MarkdownListView(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         block.items.forEachIndexed { index, item ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Row(
+                Modifier.fillMaxWidth(),
+                // Task labels and their controls share a measured centre.
+                // A fixed top inset drifts as Android font scaling changes.
+                verticalAlignment = if (item.checked != null) Alignment.CenterVertically else Alignment.Top,
+            ) {
                 when (item.checked) {
                     null -> Text(
                         if (block.ordered) "${block.start + index}." else "•",
@@ -402,16 +411,29 @@ private fun MarkdownListView(
                         color = CalinoColors.Accent,
                         modifier = Modifier.width(if (block.ordered) 28.dp else 22.dp),
                     )
-                    else -> Checkbox(
-                        checked = item.checked,
-                        onCheckedChange = item.taskIndex?.let { taskIndex ->
-                            { checked -> onTaskCheckedChange?.invoke(taskIndex, checked) }
-                        },
-                        enabled = onTaskCheckedChange != null,
-                        modifier = Modifier.size(44.dp).padding(end = 8.dp).semantics {
-                            contentDescription = if (item.checked) "Mark checklist item open" else "Mark checklist item done"
-                        },
-                    )
+                    else -> {
+                        val taskIndex = item.taskIndex
+                        Checkbox(
+                            checked = item.checked,
+                            onCheckedChange = if (taskIndex != null && onTaskCheckedChange != null) {
+                                { checked -> onTaskCheckedChange(taskIndex, checked) }
+                            } else {
+                                null
+                            },
+                            enabled = onTaskCheckedChange != null,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = CalinoColors.Accent,
+                                uncheckedColor = CalinoColors.Ink3,
+                                checkmarkColor = CalinoColors.OnAccent,
+                                disabledCheckedColor = CalinoColors.Accent,
+                                disabledUncheckedColor = CalinoColors.Ink3,
+                                disabledIndeterminateColor = CalinoColors.Accent,
+                            ),
+                            modifier = Modifier.size(44.dp).padding(end = 8.dp).semantics {
+                                contentDescription = if (item.checked) "Mark checklist item open" else "Mark checklist item done"
+                            },
+                        )
+                    }
                 }
                 Column(
                     Modifier.weight(1f),
@@ -497,7 +519,10 @@ private fun CalinoMarkdownInlineText(
     }
     val uriHandler = LocalUriHandler.current
     val hasLinks = annotated.getStringAnnotations(MarkdownLinkAnnotation, 0, annotated.length).isNotEmpty()
-    val resolvedStyle = if (textAlign == null) style else style.copy(textAlign = textAlign)
+    // ClickableText is built on BasicText and does not supply Text's
+    // LocalContentColor fallback. An unspecified color therefore rendered the
+    // ordinary words around a link as black in the dark palette.
+    val resolvedStyle = style.copy(color = palette.Ink, textAlign = textAlign ?: style.textAlign)
     val semanticsModifier = modifier.semantics { contentDescription = annotated.text }
     if (hasLinks) {
         ClickableText(

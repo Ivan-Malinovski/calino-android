@@ -3,12 +3,19 @@
 ## Watch presentation
 
 The watch application follows the Wear Material 3 canonical scrolling pattern:
-one `AppScaffold`, a `ScreenScaffold` per screen, and a
-`TransformingLazyColumn` for round-screen scaling, scroll indication and rotary
-input. Agenda and task records use watch-native cards rather than phone rows;
+one `AppScaffold`, a `ScreenScaffold` per screen, and a `ScalingLazyColumn` with
+native-style round-screen scaling, rotary input and scroll indication. Agenda and task records use
+watch-native cards rather than phone rows;
 details are a shallow second screen with full-width watch buttons and system
 back handling. The UI is designed on black, keeps one vertical reading path,
 and exposes schedule information in both visible labels and semantics.
+
+The column deliberately avoids Material 3's `TransformingLazyColumn` and its
+per-item `transformedHeight`/`SurfaceTransformation`. Physical Pixel Watch 2
+profiling showed that path was UI-thread/input-bound and its default effect did
+not match native apps on the device. The mature `ScalingLazyColumn` restores
+native-like edge scaling and crown handling without that pipeline. Derived
+agenda/task groups and formatted schedules are cached per snapshot as well.
 
 The Tile remains a glanceable agenda projection with direct record and task
 completion targets. The complication remains deliberately terse: its title is
