@@ -3,6 +3,27 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.5.0 — 2026-09-22
+
+Calino 0.5.0 adds an experimental Wear OS companion, native Markdown rendering for event descriptions and task notes, and clearer recovery after a rejected task write.
+
+### Added
+
+- **Experimental Wear OS companion.** A paired watch receives a bounded agenda and open-task snapshot from the phone over the local Wear Data Layer. It includes Agenda and Tasks views, record details, a Tile, a complication, and task Complete/Tomorrow actions that the phone validates and applies.
+- **Native Markdown in event descriptions and task notes.** Safe web/mail links and GFM task-list checkboxes render in the detail surfaces; checkbox edits use the existing calendar write path.
+- **ADB sideload for Wear OS.** The separate `calino-wear-release.apk` is not distributed through Google Play. Connect ADB to a compatible watch and install it with `adb -s <watch-serial> install -r calino-wear-release.apk`.
+
+### Fixed
+
+- Rejected task saves and deletes restore the editor with the draft intact instead of leaving an invisible modal overlay blocking the app.
+- An HTTP 404 during a task update no longer claims that the whole calendar disappeared; it identifies the missing calendar-or-task and asks the person to refresh.
+
+### Known limitations
+
+- The Wear OS companion is an experimental personal project made to try Calino with a Pixel Watch. Its future and long-term maintenance are uncertain; the phone remains the only CalDAV client and source of truth.
+- The reported Nextcloud task-update 404 can still prevent a task change from syncing; this release fixes the resulting app freeze but has not established why that server returns 404. (#6)
+- Calino-local reminders for events in read-only calendars are not yet supported. (#5)
+
 ## 0.4.0 — 2026-09-21
 
 ### Added

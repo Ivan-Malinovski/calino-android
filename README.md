@@ -29,6 +29,7 @@ dataset keeps the interface explorable without connecting a server.
   foldable posture and hinge handling is also included.
 - Optional AI Photo Import using a provider and API key chosen by the user.
   Images are sent directly to that provider; Calino does not bundle a key.
+- Experimental Wear OS companion with a local phone-to-watch agenda, tasks, Tile, complication, and acknowledged task actions.
 
 ## How it works
 
@@ -104,11 +105,11 @@ From the repository root:
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The generated debug APK is `app/build/outputs/apk/debug/app-debug.apk` and is
-labelled **Calino Debug**. Release remains `calino.malinov.ski`; debug is
-`calino.malinov.ski.nativeDebug`, so both can be installed at once. Release signing
-is not configured yet, so `assembleRelease` produces an unsigned release APK
-until a release key is added.
+The generated debug APK is `app/build/outputs/apk/debug/app-debug.apk` and is labelled **Calino Debug**. Release remains `calino.malinov.ski`; debug is `calino.malinov.ski.nativeDebug`, so both can be installed at once. Tagged releases publish `app-release.apk` and a separate `calino-wear-release.apk`.
+
+The Wear companion is experimental and is not distributed through Google Play; currently it must be sideloaded to a compatible watch with ADB, for example `adb -s <watch-serial> install -r calino-wear-release.apk`. Its long-term future is uncertain.
+
+`assembleRelease` uses the private release key when the ignored `keystore/release.keystore.properties` and keystore are present; otherwise it produces an unsigned APK. The key is never committed.
 
 The app is routinely validated on the `calino-poc-api36` API 36 emulator for
 build, unit tests, install/launch, and accessibility hierarchy. Live CalDAV and
