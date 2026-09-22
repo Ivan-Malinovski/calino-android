@@ -92,7 +92,21 @@ object RepositorySyncRetryPolicy {
     fun retryNeeded(
         transientReadFailure: Boolean,
         pendingStates: Iterable<PendingChangeState>,
-    ): Boolean = transientReadFailure || pendingStates.any { it != PendingChangeState.DEAD_LETTER }
+    ): Boolean = transientReadFailure || pendingStates
+        .takeWhile { it != PendingChangeState.DEAD_LETTER }
+        .any { it != PendingChangeState.DEAD_LETTER }
+
+    fun pendingQueueMessage(pendingStates: Iterable<PendingChangeState>): String? {
+        val states = pendingStates.toList()
+        val deadLetterAt = states.indexOf(PendingChangeState.DEAD_LETTER)
+        return when {
+            deadLetterAt == 0 && states.drop(1).any { it != PendingChangeState.DEAD_LETTER } ->
+                "A failed saved change is blocking later queued changes. Review queued changes."
+            deadLetterAt >= 0 -> "A saved change needs attention. Review queued changes."
+            states.isNotEmpty() -> "Some saved changes are waiting to sync."
+            else -> null
+        }
+    }
 }
 
 /** One calendar to read, with the credentials that reach it. */
@@ -534,7 +548,6 @@ class CalDavRepository(
             publish()
 
             val pendingStates = pendingStore?.snapshot().orEmpty().map { it.state }
-            val writesWaiting = pendingStates.any { it != PendingChangeState.DEAD_LETTER }
             val retryNeeded = RepositorySyncRetryPolicy.retryNeeded(
                 transientReadFailure = loaded.retryableFailure,
                 pendingStates = pendingStates,
@@ -543,7 +556,7 @@ class CalDavRepository(
                 warnings = loaded.warnings,
                 retryNeeded = retryNeeded,
                 message = loaded.warnings.firstOrNull()
-                    ?: if (writesWaiting) "Some saved changes are waiting to sync." else null,
+                    ?: RepositorySyncRetryPolicy.pendingQueueMessage(pendingStates),
             )
         } catch (_: AccountSyncAbortedException) {
             cache.evictExcept(sources.map { it.calendar.url }.toSet())

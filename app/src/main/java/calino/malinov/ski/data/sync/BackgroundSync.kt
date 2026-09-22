@@ -175,7 +175,7 @@ class BackgroundSyncWorker(
                         Result.retry()
                     } else {
                         status.recordSuccess()
-                        result.warnings.firstOrNull()?.let(status::recordFailure)
+                        (result.warnings.firstOrNull() ?: result.message)?.let(status::recordFailure)
                         Result.success()
                     }
                 }

@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import calino.malinov.ski.data.sync.BackgroundSyncCadence
@@ -78,6 +80,7 @@ class BackgroundSyncSettingsTest : CalinoUiTest() {
     private fun openSyncSettings() {
         compose.openRoute("Settings")
         compose.waitForIdle()
+        compose.onNodeWithTag("Settings section rail").performScrollToIndex(6)
         compose.onNodeWithContentDescription("Sync settings")
             .performScrollTo()
             .performClick()

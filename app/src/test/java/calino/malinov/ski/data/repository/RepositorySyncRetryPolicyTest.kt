@@ -26,11 +26,26 @@ class RepositorySyncRetryPolicyTest {
     }
 
     @Test
-    fun aDeadLetterDoesNotMaskAnotherPendingWrite() {
+    fun deadLetterAtFifoHeadBlocksLaterWritesWithoutWorkerRetry() {
         assertTrue(
+            RepositorySyncRetryPolicy.pendingQueueMessage(
+                listOf(PendingChangeState.DEAD_LETTER, PendingChangeState.PENDING),
+            )?.contains("blocking later queued changes") == true,
+        )
+        assertFalse(
             RepositorySyncRetryPolicy.retryNeeded(
                 transientReadFailure = false,
                 pendingStates = listOf(PendingChangeState.DEAD_LETTER, PendingChangeState.PENDING),
+            ),
+        )
+    }
+
+    @Test
+    fun pendingWritesBeforeADeadLetterRemainRetryable() {
+        assertTrue(
+            RepositorySyncRetryPolicy.retryNeeded(
+                transientReadFailure = false,
+                pendingStates = listOf(PendingChangeState.PENDING, PendingChangeState.DEAD_LETTER),
             ),
         )
     }
