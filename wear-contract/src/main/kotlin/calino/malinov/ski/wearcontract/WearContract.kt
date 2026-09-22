@@ -139,6 +139,8 @@ object WearCodec {
     private fun DataInputStream.count(): Int = readInt().also { require(it in 0..10000) }
 }
 
+private const val MINUTES_PER_DAY = 24 * 60L
+
 object WearSelection {
     fun agenda(snapshot: WearSnapshot, today: Long? = null): List<Any> = (
         snapshot.events + snapshot.tasks.filter { task ->
@@ -146,7 +148,33 @@ object WearSelection {
         }
         )
         .sortedWith(compareBy<Any> { day(it) }.thenBy { rank(it) }.thenBy { minute(it) }.thenBy { title(it) })
-    fun tile(snapshot: WearSnapshot, today: Long): List<Any> = agenda(snapshot, today).take(5)
+    /** Open agenda rows still worth glancing at: completed tasks and events that already ended drop out. */
+    fun upcoming(snapshot: WearSnapshot, today: Long, minuteNow: Int? = null): List<Any> =
+        agenda(snapshot, today).filterNot { row ->
+            (row is WearTask && row.done) || (minuteNow != null && ended(row, today, minuteNow))
+        }
+    fun tile(snapshot: WearSnapshot, today: Long, minuteNow: Int? = null, limit: Int = 5): List<Any> =
+        upcoming(snapshot, today, minuteNow).take(limit)
+
+    /** True for an event whose end is at or before the given moment; tasks never end. */
+    fun ended(row: Any, today: Long, minuteNow: Int): Boolean {
+        if (row !is WearEvent) return false
+        if (row.allDay || row.startMinute == null) return row.endEpochDay < today
+        val end = row.startEpochDay * MINUTES_PER_DAY + row.startMinute + (row.durationMinutes ?: 0)
+        return end <= today * MINUTES_PER_DAY + minuteNow
+    }
+
+    /** Instants after [fromMillis] where current/next selection can change: event starts, ends and midnights. */
+    fun boundaries(snapshot: WearSnapshot, fromMillis: Long, horizonMillis: Long = 24 * 60 * 60 * 1000L): List<Long> {
+        val until = fromMillis + horizonMillis
+        val today = WearFormatting.today(snapshot, fromMillis)
+        val midnights = (1..2L).map { WearFormatting.instantMillis(snapshot, today + it, 0) }
+        val edges = snapshot.events.filterNot { it.allDay || it.startMinute == null }.flatMap { event ->
+            val start = WearFormatting.instantMillis(snapshot, event.startEpochDay, event.startMinute!!)
+            listOf(start, start + (event.durationMinutes ?: 0) * 60_000L)
+        }
+        return (midnights + edges).filter { it in (fromMillis + 1)..until }.distinct().sorted()
+    }
     fun agendaGroups(snapshot: WearSnapshot, today: Long): List<AgendaGroup> =
         agenda(snapshot, today).groupBy(::day).toSortedMap().map { AgendaGroup(it.key, it.value) }
 
@@ -213,6 +241,7 @@ object WearFormatting {
     private val dateFormatter = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH)
     private val time24Formatter = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
     private val time12Formatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+    private val time12CompactFormatter = DateTimeFormatter.ofPattern("h:mma", Locale.ENGLISH)
 
     fun today(snapshot: WearSnapshot, nowMillis: Long = System.currentTimeMillis()): Long =
         Instant.ofEpochMilli(nowMillis).atZone(zone(snapshot.phoneZone)).toLocalDate().toEpochDay()
@@ -220,6 +249,20 @@ object WearFormatting {
     fun minuteNow(snapshot: WearSnapshot, nowMillis: Long = System.currentTimeMillis()): Int {
         val time = Instant.ofEpochMilli(nowMillis).atZone(zone(snapshot.phoneZone)).toLocalTime()
         return time.hour * 60 + time.minute
+    }
+
+    fun instantMillis(snapshot: WearSnapshot, epochDay: Long, minuteOfDay: Int): Long =
+        LocalDate.ofEpochDay(epochDay).atStartOfDay(zone(snapshot.phoneZone)).plusMinutes(minuteOfDay.toLong())
+            .toInstant().toEpochMilli()
+
+    fun time(minuteOfDay: Int, format: WearTimeFormat, compact: Boolean = false): String {
+        val normalized = Math.floorMod(minuteOfDay, 24 * 60)
+        val value = LocalTime.of(normalized / 60, normalized % 60)
+        return when {
+            format == WearTimeFormat.H24 -> value.format(time24Formatter)
+            compact -> value.format(time12CompactFormatter).lowercase(Locale.ENGLISH)
+            else -> value.format(time12Formatter)
+        }
     }
 
     fun date(epochDay: Long): String = LocalDate.ofEpochDay(epochDay).format(dateFormatter)
@@ -258,12 +301,6 @@ object WearFormatting {
 
     fun taskRow(task: WearTask, format: WearTimeFormat): String =
         "${taskDue(task, format)} · ${task.title}"
-
-    private fun time(minuteOfDay: Int, format: WearTimeFormat): String {
-        val normalized = Math.floorMod(minuteOfDay, 24 * 60)
-        val value = LocalTime.of(normalized / 60, normalized % 60)
-        return value.format(if (format == WearTimeFormat.H24) time24Formatter else time12Formatter)
-    }
 
     private fun zone(id: String): ZoneId = runCatching { ZoneId.of(id) }.getOrDefault(ZoneId.of("UTC"))
 }

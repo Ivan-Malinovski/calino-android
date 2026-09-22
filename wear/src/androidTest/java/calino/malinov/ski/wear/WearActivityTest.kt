@@ -10,6 +10,10 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
@@ -51,13 +55,13 @@ class WearActivityTest {
         capture("wear-agenda.png")
         compose.onRoot().performTouchInput { swipeUp() }
         capture("wear-agenda-record.png")
-        compose.onNodeWithContentDescription("Design review, 10:00–10:45, Open details")
+        compose.onNodeWithContentDescription("Design review, 10:00–10:45", substring = true)
             .performClick()
         compose.onNodeWithText("Event").assertIsDisplayed()
         compose.onNodeWithText("Studio · Room 4").assertIsDisplayed()
         capture("wear-event-detail.png")
         Espresso.pressBack()
-        compose.onNodeWithContentDescription("Design review, 10:00–10:45, Open details")
+        compose.onNodeWithContentDescription("Design review, 10:00–10:45", substring = true)
             .assertIsDisplayed()
     }
 
@@ -66,7 +70,8 @@ class WearActivityTest {
         fixture.install(fixtureSnapshot())
         compose.activityRule.scenario.recreate()
 
-        compose.onNodeWithText("Show tasks").performClick()
+        compose.onRoot().performTouchInput { swipeLeft() }
+        compose.onNodeWithText("Tasks").assertIsDisplayed()
         compose.onNodeWithText("Today").assertIsDisplayed()
         capture("wear-tasks.png")
         repeat(2) { compose.onRoot().performTouchInput { swipeUp() } }
@@ -81,6 +86,71 @@ class WearActivityTest {
         compose.onRoot().performTouchInput { swipeUp() }
         compose.onNodeWithText("Phone").assertIsDisplayed()
         capture("wear-phone-edge-action.png")
+    }
+
+    @Test
+    fun completingATaskConfirmsAndReturnsToTheList() {
+        fixture.install(fixtureSnapshot())
+        compose.activityRule.scenario.recreate()
+
+        compose.onRoot().performTouchInput { swipeLeft() }
+        compose.onNodeWithContentDescription("Submit report", substring = true).performClick()
+        compose.onNodeWithText("Complete").performScrollTo().performClick()
+        capture("wear-task-completed.png")
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("No open tasks").fetchSemanticsNodes().isNotEmpty()
+        }
+        capture("wear-tasks-empty.png")
+    }
+
+    @Test
+    fun emptyTodayStillShowsTheDay() {
+        fixture.install(fixtureSnapshot().copy(events = emptyList(), tasks = emptyList()))
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithText("Today").assertIsDisplayed()
+        compose.onNodeWithText("Nothing planned").assertIsDisplayed()
+    }
+
+    @Test
+    fun alreadyDueTomorrowHidesTheTomorrowAction() {
+        val snapshot = fixtureSnapshot()
+        fixture.install(snapshot.copy(tasks = snapshot.tasks.map { it.copy(dueEpochDay = fixture.today + 1) }))
+        compose.activityRule.scenario.recreate()
+
+        compose.onRoot().performTouchInput { swipeLeft() }
+        compose.onNodeWithContentDescription("Submit report", substring = true).performClick()
+        compose.onNodeWithText("Complete").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Tomorrow").assertCountEquals(0)
+    }
+
+    @Test
+    fun agendaLandsOnTheNextEventAndDimsEndedOnes() {
+        // A zone where it is currently 12:xx, so "earlier today" always exists.
+        val zone = java.time.ZoneOffset.ofHours(12 - java.time.LocalTime.now(java.time.ZoneOffset.UTC).hour)
+        val today = LocalDate.now(zone).toEpochDay()
+        val base = fixtureSnapshot()
+        val template = base.events.first().copy(startEpochDay = today, endEpochDay = today, durationMinutes = 30)
+        val ended = (0 until 4).map { template.copy(occurrenceId = "past-$it", title = "Past $it", startMinute = 8 * 60 + it * 40) }
+        fixture.install(
+            base.copy(
+                phoneZone = zone.id,
+                events = ended + listOf(
+                    template.copy(occurrenceId = "next", title = "Standup", startMinute = 13 * 60 + 30),
+                    template.copy(occurrenceId = "later", title = "Design review", startMinute = 15 * 60, color = 0xff4caf50),
+                    template.copy(occurrenceId = "tomorrow", title = "Dentist", startMinute = 9 * 60, startEpochDay = today + 1, endEpochDay = today + 1, color = 0xffe57373),
+                ),
+                tasks = base.tasks.map { it.copy(dueEpochDay = today) },
+            ),
+        )
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithContentDescription("Standup", substring = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Past 0", substring = true).assertIsNotDisplayed()
+        compose.onNodeWithContentDescription("Past 3, 10:00–10:30, ended", substring = true).assertExists()
+        // The column fades in after recreation; an immediate capture is blank.
+        Thread.sleep(1500)
+        capture("wear-agenda-now.png")
     }
 
     private fun fixtureSnapshot() = WearSnapshot(
@@ -143,7 +213,10 @@ private class WearFixtureRule : ExternalResource() {
         clearFiles()
     }
 
-    override fun after() = clearFiles()
+    /** `-e keepFixture true` leaves the snapshot behind for driving the Tile/complication by hand. */
+    override fun after() {
+        if (InstrumentationRegistry.getArguments().getString("keepFixture") != "true") clearFiles()
+    }
 
     fun install(snapshot: WearSnapshot) {
         WearStore(context()).saveSnapshot(WearCodec.encodeSnapshot(snapshot))

@@ -5,38 +5,60 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.foundation.pager.HorizontalPager
+import androidx.wear.compose.foundation.pager.rememberPagerState
+import androidx.wear.compose.material3.AnimatedPage
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.ConfirmationDialogDefaults
 import androidx.wear.compose.material3.EdgeButton
+import androidx.wear.compose.material3.HorizontalPagerScaffold
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.SuccessConfirmationDialog
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.TitleCard
-import androidx.wear.remote.interactions.RemoteActivityHelper
+import androidx.wear.compose.material3.confirmationDialogCurvedText
+import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
-import androidx.wear.compose.navigation.SwipeDismissableNavHost
+import androidx.wear.remote.interactions.RemoteActivityHelper
+import calino.malinov.ski.wearcontract.AgendaGroup
 import calino.malinov.ski.wearcontract.TaskGroup
+import calino.malinov.ski.wearcontract.WearAck
 import calino.malinov.ski.wearcontract.WearAckResult
 import calino.malinov.ski.wearcontract.WearCommand
 import calino.malinov.ski.wearcontract.WearCommandOp
@@ -46,12 +68,13 @@ import calino.malinov.ski.wearcontract.WearReducedState
 import calino.malinov.ski.wearcontract.WearSelection
 import calino.malinov.ski.wearcontract.WearSnapshot
 import calino.malinov.ski.wearcontract.WearTask
+import calino.malinov.ski.wearcontract.WearTimeFormat
+import calino.malinov.ski.wearcontract.WearWriteState
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
+import kotlinx.coroutines.delay
 
 class WearActivity : ComponentActivity() {
     private var requestedDetailId by mutableStateOf<String?>(null)
@@ -73,7 +96,7 @@ class WearActivity : ComponentActivity() {
     private fun WearRoot() {
         val revision by WearStateUpdates.revision.collectAsStateWithLifecycle()
         val state = remember(revision) { WearStore(this).state() }
-        var tasksOnly by remember { mutableStateOf(false) }
+        val nowMillis = rememberMinuteClock()
         var selectedId by remember { mutableStateOf(requestedDetailId) }
         val navController = rememberSwipeDismissableNavController()
         LaunchedEffect(requestedDetailId) {
@@ -84,7 +107,7 @@ class WearActivity : ComponentActivity() {
         }
         SwipeDismissableNavHost(navController, startDestination = "overview") {
             composable("overview") {
-                OverviewScreen(state, tasksOnly, { tasksOnly = !tasksOnly }) {
+                OverviewPager(state, nowMillis) {
                     selectedId = rowId(it)
                     navController.navigate("detail")
                 }
@@ -92,7 +115,7 @@ class WearActivity : ComponentActivity() {
             composable("detail") {
                 val selected = state.snapshot?.record(selectedId)
                 if (selected != null) {
-                    DetailScreen(selected, requireNotNull(state.snapshot))
+                    DetailScreen(selected, requireNotNull(state.snapshot)) { navController.popBackStack() }
                 } else {
                     LaunchedEffect(Unit) { navController.popBackStack() }
                 }
@@ -100,97 +123,60 @@ class WearActivity : ComponentActivity() {
         }
     }
 
+    /** Agenda and Tasks as sibling pages: the list starts with content, not a mode switch. */
     @Composable
-    private fun OverviewScreen(
-        state: WearReducedState,
-        tasksOnly: Boolean,
-        onToggleMode: () -> Unit,
-        onOpen: (Any) -> Unit,
-    ) {
-        val listState = rememberScalingLazyListState()
+    private fun OverviewPager(state: WearReducedState, nowMillis: Long, onOpen: (Any) -> Unit) {
+        val pagerState = rememberPagerState(pageCount = { 2 })
+        HorizontalPagerScaffold(pagerState = pagerState) {
+            HorizontalPager(state = pagerState) { page ->
+                AnimatedPage(pageIndex = page, pagerState = pagerState) {
+                    if (page == 0) AgendaPage(state, nowMillis, onOpen) else TasksPage(state, nowMillis, onOpen)
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun AgendaPage(state: WearReducedState, nowMillis: Long, onOpen: (Any) -> Unit) {
         val snapshot = state.snapshot
-        val today = snapshot?.today() ?: LocalDate.now().toEpochDay()
-        val agendaGroups = remember(snapshot, today) {
-            snapshot?.let { WearSelection.agendaGroups(it, today) }.orEmpty()
+        val today = snapshot?.let { WearFormatting.today(it, nowMillis) }
+        val minute = snapshot?.let { WearFormatting.minuteNow(it, nowMillis) } ?: 0
+        val groups = remember(snapshot, today) {
+            if (snapshot == null || today == null) emptyList() else {
+                val groups = WearSelection.agendaGroups(snapshot, today)
+                if (groups.any { it.epochDay == today }) groups else listOf(AgendaGroup(today, emptyList())) + groups
+            }
         }
-        val taskSections = remember(snapshot, today) {
-            snapshot?.let { WearSelection.taskSections(it, today) }.orEmpty()
+        val status = statusCount(state, nowMillis)
+        // Land on what is happening now rather than on the morning's finished meetings.
+        val focusIndex = remember(snapshot == null) {
+            if (today == null) 1 else {
+                var index = 1 + status
+                for (group in groups) {
+                    index += 1
+                    val live = group.rows.indexOfFirst { !WearSelection.ended(it, today, minute) }
+                    if (live >= 0) return@remember if (group.epochDay == today && live == 0) index - 1 else index + live
+                    index += group.rows.size.coerceAtLeast(1)
+                }
+                1
+            }
         }
-        val staleLabel = remember(snapshot) { snapshot?.let(::staleHeader) }
+        val listState = rememberScalingLazyListState(initialCenterItemIndex = focusIndex)
+        // Also after recreation, where restored scroll state would otherwise win over "now".
+        LaunchedEffect(snapshot == null) { if (snapshot != null) listState.scrollToItem(focusIndex) }
         ScreenScaffold(scrollState = listState) { contentPadding ->
             ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
-                item {
-                    ListHeader(Modifier.fillMaxWidth()) {
-                        Text(if (tasksOnly) "Tasks" else "Agenda")
-                    }
-                }
-                item {
-                    Button(
-                        onClick = onToggleMode,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(if (tasksOnly) "Show agenda" else "Show tasks") },
-                    )
-                }
-                state.notices.firstOrNull()?.let { acknowledgement ->
-                    item {
-                        InfoCard(
-                            title = acknowledgement.notice(),
-                            subtitle = "Watch action",
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-                if (snapshot == null) {
-                    item {
-                        InfoCard(
-                            title = "Set up Calino on your phone",
-                            subtitle = "The watch will sync automatically",
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                } else {
-                    staleLabel?.let { label ->
-                        item {
-                            InfoCard(
-                                title = label,
-                                subtitle = "Cached calendar",
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                item { PageHeader("Agenda") }
+                statusItems(state, nowMillis)
+                if (snapshot != null && today != null) {
+                    groups.forEach { group ->
+                        item(key = "day-${group.epochDay}") { SectionHeader(dayHeader(group.epochDay, today)) }
+                        if (group.rows.isEmpty()) {
+                            item(key = "empty-${group.epochDay}") { EmptyRow("Nothing planned") }
                         }
-                    }
-                    if (tasksOnly) {
-                        taskSections.forEach { section ->
-                            item {
-                                ListHeader(Modifier.fillMaxWidth()) {
-                                    Text(section.group.label())
-                                }
-                            }
-                            items(section.tasks.size, key = { section.tasks[it].occurrenceId }) { index ->
-                                val task = section.tasks[index]
-                                RecordCard(
-                                    task,
-                                    snapshot,
-                                    task.writeState.name == "PENDING",
-                                    Modifier.fillMaxWidth(),
-                                ) { onOpen(task) }
-                            }
-                        }
-                    } else {
-                        agendaGroups.forEach { group ->
-                            item {
-                                ListHeader(Modifier.fillMaxWidth()) {
-                                    Text(dayHeader(group.epochDay, today))
-                                }
-                            }
-                            items(group.rows.size, key = { rowId(group.rows[it]) }) { index ->
-                                val row = group.rows[index]
-                                RecordCard(
-                                    row,
-                                    snapshot,
-                                    row is WearTask && row.writeState.name == "PENDING",
-                                    Modifier.fillMaxWidth(),
-                                ) { onOpen(row) }
-                            }
+                        items(group.rows.size, key = { rowId(group.rows[it]) }) { index ->
+                            val row = group.rows[index]
+                            RecordCard(row, snapshot, ended = WearSelection.ended(row, today, minute)) { onOpen(row) }
                         }
                     }
                 }
@@ -199,42 +185,119 @@ class WearActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun InfoCard(
-        title: String,
-        subtitle: String,
-        modifier: Modifier,
-    ) {
-        TitleCard(
-            onClick = {},
-            modifier = modifier,
-            title = { Text(title) },
-            subtitle = { Text(subtitle) },
-        )
+    private fun TasksPage(state: WearReducedState, nowMillis: Long, onOpen: (Any) -> Unit) {
+        val snapshot = state.snapshot
+        val today = snapshot?.let { WearFormatting.today(it, nowMillis) }
+        val sections = remember(snapshot, today) {
+            if (snapshot == null || today == null) emptyList() else WearSelection.taskSections(snapshot, today)
+        }
+        val listState = rememberScalingLazyListState()
+        ScreenScaffold(scrollState = listState) { contentPadding ->
+            ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
+                item { PageHeader("Tasks") }
+                statusItems(state, nowMillis)
+                if (snapshot != null) {
+                    if (sections.isEmpty()) item { EmptyRow("No open tasks") }
+                    sections.forEach { section ->
+                        item(key = "group-${section.group}") { SectionHeader(section.group.label()) }
+                        items(section.tasks.size, key = { section.tasks[it].occurrenceId }) { index ->
+                            val task = section.tasks[index]
+                            RecordCard(task, snapshot, ended = false) { onOpen(task) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun statusCount(state: WearReducedState, nowMillis: Long) =
+        listOfNotNull(state.recentNotice(nowMillis), state.snapshot?.let { staleLabel(it, nowMillis) }).size +
+            if (state.snapshot == null) 1 else 0
+
+    private fun ScalingLazyListScope.statusItems(state: WearReducedState, nowMillis: Long) {
+        state.recentNotice(nowMillis)?.let { acknowledgement ->
+            item(key = "notice") { InfoBlock(acknowledgement.notice(), "Watch action") }
+        }
+        val snapshot = state.snapshot
+        if (snapshot == null) {
+            item(key = "setup") { InfoBlock("Set up Calino on your phone", "The watch will sync automatically") }
+        } else {
+            staleLabel(snapshot, nowMillis)?.let { label -> item(key = "stale") { InfoBlock(label, "Cached calendar") } }
+        }
     }
 
     @Composable
-    private fun RecordCard(
-        row: Any,
-        snapshot: WearSnapshot,
-        pending: Boolean,
-        modifier: Modifier,
-        onClick: () -> Unit,
-    ) {
+    private fun PageHeader(title: String) {
+        ListHeader(Modifier.fillMaxWidth()) { Text(title) }
+    }
+
+    @Composable
+    private fun SectionHeader(title: String) {
+        ListHeader(Modifier.fillMaxWidth()) {
+            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    @Composable
+    private fun EmptyRow(text: String) {
+        Text(
+            text,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+    }
+
+    /** Status text on a quiet surface; it is information, so it is not a tappable card. */
+    @Composable
+    private fun InfoBlock(title: String, subtitle: String) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.large)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    @Composable
+    private fun ColorDot(row: Any) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(Color(rowColor(row))))
+    }
+
+    @Composable
+    private fun RecordCard(row: Any, snapshot: WearSnapshot, ended: Boolean, onClick: () -> Unit) {
         val schedule = remember(row, snapshot.timeFormat) { rowSchedule(row, snapshot.timeFormat) }
+        val pending = row is WearTask && row.writeState == WearWriteState.PENDING
         TitleCard(
             onClick = onClick,
-            modifier = modifier.semantics {
-                contentDescription = listOf(rowTitle(row), schedule, "Open details").joinToString(", ")
+            modifier = Modifier
+                .fillMaxWidth()
+                .alpha(if (ended) ENDED_ALPHA else 1f)
+                .semantics {
+                    contentDescription = listOfNotNull(rowTitle(row), schedule, "ended".takeIf { ended }, "Open details")
+                        .joinToString(", ")
+                },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ColorDot(row)
+                    Text(rowTitle(row), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
             },
-            title = { Text(rowTitle(row)) },
             subtitle = { Text(if (pending) "Pending · $schedule" else schedule) },
         )
     }
 
     @Composable
-    private fun DetailScreen(row: Any, snapshot: WearSnapshot) {
+    private fun DetailScreen(row: Any, snapshot: WearSnapshot, onFinished: () -> Unit) {
         val listState = rememberScalingLazyListState()
         val haptics = LocalHapticFeedback.current
+        var confirmation by remember { mutableStateOf<String?>(null) }
+        val tomorrow = WearFormatting.today(snapshot) + 1
         ScreenScaffold(
             scrollState = listState,
             edgeButton = {
@@ -245,70 +308,72 @@ class WearActivity : ComponentActivity() {
             },
         ) { contentPadding ->
             ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
+                item { PageHeader(if (row is WearTask) "Task" else "Event") }
                 item {
-                    ListHeader(Modifier.fillMaxWidth()) {
-                        Text(if (row is WearTask) "Task" else "Event")
-                    }
-                }
-                item {
-                    TitleCard(
-                        onClick = {},
-                        modifier = Modifier.fillMaxWidth(),
-                        title = { Text(rowTitle(row)) },
-                        subtitle = { Text(detailSchedule(row, snapshot)) },
-                        content = {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(rowMetadata(row))
-                                if (row is WearTask) Text(WearFormatting.taskStatus(row))
-                            }
-                        },
-                    )
-                }
-                if (row is WearTask) {
-                    item {
-                        ActionButton(
-                            label = "Complete",
-                            secondary = "Mark this task done",
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = true,
-                        ) {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            command(snapshot, row, WearCommandOp.SET_TASK_DONE, null)
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ColorDot(row)
+                            Text(rowTitle(row), style = MaterialTheme.typography.titleMedium)
+                        }
+                        Text(detailSchedule(row, snapshot), style = MaterialTheme.typography.bodyMedium)
+                        rowMetadata(row).takeIf(String::isNotBlank)?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (row is WearTask) {
+                            Text(WearFormatting.taskStatus(row), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
+                }
+                if (row is WearTask && !row.done) {
                     item {
-                        ActionButton(
-                            label = "Tomorrow",
-                            secondary = "Move the due date",
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
+                        ActionButton("Complete", "Mark this task done", filled = true) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            command(snapshot, row, WearCommandOp.RESCHEDULE_TASK, snapshot.tomorrow())
+                            command(snapshot, row, WearCommandOp.SET_TASK_DONE, null)
+                            confirmation = "Completed"
+                        }
+                    }
+                    if (row.dueEpochDay != tomorrow) {
+                        item {
+                            ActionButton("Tomorrow", "Move the due date") {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                command(snapshot, row, WearCommandOp.RESCHEDULE_TASK, tomorrow)
+                                confirmation = "Moved"
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    @Composable
-    private fun ActionButton(
-        label: String,
-        modifier: Modifier,
-        secondary: String? = null,
-        colors: Boolean = false,
-        onClick: () -> Unit,
-    ) {
-        Button(
-            onClick = onClick,
-            modifier = modifier,
-            colors = if (colors) ButtonDefaults.filledVariantButtonColors() else ButtonDefaults.buttonColors(),
-            label = { Text(label) },
-            secondaryLabel = secondary?.let { value -> { Text(value) } },
+        val curvedStyle = ConfirmationDialogDefaults.curvedTextStyle
+        SuccessConfirmationDialog(
+            visible = confirmation != null,
+            onDismissRequest = {
+                confirmation = null
+                onFinished()
+            },
+            curvedText = { confirmationDialogCurvedText(confirmation.orEmpty(), curvedStyle) },
         )
     }
 
-    private fun command(snapshot: WearSnapshot, task: WearTask, op: WearCommandOp, target: LocalDate?) {
+    @Composable
+    private fun ActionButton(label: String, secondary: String, filled: Boolean = false, onClick: () -> Unit) {
+        Button(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+            colors = if (filled) ButtonDefaults.filledVariantButtonColors() else ButtonDefaults.buttonColors(),
+            label = { Text(label) },
+            secondaryLabel = { Text(secondary) },
+        )
+    }
+
+    private fun command(snapshot: WearSnapshot, task: WearTask, op: WearCommandOp, targetEpochDay: Long?) {
         WearCommands.send(
             this,
             WearCommand(
@@ -319,7 +384,7 @@ class WearActivity : ComponentActivity() {
                 observedDueEpochDay = task.dueEpochDay,
                 sourceEpoch = snapshot.sourceEpoch,
                 sourceSequence = snapshot.sequence,
-                targetEpochDay = target?.toEpochDay(),
+                targetEpochDay = targetEpochDay,
             ),
         )
     }
@@ -336,13 +401,27 @@ class WearActivity : ComponentActivity() {
     }
 }
 
-private fun Intent.detailId(): String? = data?.takeIf { it.scheme == "calino-wear" && it.host == "detail" }
-    ?.pathSegments?.firstOrNull()
-private fun WearSnapshot.record(id: String?): Any? = (events + tasks).firstOrNull { rowId(it) == id }
-private fun WearSnapshot.today(): Long = LocalDate.now(ZoneId.of(phoneZone)).toEpochDay()
-private fun WearSnapshot.tomorrow(): LocalDate = LocalDate.now(ZoneId.of(phoneZone)).plusDays(1)
-private fun rowId(row: Any) = when (row) { is WearEvent -> row.occurrenceId; is WearTask -> row.occurrenceId; else -> row.hashCode().toString() }
-private fun rowTitle(row: Any) = when (row) { is WearEvent -> row.title; is WearTask -> row.title; else -> "" }
+private const val ENDED_ALPHA = 0.5f
+private const val NOTICE_MILLIS = 10 * 60 * 1000L
+
+/** Wall clock that ticks on the minute, so ended events dim and "today" rolls over while open. */
+@Composable
+private fun rememberMinuteClock(): Long {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000 - now % 60_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    return now
+}
+
+internal const val EXTRA_OCCURRENCE_ID = "occurrenceId"
+
+/** Complications deep-link with a URI; tiles can only pass extras. */
+private fun Intent.detailId(): String? = getStringExtra(EXTRA_OCCURRENCE_ID)
+    ?: data?.takeIf { it.scheme == "calino-wear" && it.host == "detail" }?.pathSegments?.firstOrNull()
 private fun rowMetadata(row: Any) = when (row) {
     is WearEvent -> listOfNotNull(row.calendar, row.location).filter(String::isNotBlank).joinToString(" · ")
     is WearTask -> listOfNotNull(row.calendar, row.category).filter(String::isNotBlank).joinToString(" · ")
@@ -353,7 +432,7 @@ private fun dayHeader(day: Long, today: Long) = when (day) {
     today + 1 -> "Tomorrow"
     else -> WearFormatting.date(day)
 }
-private fun rowSchedule(row: Any, timeFormat: calino.malinov.ski.wearcontract.WearTimeFormat) = when (row) {
+private fun rowSchedule(row: Any, timeFormat: WearTimeFormat) = when (row) {
     is WearEvent -> WearFormatting.eventTime(row, timeFormat)
     is WearTask -> WearFormatting.taskDue(row, timeFormat)
     else -> ""
@@ -364,15 +443,30 @@ private fun detailSchedule(row: Any, snapshot: WearSnapshot) = when (row) {
     else -> ""
 }
 private fun TaskGroup.label() = name.lowercase().replaceFirstChar(Char::uppercase)
-private fun calino.malinov.ski.wearcontract.WearAck.notice() = when (result) {
+
+/** Failures stay until replaced; confirmations fade out of the list after a few minutes. */
+private fun WearReducedState.recentNotice(nowMillis: Long): WearAck? = notices.firstOrNull()?.takeIf {
+    it.result !in setOf(WearAckResult.APPLIED, WearAckResult.QUEUED, WearAckResult.NOOP) ||
+        nowMillis - it.atMillis < NOTICE_MILLIS
+}
+private fun WearAck.notice() = when (result) {
     WearAckResult.APPLIED -> "Saved on phone"
     WearAckResult.QUEUED -> "Saved · waiting to sync"
     WearAckResult.NOOP -> "Already up to date"
-    else -> message ?: result.name.lowercase()
+    else -> message ?: result.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 }
-private fun staleHeader(snapshot: WearSnapshot): String? {
-    val age = Duration.between(Instant.ofEpochMilli(snapshot.generatedAtMillis), Instant.now())
-    return if (snapshot.stale || age.toHours() > 1 || snapshot.truncated) {
-        "Updated ${age.toHours().coerceAtLeast(0)}h ago${if (snapshot.truncated) " · shortened" else ""}"
-    } else null
+private fun staleLabel(snapshot: WearSnapshot, nowMillis: Long): String? {
+    val age = Duration.between(Instant.ofEpochMilli(snapshot.generatedAtMillis), Instant.ofEpochMilli(nowMillis))
+    val old = snapshot.stale || age.toHours() >= 1
+    val parts = listOfNotNull(
+        "Updated ${ago(age)}".takeIf { old },
+        "Some items hidden".takeIf { snapshot.truncated },
+    )
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+private fun ago(age: Duration) = when {
+    age.toMinutes() < 1 -> "just now"
+    age.toHours() < 1 -> "${age.toMinutes()}m ago"
+    age.toDays() < 2 -> "${age.toHours()}h ago"
+    else -> "${age.toDays()}d ago"
 }

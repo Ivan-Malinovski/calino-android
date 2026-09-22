@@ -52,7 +52,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("androidx.wear:wear-remote-interactions:1.1.0")
     implementation("androidx.wear.tiles:tiles:1.5.0")
-    implementation("androidx.wear.tiles:tiles-material:1.5.0")
+    implementation("androidx.wear.protolayout:protolayout-material3:1.3.0")
     implementation("androidx.wear.watchface:watchface-complications-data-source-ktx:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.google.guava:guava:33.4.8-android")

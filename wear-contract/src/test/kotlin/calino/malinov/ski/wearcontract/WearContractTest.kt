@@ -72,6 +72,30 @@ class WearContractTest {
         assertEquals(2, WearSelection.tile(snapshot, 1).size)
     }
 
+    @Test fun endedEventsAndCompletedTasksLeaveTheGlance() {
+        val snapshot = snapshot()
+        assertEquals(listOf("e@1", "t@1"), WearSelection.upcoming(snapshot, 1, 629).map(::id))
+        assertEquals(listOf("t@1"), WearSelection.upcoming(snapshot, 1, 630).map(::id))
+        val done = snapshot.copy(tasks = snapshot.tasks.map { it.copy(done = true) })
+        assertEquals(listOf("e@1"), WearSelection.tile(done, 1, 0).map(::id))
+        val allDay = snapshot.events.first().copy(allDay = true, startMinute = null, endEpochDay = 2)
+        assertFalse(WearSelection.ended(allDay, 2, 1439))
+        assertTrue(WearSelection.ended(allDay, 3, 0))
+    }
+
+    @Test fun boundariesFollowEventEdgesAndMidnight() {
+        val snapshot = snapshot()
+        val dayStart = WearFormatting.instantMillis(snapshot, 1, 0)
+        assertEquals(
+            listOf(dayStart + 600 * 60_000L, dayStart + 630 * 60_000L, WearFormatting.instantMillis(snapshot, 2, 0)),
+            WearSelection.boundaries(snapshot, dayStart),
+        )
+        assertEquals("10:00", WearFormatting.time(600, WearTimeFormat.H24))
+        assertEquals("1:05pm", WearFormatting.time(785, WearTimeFormat.H12, compact = true))
+    }
+
+    private fun id(row: Any) = when (row) { is WearEvent -> row.occurrenceId; is WearTask -> row.occurrenceId; else -> "" }
+
     @Test fun reducerOptimisticallyUpdatesAndRollsBackTerminalFailure() {
         val command = WearCommand(
             uuid = "u",

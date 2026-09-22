@@ -17,10 +17,30 @@ not match native apps on the device. The mature `ScalingLazyColumn` restores
 native-like edge scaling and crown handling without that pipeline. Derived
 agenda/task groups and formatted schedules are cached per snapshot as well.
 
-The Tile remains a glanceable agenda projection with direct record and task
-completion targets. The complication remains deliberately terse: its title is
-the primary datum and a tap opens that exact watch record. Neither surface
-owns data or starts network work.
+Agenda and Tasks are sibling pages of a horizontal pager rather than a mode
+toggle. Cards carry the calendar colour as a dot. Today's ended events are
+dimmed and the agenda opens on what is happening now; a day with nothing
+planned still shows its header. Complete and Tomorrow confirm with a success
+dialog and return to the list; Tomorrow is hidden when the task is already due
+then. Status blocks (setup, stale cache, recent action result) are plain text,
+not tappable cards, and success notices drop out after ten minutes.
+
+The Tile is a Material 3 (`protolayout-material3`) agenda projection: two or
+three one-line rows (colour dot, start time or weekday, title) and an edge
+button that opens the app with the overflow count. Rows open that record's
+watch detail; task completion deliberately lives there rather than behind a
+small tile target. The Tile publishes one timeline entry per event start/end
+and midnight, so ended events drop off without a phone publish. Tiles can only
+launch exported activities, so rows target `WearActivity` with an
+`occurrenceId` extra.
+
+The complication remains deliberately terse. Time is the primary datum: a live
+countdown to the next event today, "Now" for a running event, the weekday for
+later ones, "Late" for an overdue task; the title is the label. It supports
+SHORT_TEXT, LONG_TEXT and RANGED_VALUE (progress through the running event),
+carries a monochrome icon, and publishes a timeline across event boundaries and
+midnight. A tap opens that exact watch record, or the app when there is
+nothing to show. Neither surface owns data or starts network work.
 
 The Wear OS app is a companion, not another Calino client. `:wear` depends only
 on the Android-free `:wear-contract`; it never depends on `:app`, DAV, phone
@@ -73,8 +93,8 @@ makes every replay safe.
 
 The watch shows Agenda, Tasks and compact details. Events are read-only; tasks
 offer Complete and Tomorrow, with richer work delegated to an exact phone deep
-link via `RemoteActivityHelper`. The Tile is limited to five selected rows and
-the complication priority is overdue task, current/next event, then next task.
+link via `RemoteActivityHelper`. The Tile shows at most three upcoming rows
+(two on small screens) and the complication priority is overdue task, current/next event, then next task.
 The phone remains the only reminder scheduler.
 
 ## Privacy payload
