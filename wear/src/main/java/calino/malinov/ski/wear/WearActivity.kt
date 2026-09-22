@@ -4,17 +4,11 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,9 +20,19 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
+import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
+import androidx.wear.compose.material3.AppScaffold
+import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
+import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.ScreenScaffold
+import androidx.wear.compose.material3.SurfaceTransformation
 import androidx.wear.compose.material3.Text
-import androidx.wear.compose.material3.TextButton
+import androidx.wear.compose.material3.TitleCard
+import androidx.wear.compose.material3.lazy.rememberTransformationSpec
+import androidx.wear.compose.material3.lazy.transformedHeight
 import androidx.wear.remote.interactions.RemoteActivityHelper
 import calino.malinov.ski.wearcontract.TaskGroup
 import calino.malinov.ski.wearcontract.WearAckResult
@@ -40,12 +44,12 @@ import calino.malinov.ski.wearcontract.WearReducedState
 import calino.malinov.ski.wearcontract.WearSelection
 import calino.malinov.ski.wearcontract.WearSnapshot
 import calino.malinov.ski.wearcontract.WearTask
-import calino.malinov.ski.wearcontract.WearTimeFormat
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 class WearActivity : ComponentActivity() {
     private var requestedDetailId by mutableStateOf<String?>(null)
@@ -54,7 +58,7 @@ class WearActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestedDetailId = intent.detailId()
         WearCommands.replay(this)
-        setContent { MaterialTheme { WearRoot() } }
+        setContent { MaterialTheme { AppScaffold { WearRoot() } } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -63,137 +67,243 @@ class WearActivity : ComponentActivity() {
         requestedDetailId = intent.detailId()
     }
 
-    @Composable private fun WearRoot() {
+    @Composable
+    private fun WearRoot() {
         val revision by WearStateUpdates.revision.collectAsStateWithLifecycle()
         val state = remember(revision) { WearStore(this).state() }
         var tasksOnly by remember { mutableStateOf(false) }
         var selectedId by remember { mutableStateOf(requestedDetailId) }
         LaunchedEffect(requestedDetailId) { selectedId = requestedDetailId }
-        val selected = state.snapshot?.let { snapshot ->
-            (snapshot.events + snapshot.tasks).firstOrNull {
-                when (it) {
-                    is WearEvent -> it.occurrenceId == selectedId
-                    is WearTask -> it.occurrenceId == selectedId
-                    else -> false
-                }
-            }
+        val selected = state.snapshot?.record(selectedId)
+        if (selected != null) {
+            val selectedSnapshot = requireNotNull(state.snapshot)
+            BackHandler { selectedId = null }
+            DetailScreen(selected, selectedSnapshot, onClose = { selectedId = null })
+        } else {
+            OverviewScreen(state, tasksOnly, { tasksOnly = !tasksOnly }) { selectedId = rowId(it) }
         }
+    }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            item {
-                Text(if (tasksOnly) "Tasks" else "Agenda")
-                TextButton(onClick = { tasksOnly = !tasksOnly }) {
-                    Text(if (tasksOnly) "Agenda" else "Tasks")
-                }
-            }
-            state.notices.firstOrNull()?.let { acknowledgement ->
+    @Composable
+    private fun OverviewScreen(
+        state: WearReducedState,
+        tasksOnly: Boolean,
+        onToggleMode: () -> Unit,
+        onOpen: (Any) -> Unit,
+    ) {
+        val listState = rememberTransformingLazyColumnState()
+        val transformation = rememberTransformationSpec()
+        val snapshot = state.snapshot
+        val today = snapshot?.today() ?: LocalDate.now().toEpochDay()
+        ScreenScaffold(scrollState = listState) { contentPadding ->
+            TransformingLazyColumn(state = listState, contentPadding = contentPadding) {
                 item {
-                    Text(
-                        when (acknowledgement.result) {
-                            WearAckResult.APPLIED -> "Saved on phone"
-                            WearAckResult.QUEUED -> "Saved · waiting to sync"
-                            WearAckResult.NOOP -> "Already up to date"
-                            else -> acknowledgement.message ?: acknowledgement.result.name.lowercase()
+                    ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                        Text(if (tasksOnly) "Tasks" else "Agenda")
+                    }
+                }
+                item {
+                    Button(
+                        onClick = onToggleMode,
+                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                        transformation = SurfaceTransformation(transformation),
+                        label = { Text(if (tasksOnly) "Show agenda" else "Show tasks") },
+                        secondaryLabel = {
+                            Text(if (tasksOnly) "Events and due tasks" else "Open tasks by due date")
                         },
                     )
                 }
-            }
-            val snapshot = state.snapshot
-            if (snapshot == null) {
-                item { Text("Set up Calino on your phone") }
-            } else {
-                staleHeader(snapshot)?.let { label -> item { Text(label) } }
-                if (tasksOnly) {
-                    WearSelection.taskSections(snapshot, WearFormatting.today(snapshot)).forEach { section ->
-                        item { Text(section.group.label()) }
-                        items(section.tasks, key = { it.occurrenceId }) { task ->
-                            TaskRow(task, snapshot, state, onOpen = { selectedId = task.occurrenceId })
-                        }
+                state.notices.firstOrNull()?.let { acknowledgement ->
+                    item {
+                        InfoCard(
+                            title = acknowledgement.notice(),
+                            subtitle = "Watch action",
+                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                            transformation = SurfaceTransformation(transformation),
+                        )
+                    }
+                }
+                if (snapshot == null) {
+                    item {
+                        InfoCard(
+                            title = "Set up Calino on your phone",
+                            subtitle = "The watch will sync automatically",
+                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                            transformation = SurfaceTransformation(transformation),
+                        )
                     }
                 } else {
-                    WearSelection.agendaGroups(snapshot, WearFormatting.today(snapshot)).forEach { group ->
-                        item { Text(WearFormatting.date(group.epochDay)) }
-                        items(group.rows, key = ::rowId) { row ->
-                            AgendaRow(row, snapshot, state, onOpen = { selectedId = rowId(row) })
+                    staleHeader(snapshot)?.let { label ->
+                        item {
+                            InfoCard(
+                                title = label,
+                                subtitle = "Cached calendar",
+                                modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                                transformation = SurfaceTransformation(transformation),
+                            )
+                        }
+                    }
+                    if (tasksOnly) {
+                        WearSelection.taskSections(snapshot, today).forEach { section ->
+                            item {
+                                ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                                    Text(section.group.label())
+                                }
+                            }
+                            items(section.tasks.size, key = { section.tasks[it].occurrenceId }) { index ->
+                                val task = section.tasks[index]
+                                RecordCard(
+                                    task,
+                                    snapshot,
+                                    task.writeState.name == "PENDING",
+                                    Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                                    SurfaceTransformation(transformation),
+                                ) { onOpen(task) }
+                            }
+                        }
+                    } else {
+                        WearSelection.agendaGroups(snapshot, today).forEach { group ->
+                            item {
+                                ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                                    Text(dayHeader(group.epochDay, today))
+                                }
+                            }
+                            items(group.rows.size, key = { rowId(group.rows[it]) }) { index ->
+                                val row = group.rows[index]
+                                RecordCard(
+                                    row,
+                                    snapshot,
+                                    row is WearTask && row.writeState.name == "PENDING",
+                                    Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                                    SurfaceTransformation(transformation),
+                                ) { onOpen(row) }
+                            }
                         }
                     }
                 }
             }
-            selected?.let { row ->
-                item { Detail(row, state.snapshot, onClose = { selectedId = null }) }
-            }
         }
     }
 
-    @Composable private fun AgendaRow(
+    @Composable
+    private fun InfoCard(
+        title: String,
+        subtitle: String,
+        modifier: Modifier,
+        transformation: SurfaceTransformation,
+    ) {
+        TitleCard(
+            onClick = {},
+            modifier = modifier,
+            transformation = transformation,
+            title = { Text(title) },
+            subtitle = { Text(subtitle) },
+        )
+    }
+
+    @Composable
+    private fun RecordCard(
         row: Any,
         snapshot: WearSnapshot,
-        state: WearReducedState,
-        onOpen: () -> Unit,
+        pending: Boolean,
+        modifier: Modifier,
+        transformation: SurfaceTransformation,
+        onClick: () -> Unit,
     ) {
-        val pending = state.pendingCommandIds.isNotEmpty() && row is WearTask && row.writeState.name == "PENDING"
-        val label = when (row) {
-            is WearEvent -> WearFormatting.eventRow(row, snapshot.timeFormat)
-            is WearTask -> WearFormatting.taskRow(row, snapshot.timeFormat)
-            else -> rowTitle(row)
-        }
-        val spoken = (if (pending) "Pending. " else "") + label
-        Row(
-            Modifier.fillMaxWidth()
-                .clickable(onClick = onOpen)
-                .semantics { contentDescription = "$spoken. Open details" }
-                .padding(6.dp),
-        ) {
-            Text((if (pending) "Pending · " else "") + label)
+        val schedule = rowSchedule(row, snapshot)
+        TitleCard(
+            onClick = onClick,
+            modifier = modifier.semantics {
+                contentDescription = listOf(rowTitle(row), schedule, "Open details").joinToString(", ")
+            },
+            transformation = transformation,
+            title = { Text(rowTitle(row)) },
+            subtitle = { Text(if (pending) "Pending · $schedule" else schedule) },
+        )
+    }
+
+    @Composable
+    private fun DetailScreen(row: Any, snapshot: WearSnapshot, onClose: () -> Unit) {
+        val listState = rememberTransformingLazyColumnState()
+        val transformation = rememberTransformationSpec()
+        ScreenScaffold(scrollState = listState) { contentPadding ->
+            TransformingLazyColumn(state = listState, contentPadding = contentPadding) {
+                item {
+                    ListHeader(Modifier.fillMaxWidth().transformedHeight(this, transformation)) {
+                        Text(if (row is WearTask) "Task" else "Event")
+                    }
+                }
+                item {
+                    TitleCard(
+                        onClick = {},
+                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                        transformation = SurfaceTransformation(transformation),
+                        title = { Text(rowTitle(row)) },
+                        subtitle = { Text(detailSchedule(row, snapshot)) },
+                        content = {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(rowMetadata(row))
+                                if (row is WearTask) Text(WearFormatting.taskStatus(row))
+                            }
+                        },
+                    )
+                }
+                if (row is WearTask) {
+                    item {
+                        ActionButton(
+                            label = "Complete",
+                            secondary = "Mark this task done",
+                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                            transformation = SurfaceTransformation(transformation),
+                            colors = true,
+                        ) { command(snapshot, row, WearCommandOp.SET_TASK_DONE, null) }
+                    }
+                    item {
+                        ActionButton(
+                            label = "Tomorrow",
+                            secondary = "Move the due date",
+                            modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                            transformation = SurfaceTransformation(transformation),
+                        ) { command(snapshot, row, WearCommandOp.RESCHEDULE_TASK, snapshot.tomorrow()) }
+                    }
+                }
+                item {
+                    ActionButton(
+                        label = "Open on phone",
+                        secondary = "View and edit full details",
+                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                        transformation = SurfaceTransformation(transformation),
+                    ) { openPhone(row) }
+                }
+                item {
+                    ActionButton(
+                        label = "Back",
+                        modifier = Modifier.fillMaxWidth().transformedHeight(this, transformation),
+                        transformation = SurfaceTransformation(transformation),
+                        onClick = onClose,
+                    )
+                }
+            }
         }
     }
 
-    @Composable private fun TaskRow(
-        task: WearTask,
-        snapshot: WearSnapshot,
-        state: WearReducedState,
-        onOpen: () -> Unit,
-    ) = AgendaRow(task, snapshot, state, onOpen)
-
-    @Composable private fun Detail(row: Any, snapshot: WearSnapshot?, onClose: () -> Unit) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(rowTitle(row))
-            when (row) {
-                is WearEvent -> {
-                    Text(WearFormatting.eventDate(row))
-                    Text(WearFormatting.eventTime(row, snapshot?.timeFormat ?: WearTimeFormat.H24))
-                    Text("Calendar · ${row.calendar}")
-                    row.location?.takeIf(String::isNotBlank)?.let { Text("Location · $it") }
-                }
-                is WearTask -> {
-                    Text(WearFormatting.taskDue(row, snapshot?.timeFormat ?: WearTimeFormat.H24))
-                    Text("Status · ${WearFormatting.taskStatus(row)}")
-                    Text("Calendar · ${row.calendar}")
-                    row.category?.takeIf(String::isNotBlank)?.let { Text("Category · $it") }
-                }
-            }
-            TextButton(onClick = { openPhone(row) }) { Text("Open on phone") }
-            if (row is WearTask && snapshot != null) {
-                Row {
-                    TextButton(onClick = { command(snapshot, row, WearCommandOp.SET_TASK_DONE, null) }) {
-                        Text("Complete")
-                    }
-                    TextButton(onClick = {
-                        command(
-                            snapshot,
-                            row,
-                            WearCommandOp.RESCHEDULE_TASK,
-                            LocalDate.ofEpochDay(WearFormatting.today(snapshot)).plusDays(1),
-                        )
-                    }) { Text("Tomorrow") }
-                }
-            }
-            TextButton(onClick = onClose) { Text("Close") }
-        }
+    @Composable
+    private fun ActionButton(
+        label: String,
+        modifier: Modifier,
+        transformation: SurfaceTransformation,
+        secondary: String? = null,
+        colors: Boolean = false,
+        onClick: () -> Unit,
+    ) {
+        Button(
+            onClick = onClick,
+            modifier = modifier,
+            transformation = transformation,
+            colors = if (colors) ButtonDefaults.filledVariantButtonColors() else ButtonDefaults.buttonColors(),
+            label = { Text(label) },
+            secondaryLabel = secondary?.let { value -> { Text(value) } },
+        )
     }
 
     private fun command(snapshot: WearSnapshot, task: WearTask, op: WearCommandOp, target: LocalDate?) {
@@ -226,21 +336,38 @@ class WearActivity : ComponentActivity() {
 
 private fun Intent.detailId(): String? = data?.takeIf { it.scheme == "calino-wear" && it.host == "detail" }
     ?.pathSegments?.firstOrNull()
-
-private fun rowId(row: Any) = when (row) {
-    is WearEvent -> row.occurrenceId
-    is WearTask -> row.occurrenceId
-    else -> row.hashCode().toString()
-}
-
-private fun rowTitle(row: Any) = when (row) {
-    is WearEvent -> row.title
-    is WearTask -> row.title
+private fun WearSnapshot.record(id: String?): Any? = (events + tasks).firstOrNull { rowId(it) == id }
+private fun WearSnapshot.today(): Long = LocalDate.now(ZoneId.of(phoneZone)).toEpochDay()
+private fun WearSnapshot.tomorrow(): LocalDate = LocalDate.now(ZoneId.of(phoneZone)).plusDays(1)
+private fun rowId(row: Any) = when (row) { is WearEvent -> row.occurrenceId; is WearTask -> row.occurrenceId; else -> row.hashCode().toString() }
+private fun rowTitle(row: Any) = when (row) { is WearEvent -> row.title; is WearTask -> row.title; else -> "" }
+private fun rowMetadata(row: Any) = when (row) {
+    is WearEvent -> listOfNotNull(row.calendar, row.location).filter(String::isNotBlank).joinToString(" · ")
+    is WearTask -> listOfNotNull(row.calendar, row.category).filter(String::isNotBlank).joinToString(" · ")
     else -> ""
 }
-
+private fun dayHeader(day: Long, today: Long) = when (day) {
+    today -> "Today"
+    today + 1 -> "Tomorrow"
+    else -> WearFormatting.date(day)
+}
+private fun rowSchedule(row: Any, snapshot: WearSnapshot) = when (row) {
+    is WearEvent -> WearFormatting.eventTime(row, snapshot.timeFormat)
+    is WearTask -> WearFormatting.taskDue(row, snapshot.timeFormat)
+    else -> ""
+}
+private fun detailSchedule(row: Any, snapshot: WearSnapshot) = when (row) {
+    is WearEvent -> "${WearFormatting.eventDate(row)} · ${WearFormatting.eventTime(row, snapshot.timeFormat)}"
+    is WearTask -> WearFormatting.taskDue(row, snapshot.timeFormat)
+    else -> ""
+}
 private fun TaskGroup.label() = name.lowercase().replaceFirstChar(Char::uppercase)
-
+private fun calino.malinov.ski.wearcontract.WearAck.notice() = when (result) {
+    WearAckResult.APPLIED -> "Saved on phone"
+    WearAckResult.QUEUED -> "Saved · waiting to sync"
+    WearAckResult.NOOP -> "Already up to date"
+    else -> message ?: result.name.lowercase()
+}
 private fun staleHeader(snapshot: WearSnapshot): String? {
     val age = Duration.between(Instant.ofEpochMilli(snapshot.generatedAtMillis), Instant.now())
     return if (snapshot.stale || age.toHours() > 1 || snapshot.truncated) {

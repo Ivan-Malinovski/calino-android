@@ -1,5 +1,20 @@
 # Wear OS companion — binding decisions
 
+## Watch presentation
+
+The watch application follows the Wear Material 3 canonical scrolling pattern:
+one `AppScaffold`, a `ScreenScaffold` per screen, and a
+`TransformingLazyColumn` for round-screen scaling, scroll indication and rotary
+input. Agenda and task records use watch-native cards rather than phone rows;
+details are a shallow second screen with full-width watch buttons and system
+back handling. The UI is designed on black, keeps one vertical reading path,
+and exposes schedule information in both visible labels and semantics.
+
+The Tile remains a glanceable agenda projection with direct record and task
+completion targets. The complication remains deliberately terse: its title is
+the primary datum and a tap opens that exact watch record. Neither surface
+owns data or starts network work.
+
 The Wear OS app is a companion, not another Calino client. `:wear` depends only
 on the Android-free `:wear-contract`; it never depends on `:app`, DAV, phone
 models, repository code, credentials, contacts, journals, raw iCalendar, or a
