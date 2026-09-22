@@ -77,6 +77,12 @@ fun CalinoSearchSheet(
     onQueryChange: (String) -> Unit,
     snapshot: CalinoSnapshot,
     baseDate: LocalDate,
+    journalsEnabled: Boolean,
+    searchRecords: suspend (
+        query: String,
+        journalsEnabled: Boolean,
+        contactsEnabled: Boolean,
+    ) -> Set<String>?,
     onSelect: (CalinoSearchResult) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -87,8 +93,70 @@ fun CalinoSearchSheet(
     val contactsEnabled = LocalCalinoPreferences.current.contactsEnabled
     var filtersVisible by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(CalinoSearchOptions()) }
-    val results = remember(query, snapshot.revision, baseDate, contactsEnabled, options) {
-        searchCalino(snapshot, query, baseDate, contactsEnabled = contactsEnabled, options = options)
+    var candidateQuery by remember { mutableStateOf<String?>(null) }
+    var candidateSnapshot by remember { mutableStateOf<CalinoSnapshot?>(null) }
+    var candidateRevision by remember { mutableLongStateOf(-1L) }
+    var candidateIds by remember { mutableStateOf<Set<String>?>(null) }
+    var candidateLoading by remember { mutableStateOf(false) }
+    LaunchedEffect(query, snapshot, baseDate, journalsEnabled, contactsEnabled, options) {
+        candidateLoading = true
+        candidateQuery = query
+        candidateSnapshot = snapshot
+        candidateRevision = snapshot.revision
+        candidateIds = if (query.isBlank()) {
+            emptySet()
+        } else {
+            val indexed = searchRecords(query, journalsEnabled, contactsEnabled)
+            if (indexed == null) {
+                null
+            } else {
+                val indexedMatches = searchCalino(
+                    snapshot = snapshot,
+                    query = query,
+                    baseDate = baseDate,
+                    contactsEnabled = contactsEnabled,
+                    journalsEnabled = journalsEnabled,
+                    options = options,
+                    candidateRecordIds = indexed,
+                )
+                val sparseTypes = buildSet {
+                    if (CalinoSearchRecordType.Events in options.recordTypes && indexedMatches.events.size < 8) add(CalinoSearchRecordType.Events)
+                    if (CalinoSearchRecordType.Tasks in options.recordTypes && indexedMatches.tasks.size < 8) add(CalinoSearchRecordType.Tasks)
+                    if (journalsEnabled && CalinoSearchRecordType.Journal in options.recordTypes && indexedMatches.journals.size < 8) add(CalinoSearchRecordType.Journal)
+                    if (contactsEnabled && CalinoSearchRecordType.Contacts in options.recordTypes && indexedMatches.contacts.size < 8) add(CalinoSearchRecordType.Contacts)
+                }
+                val fallback = if (sparseTypes.isNotEmpty()) {
+                    searchCalino(
+                        snapshot = snapshot,
+                        query = query,
+                        baseDate = baseDate,
+                        contactsEnabled = contactsEnabled,
+                        journalsEnabled = journalsEnabled,
+                        options = options.copy(recordTypes = sparseTypes),
+                    )
+                } else {
+                    CalinoSearchGroups()
+                }
+                indexedMatches.withSparseSearchFallback(fallback, sparseTypes)
+            }
+        }
+        candidateLoading = false
+    }
+    val candidatesReady = !candidateLoading && candidateQuery == query && candidateSnapshot == snapshot &&
+        candidateRevision == snapshot.revision
+    val results = remember(query, snapshot, baseDate, contactsEnabled, journalsEnabled, options, candidateIds, candidatesReady) {
+        searchCalino(
+            snapshot = snapshot,
+            query = query,
+            baseDate = baseDate,
+            contactsEnabled = contactsEnabled,
+            journalsEnabled = journalsEnabled,
+            options = options,
+            // Keep current-snapshot fuzzy results visible while the private
+            // index answers asynchronously. Replacing them with an empty set
+            // made search appear blank between keystrokes.
+            candidateRecordIds = if (candidatesReady) candidateIds else null,
+        )
     }
     val duration = CalinoMotion.SurfaceFadeMillis
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
@@ -230,6 +298,7 @@ fun CalinoSearchSheet(
                                 calendars = snapshot.calendars.map { it.id to it.name },
                                 baseDate = baseDate,
                                 contactsEnabled = contactsEnabled,
+                                journalsEnabled = journalsEnabled,
                                 downloadedOnly = snapshot.sync !is SyncState.Idle,
                                 onChange = { options = it },
                             )
@@ -287,6 +356,7 @@ private fun SearchFilters(
     calendars: List<Pair<String, String>>,
     baseDate: LocalDate,
     contactsEnabled: Boolean,
+    journalsEnabled: Boolean,
     downloadedOnly: Boolean,
     onChange: (CalinoSearchOptions) -> Unit,
 ) {
@@ -299,7 +369,10 @@ private fun SearchFilters(
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SearchFilterLabel("TYPE")
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CalinoSearchRecordType.entries.filter { contactsEnabled || it != CalinoSearchRecordType.Contacts }.forEach { type ->
+            CalinoSearchRecordType.entries.filter {
+                (contactsEnabled || it != CalinoSearchRecordType.Contacts) &&
+                    (journalsEnabled || it != CalinoSearchRecordType.Journal)
+            }.forEach { type ->
                 CalinoChip(type.name, type in options.recordTypes, "filter search by ${type.name.lowercase()}", {
                     onChange(options.copy(recordTypes = if (type in options.recordTypes) options.recordTypes - type else options.recordTypes + type))
                 }, Modifier.heightIn(min = 44.dp))
@@ -331,7 +404,7 @@ private fun SearchFilters(
             }
         }
         if (downloadedOnly) {
-            Text("Search covers downloaded calendar data.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+            Text("Search covers downloaded data.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
         }
     }
 }
@@ -386,7 +459,7 @@ private fun SearchResultRow(result: CalinoSearchResult, onSelect: (CalinoSearchR
             (result.contact.organization.ifBlank { result.contact.emails.firstOrNull()?.value ?: "Contact" })
     }
     Row(
-        Modifier.fillMaxWidth().testTag(result.stableId).clickable { onSelect(result) }.semantics { contentDescription = "$title, $detail" }
+        Modifier.fillMaxWidth().testTag(result.searchTestTag()).clickable { onSelect(result) }.semantics { contentDescription = "$title, $detail" }
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -397,6 +470,16 @@ private fun SearchResultRow(result: CalinoSearchResult, onSelect: (CalinoSearchR
             Text(detail, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+/** Keep the existing record-id tags used by UI tests; AppSearch uses hashed IDs internally. */
+private fun CalinoSearchResult.searchTestTag(): String = when (this) {
+    is CalinoSearchResult.NavigateDate -> stableId
+    is CalinoSearchResult.AddEvent -> stableId
+    is CalinoSearchResult.Event -> "event:${event.id}"
+    is CalinoSearchResult.Task -> "task:${task.id}"
+    is CalinoSearchResult.Journal -> "journal:${journal.id}"
+    is CalinoSearchResult.Contact -> "contact:${contact.id}"
 }
 
 @Composable private fun resultColor(result: CalinoSearchResult): Color = when (result) {

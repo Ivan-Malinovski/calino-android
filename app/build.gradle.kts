@@ -116,6 +116,10 @@ dependencies {
     // on the classpath transitively; declared because this app now uses it
     // directly and a transitive version is not a contract.
     implementation("androidx.core:core-ktx:1.15.0")
+    // Search stays in Calino's private local database. LocalStorage does not
+    // publish these documents to Android or to another app.
+    implementation("androidx.appsearch:appsearch:1.1.0")
+    implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")

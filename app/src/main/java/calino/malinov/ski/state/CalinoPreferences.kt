@@ -449,6 +449,8 @@ fun rememberCalinoPreferences(
     deviceDefaults: CalinoDeviceDefaults = CalinoDeviceDefaults.Fallback,
     /** Called when a reminder preference changes, so the schedule is re-planned. */
     onRemindersChanged: () -> Unit = {},
+    /** Called when Journal or Contacts availability changes so private search can be reconciled. */
+    onSearchAvailabilityChanged: (journalsEnabled: Boolean, contactsEnabled: Boolean) -> Unit = { _, _ -> },
 ): CalinoPreferences {
     var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
     var timeFormatChoice by remember(store) { mutableStateOf(store.loadTimeFormat()) }
@@ -504,9 +506,17 @@ fun rememberCalinoPreferences(
         eventSyncRange = eventSyncRange,
         setEventSyncRange = { value -> eventSyncRange = value; store.saveEventSyncRange(value) },
         journalEnabled = journalEnabled,
-        setJournalEnabled = { value -> journalEnabled = value; store.saveJournalEnabled(value) },
+        setJournalEnabled = { value ->
+            journalEnabled = value
+            store.saveJournalEnabled(value)
+            onSearchAvailabilityChanged(value, contactsEnabled)
+        },
         contactsEnabled = contactsEnabled,
-        setContactsEnabled = { value -> contactsEnabled = value; store.saveContactsEnabled(value) },
+        setContactsEnabled = { value ->
+            contactsEnabled = value
+            store.saveContactsEnabled(value)
+            onSearchAvailabilityChanged(journalEnabled, value)
+        },
         eventRemindersEnabled = eventRemindersEnabled,
         setEventRemindersEnabled = { value ->
             eventRemindersEnabled = value

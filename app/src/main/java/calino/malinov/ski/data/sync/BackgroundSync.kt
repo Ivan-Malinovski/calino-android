@@ -168,7 +168,16 @@ class BackgroundSyncWorker(
         status.recordAttempt()
         return try {
             container.startBackgroundSyncBridges()
-            when (val result = container.syncConnectedAccounts()) {
+            val syncResult = container.syncConnectedAccounts()
+            try {
+                container.reconcilePrivateSearchIndex()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Search has an in-memory fallback and its repository observer
+                // will retry. A local index failure must not retry DAV writes.
+            }
+            when (val result = syncResult) {
                 is calino.malinov.ski.data.repository.RepositorySyncResult.Success -> {
                     if (result.retryNeeded) {
                         status.recordFailure(result.message ?: "Some changes still need to sync.")
