@@ -1,0 +1,128 @@
+package calino.malinov.ski.wear
+
+import android.content.Context
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.test.core.app.ApplicationProvider
+import calino.malinov.ski.wearcontract.WearCodec
+import calino.malinov.ski.wearcontract.WearEvent
+import calino.malinov.ski.wearcontract.WearSnapshot
+import calino.malinov.ski.wearcontract.WearTask
+import calino.malinov.ski.wearcontract.WearTimeFormat
+import calino.malinov.ski.wearcontract.WearWriteState
+import java.io.File
+import java.time.LocalDate
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
+
+class WearActivityTest {
+    private val fixture = WearFixtureRule()
+    private val compose = createAndroidComposeRule<WearActivity>()
+
+    @get:Rule
+    val rules: RuleChain = RuleChain.outerRule(fixture).around(compose)
+
+    @Test
+    fun noPhoneSnapshotExplainsSetup() {
+        compose.onNodeWithText("Set up Calino on your phone").assertIsDisplayed()
+        compose.onNodeWithText("The watch will sync automatically").assertIsDisplayed()
+    }
+
+    @Test
+    fun agendaOpensEventDetailsAndReturns() {
+        fixture.install(fixtureSnapshot())
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithContentDescription("Design review, 10:00–10:45, Open details")
+            .performClick()
+        compose.onNodeWithText("Event").assertIsDisplayed()
+        compose.onNodeWithText("Studio · Room 4").assertIsDisplayed()
+        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("Agenda").assertIsDisplayed()
+    }
+
+    @Test
+    fun tasksModeGroupsTasksAndOpensActions() {
+        fixture.install(fixtureSnapshot())
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithText("Show tasks").performClick()
+        compose.onNodeWithText("Today").assertIsDisplayed()
+        compose.onNodeWithContentDescription(
+            "Submit report, Due ${calino.malinov.ski.wearcontract.WearFormatting.date(fixture.today)}, Open details",
+        ).performClick()
+        compose.onNodeWithText("Complete").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Tomorrow").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Open on phone").performScrollTo().assertIsDisplayed()
+    }
+
+    private fun fixtureSnapshot() = WearSnapshot(
+        sourceEpoch = "test",
+        sequence = 7,
+        generatedAtMillis = System.currentTimeMillis(),
+        phoneZone = "UTC",
+        stale = false,
+        truncated = false,
+        syncStatus = "idle",
+        timeFormat = WearTimeFormat.H24,
+        events = listOf(
+            WearEvent(
+                occurrenceId = "event-1",
+                recordId = "event-record",
+                title = "Design review",
+                calendar = "Studio",
+                color = 0xff8f7cff,
+                startEpochDay = fixture.today,
+                endEpochDay = fixture.today,
+                startMinute = 600,
+                durationMinutes = 45,
+                allDay = false,
+                location = "Room 4",
+                writeState = WearWriteState.NONE,
+            ),
+        ),
+        tasks = listOf(
+            WearTask(
+                occurrenceId = "task-1",
+                recordId = "task-record",
+                title = "Submit report",
+                calendar = "Work",
+                color = 0xff4caf50,
+                dueEpochDay = fixture.today,
+                dueMinute = null,
+                category = "Admin",
+                done = false,
+                progress = 0,
+                writeState = WearWriteState.NONE,
+            ),
+        ),
+    )
+}
+
+private class WearFixtureRule : ExternalResource() {
+    val today: Long = LocalDate.now(java.time.ZoneOffset.UTC).toEpochDay()
+
+    override fun before() {
+        clearFiles()
+    }
+
+    override fun after() = clearFiles()
+
+    fun install(snapshot: WearSnapshot) {
+        WearStore(context()).saveSnapshot(WearCodec.encodeSnapshot(snapshot))
+    }
+
+    private fun clearFiles() {
+        listOf("wear-snapshot.bin", "wear-outbox.bin", "wear-acks.bin").forEach {
+            File(context().filesDir, it).delete()
+        }
+    }
+
+    private fun context(): Context = ApplicationProvider.getApplicationContext()
+}

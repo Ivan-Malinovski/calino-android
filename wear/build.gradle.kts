@@ -12,7 +12,14 @@ val releaseKeystoreProperties = Properties().apply {
 
 android {
     namespace="calino.malinov.ski.wear"; compileSdk=36
-    defaultConfig { applicationId="calino.malinov.ski"; minSdk=30; targetSdk=36; versionCode=2_000_000_000 + p[0]*1_000_000+p[1]*1_000+p[2]; versionName=repositoryVersion }
+    defaultConfig {
+        applicationId="calino.malinov.ski"
+        minSdk=30
+        targetSdk=36
+        versionCode=2_000_000_000 + p[0]*1_000_000+p[1]*1_000+p[2]
+        versionName=repositoryVersion
+        testInstrumentationRunner="androidx.test.runner.AndroidJUnitRunner"
+    }
     signingConfigs {
         if (releaseKeystoreProperties.containsKey("storeFile")) {
             create("release") {
@@ -49,6 +56,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.google.guava:guava:33.4.8-android")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.10.01"))
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 tasks.configureEach {
