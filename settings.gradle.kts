@@ -17,3 +17,5 @@ dependencyResolutionManagement {
 rootProject.name = "calino_android"
 include(":app")
 include(":benchmark")
+include(":wear-contract")
+include(":wear")

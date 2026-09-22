@@ -108,6 +108,8 @@ tasks.configureEach {
 }
 
 dependencies {
+    implementation(project(":wear-contract"))
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))
     implementation("androidx.activity:activity-compose:1.11.0")
     // NotificationCompat, the channel helpers and the permission check. Already

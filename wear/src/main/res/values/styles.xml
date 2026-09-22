@@ -1,0 +1,1 @@
+<resources><style name="Theme.CalinoWear" parent="android:style/Theme.DeviceDefault.NoActionBar"><item name="android:windowLightStatusBar">false</item><item name="android:colorAccent">#C2697F</item></style></resources>

@@ -26,6 +26,7 @@ import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.FixtureRepository
 import calino.malinov.ski.data.repository.ImportingRepository
 import calino.malinov.ski.data.repository.SharedPreferencesWebcalPersistence
+import calino.malinov.ski.data.repository.SyncState
 import calino.malinov.ski.data.repository.WebcalSubscriptionStore
 import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.data.repository.visibleCalendarIds
@@ -43,6 +44,8 @@ import calino.malinov.ski.platform.CalinoAccounts
 import calino.malinov.ski.state.CalinoPreferenceStore
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.widget.CalinoWidgetBridge
+import calino.malinov.ski.wear.PhoneWearBridge
+import calino.malinov.ski.wear.isAuthoritativeWearSource
 import java.io.File
 import java.time.ZoneId
 import java.util.concurrent.CopyOnWriteArrayList
@@ -169,6 +172,8 @@ class CalinoContainer private constructor(context: Context) {
     @Volatile
     private var projecting = false
 
+    @Volatile private var wearing = false
+
     /**
      * The device's own calendars Calino shows, and the wrapper that shows
      * them.
@@ -195,6 +200,7 @@ class CalinoContainer private constructor(context: Context) {
      */
     /** Keeps the home screen widget level with the repository. */
     val widgetBridge = CalinoWidgetBridge(application)
+    val wearBridge = PhoneWearBridge(application)
 
     /**
      * Keeps `CalendarContract` level with the repository, while projection is
@@ -338,6 +344,27 @@ class CalinoContainer private constructor(context: Context) {
         widgetUpdating = true
         observeRepository { repository -> widgetBridge.attach(repository, scope) }
     }
+
+    /** Publishes only real account-backed data; fixture mode is never paired as user data. */
+    fun startWearBridge() {
+        if (wearing) return
+        wearing = true
+        observeRepository { repository ->
+            if (hasAccounts) {
+                wearBridge.attach(repository, scope, ::isWearDataAuthoritative)
+            } else {
+                wearBridge.detach()
+            }
+        }
+    }
+
+    /** Fixture and pre-restore placeholder snapshots must never cross to Wear. */
+    fun isWearDataAuthoritative(): Boolean =
+        isAuthoritativeWearSource(
+            hasAccounts = hasAccounts,
+            isFixtureRepository = activeRepository === fixtureRepository,
+            sync = activeRepository.snapshot().sync,
+        )
 
     /** Start the periodic queue drain. Only the UI process needs this. */
     fun startWriteQueueDrain() {

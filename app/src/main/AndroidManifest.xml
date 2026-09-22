@@ -54,6 +54,7 @@
     </queries>
 
     <application
+        android:name=".CalinoApplication"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -62,6 +63,14 @@
         android:allowBackup="false"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true">
+        <service
+            android:name=".wear.PhoneWearListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/calino/v1/commands/" />
+            </intent-filter>
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"

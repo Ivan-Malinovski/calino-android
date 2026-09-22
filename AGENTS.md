@@ -72,7 +72,11 @@ done only after the review protocol below has been followed.
   check against Calino's own GitHub repository. It may contact only
   `api.github.com` for the latest stable release and open that release on
   `github.com`; it must not send calendar/account data or become telemetry.
-- Those five are the only sanctioned exceptions; webcal, telemetry, and other
+- As of 2026-09-22 the Wear OS companion in `docs/wear-companion.md` is an
+  approved local Data Layer exception. It has no direct network, DAV,
+  credentials, contacts, journals, or reminder ownership; the phone container
+  remains authoritative.
+- Those six are the only sanctioned exceptions; webcal, telemetry, and other
   remote hosts remain out of scope.
 
 ## CalDAV scope
