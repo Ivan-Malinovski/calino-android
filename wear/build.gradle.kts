@@ -33,6 +33,9 @@ android {
     buildTypes {
         getByName("debug") { applicationIdSuffix=".nativeDebug"; versionNameSuffix="-debug" }
         getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             if (releaseKeystoreProperties.containsKey("storeFile")) signingConfig = signingConfigs.getByName("release")
         }
     }
