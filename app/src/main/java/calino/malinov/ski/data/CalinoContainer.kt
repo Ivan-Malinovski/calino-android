@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.CalendarContract
 import calino.malinov.ski.data.caldav.CalDavConnectionManager
+import calino.malinov.ski.data.caldav.AccountRediscoveryResult
 import calino.malinov.ski.data.caldav.CalDavDiscovery
 import calino.malinov.ski.data.caldav.CalDavFetcher
 import calino.malinov.ski.data.caldav.CalDavWriter
@@ -30,6 +31,9 @@ import calino.malinov.ski.data.repository.SyncState
 import calino.malinov.ski.data.repository.WebcalSubscriptionStore
 import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.data.repository.visibleCalendarIds
+import calino.malinov.ski.data.sync.BackgroundSyncCadence
+import calino.malinov.ski.data.sync.BackgroundSyncScheduler
+import calino.malinov.ski.data.sync.BackgroundSyncStore
 import calino.malinov.ski.data.webcal.FileWebcalCache
 import calino.malinov.ski.data.webcal.WebcalFetcher
 import calino.malinov.ski.data.webcal.WebcalManager
@@ -52,10 +56,11 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 internal fun writableImportsAfterSelection(
@@ -108,6 +113,10 @@ class CalinoContainer private constructor(context: Context) {
 
     val preferenceStore: CalinoPreferenceStore = SharedPreferencesPreferenceStore(application)
 
+    val backgroundSyncStore = BackgroundSyncStore(application)
+
+    private val backgroundSyncScheduler = BackgroundSyncScheduler(application)
+
     val calDavClient: CalDavClient = CalDavDiscovery(http)
 
     private val calendarCache = FileCalendarCache(File(application.filesDir, "caldav-cache"))
@@ -142,6 +151,9 @@ class CalinoContainer private constructor(context: Context) {
 
     private val repositoryListeners = CopyOnWriteArrayList<(CalinoRepository) -> Unit>()
 
+    private val syncRequestLock = Any()
+    @Volatile private var sharedSync: Deferred<calino.malinov.ski.data.repository.RepositorySyncResult>? = null
+
     /**
      * The repository in force. With no account connected this is the frozen
      * fixture data, so the app is never an empty shell.
@@ -159,9 +171,6 @@ class CalinoContainer private constructor(context: Context) {
 
     @Volatile
     private var cacheRestored = false
-
-    @Volatile
-    private var draining = false
 
     @Volatile
     private var scheduling = false
@@ -223,6 +232,9 @@ class CalinoContainer private constructor(context: Context) {
     )
 
     init {
+        calDavRepository.onPendingChangeEnqueued = {
+            backgroundSyncScheduler.enqueueImmediate(hasAccounts, backgroundSyncStore.cadence())
+        }
         updateActiveRepository()
     }
 
@@ -243,11 +255,12 @@ class CalinoContainer private constructor(context: Context) {
         if (connected) return
         connected = true
         cacheRestored = true
-        connections.restore()
+        connections.restoreFromCache()
         webcal.restore()
         restoreImport()
         updateActiveRepository()
         restoreProjection()
+        reconcileBackgroundSchedule()
     }
 
     /**
@@ -366,24 +379,15 @@ class CalinoContainer private constructor(context: Context) {
             sync = activeRepository.snapshot().sync,
         )
 
-    /** Start the periodic queue drain. Only the UI process needs this. */
-    fun startWriteQueueDrain() {
-        if (draining) return
-        draining = true
-        scope.launch {
-            while (isActive) {
-                calDavRepository.drainPendingWrites()
-                delay(DrainIntervalMillis)
-            }
-        }
-    }
-
     fun onAccountConnected(form: CalDavForm, calendars: List<CalDavCalendar>) {
         val account = accountStore.addAccount(form, calendars)
         connected = true
         connections.onAccountConnected(account, form.password)
         updateActiveRepository()
         syncAndroidAccounts()
+        reconcileBackgroundSchedule()
+        enqueueImmediateBackgroundSync()
+        scope.launch { syncConnectedAccounts() }
     }
 
     fun onAccountRemoved(accountId: String) {
@@ -391,6 +395,11 @@ class CalinoContainer private constructor(context: Context) {
         connections.onAccountRemoved(accountId)
         updateActiveRepository()
         syncAndroidAccounts()
+        reconcileBackgroundSchedule()
+        if (hasAccounts) {
+            enqueueImmediateBackgroundSync()
+            scope.launch { syncConnectedAccounts() }
+        }
     }
 
     /**
@@ -518,7 +527,85 @@ class CalinoContainer private constructor(context: Context) {
         calendarProjectionBridge.projectNow(activeRepository.snapshot())
     }
 
-    fun onCalendarsToggled() = connections.onCalendarsToggled()
+    fun onCalendarsToggled() {
+        connections.onCalendarsToggled()
+        if (hasAccounts) {
+            enqueueImmediateBackgroundSync()
+            scope.launch { syncConnectedAccounts() }
+        }
+    }
+
+    /** Persist the requested cadence and reconcile unique periodic work. */
+    fun setBackgroundSyncCadence(cadence: BackgroundSyncCadence) {
+        backgroundSyncStore.setCadence(cadence)
+        reconcileBackgroundSchedule()
+    }
+
+    /** Attach the existing snapshot bridges before a worker performs a read. */
+    fun startBackgroundSyncBridges() {
+        if (!connected) {
+            connected = true
+            cacheRestored = true
+            connections.restoreFromCache()
+            webcal.restoreFromCache()
+            restoreImport()
+            updateActiveRepository()
+            restoreProjection()
+        }
+        startReminderScheduling()
+        startWidgetUpdates()
+    }
+
+    /**
+     * One shared awaitable sync for launch, manual refresh, and WorkManager.
+     * Concurrent callers await the same pass instead of rediscovering or
+     * reading the same account set twice.
+     */
+    suspend fun syncConnectedAccounts(): calino.malinov.ski.data.repository.RepositorySyncResult {
+        val request = synchronized(syncRequestLock) {
+            sharedSync?.takeIf { it.isActive } ?: scope.async {
+                syncConnectedAccountsOnce()
+            }.also { sharedSync = it }
+        }
+        return try {
+            request.await()
+        } finally {
+            synchronized(syncRequestLock) {
+                if (sharedSync === request && request.isCompleted) sharedSync = null
+            }
+        }
+    }
+
+    private suspend fun syncConnectedAccountsOnce(): calino.malinov.ski.data.repository.RepositorySyncResult {
+        val accountIds = accountStore.accounts().map { it.id }.toSet()
+        backgroundSyncScheduler.reconcile(accountIds.isNotEmpty(), backgroundSyncStore.cadence())
+        if (accountIds.isEmpty()) {
+            return calino.malinov.ski.data.repository.RepositorySyncResult.NoSources
+        }
+        startBackgroundSyncBridges()
+        val isCurrent = { accountStore.accounts().map { it.id }.toSet() == accountIds }
+        if (!isCurrent()) return calino.malinov.ski.data.repository.RepositorySyncResult.AccountsRemoved
+        when (val discovery = connections.rediscoverAccounts(accountIds, isCurrent)) {
+            AccountRediscoveryResult.AccountsRemoved ->
+                return calino.malinov.ski.data.repository.RepositorySyncResult.AccountsRemoved
+            is AccountRediscoveryResult.CredentialsUnavailable ->
+                return calino.malinov.ski.data.repository.RepositorySyncResult.Failed(
+                    "Saved credentials for ${discovery.accountName} are unavailable. Reconnect this account to sync it again.",
+                    retryable = false,
+                )
+            AccountRediscoveryResult.Ready -> Unit
+        }
+        if (!isCurrent()) return calino.malinov.ski.data.repository.RepositorySyncResult.AccountsRemoved
+        return calDavRepository.synchronize(isCurrent)
+    }
+
+    private fun reconcileBackgroundSchedule() {
+        backgroundSyncScheduler.reconcile(hasAccounts, backgroundSyncStore.cadence())
+    }
+
+    private fun enqueueImmediateBackgroundSync() {
+        backgroundSyncScheduler.enqueueImmediate(hasAccounts, backgroundSyncStore.cadence())
+    }
 
     suspend fun addWebcalSubscription(form: WebcalForm) =
         webcal.add(form).also { updateActiveRepository() }
@@ -735,7 +822,6 @@ class CalinoContainer private constructor(context: Context) {
     }
 
     companion object {
-        private const val DrainIntervalMillis = 60_000L
         private const val ActionDrainAttempts = 10
         private const val ActionDrainIntervalMillis = 1_000L
 

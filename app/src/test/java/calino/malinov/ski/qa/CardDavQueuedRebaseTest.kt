@@ -11,6 +11,7 @@ import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.PendingChangeEnqueueResult
 import calino.malinov.ski.data.repository.PendingChangeRequest
 import calino.malinov.ski.data.repository.PendingChangeType
+import calino.malinov.ski.data.repository.RepositorySyncResult
 import calino.malinov.ski.data.repository.SyncState
 import java.io.File
 import java.time.LocalDate
@@ -125,6 +126,64 @@ END:VCARD"""
         assertEquals(href, contact.href)
         assertEquals("card-v1", contact.etag)
         assertEquals("Queued Contact", contact.displayName)
+    }
+
+    @Test
+    fun `awaitable sync completes a carddav replay and then reads the address book`() = runBlocking {
+        val bookUrl = server.url("/books/contacts/").toString()
+        val href = server.url("/books/contacts/offline.vcf").toString()
+        val payload = """BEGIN:VCARD
+VERSION:3.0
+UID:offline-contact
+FN:Offline Contact
+N:Contact;Offline;;;
+END:VCARD"""
+        val methods = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                methods += request.method.orEmpty()
+                return when (request.method) {
+                    "PUT" -> MockResponse().setResponseCode(201).setHeader("ETag", "\"contact-v1\"")
+                    "REPORT" -> emptyReport()
+                    else -> MockResponse().setResponseCode(500)
+                }
+            }
+        }
+        val queue = FilePendingChangeStore(queueFile)
+        val enqueued = queue.enqueue(
+            PendingChangeRequest(
+                type = PendingChangeType.CREATE,
+                eventId = "offline-contact",
+                accountId = "account",
+                calendarId = bookUrl,
+                component = "VCARD",
+                calendarUrl = bookUrl,
+                uid = "offline-contact",
+                href = href,
+                data = payload,
+            ),
+        )
+        assertTrue(enqueued is PendingChangeEnqueueResult.Enqueued)
+        val repository = CalDavRepository(
+            fetcher = calino.malinov.ski.data.caldav.CalDavFetcher(DavHttp()),
+            cardFetcher = CardDavFetcher(DavHttp()),
+            scope = scope,
+            today = { LocalDate.of(2026, 9, 8) },
+            pendingStore = queue,
+        )
+        repository.setSources(
+            sources = emptyList(),
+            addressBookSources = listOf(
+                CardDavSource(DiscoveredAddressBook(bookUrl, "Contacts", readOnly = false), credentials, "account"),
+            ),
+            refreshAfterSourceChange = false,
+        )
+
+        val result = repository.synchronize()
+
+        assertTrue("expected a successful sync, got $result", result is RepositorySyncResult.Success)
+        assertTrue("the replayed contact create should be acknowledged", queue.snapshot().isEmpty())
+        assertEquals(listOf("PUT", "REPORT"), methods)
     }
 
     private fun emptyReport() = MockResponse()

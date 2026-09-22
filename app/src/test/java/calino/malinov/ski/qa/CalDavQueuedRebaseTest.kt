@@ -14,15 +14,21 @@ import calino.malinov.ski.data.repository.CalDavSource
 import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.PendingChangeRequest
 import calino.malinov.ski.data.repository.PendingChangeType
+import calino.malinov.ski.data.repository.PendingChangeState
+import calino.malinov.ski.data.repository.RepositorySyncResult
 import calino.malinov.ski.data.repository.SyncState
 import calino.malinov.ski.data.repository.WriteResult
 import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
@@ -54,6 +60,238 @@ class CalDavQueuedRebaseTest {
         scope.cancel()
         server.shutdown()
         queueFile.delete()
+    }
+
+    @Test
+    fun `awaitable sync replays offline creates before reading server data`() = runBlocking {
+        val collection = server.url("/cal/").toString()
+        val href = server.url("/cal/offline-create.ics").toString()
+        val payload = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:offline-created-event
+DTSTART;VALUE=DATE:20260908
+DTEND;VALUE=DATE:20260909
+SUMMARY:Saved while offline
+END:VEVENT
+END:VCALENDAR
+""".trim()
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                methods += request.method
+                return when {
+                    request.method == "PUT" -> MockResponse()
+                        .setResponseCode(201)
+                        .setHeader("ETag", "\"created-etag\"")
+                    request.method == "REPORT" && body.contains("VEVENT") ->
+                        multiStatus(href, "created-etag", payload)
+                    request.method == "REPORT" -> multiStatusEmpty()
+                    else -> MockResponse().setResponseCode(500)
+                }
+            }
+        }
+
+        val queue = FilePendingChangeStore(queueFile)
+        val queued = queue.enqueue(
+            PendingChangeRequest(
+                type = PendingChangeType.CREATE,
+                eventId = "offline-created-event",
+                accountId = "account",
+                calendarId = collection,
+                component = "VEVENT",
+                calendarUrl = collection,
+                uid = "offline-created-event",
+                href = href,
+                data = payload,
+            ),
+        )
+        assertTrue(queued is calino.malinov.ski.data.repository.PendingChangeEnqueueResult.Enqueued)
+        val repository = CalDavRepository(
+            fetcher = CalDavFetcher(DavHttp()),
+            scope = scope,
+            cache = MemoryCache(),
+            mapper = ICalMapper(ZoneId.of("UTC")),
+            today = { LocalDate.of(2026, 9, 8) },
+            pendingStore = queue,
+        )
+        val calendar = DiscoveredCalendar(
+            url = collection,
+            displayName = "Test calendar",
+            color = 0xFF11A602,
+            readOnly = false,
+            components = setOf("VEVENT", "VTODO", "VJOURNAL"),
+        )
+        repository.setSources(
+            listOf(CalDavSource(calendar, credentials, "account")),
+            refreshAfterSourceChange = false,
+        )
+
+        val result = repository.synchronize()
+
+        assertTrue("expected a successful sync, got $result", result is RepositorySyncResult.Success)
+        assertTrue("the replayed write should not request another retry", !(result as RepositorySyncResult.Success).retryNeeded)
+        assertTrue("the durable write should be acknowledged", queue.snapshot().isEmpty())
+        assertEquals("offline-created-event", repository.events().single().uid)
+        assertEquals("the queued write must be sent before collection reads", "PUT", methods.first())
+        assertEquals(4, methods.size)
+    }
+
+    @Test
+    fun `awaitable sync reads after a queued delete without invalidating its generation`() = runBlocking {
+        val collection = server.url("/cal/").toString()
+        val href = server.url("/cal/queued-delete.ics").toString()
+        val payload = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:queued-delete
+DTSTART;VALUE=DATE:20260908
+DTEND;VALUE=DATE:20260909
+SUMMARY:Queued delete
+END:VEVENT
+END:VCALENDAR
+""".trim()
+        val methods = Collections.synchronizedList(mutableListOf<String>())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                methods += request.method.orEmpty()
+                return when (request.method) {
+                    "DELETE" -> MockResponse().setResponseCode(204)
+                    "REPORT" -> multiStatusEmpty()
+                    else -> MockResponse().setResponseCode(500)
+                }
+            }
+        }
+        val queue = FilePendingChangeStore(queueFile)
+        queue.enqueue(
+            PendingChangeRequest(
+                type = PendingChangeType.DELETE,
+                eventId = "queued-delete",
+                accountId = "account",
+                calendarId = collection,
+                component = "VEVENT",
+                calendarUrl = collection,
+                uid = "queued-delete",
+                href = href,
+                etag = "delete-etag",
+                data = payload,
+            ),
+        )
+        val cache = object : CalendarCache {
+            private val resources = mutableMapOf<Pair<String, String>, CalendarResource>()
+            override fun load(calendarUrl: String): CachedCalendar? = null
+            override fun save(entry: CachedCalendar) = Unit
+            override fun loadResource(calendarUrl: String, href: String): CalendarResource? =
+                resources[calendarUrl to href]
+            override fun saveResource(calendarUrl: String, resource: CalendarResource) {
+                resources[calendarUrl to resource.href] = resource
+            }
+            override fun deleteResource(calendarUrl: String, href: String) {
+                resources.remove(calendarUrl to href)
+            }
+            override fun evictExcept(calendarUrls: Set<String>) {
+                resources.keys.removeAll { it.first !in calendarUrls }
+            }
+        }
+        val repository = CalDavRepository(
+            fetcher = CalDavFetcher(DavHttp()),
+            scope = scope,
+            cache = cache,
+            mapper = ICalMapper(ZoneId.of("UTC")),
+            today = { LocalDate.of(2026, 9, 8) },
+            pendingStore = queue,
+        )
+        val calendar = DiscoveredCalendar(
+            url = collection,
+            displayName = "Test calendar",
+            color = 0xFF11A602,
+            readOnly = false,
+            components = setOf("VEVENT", "VTODO", "VJOURNAL"),
+        )
+        repository.setSources(
+            listOf(CalDavSource(calendar, credentials, "account")),
+            refreshAfterSourceChange = false,
+        )
+
+        val result = repository.synchronize()
+
+        assertTrue("expected a successful sync, got $result", result is RepositorySyncResult.Success)
+        assertTrue("the replayed delete should be acknowledged; queue=${queue.snapshot()} methods=$methods", queue.snapshot().isEmpty())
+        assertEquals("the collection reads must follow the conditional delete", "DELETE", methods.first())
+        assertEquals(listOf("DELETE", "REPORT", "REPORT", "REPORT"), methods)
+    }
+
+    @Test
+    fun `account removal during queued write stops before acknowledgement and collection reads`() = runBlocking {
+        val collection = server.url("/cal/").toString()
+        val href = server.url("/cal/offline-create.ics").toString()
+        val payload = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:offline-created-event
+DTSTART;VALUE=DATE:20260908
+DTEND;VALUE=DATE:20260909
+SUMMARY:Saved while offline
+END:VEVENT
+END:VCALENDAR
+""".trim()
+        val writeStarted = CountDownLatch(1)
+        val releaseWrite = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "PUT") {
+                    writeStarted.countDown()
+                    check(releaseWrite.await(5, TimeUnit.SECONDS))
+                    return MockResponse().setResponseCode(201).setHeader("ETag", "\"created-etag\"")
+                }
+                return MockResponse().setResponseCode(500)
+            }
+        }
+
+        val queue = FilePendingChangeStore(queueFile)
+        queue.enqueue(
+            PendingChangeRequest(
+                type = PendingChangeType.CREATE,
+                eventId = "offline-created-event",
+                accountId = "account",
+                calendarId = collection,
+                component = "VEVENT",
+                calendarUrl = collection,
+                uid = "offline-created-event",
+                href = href,
+                data = payload,
+            ),
+        )
+        val repository = CalDavRepository(
+            fetcher = CalDavFetcher(DavHttp()),
+            scope = scope,
+            cache = MemoryCache(),
+            mapper = ICalMapper(ZoneId.of("UTC")),
+            today = { LocalDate.of(2026, 9, 8) },
+            pendingStore = queue,
+        )
+        val calendar = DiscoveredCalendar(
+            url = collection,
+            displayName = "Test calendar",
+            color = 0xFF11A602,
+            readOnly = false,
+            components = setOf("VEVENT", "VTODO", "VJOURNAL"),
+        )
+        repository.setSources(
+            listOf(CalDavSource(calendar, credentials, "account")),
+            refreshAfterSourceChange = false,
+        )
+        val isCurrent = AtomicBoolean(true)
+        val sync = async(Dispatchers.IO) { repository.synchronize { isCurrent.get() } }
+
+        assertTrue("the queued write did not reach the server", writeStarted.await(5, TimeUnit.SECONDS))
+        isCurrent.set(false)
+        releaseWrite.countDown()
+
+        assertEquals(RepositorySyncResult.AccountsRemoved, sync.await())
+        assertEquals("the in-flight operation remains durable for conditional recovery", PendingChangeState.PENDING, queue.snapshot().single().state)
+        assertEquals("no reads may start after account removal", 1, server.requestCount)
     }
 
     @Test

@@ -6,6 +6,8 @@ import android.provider.CalendarContract
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
@@ -77,6 +79,8 @@ import calino.malinov.ski.data.ical.IcsImportBatch
 import calino.malinov.ski.data.ical.IcsInterop
 import calino.malinov.ski.data.caldav.FileCalendarCache
 import calino.malinov.ski.data.repository.CalDavRepository
+import calino.malinov.ski.data.sync.BackgroundSyncCadence
+import calino.malinov.ski.data.sync.BackgroundSyncStatus
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -536,6 +540,19 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     private val hasAccountsState = mutableStateOf(container.hasAccounts)
     private val hasLiveDataState = mutableStateOf(container.hasLiveData)
+    var backgroundSyncCadence by mutableStateOf(container.backgroundSyncStore.cadence())
+        private set
+    var backgroundSyncStatus by mutableStateOf(container.backgroundSyncStore.status())
+        private set
+    private val syncStatusHandler = Handler(Looper.getMainLooper())
+    private val backgroundSyncSubscription = container.backgroundSyncStore.observe { store ->
+        val latestCadence = store.cadence()
+        val latestStatus = store.status()
+        syncStatusHandler.post {
+            backgroundSyncCadence = latestCadence
+            backgroundSyncStatus = latestStatus
+        }
+    }
 
     /** Whether any CalDAV account is connected. Drives the calendar's anchor date. */
     val hasAccounts: Boolean get() = hasAccountsState.value
@@ -553,15 +570,16 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
         // A persisted account restores and refetches without asking for the
         // password again; the credential store still holds it.
         container.ensureConnected()
-        container.startWriteQueueDrain()
         container.startReminderScheduling()
         container.startWidgetUpdates()
+        container.scope.launch { runCatching { container.syncConnectedAccounts() } }
         syncState()
     }
 
     override fun onCleared() {
         super.onCleared()
         repositorySubscription.close()
+        backgroundSyncSubscription.close()
     }
 
     fun onAccountConnected(form: CalDavForm, calendars: List<CalDavCalendar>) {
@@ -683,6 +701,11 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     fun setEventWindowMonths(months: Long) = container.calDavRepository.setWindowMonths(months)
 
+    fun updateBackgroundSyncCadence(cadence: BackgroundSyncCadence) {
+        container.setBackgroundSyncCadence(cadence)
+        backgroundSyncCadence = container.backgroundSyncStore.cadence()
+    }
+
     /** Starts a wider CalDAV read when calendar navigation reaches an unseen month. */
     fun extendEventWindowToInclude(date: LocalDate): Boolean =
         if (container.hasAccounts) container.calDavRepository.extendWindowToInclude(date) else false
@@ -732,8 +755,10 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun refresh() {
-        container.calDavRepository.refresh()
-        container.scope.launch { runCatching { container.syncWebcalAll() } }
+        container.scope.launch {
+            runCatching { container.syncConnectedAccounts() }
+            runCatching { container.syncWebcalAll() }
+        }
     }
 }
 
@@ -1988,6 +2013,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onRemoveWebcal = pocViewModel::removeWebcalSubscription,
                         onSyncWebcal = pocViewModel::syncWebcal,
                         onToggleWebcalNotify = pocViewModel::onWebcalNotifyRemindersChanged,
+                        backgroundSyncCadence = pocViewModel.backgroundSyncCadence,
+                        backgroundSyncStatus = pocViewModel.backgroundSyncStatus,
+                        onBackgroundSyncCadenceChanged = pocViewModel::updateBackgroundSyncCadence,
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,

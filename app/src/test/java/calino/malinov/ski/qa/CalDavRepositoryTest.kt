@@ -21,6 +21,7 @@ import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -31,6 +32,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The repository's contract, loading behaviour, and local-overlay posture.
@@ -520,6 +525,79 @@ END:VCALENDAR
             "a refresh over existing data must report when that data was read",
             loading.all { it.cachedAt != null },
         )
+    }
+
+    @Test
+    fun `simultaneous awaitable syncs serialize their repository reads`() = runBlocking {
+        val firstBatchStarted = CountDownLatch(3)
+        val releaseFirstBatch = CountDownLatch(1)
+        val totalReports = AtomicInteger()
+        val laterBatchStarted = CountDownLatch(1)
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                val number = totalReports.incrementAndGet()
+                if (number <= 3) {
+                    firstBatchStarted.countDown()
+                    check(releaseFirstBatch.await(5, TimeUnit.SECONDS))
+                } else {
+                    laterBatchStarted.countDown()
+                }
+                return when {
+                    body.contains("VTODO") -> multiStatus(CalDavFixtures.Todos)
+                    body.contains("VJOURNAL") -> multiStatus(CalDavFixtures.Journals)
+                    else -> multiStatus(CalDavFixtures.Events)
+                }
+            }
+        }
+        val repository = repository()
+        repository.setSources(listOf(source()), refreshAfterSourceChange = false)
+
+        val first = async(Dispatchers.IO) { repository.synchronize() }
+        assertTrue("the first sync did not start its component reads", firstBatchStarted.await(5, TimeUnit.SECONDS))
+        val second = async(Dispatchers.IO) { repository.synchronize() }
+        Thread.sleep(100)
+        assertEquals("the second sync must wait behind the first", 3, server.requestCount)
+
+        releaseFirstBatch.countDown()
+        assertTrue(first.await() is calino.malinov.ski.data.repository.RepositorySyncResult.Success)
+        assertTrue(second.await() is calino.malinov.ski.data.repository.RepositorySyncResult.Success)
+        assertTrue(laterBatchStarted.await(5, TimeUnit.SECONDS))
+        assertEquals(6, totalReports.get())
+    }
+
+    @Test
+    fun `account removal aborts an in-flight awaitable read before it publishes`() = runBlocking {
+        val requestsStarted = CountDownLatch(3)
+        val releaseRequests = CountDownLatch(1)
+        val isCurrent = AtomicBoolean(true)
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                requestsStarted.countDown()
+                check(releaseRequests.await(5, TimeUnit.SECONDS))
+                return when {
+                    body.contains("VTODO") -> multiStatus(CalDavFixtures.Todos)
+                    body.contains("VJOURNAL") -> multiStatus(CalDavFixtures.Journals)
+                    else -> multiStatus(CalDavFixtures.Events)
+                }
+            }
+        }
+        val cache = FakeCache()
+        val repository = repository(cache)
+        repository.setSources(listOf(source()), refreshAfterSourceChange = false)
+
+        val sync = async(Dispatchers.IO) { repository.synchronize { isCurrent.get() } }
+        assertTrue("the read did not reach the server", requestsStarted.await(5, TimeUnit.SECONDS))
+        isCurrent.set(false)
+        releaseRequests.countDown()
+
+        assertEquals(
+            calino.malinov.ski.data.repository.RepositorySyncResult.AccountsRemoved,
+            sync.await(),
+        )
+        assertTrue("removed-account data must not publish", repository.snapshot().events.isEmpty())
+        assertTrue("removed-account bytes must not repopulate cache", cache.entries.isEmpty())
     }
 
     @Test
