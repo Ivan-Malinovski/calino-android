@@ -1522,9 +1522,9 @@ fun TaskDetailSurface(
     task: CalTask,
     tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
-    onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+    onSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> true },
     onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
-    onDelete: () -> Unit = {},
+    onDelete: suspend () -> Boolean = { true },
     onAddSubtask: () -> Unit = {},
 ) {
     val today = LocalCalinoNow.current.today
@@ -1552,14 +1552,20 @@ fun TaskDetailSurface(
         if (!shown) {
             delay(220)
             if (pendingDelete) {
-                onDelete()
+                if (!onDelete()) {
+                    // The host's scrim remains composed while this surface is
+                    // selected. Reopen it after a rejected write instead of
+                    // leaving an invisible, full-window surface over the app.
+                    pendingDelete = false
+                    shown = true
+                }
             } else if (pendingSave) {
                 // Completion is latched separately from presentation state.
                 // The sheet exits before saving, and the delayed coroutine can
                 // otherwise observe the pre-click `done` value from its exit
                 // composition even though the checkmark already changed.
                 val savedDone = requestedDone ?: done
-                onSave(
+                val saved = onSave(
                     NewTask(
                         title = title.trim(),
                         due = due,
@@ -1586,6 +1592,10 @@ fun TaskDetailSurface(
                     ),
                     savedDone,
                 )
+                if (!saved) {
+                    pendingSave = false
+                    shown = true
+                }
             } else {
                 onBack()
             }
@@ -2837,9 +2847,9 @@ fun TaskDetail(
     task: CalTask,
     tasks: List<CalTask> = listOf(task),
     onBack: () -> Unit = {},
-    onSave: (NewTask, Boolean) -> Unit = { _, _ -> },
+    onSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> true },
     onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
-    onDelete: () -> Unit = {},
+    onDelete: suspend () -> Boolean = { true },
     onAddSubtask: () -> Unit = {},
 ) = TaskDetailSurface(task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask)
 

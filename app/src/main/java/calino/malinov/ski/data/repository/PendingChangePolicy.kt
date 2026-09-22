@@ -54,10 +54,12 @@ fun classifyWriteError(error: Throwable, changeType: PendingChangeType): WriteEr
         status == 403 -> WriteDisposition.Drop(message)
         status == 507 -> WriteDisposition.Drop("The server is out of space for this calendar.")
         status == 404 || status == 410 -> WriteDisposition.Drop(
-            if (changeType == PendingChangeType.CREATE || changeType == PendingChangeType.UPDATE) {
-                "That calendar is no longer on the server."
-            } else {
-                "That item is no longer on the server."
+            when {
+                status == 404 && changeType == PendingChangeType.UPDATE ->
+                    "The server could not find that calendar or task. Refresh and try again."
+                changeType == PendingChangeType.CREATE || changeType == PendingChangeType.UPDATE ->
+                    "That calendar is no longer on the server."
+                else -> "That item is no longer on the server."
             },
         )
         status == 401 || status == 429 || status in 500..599 -> WriteDisposition.RetryCounted

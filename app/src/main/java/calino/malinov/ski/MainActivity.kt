@@ -2212,9 +2212,35 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         restoreTaskDetailOrigin()
                     },
                     onSave = { input, done ->
-                        launchWrite({ repository.updateTask(task.id, input, done) }, indicate = PillWriteKind.Save) {
-                            selectedTaskId = null
-                            restoreTaskDetailOrigin()
+                        writeError = null
+                        savePillLane.saveStarted(PillWriteKind.Save)
+                        var landed = false
+                        try {
+                            when (val result = repository.updateTask(task.id, input, done)) {
+                                is WriteResult.Applied -> {
+                                    landed = true
+                                    selectedTaskId = null
+                                    restoreTaskDetailOrigin()
+                                    true
+                                }
+                                is WriteResult.Queued -> {
+                                    landed = true
+                                    selectedTaskId = null
+                                    restoreTaskDetailOrigin()
+                                    true
+                                }
+                                is WriteResult.Rejected -> {
+                                    writeError = result.reason
+                                    false
+                                }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            writeError = error.message ?: "That change could not be saved."
+                            false
+                        } finally {
+                            savePillLane.saveFinished(writeScope, success = landed)
                         }
                     },
                     onInlineNotesSave = { input, done ->
@@ -2237,12 +2263,35 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         }
                     },
                     onDelete = {
-                        launchWrite(
-                            { repository.deleteTask(task.id, task.recurrenceScope) },
-                            indicate = PillWriteKind.Remove,
-                        ) {
-                            selectedTaskId = null
-                            restoreTaskDetailOrigin()
+                        writeError = null
+                        savePillLane.saveStarted(PillWriteKind.Remove)
+                        var landed = false
+                        try {
+                            when (val result = repository.deleteTask(task.id, task.recurrenceScope)) {
+                                is WriteResult.Applied -> {
+                                    landed = true
+                                    selectedTaskId = null
+                                    restoreTaskDetailOrigin()
+                                    true
+                                }
+                                is WriteResult.Queued -> {
+                                    landed = true
+                                    selectedTaskId = null
+                                    restoreTaskDetailOrigin()
+                                    true
+                                }
+                                is WriteResult.Rejected -> {
+                                    writeError = result.reason
+                                    false
+                                }
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            writeError = error.message ?: "That task could not be deleted."
+                            false
+                        } finally {
+                            savePillLane.saveFinished(writeScope, success = landed)
                         }
                     },
                     onAddSubtask = {
