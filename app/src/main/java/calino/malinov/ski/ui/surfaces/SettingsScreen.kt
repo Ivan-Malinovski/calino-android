@@ -95,6 +95,8 @@ import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.CalinoIcons
 import androidx.compose.ui.platform.LocalContext
 import calino.malinov.ski.data.CalinoContainer
+import calino.malinov.ski.data.sync.BackgroundSyncCadence
+import calino.malinov.ski.data.sync.BackgroundSyncStatus
 import androidx.compose.ui.platform.testTag
 import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.systemSettingsIntent
@@ -111,7 +113,11 @@ import calino.malinov.ski.util.CalinoEventSyncRange
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 /** The mobile settings sections mirror the eight-section web handoff. */
 enum class SettingsSection(val title: String, val shortTitle: String) {
@@ -158,6 +164,9 @@ fun SettingsSurface(
     onRemoveWebcal: (String) -> Unit = {},
     onSyncWebcal: (String) -> Unit = {},
     onToggleWebcalNotify: (String, Boolean) -> Unit = { _, _ -> },
+    backgroundSyncCadence: BackgroundSyncCadence = BackgroundSyncCadence.Hourly,
+    backgroundSyncStatus: BackgroundSyncStatus = BackgroundSyncStatus(),
+    onBackgroundSyncCadenceChanged: (BackgroundSyncCadence) -> Unit = {},
 ) {
     var sectionName by rememberSaveable { mutableStateOf(SettingsSection.General.name) }
     var subscribeOpen by rememberSaveable { mutableStateOf(false) }
@@ -245,6 +254,9 @@ fun SettingsSurface(
                     onRemoveWebcal,
                     onSyncWebcal,
                     onToggleWebcalNotify,
+                    backgroundSyncCadence,
+                    backgroundSyncStatus,
+                    onBackgroundSyncCadenceChanged,
                     onOpenSubscribe = { subscribeOpen = true },
                 )
             }
@@ -409,6 +421,9 @@ private fun SettingsSectionContent(
     onRemoveWebcal: (String) -> Unit,
     onSyncWebcal: (String) -> Unit,
     onToggleWebcalNotify: (String, Boolean) -> Unit,
+    backgroundSyncCadence: BackgroundSyncCadence,
+    backgroundSyncStatus: BackgroundSyncStatus,
+    onBackgroundSyncCadenceChanged: (BackgroundSyncCadence) -> Unit,
     onOpenSubscribe: () -> Unit,
 ) {
     when (section) {
@@ -425,6 +440,9 @@ private fun SettingsSectionContent(
             onRemoveWebcal,
             onSyncWebcal,
             onToggleWebcalNotify,
+            backgroundSyncCadence,
+            backgroundSyncStatus,
+            onBackgroundSyncCadenceChanged,
             onOpenSubscribe,
         )
         SettingsSection.Data -> DataSettings(onImportCalendar, onExportCalendar)
@@ -794,6 +812,9 @@ private fun SyncSettings(
     onRemoveWebcal: (String) -> Unit,
     onSyncWebcal: (String) -> Unit,
     onToggleWebcalNotify: (String, Boolean) -> Unit,
+    backgroundSyncCadence: BackgroundSyncCadence,
+    backgroundSyncStatus: BackgroundSyncStatus,
+    onBackgroundSyncCadenceChanged: (BackgroundSyncCadence) -> Unit,
     onOpenSubscribe: () -> Unit,
 ) {
     val preferences = LocalCalinoPreferences.current
@@ -884,6 +905,27 @@ private fun SyncSettings(
         }
         SettingsGroup("Sync settings") {
             SettingChoiceRow(
+                label = "Background sync",
+                description = "Requested refresh frequency for connected accounts",
+                options = BackgroundSyncCadence.entries,
+                selected = backgroundSyncCadence,
+                labelOf = { it.shortLabel },
+                onSelected = onBackgroundSyncCadenceChanged,
+            )
+            SettingNote("Android controls when background work runs and may defer it to protect battery or data.")
+            val dateFormatter = remember {
+                DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+            }
+            val zone = remember { ZoneId.systemDefault() }
+            SettingNote(
+                "Last background attempt: ${backgroundSyncStatus.lastAttemptEpochMs?.let { formatBackgroundSyncTime(it, dateFormatter, zone) } ?: "Not yet"}\n" +
+                    "Last successful sync: ${backgroundSyncStatus.lastSuccessEpochMs?.let { formatBackgroundSyncTime(it, dateFormatter, zone) } ?: "Not yet"}",
+            )
+            backgroundSyncStatus.lastFailure?.let { failure ->
+                SettingNote("Last sync issue: $failure")
+            }
+            SettingDivider()
+            SettingChoiceRow(
                 label = "Event sync range",
                 description = "Past and future events kept available offline and in search",
                 options = CalinoEventSyncRange.entries,
@@ -891,9 +933,6 @@ private fun SyncSettings(
                 labelOf = { it.label },
                 onSelected = preferences.setEventSyncRange,
             )
-            SettingDivider()
-            PlannedRow("Sync frequency", "How often the cache refreshes", value = "When Calino opens")
-            PlannedToggleRow("Sync on launch", "Refresh before the first screen appears", checked = true)
         }
     }
 }
@@ -1287,5 +1326,11 @@ private fun SettingNote(text: String) {
         color = CalinoColors.Ink3,
     )
 }
+
+private fun formatBackgroundSyncTime(
+    epochMillis: Long,
+    formatter: DateTimeFormatter,
+    zone: ZoneId,
+): String = formatter.withZone(zone).format(Instant.ofEpochMilli(epochMillis))
 
 private fun Modifier.alphaIfDisabled(enabled: Boolean): Modifier = if (enabled) this else alpha(.45f)

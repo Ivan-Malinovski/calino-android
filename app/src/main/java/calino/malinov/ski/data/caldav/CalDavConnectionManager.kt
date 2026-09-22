@@ -12,6 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+sealed interface AccountRediscoveryResult {
+    data object Ready : AccountRediscoveryResult
+    data object AccountsRemoved : AccountRediscoveryResult
+    data class CredentialsUnavailable(val accountName: String) : AccountRediscoveryResult
+}
+
 /**
  * Turns the account list into the collections the repository reads.
  *
@@ -63,7 +69,6 @@ class CalDavConnectionManager(
         committedAddressBookCursors.remove(account.id)
         freshCalendarMetadata.remove(account.id)
         freshAddressBookMetadata.remove(account.id)
-        scope.launch { rediscover(account) }
     }
 
     fun onAccountRemoved(accountId: String) {
@@ -74,11 +79,11 @@ class CalDavConnectionManager(
         committedAddressBookCursors.remove(accountId)
         freshCalendarMetadata.remove(accountId)
         freshAddressBookMetadata.remove(accountId)
-        applySources()
+        applySources(refreshAfterSourceChange = false)
     }
 
     /** Re-reads the enabled set without touching the network. */
-    fun onCalendarsToggled() = applySources()
+    fun onCalendarsToggled() = applySources(refreshAfterSourceChange = false)
 
     /**
      * Restores every persisted account after a cold start.
@@ -92,6 +97,43 @@ class CalDavConnectionManager(
     fun restore() {
         val accounts = restoreFromCache()
         scope.launch { accounts.forEach { rediscover(it) } }
+    }
+
+    /** Refreshes discovery metadata for the selected accounts, then adopts it without starting a read. */
+    suspend fun rediscoverAccounts(
+        accountIds: Set<String>,
+        isCurrent: () -> Boolean,
+    ): AccountRediscoveryResult {
+        if (!isCurrent()) return AccountRediscoveryResult.AccountsRemoved
+        val accounts = accountStore.accounts().filter { it.id in accountIds }
+        if (accounts.size != accountIds.size) return AccountRediscoveryResult.AccountsRemoved
+        accounts.forEach { account ->
+            if (!isCurrent()) return AccountRediscoveryResult.AccountsRemoved
+            val credentials = credentialStore.load(account.id)
+            if (credentials == null) {
+                // Do not let in-memory discovery survive a lost Keystore key
+                // or missing encrypted credential and feed a stale source
+                // back into the repository.
+                discovered.remove(account.id)
+                discoveredAddressBooks.remove(account.id)
+                committedCursors.remove(account.id)
+                committedAddressBookCursors.remove(account.id)
+                freshCalendarMetadata.remove(account.id)
+                freshAddressBookMetadata.remove(account.id)
+                applySources(refreshAfterSourceChange = false)
+                return AccountRediscoveryResult.CredentialsUnavailable(account.displayName)
+            }
+            rediscover(
+                account,
+                applyAfterDiscovery = false,
+                credentials = credentials,
+                isCurrent = isCurrent,
+            )
+            if (!isCurrent()) return AccountRediscoveryResult.AccountsRemoved
+        }
+        if (!isCurrent()) return AccountRediscoveryResult.AccountsRemoved
+        applySources(refreshAfterSourceChange = false)
+        return AccountRediscoveryResult.Ready
     }
 
     /**
@@ -133,19 +175,26 @@ class CalDavConnectionManager(
                 )
             }
         }
-        applySources(restoreCacheImmediately = true)
+        applySources(restoreCacheImmediately = true, refreshAfterSourceChange = false)
         return accounts
     }
 
-    private suspend fun rediscover(account: CalDavAccount) {
-        val credentials = credentialStore.load(account.id) ?: return
-        val currentAccount = accountStore.accounts().firstOrNull { it.id == account.id } ?: account
+    private suspend fun rediscover(
+        account: CalDavAccount,
+        applyAfterDiscovery: Boolean = true,
+        credentials: DavCredentials? = credentialStore.load(account.id),
+        isCurrent: () -> Boolean = { true },
+    ) {
+        credentials ?: return
+        if (accountStore.accounts().none { it.id == account.id } || !isCurrent()) return
         val calendarResult = withContext(Dispatchers.IO) {
             runCatching { discovery.discoverAccount(account.serverUrl, credentials) }
         }
+        if (!isCurrent()) return
         calendarResult.getOrNull()?.let { found ->
+            val stillStored = accountStore.accounts().firstOrNull { it.id == account.id } ?: return
             discovered[account.id] = found.calendars
-            val previous = currentAccount.calendars.associate { calendar ->
+            val previous = stillStored.calendars.associate { calendar ->
                 calendar.id to CollectionCursor(calendar.ctag, calendar.syncToken)
             }
             committedCursors[account.id] = found.calendars.associate { calendar ->
@@ -155,22 +204,25 @@ class CalDavConnectionManager(
                 calendar.url to (previous[calendar.url] ?: CollectionCursor())
             }
             freshCalendarMetadata[account.id] = found.calendars.map { it.url }.toSet()
-            syncStoredCalendars(currentAccount, found.calendars)
+            syncStoredCalendars(stillStored, found.calendars)
         }
+        if (!isCurrent()) return
         withContext(Dispatchers.IO) {
             runCatching { cardDiscovery.discoverAccount(account.serverUrl, credentials) }
         }.getOrNull()?.let { found ->
+            if (!isCurrent()) return
+            val stillStored = accountStore.accounts().firstOrNull { it.id == account.id } ?: return
             discoveredAddressBooks[account.id] = found.addressBooks
-            val previous = currentAccount.addressBooks.associate { book ->
+            val previous = stillStored.addressBooks.associate { book ->
                 book.url to CollectionCursor(book.ctag, book.syncToken)
             }
             committedAddressBookCursors[account.id] = found.addressBooks.associate { book ->
                 book.url to (previous[book.url] ?: CollectionCursor())
             }
             freshAddressBookMetadata[account.id] = found.addressBooks.map { it.url }.toSet()
-            syncStoredAddressBooks(currentAccount, found.addressBooks)
+            syncStoredAddressBooks(stillStored, found.addressBooks)
         }
-        applySources()
+        if (applyAfterDiscovery && isCurrent()) applySources()
     }
 
     /**
@@ -200,7 +252,10 @@ class CalDavConnectionManager(
         if (merged != account.addressBooks) accountStore.replaceAddressBooks(account.id, merged)
     }
 
-    private fun applySources(restoreCacheImmediately: Boolean = false) {
+    private fun applySources(
+        restoreCacheImmediately: Boolean = false,
+        refreshAfterSourceChange: Boolean = true,
+    ) {
         val calendarSources = accountStore.accounts().flatMap { account ->
             val credentials = credentialStore.load(account.id) ?: return@flatMap emptyList()
             val enabled = account.calendars.filter { it.enabled }.map { it.id }.toSet()
@@ -238,6 +293,7 @@ class CalDavConnectionManager(
             calendarSources,
             cardSources,
             restoreCacheImmediately = restoreCacheImmediately,
+            refreshAfterSourceChange = refreshAfterSourceChange,
         )
     }
 

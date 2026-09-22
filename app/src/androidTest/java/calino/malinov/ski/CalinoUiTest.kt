@@ -122,7 +122,7 @@ class CalinoResetRule(
 ) : ExternalResource() {
     override fun before() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        listOf(PreferencesFile, AccountsFile).forEach { name ->
+        listOf(PreferencesFile, AccountsFile, BackgroundSyncPreferencesFile).forEach { name ->
             // commit, not apply: the Activity launches on the next statement.
             context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit()
         }
@@ -144,5 +144,6 @@ class CalinoResetRule(
     private companion object {
         const val PreferencesFile = "calino_preferences"
         const val AccountsFile = "calino_caldav_accounts"
+        const val BackgroundSyncPreferencesFile = "background_sync"
     }
 }

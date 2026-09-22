@@ -52,6 +52,48 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+
+private class AccountSyncGuard(
+    val isCurrent: () -> Boolean,
+) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<AccountSyncGuard>
+}
+
+/** A completed read/replay attempt and its retry guidance for background work. */
+sealed interface RepositorySyncResult {
+    data class Success(
+        val warnings: List<String>,
+        val retryNeeded: Boolean,
+        val message: String? = null,
+    ) : RepositorySyncResult
+
+    data class Failed(val message: String, val retryable: Boolean) : RepositorySyncResult
+    data object NoSources : RepositorySyncResult
+    data object AccountsRemoved : RepositorySyncResult
+}
+
+private class AccountSyncAbortedException : Exception()
+
+private fun CalDavException.isTransientSyncFailure(): Boolean = code in setOf(
+    CalDavErrorCode.Network,
+    CalDavErrorCode.Timeout,
+    CalDavErrorCode.Server,
+)
+
+private fun String.isTransientSyncFailure(): Boolean {
+    val normalized = lowercase()
+    return "timeout" in normalized || "timed out" in normalized ||
+        "could not reach" in normalized || "network" in normalized ||
+        Regex("\\b5[0-9]{2}\\b").containsMatchIn(normalized)
+}
+
+object RepositorySyncRetryPolicy {
+    fun retryNeeded(
+        transientReadFailure: Boolean,
+        pendingStates: Iterable<PendingChangeState>,
+    ): Boolean = transientReadFailure || pendingStates.any { it != PendingChangeState.DEAD_LETTER }
+}
 
 /** One calendar to read, with the credentials that reach it. */
 data class CalDavSource(
@@ -136,6 +178,11 @@ class CalDavRepository(
     private val recurrenceWriter = ICalWriter()
     private val recurrencePatcher = ICalPatcher(recurrenceWriter)
     private val vCardPatcher = VCardPatcher()
+    /** Queue replay and reads share one lane for startup, manual, and worker callers. */
+    private val syncMutex = Mutex()
+
+    /** Called only after a durable enqueue succeeded. */
+    var onPendingChangeEnqueued: (() -> Unit)? = null
 
     private var writeStatuses: Map<String, RecordWriteStatus> =
         pendingStore?.snapshot()?.associate { change ->
@@ -238,6 +285,7 @@ class CalDavRepository(
         sources: List<CalDavSource>,
         addressBookSources: List<CardDavSource> = this.addressBookSources,
         restoreCacheImmediately: Boolean = false,
+        refreshAfterSourceChange: Boolean = true,
     ) {
         // Discovery can keep the same collection URLs while changing the
         // ctag, read-only privilege, supported components, display name, or
@@ -251,14 +299,14 @@ class CalDavRepository(
             this.sources = sources
             this.addressBookSources = addressBookSources
             restoreQueuedOverlays()
-            drainPendingWrites()
+            if (refreshAfterSourceChange) drainPendingWrites()
             return
         }
+        generation++
         this.sources = sources
         this.addressBookSources = addressBookSources
         restoreQueuedOverlays()
         if (sources.isEmpty() && addressBookSources.isEmpty()) {
-            generation++
             fetched = FetchedData()
             lastReadAt = null
             syncState = SyncState.Idle
@@ -268,18 +316,39 @@ class CalDavRepository(
         } else {
             cache.evictExcept(sources.map { it.calendar.url }.toSet())
             cache.evictAddressBooksExcept(addressBookSources.map { it.addressBook.url }.toSet())
-            reload(useCache = true, restoreCacheImmediately = restoreCacheImmediately)
-            drainPendingWrites()
+            if (refreshAfterSourceChange) {
+                reload(useCache = true, restoreCacheImmediately = restoreCacheImmediately)
+                drainPendingWrites()
+            } else {
+                val start = today().withDayOfMonth(1).minusMonths(windowMonths)
+                val end = today().withDayOfMonth(1).plusMonths(windowMonths)
+                publishCache(generation, loadCache(start, end))
+            }
         }
     }
 
     /** Refetches without going back to the cache; the data on screen stays put. */
     fun refresh() = reload(useCache = false)
 
+    /** Replay eligible writes, then refresh through the repository's serialized sync lane. */
+    suspend fun synchronize(isCurrent: () -> Boolean = { true }): RepositorySyncResult =
+        syncMutex.withLock {
+            if (sources.isEmpty() && addressBookSources.isEmpty()) return@withLock RepositorySyncResult.NoSources
+            if (!isCurrent()) return@withLock RepositorySyncResult.AccountsRemoved
+            val token = ++generation
+            val start = today().withDayOfMonth(1).minusMonths(windowMonths)
+            val end = today().withDayOfMonth(1).plusMonths(windowMonths)
+            syncState = SyncState.Loading(cachedAt = lastReadAt.takeUnless { fetched.isEmpty() })
+            publish()
+            withContext(AccountSyncGuard(isCurrent)) {
+                refreshWhileLocked(token, start, end, isCurrent)
+            }
+        }
+
     /** Starts one serialized replay of durable writes, if a queue is configured. */
     fun drainPendingWrites() {
         if (pendingStore == null || drainJob?.isActive == true) return
-        drainJob = scope.launch { drainQueue() }
+        drainJob = scope.launch { syncMutex.withLock { drainQueue() } }
     }
 
     /** A snapshot view for the accounts surface and diagnostics. */
@@ -292,6 +361,7 @@ class CalDavRepository(
         val requeued = store.requeue(id) ?: return false
         if (requeued.state != PendingChangeState.PENDING) return false
         setWriteStatus(change.eventId, RecordWriteState.Pending, null)
+        onPendingChangeEnqueued?.invoke()
         drainPendingWrites()
         return true
     }
@@ -362,11 +432,15 @@ class CalDavRepository(
             publishCache(token, loadCache(start, end))
         }
         scope.launch {
-            if (useCache && !restoreCacheImmediately) {
-                val cached = withContext(ioDispatcher) { loadCache(start, end) }
-                publishCache(token, cached)
-            }
-            runCatching { loadAll(start, end) }
+            syncMutex.withLock {
+                if (useCache && !restoreCacheImmediately) {
+                    val cached = withContext(ioDispatcher) { loadCache(start, end) }
+                    publishCache(token, cached)
+                }
+                if (token != generation) return@withLock
+                drainQueue(isCurrent = { token == generation })
+                if (token != generation) return@withLock
+                runCatching { loadAll(start, end) { token == generation } }
                 .onSuccess { loaded ->
                     if (token != generation) return@onSuccess
                     fetched = loaded.data
@@ -409,6 +483,80 @@ class CalDavRepository(
                     syncState = SyncState.Failed(message, hadPreviousData = !fetched.isEmpty())
                     publish()
                 }
+            }
+        }
+    }
+
+    /** The awaitable sync reads after queue replay, so replay must not invalidate its generation. */
+    private fun reloadAfterQueuedReplay(deferReloads: Boolean) {
+        if (!deferReloads) reload(useCache = false)
+    }
+
+    private fun isTransientSyncFailure(error: Throwable): Boolean =
+        calDavErrorForThrowable(error, sources.firstOrNull()?.calendar?.url.orEmpty())
+            .isTransientSyncFailure()
+
+    /** Caller holds [syncMutex]. */
+    private suspend fun refreshWhileLocked(
+        token: Long,
+        start: LocalDate,
+        end: LocalDate,
+        isCurrent: () -> Boolean,
+    ): RepositorySyncResult {
+        if (token != generation || !isCurrent()) return RepositorySyncResult.AccountsRemoved
+        return try {
+            drainQueue(isCurrent, deferReloads = true)
+            if (token != generation || !isCurrent()) return RepositorySyncResult.AccountsRemoved
+            val loaded = loadAll(start, end, isCurrent)
+            if (token != generation || !isCurrent()) return RepositorySyncResult.AccountsRemoved
+
+            fetched = loaded.data
+            lastReadAt = Instant.now()
+            applyCursorUpdates(loaded.cursorUpdates)
+            applyAddressBookCursorUpdates(loaded.addressBookCursorUpdates)
+            restoreQueuedOverlays()
+            loaded.cursorUpdates.forEach { update ->
+                calendarCursorListener?.invoke(update.accountId, update.calendarUrl, update.cursor)
+            }
+            loaded.addressBookCursorUpdates.forEach { update ->
+                addressBookCursorListener?.invoke(update.accountId, update.addressBookUrl, update.cursor)
+            }
+            overlay.reconcile(
+                serverEvents = loaded.data.events,
+                serverTasks = loaded.data.tasks,
+                serverJournals = loaded.data.journals,
+                serverContacts = loaded.data.contacts,
+                authoritative = loaded.authoritative,
+                guardedIds = pendingCalendarGuardedIds(),
+                guardedContactIds = pendingContactGuardedIds(),
+            )
+            syncState = SyncState.Ready(lastReadAt!!, warnings = loaded.warnings)
+            publish()
+
+            val pendingStates = pendingStore?.snapshot().orEmpty().map { it.state }
+            val writesWaiting = pendingStates.any { it != PendingChangeState.DEAD_LETTER }
+            val retryNeeded = RepositorySyncRetryPolicy.retryNeeded(
+                transientReadFailure = loaded.retryableFailure,
+                pendingStates = pendingStates,
+            )
+            RepositorySyncResult.Success(
+                warnings = loaded.warnings,
+                retryNeeded = retryNeeded,
+                message = loaded.warnings.firstOrNull()
+                    ?: if (writesWaiting) "Some saved changes are waiting to sync." else null,
+            )
+        } catch (_: AccountSyncAbortedException) {
+            cache.evictExcept(sources.map { it.calendar.url }.toSet())
+            cache.evictAddressBooksExcept(addressBookSources.map { it.addressBook.url }.toSet())
+            RepositorySyncResult.AccountsRemoved
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (token != generation || !isCurrent()) return RepositorySyncResult.AccountsRemoved
+            val message = calDavErrorForThrowable(error, sources.firstOrNull()?.calendar?.url.orEmpty()).message
+            syncState = SyncState.Failed(message, hadPreviousData = !fetched.isEmpty())
+            publish()
+            RepositorySyncResult.Failed(message, isTransientSyncFailure(error))
         }
     }
 
@@ -517,6 +665,7 @@ class CalDavRepository(
         val data: FetchedData,
         val warnings: List<String>,
         val authoritative: Boolean,
+        val retryableFailure: Boolean = false,
         val cursorUpdates: List<CalendarCursorUpdate> = emptyList(),
         val addressBookCursorUpdates: List<AddressBookCursorUpdate> = emptyList(),
     )
@@ -533,7 +682,11 @@ class CalDavRepository(
         val cursor: CollectionCursor,
     )
 
-    private suspend fun loadAll(start: LocalDate, end: LocalDate): Loaded = withContext(ioDispatcher) {
+    private suspend fun loadAll(
+        start: LocalDate,
+        end: LocalDate,
+        isCurrent: () -> Boolean = { true },
+    ): Loaded = withContext(ioDispatcher) {
         val events = mutableListOf<CalEvent>()
         val tasks = mutableListOf<CalTask>()
         val journals = mutableListOf<JournalEntry>()
@@ -541,11 +694,13 @@ class CalDavRepository(
         val warnings = mutableListOf<String>()
         var anySucceeded = false
         var authoritative = true
+        var retryableFailure = false
         var lastError: Throwable? = null
         val cursorUpdates = mutableListOf<CalendarCursorUpdate>()
         val addressBookCursorUpdates = mutableListOf<AddressBookCursorUpdate>()
 
         sources.forEach { source ->
+            if (!isCurrent()) throw AccountSyncAbortedException()
             val name = source.calendar.displayName
             val cached = cache.load(source.calendar.url)
             // The resource set from a time-ranged event report is complete
@@ -565,9 +720,11 @@ class CalDavRepository(
                 )
             }
                 .onSuccess { result ->
+                    if (!isCurrent()) throw AccountSyncAbortedException()
                     val fetchResult = result.fetchResult
                     anySucceeded = true
                     if (fetchResult.hadComponentFailures) authoritative = false
+                    retryableFailure = retryableFailure || fetchResult.failures.any { it.error.isTransientSyncFailure() }
                     val parsed = mapper.mapAll(
                         resources = fetchResult.resources,
                         calendarId = source.calendar.url,
@@ -625,13 +782,16 @@ class CalDavRepository(
                     }
                 }
                 .onFailure { error ->
+                    if (!isCurrent()) throw AccountSyncAbortedException()
                     authoritative = false
                     lastError = error
+                    retryableFailure = retryableFailure || isTransientSyncFailure(error)
                     warnings += "$name -- ${calDavErrorForThrowable(error, source.calendar.url).message}"
                 }
         }
 
         addressBookSources.forEach { source ->
+            if (!isCurrent()) throw AccountSyncAbortedException()
             val name = source.addressBook.displayName
             val cached = cache.loadAddressBook(source.addressBook.url)
             runCatching {
@@ -643,9 +803,11 @@ class CalDavRepository(
                 )
             }
                 .onSuccess { incremental ->
+                    if (!isCurrent()) throw AccountSyncAbortedException()
                     val result = incremental.fetchResult
                     anySucceeded = true
                     if (result.partialFailure) authoritative = false
+                    retryableFailure = retryableFailure || result.failures.any { it.message.isTransientSyncFailure() }
                     // A partial REPORT cannot prove that a missing card was
                     // deleted. Keep the last complete book when one exists;
                     // if this is the first read, show the usable cards but do
@@ -702,11 +864,15 @@ class CalDavRepository(
                     }
                 }
                 .onFailure { error ->
+                    if (!isCurrent()) throw AccountSyncAbortedException()
                     authoritative = false
                     lastError = error
+                    retryableFailure = retryableFailure || isTransientSyncFailure(error)
                     warnings += "$name -- ${calDavErrorForThrowable(error, source.addressBook.url).message}"
                 }
         }
+
+        if (!isCurrent()) throw AccountSyncAbortedException()
 
         // One unreachable calendar should not blank the others.
         if (!anySucceeded) throw (lastError ?: IllegalStateException("No calendars could be read."))
@@ -714,6 +880,7 @@ class CalDavRepository(
             data = FetchedData(events, tasks, journals, contacts),
             warnings = warnings,
             authoritative = authoritative,
+            retryableFailure = retryableFailure,
             cursorUpdates = cursorUpdates,
             addressBookCursorUpdates = addressBookCursorUpdates,
         )
@@ -2164,6 +2331,7 @@ class CalDavRepository(
         return when (enqueue) {
             is PendingChangeEnqueueResult.Enqueued -> {
                 setWriteStatus(eventId, RecordWriteState.Pending, classification.message)
+                onPendingChangeEnqueued?.invoke()
                 WriteResult.Queued(record)
             }
             is PendingChangeEnqueueResult.Rejected -> {
@@ -2222,6 +2390,7 @@ class CalDavRepository(
                 is PendingChangeEnqueueResult.Enqueued -> {
                     val reason = "MoveLostSource: the old copy was removed; a destination recovery is queued."
                     setWriteStatus(candidate.id, RecordWriteState.Pending, reason)
+                    onPendingChangeEnqueued?.invoke()
                     WriteResult.Queued(candidate.copy(href = plan.destination.href, etag = null))
                 }
                 is PendingChangeEnqueueResult.Rejected -> {
@@ -2275,6 +2444,7 @@ class CalDavRepository(
         return when (enqueue) {
             is PendingChangeEnqueueResult.Enqueued -> {
                 setWriteStatus(candidate.id, RecordWriteState.Pending, classification.message)
+                onPendingChangeEnqueued?.invoke()
                 WriteResult.Queued(candidate)
             }
             is PendingChangeEnqueueResult.Rejected -> {
@@ -2336,6 +2506,7 @@ class CalDavRepository(
         return when (enqueue) {
             is PendingChangeEnqueueResult.Enqueued -> {
                 setWriteStatus(event.id, RecordWriteState.Pending, classification.message)
+                onPendingChangeEnqueued?.invoke()
                 WriteResult.Queued(Unit)
             }
             is PendingChangeEnqueueResult.Rejected -> {
@@ -2464,6 +2635,7 @@ class CalDavRepository(
         return when (enqueue) {
             is PendingChangeEnqueueResult.Enqueued -> {
                 setWriteStatus(eventId, RecordWriteState.Pending, classification.message)
+                onPendingChangeEnqueued?.invoke()
                 WriteResult.Queued(Unit)
             }
             is PendingChangeEnqueueResult.Rejected -> {
@@ -2595,6 +2767,7 @@ class CalDavRepository(
         return when (enqueue) {
             is PendingChangeEnqueueResult.Enqueued -> {
                 setWriteStatus(contact.id, RecordWriteState.Pending, classification.message)
+                onPendingChangeEnqueued?.invoke()
                 WriteResult.Queued(contact.copy(href = prepared.href, etag = prepared.expectedEtag))
             }
             is PendingChangeEnqueueResult.Rejected -> {
@@ -2693,6 +2866,7 @@ class CalDavRepository(
         return when (enqueue) {
             is PendingChangeEnqueueResult.Enqueued -> {
                 setWriteStatus(contact.id, RecordWriteState.Pending, classification.message)
+                onPendingChangeEnqueued?.invoke()
                 WriteResult.Queued(Unit)
             }
             is PendingChangeEnqueueResult.Rejected -> {
@@ -2941,10 +3115,15 @@ class CalDavRepository(
         restoreQueuedEventOverlay(change, source, start, end)
     }
 
-    private suspend fun drainQueue() {
+    private suspend fun drainQueue(
+        isCurrent: () -> Boolean = { true },
+        deferReloads: Boolean = false,
+    ) {
         val store = pendingStore ?: return
         while (true) {
+            if (!isCurrent()) return
             val change = withContext(ioDispatcher) { store.ready(Instant.now()).firstOrNull() } ?: return
+            if (!isCurrent()) return
             if (change.component.equals("VCARD", ignoreCase = true)) {
                 val book = addressBookSources.firstOrNull {
                     it.accountId == change.accountId &&
@@ -2959,10 +3138,10 @@ class CalDavRepository(
                 val progressed = when (change.type) {
                     PendingChangeType.CREATE,
                     PendingChangeType.UPDATE,
-                    -> replayQueuedCardPut(store, book, change)
+                    -> replayQueuedCardPut(store, book, change, deferReloads)
                     PendingChangeType.DELETE,
                     PendingChangeType.DELETE_HREF,
-                    -> replayQueuedCardDelete(store, book, change)
+                    -> replayQueuedCardDelete(store, book, change, deferReloads)
                     PendingChangeType.MOVE -> {
                         val failure = PendingChangeFailure("Moving a queued contact is not supported yet.")
                         withContext(ioDispatcher) { store.markDeadLetter(change.id, failure) }
@@ -2989,8 +3168,8 @@ class CalDavRepository(
                 -> replayQueuedPut(store, source, change)
                 PendingChangeType.DELETE,
                 PendingChangeType.DELETE_HREF,
-                -> replayQueuedDelete(store, source, change)
-                PendingChangeType.MOVE -> replayQueuedMove(store, source, change)
+                -> replayQueuedDelete(store, source, change, deferReloads)
+                PendingChangeType.MOVE -> replayQueuedMove(store, source, change, deferReloads)
             }
             if (!progressed) return
         }
@@ -3000,6 +3179,7 @@ class CalDavRepository(
         store: PendingChangeStore,
         destination: CalDavSource,
         change: PendingChange,
+        deferReloads: Boolean,
     ): Boolean {
         val body = change.data
         val destinationHref = change.href
@@ -3115,7 +3295,7 @@ class CalDavRepository(
             )
             updateOverlayIdentity(change, written)
             setWriteStatus(change.eventId, RecordWriteState.Failed, failure.message)
-            reload(useCache = false)
+            reloadAfterQueuedReplay(deferReloads)
             return true
         }
 
@@ -3147,7 +3327,7 @@ class CalDavRepository(
                     "${failure.message} ${cleanup.reason}",
                 )
             }
-            reload(useCache = false)
+            reloadAfterQueuedReplay(deferReloads)
             return true
         }
 
@@ -3197,7 +3377,7 @@ class CalDavRepository(
                         "${failure.message} ${cleanup.reason}",
                     )
                 }
-                reload(useCache = false)
+                reloadAfterQueuedReplay(deferReloads)
                 return true
             }
             val cleanup = queueMoveSourceCleanup(
@@ -3229,7 +3409,7 @@ class CalDavRepository(
                 is WriteResult.Rejected -> setWriteStatus(change.eventId, RecordWriteState.Failed, cleanup.reason)
                 is WriteResult.Applied -> Unit
             }
-            reload(useCache = false)
+            reloadAfterQueuedReplay(deferReloads)
             return true
         }
 
@@ -3242,7 +3422,7 @@ class CalDavRepository(
         )
         updateOverlayIdentity(change, written)
         clearWriteStatus(change.eventId)
-        reload(useCache = false)
+        reloadAfterQueuedReplay(deferReloads)
         return true
     }
 
@@ -3494,6 +3674,7 @@ class CalDavRepository(
         store: PendingChangeStore,
         source: CalDavSource,
         change: PendingChange,
+        deferReloads: Boolean,
     ): Boolean {
         val href = change.href
         val uid = change.uid ?: change.eventId
@@ -3544,14 +3725,14 @@ class CalDavRepository(
             if (dav?.status == 404 || dav?.status == 410 || dav?.code == CalDavErrorCode.NotFound || dav?.code == CalDavErrorCode.Gone) {
                 withContext(ioDispatcher) { store.acknowledge(change.id) }
                 clearWriteStatus(change.eventId)
-                reload(useCache = false)
+                reloadAfterQueuedReplay(deferReloads)
                 return true
             }
             return handleQueuedFailure(store, change, error)
         }
         withContext(ioDispatcher) { store.acknowledge(change.id) }
         clearWriteStatus(change.eventId)
-        reload(useCache = false)
+        reloadAfterQueuedReplay(deferReloads)
         return true
     }
 
@@ -3559,6 +3740,7 @@ class CalDavRepository(
         store: PendingChangeStore,
         source: CardDavSource,
         change: PendingChange,
+        deferReloads: Boolean,
     ): Boolean {
         val body = change.data
         val href = change.href
@@ -3677,7 +3859,7 @@ class CalDavRepository(
         withContext(ioDispatcher) { store.acknowledge(change.id) }
         updateContactOverlayIdentity(change, written)
         clearWriteStatus(change.eventId)
-        reload(useCache = false)
+        reloadAfterQueuedReplay(deferReloads)
         return true
     }
 
@@ -3685,6 +3867,7 @@ class CalDavRepository(
         store: PendingChangeStore,
         source: CardDavSource,
         change: PendingChange,
+        deferReloads: Boolean,
     ): Boolean {
         val href = change.href
         if (href.isNullOrBlank()) {
@@ -3708,7 +3891,7 @@ class CalDavRepository(
                 if (dav?.status == 404 || dav?.status == 410 || dav?.code == CalDavErrorCode.NotFound || dav?.code == CalDavErrorCode.Gone) {
                     withContext(ioDispatcher) { store.acknowledge(change.id) }
                     clearWriteStatus(change.eventId)
-                    reload(useCache = false)
+                    reloadAfterQueuedReplay(deferReloads)
                     return true
                 }
                 return handleQueuedFailure(store, change, refreshError)
@@ -3744,14 +3927,14 @@ class CalDavRepository(
             if (dav?.status == 404 || dav?.status == 410 || dav?.code == CalDavErrorCode.NotFound || dav?.code == CalDavErrorCode.Gone) {
                 withContext(ioDispatcher) { store.acknowledge(change.id) }
                 clearWriteStatus(change.eventId)
-                reload(useCache = false)
+                reloadAfterQueuedReplay(deferReloads)
                 return true
             }
             return handleQueuedFailure(store, change, error)
         }
         withContext(ioDispatcher) { store.acknowledge(change.id) }
         clearWriteStatus(change.eventId)
-        reload(useCache = false)
+        reloadAfterQueuedReplay(deferReloads)
         return true
     }
 
@@ -3952,12 +4135,29 @@ class CalDavRepository(
 
     private suspend fun <T> attemptWrite(url: String, operation: suspend () -> T): Result<T> =
         try {
-            Result.success(withContext(ioDispatcher) { writeMutex.withLock { operation() } })
+            ensureAccountSyncCurrent()
+            val value = withContext(ioDispatcher) {
+                ensureAccountSyncCurrent()
+                writeMutex.withLock {
+                    ensureAccountSyncCurrent()
+                    operation()
+                }
+            }
+            ensureAccountSyncCurrent()
+            Result.success(value)
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (aborted: AccountSyncAbortedException) {
+            throw aborted
         } catch (error: Throwable) {
             Result.failure(error)
         }
+
+    private suspend fun ensureAccountSyncCurrent() {
+        if (currentCoroutineContext()[AccountSyncGuard]?.isCurrent?.invoke() == false) {
+            throw AccountSyncAbortedException()
+        }
+    }
 
     private fun rejected(error: Throwable, url: String): WriteResult.Rejected =
         WriteResult.Rejected(calDavErrorForThrowable(error, url).message)
