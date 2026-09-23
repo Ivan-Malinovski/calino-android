@@ -39,8 +39,8 @@ class RangeInteractionTest : CalinoUiTest() {
         // A multi-day range names no single day, so the pill's add form is
         // "New event" rather than a dated label; what matters here is that the
         // lane went back to being an add pill at all.
-        awaitDescribed("New event. Swipe up to search")
-        compose.onNodeWithContentDescription("New event. Swipe up to search").assertIsDisplayed()
+        awaitDescribed("New event. Swipe up for views")
+        compose.onNodeWithContentDescription("New event. Swipe up for views").assertIsDisplayed()
     }
 
     @Test fun todayReturnsFromAnotherRangePage() {

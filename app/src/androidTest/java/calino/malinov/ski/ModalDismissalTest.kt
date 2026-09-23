@@ -194,7 +194,7 @@ class ModalDismissalTest : CalinoUiTest() {
     private fun openQuickAdd() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("New task. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New task. Swipe up for views").performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Title, task").assertIsDisplayed()
     }

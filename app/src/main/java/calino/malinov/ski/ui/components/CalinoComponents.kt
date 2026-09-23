@@ -2048,21 +2048,25 @@ fun AddPill(
     val menuOpen = remember { Animatable(0f) }
     // While a finger holds the open menu it owns the progress outright.
     var menuDrag by remember { mutableStateOf<Float?>(null) }
+    // The finger's speed at release, in progress per second, so the
+    // animation that takes over continues at the gesture's pace.
+    var menuReleaseVelocity by remember { mutableFloatStateOf(0f) }
     val menuProgress = { menuDrag ?: menuOpen.value }
     val menuMetrics = remember { PillMenuMetrics() }
     val menuCorner = with(density) { PillMenuCorner.toPx() }
     // The corner follows the pill's live height: fully round at the rest
     // face's height, the menu's card corner at the menu's. Any measured size
     // in between gets the corner in between, with nothing tabulated.
-    val pillShape = remember(menuMetrics, menuCorner) {
+    val pillShape = remember(menuCorner) {
         RoundedCornerShape(object : CornerSize {
             override fun toPx(shapeSize: Size, density: Density): Float {
+                // Fully round in every shape but the menu, and the menu's
+                // card corner in proportion to how far it has grown. Read
+                // from the progress, not the height: the dock is taller
+                // than the add pill and still wants round ends.
                 val half = shapeSize.minDimension / 2f
-                val rest = menuMetrics.restHeight
-                val open = menuMetrics.menuHeight
-                if (rest <= 0 || open <= rest) return half
-                val t = ((shapeSize.height - rest) / (open - rest)).coerceIn(0f, 1f)
-                return minOf(half, androidx.compose.ui.util.lerp(rest / 2f, menuCorner, t))
+                val t = menuProgress().coerceIn(0f, 1f)
+                return minOf(half, androidx.compose.ui.util.lerp(half, menuCorner, t))
             }
         })
     }
@@ -2075,9 +2079,14 @@ fun AddPill(
     val dismissFlingPx = with(density) { 1200.dp.toPx() }
     LaunchedEffect(shownMode) {
         if (shownMode != AddPillMode.Menu) menuItemBounds.clear()
+        // Opening is a spatial arrival and takes the expressive spring's
+        // small overshoot; closing settles into the rest face without one,
+        // since a pill that dips below its own size reads as a glitch.
+        val opening = shownMode == AddPillMode.Menu
         menuOpen.animateTo(
-            if (shownMode == AddPillMode.Menu) 1f else 0f,
-            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+            if (opening) 1f else 0f,
+            if (opening) CalinoMotion.expressiveSpatial() else CalinoMotion.standardSpatial(),
+            initialVelocity = menuReleaseVelocity.also { menuReleaseVelocity = 0f },
         )
     }
 
@@ -2091,15 +2100,16 @@ fun AddPill(
     }
 
     /** Hands a released menu drag back to the animation, from where the finger left it. */
-    fun releaseMenuDrag(close: Boolean) {
+    fun releaseMenuDrag(close: Boolean, velocity: Float) {
         val from = menuDrag ?: return
         scope.launch {
             menuOpen.snapTo(from)
             menuDrag = null
             if (close) {
+                menuReleaseVelocity = velocity
                 currentOnModeChange(AddPillMode.Rest)
             } else {
-                menuOpen.animateTo(1f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
+                menuOpen.animateTo(1f, CalinoMotion.gestureReturn(), initialVelocity = velocity)
             }
         }
     }
@@ -2114,13 +2124,33 @@ fun AddPill(
             when (currentMode) {
                 AddPillMode.Rest -> {
                     val button = viewButtonBounds
-                    if (currentMenuInert || button == null || !button.contains(downRoot)) return@awaitEachGesture
-                    down.consume()
-                    viewPressed = true
+                    if (currentMenuInert || button == null) return@awaitEachGesture
                     // 0 = still undecided when the hold fires, 1 = tap,
                     // 2 = scrub up into the menu, 3 = wandered off: cancel.
                     var outcome = 0
-                    withTimeoutOrNull(holdMillis) {
+                    if (!button.contains(downRoot)) {
+                        // Elsewhere on the pill the label keeps its tap and
+                        // its sideways swipe; only an upward drag is taken,
+                        // claimed at slop so the label's drag never starts.
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                .firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                            if (!change.pressed) return@awaitEachGesture
+                            val at = toRoot(change.position) ?: return@awaitEachGesture
+                            val up = downRoot.y - at.y
+                            val side = abs(at.x - downRoot.x)
+                            if (up > slop && up > side) {
+                                change.consume()
+                                outcome = 2
+                                break
+                            }
+                            if (side > slop || -up > slop) return@awaitEachGesture
+                        }
+                    } else {
+                        down.consume()
+                        viewPressed = true
+                    }
+                    if (outcome == 0) withTimeoutOrNull(holdMillis) {
                         while (true) {
                             val change = awaitPointerEvent(PointerEventPass.Initial).changes
                                 .firstOrNull { it.id == down.id }
@@ -2195,7 +2225,11 @@ fun AddPill(
                         val shown = menuDrag ?: 1f
                         // Folded a third of the way is a decision, as with a
                         // sheet; a flick up keeps it open regardless.
-                        releaseMenuDrag(close = fling >= dismissFlingPx || (shown < .7f && fling > -dismissFlingPx))
+                        val travel = (menuMetrics.menuHeight - menuMetrics.restHeight).coerceAtLeast(1f)
+                        releaseMenuDrag(
+                            close = fling >= dismissFlingPx || (shown < .7f && fling > -dismissFlingPx),
+                            velocity = -fling / travel,
+                        )
                     }
                 }
                 AddPillMode.Dock -> {
@@ -2318,14 +2352,16 @@ fun AddPill(
                 targetState = if (shownMode == AddPillMode.Menu) AddPillMode.Rest else shownMode,
                 transitionSpec = {
                     // The same fade-through a relabel takes, with the size
-                    // carried on a spring: the menu is the pill changing
-                    // shape, exactly as it does when a modal takes the lane.
+                    // carried on a spring: growing into the dock or its add
+                    // row is an arrival and takes the expressive overshoot;
+                    // settling back into the add pill does not.
+                    val arriving = targetState != AddPillMode.Rest
                     fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith
                         fadeOut(tween(CalinoMotion.FadeThroughMillis)) using
                         SizeTransform(clip = false) { _, _ ->
                             spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow,
+                                dampingRatio = if (arriving) .78f else Spring.DampingRatioNoBouncy,
+                                stiffness = if (arriving) 520f else Spring.StiffnessMediumLow,
                                 visibilityThreshold = IntSize.VisibilityThreshold,
                             )
                         }
@@ -2454,7 +2490,13 @@ fun AddPill(
                                         contentDescription = when (saveState) {
                                             PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) "Removing" else "Saving"
                                             PillSaveState.Saved -> if (writeKind == PillWriteKind.Remove) "Removed" else "Saved"
-                                            PillSaveState.Idle -> if (confirmationActive) "Confirm delete event" else "$label. Swipe up to search"
+                                            PillSaveState.Idle -> if (confirmationActive) {
+                                                "Confirm delete event"
+                                            } else if (menuEnabled) {
+                                                "$label. Swipe up for views"
+                                            } else {
+                                                "$label. Swipe up to search"
+                                            }
                                         }
                                     }
                                 }
@@ -2706,7 +2748,9 @@ private fun PillMenuMorph(
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val restPlaceable = restMeasurables.first().measure(loose)
         val menuPlaceable = menuMeasurables.firstOrNull()?.measure(loose)
-        val p = if (menuPlaceable == null) 0f else progress().coerceIn(0f, 1f)
+        // A little past 1 is let through, so the expressive spring's
+        // overshoot reads as the menu stretching slightly past its size.
+        val p = if (menuPlaceable == null) 0f else progress().coerceIn(0f, 1.06f)
         metrics.restHeight = restPlaceable.height.toFloat()
         if (menuPlaceable != null) metrics.menuHeight = menuPlaceable.height.toFloat()
         val width = androidx.compose.ui.util.lerp(restPlaceable.width.toFloat(), (menuPlaceable?.width ?: 0).toFloat(), p).roundToInt()

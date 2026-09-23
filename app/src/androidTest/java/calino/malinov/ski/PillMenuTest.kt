@@ -129,11 +129,23 @@ class PillMenuTest : CalinoUiTest() {
     }
 
     @Test fun theLabelKeepsItsSideSwipe() {
-        compose.onNodeWithContentDescription("Add on Mon, 18 May. Swipe up to search", substring = true)
+        compose.onNodeWithContentDescription("Add on Mon, 18 May. Swipe up for views", substring = true)
             .performTouchInput { swipeLeft() }
         compose.waitForIdle()
 
         viewButton("Range").assertIsDisplayed()
+    }
+
+    @Test fun swipingUpOnTheLabelOpensTheMenu() {
+        compose.onNodeWithContentDescription("Add on Mon, 18 May. Swipe up for views", substring = true)
+            .performTouchInput { down(center); moveBy(Offset(0f, -dpPx(40))) }
+        compose.waitForIdle()
+
+        // The menu, not the search screen the label used to open. The finger
+        // is still down: releasing would pick the row under it.
+        assertTrue(compose.hasTextNode("Agenda"))
+        assertFalse(compose.hasDescribedNode("Search Calino"))
+        compose.onRoot().performTouchInput { up() }
     }
 }
 

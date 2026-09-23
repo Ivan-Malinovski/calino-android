@@ -141,7 +141,7 @@ class JournalFlowTest : CalinoUiTest() {
 
     @Test fun createsAnEntry() {
         openJournal()
-        compose.onNodeWithContentDescription("New entry. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New entry. Swipe up for views").performClick()
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Journal title").performTextInput(NewTitle)
@@ -153,7 +153,7 @@ class JournalFlowTest : CalinoUiTest() {
 
     @Test fun cancellingACreateLeavesNothingBehind() {
         openJournal()
-        compose.onNodeWithContentDescription("New entry. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New entry. Swipe up for views").performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Journal title").performTextInput(NewTitle)
         compose.waitForIdle()
@@ -227,7 +227,7 @@ class JournalFlowTest : CalinoUiTest() {
 
     @Test fun boldFormattingWrapsInsertedText() {
         openJournal()
-        compose.onNodeWithContentDescription("New entry. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New entry. Swipe up for views").performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Journal body").performTextInput("formatted")
 

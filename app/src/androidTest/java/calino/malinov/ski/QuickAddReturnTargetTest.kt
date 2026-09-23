@@ -24,7 +24,7 @@ class QuickAddReturnTargetTest : CalinoUiTest() {
     @Test fun cancellingFromTasksReturnsToTasks() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("New task. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New task. Swipe up for views").performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Title, task").assertIsDisplayed()
 
@@ -42,7 +42,7 @@ class QuickAddReturnTargetTest : CalinoUiTest() {
     @Test fun cancellingFromJournalReturnsToJournal() {
         compose.openRoute("Journal")
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("New entry. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New entry. Swipe up for views").performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Journal title").assertIsDisplayed()
 
@@ -55,7 +55,7 @@ class QuickAddReturnTargetTest : CalinoUiTest() {
     }
 
     @Test fun cancellingFromTheCalendarReturnsToTheCalendar() {
-        compose.onNodeWithContentDescription("Add on Mon, 18 May. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("Add on Mon, 18 May. Swipe up for views").performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Title, event").assertIsDisplayed()
 
@@ -69,7 +69,7 @@ class QuickAddReturnTargetTest : CalinoUiTest() {
     @Test fun quickAddOpensInTheKindTheSurfaceImplies() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("New task. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New task. Swipe up for views").performClick()
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Title, task").assertIsDisplayed()
@@ -79,7 +79,7 @@ class QuickAddReturnTargetTest : CalinoUiTest() {
     @Test fun savingFromTasksReturnsToTasksWithTheNewTask() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("New task. Swipe up to search").performClick()
+        compose.onNodeWithContentDescription("New task. Swipe up for views").performClick()
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Title, task").performTextInput(NewTask)

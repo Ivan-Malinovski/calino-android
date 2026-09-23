@@ -20,7 +20,7 @@ class AgendaFocusDateTest : CalinoUiTest() {
             .onAllNodes(hasContentDescription("Add on ", substring = true))
             .fetchSemanticsNodes()
             .flatMap { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription).orEmpty() }
-            .firstOrNull { it.endsWith("Swipe up to search") }
+            .firstOrNull { it.endsWith("Swipe up for views") }
 
         val initial = checkNotNull(rootPillLabel())
 

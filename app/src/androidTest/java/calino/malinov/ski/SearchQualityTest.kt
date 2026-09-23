@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -41,8 +42,10 @@ class SearchQualityTest : CalinoUiTest() {
     }
 
     private fun openSearch() {
-        compose.onNodeWithContentDescription("Add on Mon, 18 May. Swipe up to search")
-            .performTouchInput { swipe(Offset(center.x, center.y), Offset(center.x, center.y - 240f), 300L) }
+        // Search is the first row of the pill's view menu.
+        compose.onNodeWithContentDescription("Views, current: Month").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Search").performClick()
         compose.waitUntil(3_000) { compose.hasDescribedNode("Search Calino") }
     }
 }
