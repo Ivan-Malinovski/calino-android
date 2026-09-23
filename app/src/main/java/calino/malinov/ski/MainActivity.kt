@@ -203,6 +203,9 @@ import calino.malinov.ski.state.LocalTaskLookup
 import calino.malinov.ski.state.FixtureNow
 import calino.malinov.ski.state.CalinoFoldPosture
 import calino.malinov.ski.state.LocalFoldPosture
+import kotlin.math.roundToInt
+import calino.malinov.ski.state.CalinoWindowClass
+import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.LocalHingeOpenness
 import calino.malinov.ski.state.hingeOpenness
 import calino.malinov.ski.state.foldPostureOf
@@ -1819,6 +1822,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // that exposes it. Use the same width/height rule here so changing roots
     // does not make the pill jump back to the center on a tablet in landscape.
     val tabletLandscape = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt())
+    val compactWindow = calinoLayoutSpec(
+        maxWidth.value.roundToInt(), maxHeight.value.roundToInt(), LocalFoldPosture.current,
+    ).windowClass == CalinoWindowClass.Compact
     Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize()
@@ -2651,10 +2657,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     },
             )
         }
+        // On a phone search grows out of the pill and shrinks back into it,
+        // so the pill hands over in place rather than sliding off first.
+        val searchMorphsFromPill = pillLane.addPillBounds != null && compactWindow
+        val pillHandoff = laneHandoff || (searchMorphsFromPill && searchVisible)
+        // Whatever hid the pill last decides how it returns: out of search it
+        // is already there as the shrunken capsule, out of the sidebar it slides.
+        var pillHiddenBySearch by remember { mutableStateOf(false) }
+        SideEffect {
+            if (searchVisible) pillHiddenBySearch = true else if (sidebarVisible) pillHiddenBySearch = false
+        }
         androidx.compose.animation.AnimatedVisibility(
             visible = pillVisible && !sidebarVisible && !searchVisible,
-            enter = if (laneHandoff) EnterTransition.None else slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
-            exit = if (laneHandoff) ExitTransition.None else slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
+            enter = if (laneHandoff || (searchMorphsFromPill && pillHiddenBySearch)) EnterTransition.None else slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
+            exit = if (pillHandoff) ExitTransition.None else slideOutVertically(tween(200), targetOffsetY = { it }) + fadeOut(tween(150)),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()

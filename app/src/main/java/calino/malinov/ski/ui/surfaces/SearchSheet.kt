@@ -51,6 +51,18 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.lerp as lerpDp
+import androidx.compose.ui.unit.DpRect
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.flow.first
+import android.os.Build
+import android.view.WindowManager
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.runtime.SideEffect
+import calino.malinov.ski.ui.components.LocalCalinoPillLane
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.LocalHingeOpenness
 import calino.malinov.ski.state.foldSplitProgress
@@ -162,7 +174,12 @@ fun CalinoSearchSheet(
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
     fun requestClose() { closeRequest += 1 }
 
-    LaunchedEffect(Unit) {
+    var windowShown by remember { mutableStateOf(false) }
+    // Grow only once the dialog window is on screen: expanding on first
+    // composition finishes before the window is drawn, so the capsule would
+    // appear already open instead of growing out of the pill.
+    LaunchedEffect(windowShown) {
+        if (!windowShown) return@LaunchedEffect
         expanded = true
         delay(duration.toLong())
         focusRequester.requestFocus()
@@ -195,6 +212,21 @@ fun CalinoSearchSheet(
         onDismissRequest = ::requestClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+    // The capsule and scrim animate themselves; the window's own fade would
+    // hide the capsule growing out of the pill behind a crossfade.
+    val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+    // The window's own dim stacks with the scrim below and turned the glass
+    // grey; the scrim alone is enough.
+    SideEffect {
+        dialogWindow?.setWindowAnimations(0)
+        dialogWindow?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+    }
+    val dialogView = LocalView.current
+    LaunchedEffect(dialogView) {
+        while (dialogView.windowVisibility != android.view.View.VISIBLE) withFrameNanos { }
+        repeat(2) { withFrameNanos { } }
+        windowShown = true
+    }
     BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
         val layoutSpec = calinoLayoutSpec(
             maxWidth.value.roundToInt(), maxHeight.value.roundToInt(), LocalFoldPosture.current,
@@ -221,17 +253,62 @@ fun CalinoSearchSheet(
         } else {
             minOf((paneHeight - 48.dp).coerceAtLeast(1.dp), expandedHeight, CalinoSurfaceKind.Search.heightCapDp.dp)
         }
-        val capsuleWidth by animateDpAsState(if (expanded) expandedWidth else 224.dp, tween(duration), label = "search capsule width")
-        val capsuleHeight by animateDpAsState(if (expanded) expandedHeightTarget else 54.dp, tween(duration), label = "search capsule height")
+        // On a phone the capsule is the add pill grown upward: it starts on
+        // the pill's own rect and keeps its side and bottom edges, so search
+        // reads as the same object rather than a second bar beside it. The
+        // keyboard can still push the bottom up; imePadding shrinks maxHeight.
+        val density = LocalDensity.current
+        val pillRect = LocalCalinoPillLane.current.addPillBounds
+            ?.takeIf { compact }
+            ?.let { with(density) { DpRect(it.left.toDp(), it.top.toDp(), it.right.toDp(), it.bottom.toDp()) } }
+        val collapsedWidth = pillRect?.let { it.right - it.left } ?: 224.dp
+        val collapsedHeight = pillRect?.let { it.bottom - it.top } ?: 54.dp
+        // Open, it shares the pill's edges when the pill is wide (the dock);
+        // a narrow rest pill would squeeze the field, so it widens around the
+        // pill's centre instead, never past the sheet's own width.
+        val openWidth = pillRect?.let { minOf(maxOf(it.right - it.left, 320.dp), expandedWidth) } ?: expandedWidth
+        val targetWidth = if (expanded) openWidth else collapsedWidth
+        val capsuleWidth by animateDpAsState(targetWidth, tween(duration), label = "search capsule width")
+        val capsuleHeight by animateDpAsState(if (expanded) expandedHeightTarget else collapsedHeight, tween(duration), label = "search capsule height")
         val capsuleRadius by animateDpAsState(if (expanded) 30.dp else CalinoShapes.Pill, tween(duration), label = "search capsule radius")
-        val capsuleFill by animateColorAsState(if (expanded) CalinoColors.Panel else CalinoColors.FloatFill, tween(duration), label = "search capsule fill")
+        // The same glass as the pill it grows from: a blurred backdrop under
+        // the pill's wash and outline. The dialog is its own window and can't
+        // sample the app's layer, so the blur is the window's blur-behind,
+        // raised with the capsule. Without cross-window blur (before API 31,
+        // or turned off) the wash stays opaque so results remain legible.
+        val blurProgress by animateFloatAsState(if (expanded) 1f else 0f, tween(duration), label = "search blur")
+        val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            dialogWindow?.windowManager?.isCrossWindowBlurEnabled == true
+        if (canBlur) {
+            SideEffect {
+                dialogWindow?.let { window ->
+                    window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window.attributes = window.attributes.apply { blurBehindRadius = (SearchBlurRadiusPx * blurProgress).roundToInt() }
+                }
+            }
+        }
+        // It leaves the pill in the pill's fill and settles into the page's
+        // panel: in light mode the pill is a dark lozenge, and a whole dark
+        // search sheet on paper reads as a different theme.
+        // Open, it is a reading surface: denser than the pill's glass so the
+        // panel reads as the page, with only a hint of the blur behind it.
+        val capsuleFill by animateColorAsState(
+            when {
+                !canBlur -> if (expanded) CalinoColors.Panel else CalinoColors.FloatFill
+                expanded -> CalinoColors.Panel.copy(alpha = .9f)
+                else -> CalinoColors.FloatFill.copy(alpha = .68f)
+            },
+            tween(duration),
+            label = "search capsule fill",
+        )
 
         AnimatedVisibility(expanded, enter = fadeIn(tween(duration)), exit = fadeOut(tween(duration))) {
             Box(
                 Modifier.fillMaxSize()
                     .graphicsLayer { alpha = 1f - predictiveBackProgress }
                     .background(CalinoColors.scrim(.18f))
-                    .clickable(onClick = ::requestClose),
+                    // No indication: a full-screen ripple reads as a second scrim.
+                    .clickable(interactionSource = null, indication = null, onClick = ::requestClose),
             )
         }
         val searchContent: @Composable (Modifier) -> Unit = { dragModifier ->
@@ -249,7 +326,9 @@ fun CalinoSearchSheet(
                     .clickable(onClick = {}),
                 shape = RoundedCornerShape(capsuleRadius),
                 color = capsuleFill,
-                shadowElevation = if (CalinoColors.elevationAlpha > 0f) 14.dp else 0.dp,
+                border = BorderStroke(1.dp, CalinoColors.FloatBorder),
+                // A shadow shows through translucent glass as a dark slab.
+                shadowElevation = if (CalinoColors.elevationAlpha > 0f && !canBlur) 14.dp else 0.dp,
             ) {
                 AnimatedVisibility(expanded, enter = fadeIn(tween(duration, delayMillis = 70)), exit = fadeOut(tween(90))) {
                     Column {
@@ -313,7 +392,20 @@ fun CalinoSearchSheet(
             // SwipeDownDismiss also hands its modifier to the content, so an
             // offset passed in there is applied twice and parks the capsule a
             // whole pane below the screen -- leaving only the scrim on screen.
-            Box(
+            if (pillRect != null) {
+                val bottom = minOf(pillRect.bottom, maxHeight - 20.dp)
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .offset(
+                            x = ((pillRect.left + pillRect.right) / 2 - capsuleWidth / 2)
+                                .coerceIn(12.dp, (maxWidth - capsuleWidth - 12.dp).coerceAtLeast(12.dp)),
+                            y = (bottom - capsuleHeight).coerceAtLeast(0.dp),
+                        ),
+                ) {
+                    SwipeDownDismiss(visible = expanded, onDismiss = ::requestClose, content = searchContent)
+                }
+            } else Box(
                 Modifier
                     .align(Alignment.TopStart)
                     .offset(x = searchPane.leftDp.dp, y = searchPane.topDp.dp + (paneHeight - capsuleHeight - 20.dp).coerceAtLeast(0.dp))
@@ -498,3 +590,6 @@ private fun parsedDetail(result: CalinoSearchResult.AddEvent): String = buildStr
 @Composable private fun SearchMessage(text: String) {
     Text(text, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(24.dp))
 }
+
+/** Matches the pill's own 24px backdrop blur. */
+private const val SearchBlurRadiusPx = 24
