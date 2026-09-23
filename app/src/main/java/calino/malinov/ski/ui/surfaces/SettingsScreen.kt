@@ -607,6 +607,12 @@ private fun CalendarSettings() {
                 preferences.showZoomHandle,
                 preferences.setShowZoomHandle,
             )
+            SettingToggleRow(
+                "Menu pill",
+                "Tap, swipe up or hold the view icon to jump between views. Off keeps the swipe-only add pill",
+                preferences.menuPill,
+                preferences.setMenuPill,
+            )
             SettingChoiceRow(
                 label = "Event density",
                 description = "How much of a busy day a month cell shows",

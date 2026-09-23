@@ -3,6 +3,12 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## Unreleased
+
+### Added
+
+- **Menu pill.** The root add pill gains a view button showing the current view's icon. Tap it or swipe up from it to open a view menu (swipe up and release on a view to jump straight there; swipe the menu down to dismiss). Hold it for a dock with every view one tap away and an add button for events, tasks and journal entries. The label keeps its tap-to-add, sideways swipe between views and swipe up to search. Settings → **Menu pill** turns it off to keep the swipe-only pill.
+
 ## 0.5.0 — 2026-09-22
 
 Calino 0.5.0 adds an experimental Wear OS companion, native Markdown rendering for event descriptions and task notes, and clearer recovery after a rejected task write.

@@ -71,6 +71,12 @@ data class CalinoPreferences(
      */
     val showZoomHandle: Boolean = true,
     val setShowZoomHandle: (Boolean) -> Unit = {},
+    /**
+     * Whether the root pill carries the view menu (tap, swipe up or hold its
+     * view icon). Off restores the swipe-only add pill.
+     */
+    val menuPill: Boolean = true,
+    val setMenuPill: (Boolean) -> Unit = {},
     /** The effective week start used by every grid and pager. */
     val weekStart: CalinoWeekStart = CalinoWeekStart.Monday,
     /** The stored choice, which may be [CalinoWeekStart.System]. */
@@ -144,6 +150,8 @@ interface CalinoPreferenceStore {
     fun saveTimeFormat(format: CalinoTimeFormat)
     fun loadShowZoomHandle(): Boolean
     fun saveShowZoomHandle(show: Boolean)
+    fun loadMenuPill(): Boolean
+    fun saveMenuPill(enabled: Boolean)
     fun loadWeekStart(): CalinoWeekStart
     fun saveWeekStart(weekStart: CalinoWeekStart)
     fun loadEventDensity(): CalinoEventDensity
@@ -226,6 +234,7 @@ interface CalinoPreferenceStore {
         private var themeChoice = CalinoThemeChoice.Default
         private var timeFormat = CalinoTimeFormat.Default
         private var zoomHandle = true
+        private var menuPill = true
         private var weekStart = CalinoWeekStart.Default
         private var density = CalinoEventDensity.Default
         private var weekNumbers = true
@@ -246,6 +255,8 @@ interface CalinoPreferenceStore {
         override fun saveTimeFormat(format: CalinoTimeFormat) { timeFormat = format }
         override fun loadShowZoomHandle() = zoomHandle
         override fun saveShowZoomHandle(show: Boolean) { zoomHandle = show }
+        override fun loadMenuPill() = menuPill
+        override fun saveMenuPill(enabled: Boolean) { menuPill = enabled }
         override fun loadWeekStart() = weekStart
         override fun saveWeekStart(weekStart: CalinoWeekStart) { this.weekStart = weekStart }
         override fun loadEventDensity() = density
@@ -330,6 +341,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 
     override fun loadShowZoomHandle(): Boolean = prefs.getBoolean(ShowZoomHandleKey, true)
     override fun saveShowZoomHandle(show: Boolean) = putBoolean(ShowZoomHandleKey, show)
+    override fun loadMenuPill(): Boolean = prefs.getBoolean(MenuPillKey, true)
+    override fun saveMenuPill(enabled: Boolean) = putBoolean(MenuPillKey, enabled)
 
     override fun loadWeekStart(): CalinoWeekStart = CalinoWeekStart.fromName(name(WeekStartKey))
     override fun saveWeekStart(weekStart: CalinoWeekStart) = putString(WeekStartKey, weekStart.name)
@@ -413,6 +426,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ThemeChoiceKey = "theme_choice"
         const val TimeFormatKey = "time_format"
         const val ShowZoomHandleKey = "show_zoom_handle"
+        const val MenuPillKey = "menu_pill"
         const val WeekStartKey = "week_start"
         const val EventDensityKey = "event_density"
         const val ShowWeekNumbersKey = "show_week_numbers"
@@ -455,6 +469,7 @@ fun rememberCalinoPreferences(
     var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
     var timeFormatChoice by remember(store) { mutableStateOf(store.loadTimeFormat()) }
     var showZoomHandle by remember(store) { mutableStateOf(store.loadShowZoomHandle()) }
+    var menuPill by remember(store) { mutableStateOf(store.loadMenuPill()) }
     var weekStartChoice by remember(store) { mutableStateOf(store.loadWeekStart()) }
     var eventDensity by remember(store) { mutableStateOf(store.loadEventDensity()) }
     var showWeekNumbers by remember(store) { mutableStateOf(store.loadShowWeekNumbers()) }
@@ -482,6 +497,8 @@ fun rememberCalinoPreferences(
         setTimeFormat = { value -> timeFormatChoice = value; store.saveTimeFormat(value) },
         showZoomHandle = showZoomHandle,
         setShowZoomHandle = { value -> showZoomHandle = value; store.saveShowZoomHandle(value) },
+        menuPill = menuPill,
+        setMenuPill = { value -> menuPill = value; store.saveMenuPill(value) },
         weekStart = weekStartChoice.resolved(deviceDefaults.weekStart),
         weekStartChoice = weekStartChoice,
         setWeekStart = { value -> weekStartChoice = value; store.saveWeekStart(value) },

@@ -1,5 +1,13 @@
 package calino.malinov.ski
 
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.activity.compose.BackHandler
+import calino.malinov.ski.ui.components.pockRouteIcon
+import calino.malinov.ski.ui.components.PillRoute
+import calino.malinov.ski.ui.components.AddPillCreate
+import calino.malinov.ski.ui.components.AddPillMode
 import android.app.Application
 import android.content.Intent
 import android.provider.CalendarContract
@@ -1075,6 +1083,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var quickAddParentTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var quickAddMorphFromAddPill by rememberSaveable { mutableStateOf(false) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
+    // The root pill's menu shape. Held here rather than in the pill so Back,
+    // the outside-tap scrim and a modal taking the lane can all put it away.
+    var pillMode by rememberSaveable { mutableStateOf(AddPillMode.Rest) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchOriginRoute by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
     var notificationOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
@@ -1725,6 +1736,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             throw cancelled
         }
     }
+    // Registered after the root handler so an open pill menu or dock is
+    // what Back closes first, before any route or sheet.
+    BackHandler(enabled = pillMode != AddPillMode.Rest) { pillMode = AddPillMode.Rest }
 
     val aiContextBlur by animateDpAsState(
         targetValue = if (aiBusy || aiCandidates != null) 10.dp else 0.dp,
@@ -2557,6 +2571,25 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
         androidx.compose.runtime.SideEffect { pillLane.addPillLabel = addPillLabel }
         val laneHandoff = pillLane.claimedByModal || pillLane.handingBack
+        // Anything that hides the pill or takes its lane puts the menu away.
+        val pillMenuShown = pillVisible && !sidebarVisible && !searchVisible && !pillLane.claimedByModal
+        LaunchedEffect(pillMenuShown, preferences.menuPill) {
+            if (!pillMenuShown || !preferences.menuPill) pillMode = AddPillMode.Rest
+        }
+        if (pillMode != AddPillMode.Rest) {
+            // Clear, not a dim: a tap anywhere else only closes the menu,
+            // and is not also delivered to whatever it landed on.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false).consume()
+                            pillMode = AddPillMode.Rest
+                        }
+                    },
+            )
+        }
         androidx.compose.animation.AnimatedVisibility(
             visible = pillVisible && !sidebarVisible && !searchVisible,
             enter = if (laneHandoff) EnterTransition.None else slideInVertically(tween(240), initialOffsetY = { it }) + fadeIn(tween(180)),
@@ -2613,6 +2646,35 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 onSearch = {
                     searchOriginRoute = rootRoute
                     searchVisible = true
+                },
+                routes = if (preferences.menuPill) {
+                    pillRoutes.map { PillRoute(pockRouteLabel(it), pockRouteIcon(it), current = it == rootRoute) }
+                } else {
+                    emptyList()
+                },
+                mode = pillMode,
+                onModeChange = { pillMode = it },
+                onNavigate = { index -> pillRoutes.getOrNull(index)?.let(::navigateRoot) },
+                onCreate = { kind ->
+                    val origin = when (rootRoute) {
+                        PockRoute.Tasks -> PocReturnTarget.Tasks
+                        PockRoute.Range -> PocReturnTarget.Range
+                        PockRoute.Agenda -> PocReturnTarget.Agenda
+                        PockRoute.Journal -> PocReturnTarget.Journal
+                        PockRoute.Contacts -> PocReturnTarget.Contacts
+                        else -> PocReturnTarget.Calendar
+                    }
+                    when (kind) {
+                        AddPillCreate.Event -> openQuickAdd(QuickAddKind.Event, origin, morphFromAddPill = true)
+                        AddPillCreate.Task -> openQuickAdd(QuickAddKind.Task, origin, morphFromAddPill = true)
+                        // The journal screen has its own entry editor; elsewhere
+                        // the quick-add sheet's journal kind is the way in.
+                        AddPillCreate.Journal -> if (rootRoute == PockRoute.Journal) {
+                            journalEntryRequest += 1
+                        } else {
+                            openQuickAdd(QuickAddKind.Journal, origin, morphFromAddPill = true)
+                        }
+                    }
                 },
                 label = addPillLabel,
                 labelSlideDirection = if (rootRoute == PockRoute.Agenda) agendaPillLabelDirection else 0,

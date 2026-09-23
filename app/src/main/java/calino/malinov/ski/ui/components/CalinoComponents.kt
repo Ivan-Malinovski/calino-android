@@ -1,5 +1,18 @@
 package calino.malinov.ski.ui.components
 
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.geometry.Rect
 import android.os.SystemClock
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
@@ -1945,6 +1958,18 @@ fun AddPill(
     destinationLabel: (Int) -> String? = { null },
     onSwipe: (Int) -> Unit = {},
     onSearch: () -> Unit = {},
+    /**
+     * The views the pill's menu offers, in pager order. Empty keeps the
+     * swipe-only pill: no view button, no menu, no dock.
+     */
+    routes: List<PillRoute> = emptyList(),
+    /** Which shape the pill is in. Owned by the host so Back and the scrim can close it. */
+    mode: AddPillMode = AddPillMode.Rest,
+    onModeChange: (AddPillMode) -> Unit = {},
+    /** Index into [routes] of a view picked from the menu or the dock. */
+    onNavigate: (Int) -> Unit = {},
+    /** A record type picked from the dock's add row. */
+    onCreate: (AddPillCreate) -> Unit = {},
     confirmationActive: Boolean = false,
     confirmationLabel: String = "Are you sure?",
     onConfirmationExpired: () -> Unit = {},
@@ -1994,6 +2019,145 @@ fun AddPill(
         }
     }
     val commitPx = with(density) { 56.dp.toPx() }
+
+    // -- Menu pill -------------------------------------------------------
+    // The view button, its menu and its dock. Gesture ownership: the view
+    // button's tap, scrub and hold, and the open menu's swipe-down, are all
+    // read by one pointer handler on the pill itself (Initial pass, so the
+    // menu rows under a scrubbing finger never see it); the label segment
+    // keeps its own tap and drag handlers exactly as before.
+    val menuEnabled = routes.isNotEmpty()
+    val currentRoutes by rememberUpdatedState(routes)
+    val currentMode by rememberUpdatedState(mode)
+    val currentOnModeChange by rememberUpdatedState(onModeChange)
+    val currentOnNavigate by rememberUpdatedState(onNavigate)
+    val currentOnCreate by rememberUpdatedState(onCreate)
+    // Anything the pill is already narrating owns it; the view button waits.
+    val menuInert = saveState != PillSaveState.Idle || confirmationActive || undoActive
+    val currentMenuInert by rememberUpdatedState(menuInert)
+    val shownMode = if (menuEnabled) mode else AddPillMode.Rest
+    // A tall menu clamps a 999dp corner to half its width; it wants a card corner.
+    val pillShape = RoundedCornerShape(if (shownMode == AddPillMode.Menu) CalinoShapes.Card else CalinoShapes.Pill)
+    var pillCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var viewButtonBounds by remember { mutableStateOf<Rect?>(null) }
+    val menuItemBounds = remember { HashMap<Int, Rect>() }
+    var scrubHot by remember { mutableStateOf<Int?>(null) }
+    var viewPressed by remember { mutableStateOf(false) }
+    var menuDragY by remember { mutableFloatStateOf(0f) }
+    val scrubStartPx = with(density) { PillScrubStart.toPx() }
+    val dismissFlingPx = with(density) { 1200.dp.toPx() }
+    LaunchedEffect(shownMode) {
+        if (shownMode != AddPillMode.Menu) menuItemBounds.clear()
+        if (shownMode == AddPillMode.Rest) menuDragY = 0f
+    }
+
+    /** A menu row by key: [PillMenuSearchKey] or an index into [routes]. */
+    fun pickMenuItem(key: Int) {
+        currentOnModeChange(AddPillMode.Rest)
+        when {
+            key == PillMenuSearchKey -> currentOnSearch()
+            currentRoutes.getOrNull(key)?.current == false -> currentOnNavigate(key)
+        }
+    }
+
+    fun settleMenuDrag() {
+        scope.launch {
+            animate(menuDragY, 0f, animationSpec = spring(dampingRatio = .78f, stiffness = 520f)) { value, _ -> menuDragY = value }
+        }
+    }
+
+    suspend fun PointerInputScope.menuGestures() {
+        val holdMillis = minOf(viewConfiguration.longPressTimeoutMillis, PillHoldMillis)
+        val slop = viewConfiguration.touchSlop
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            fun toRoot(position: Offset) = pillCoordinates?.takeIf { it.isAttached }?.localToRoot(position)
+            val downRoot = toRoot(down.position) ?: return@awaitEachGesture
+            when (currentMode) {
+                AddPillMode.Rest -> {
+                    val button = viewButtonBounds
+                    if (currentMenuInert || button == null || !button.contains(downRoot)) return@awaitEachGesture
+                    down.consume()
+                    viewPressed = true
+                    // 0 = still undecided when the hold fires, 1 = tap,
+                    // 2 = scrub up into the menu, 3 = wandered off: cancel.
+                    var outcome = 0
+                    withTimeoutOrNull(holdMillis) {
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                .firstOrNull { it.id == down.id }
+                            if (change == null) { outcome = 3; break }
+                            change.consume()
+                            if (!change.pressed) { outcome = 1; break }
+                            val at = toRoot(change.position) ?: downRoot
+                            if (downRoot.y - at.y > scrubStartPx) { outcome = 2; break }
+                            if (abs(at.x - downRoot.x) > slop * 2 || at.y - downRoot.y > slop * 2) { outcome = 3; break }
+                        }
+                    }
+                    viewPressed = false
+                    when (outcome) {
+                        1 -> currentOnModeChange(AddPillMode.Menu)
+                        0, 2 -> {
+                            val scrub = outcome == 2
+                            if (scrub) {
+                                currentOnModeChange(AddPillMode.Menu)
+                            } else {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                currentOnModeChange(AddPillMode.Dock)
+                            }
+                            // Keep the rest of this finger: in a scrub it
+                            // picks a row; after a hold it must not land a
+                            // tap on whichever dock icon it lifts over.
+                            while (true) {
+                                val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                    .firstOrNull { it.id == down.id } ?: break
+                                change.consume()
+                                if (scrub) {
+                                    val at = toRoot(change.position)
+                                    val hot = at?.let { point -> menuItemBounds.entries.firstOrNull { it.value.contains(point) }?.key }
+                                    if (hot != scrubHot && hot != null) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    scrubHot = hot
+                                }
+                                if (!change.pressed) break
+                            }
+                            val picked = scrubHot
+                            scrubHot = null
+                            // Released over nothing: the menu stays open to tap.
+                            if (scrub && picked != null) pickMenuItem(picked)
+                        }
+                        else -> Unit
+                    }
+                }
+                AddPillMode.Menu -> {
+                    // Swipe down anywhere on the open menu to put it away.
+                    // Only a downward drag past slop is taken; a tap stays
+                    // with the row under it.
+                    val velocity = VelocityTracker()
+                    var dragging = false
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                            .firstOrNull { it.id == down.id } ?: break
+                        val at = toRoot(change.position) ?: break
+                        velocity.addPosition(change.uptimeMillis, at)
+                        val dy = at.y - downRoot.y
+                        if (!dragging && dy > slop && dy > abs(at.x - downRoot.x)) dragging = true
+                        if (dragging) {
+                            change.consume()
+                            menuDragY = (dy - slop).coerceAtLeast(0f)
+                        }
+                        if (!change.pressed) break
+                    }
+                    if (dragging) {
+                        if (menuDragY >= commitPx || velocity.calculateVelocity().y >= dismissFlingPx) {
+                            currentOnModeChange(AddPillMode.Rest)
+                        }
+                        settleMenuDrag()
+                    }
+                }
+                else -> Unit
+            }
+        }
+    }
     // A refused direction still moves, but only enough to read as a limit.
     val maxTravelPx = with(density) { 88.dp.toPx() }
     val edgeTravelPx = with(density) { 22.dp.toPx() }
@@ -2041,7 +2205,7 @@ fun AddPill(
         }
         Row(
             Modifier
-                .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
+                .offset { IntOffset(dragX.roundToInt(), (dragY + menuDragY).roundToInt()) }
                 // Above the pill's own fill and border, so the trace reads as
                 // something running along the edge rather than under it.
                 .pillSaveTrace(saveTrace)
@@ -2050,253 +2214,514 @@ fun AddPill(
                     active = confirmationActive,
                     color = CalinoColors.Rose,
                 )
-                .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
-                .clip(RoundedCornerShape(CalinoShapes.Pill))
+                .shadow(14.dp * CalinoColors.elevationAlpha, pillShape, clip = false)
+                .clip(pillShape)
                 // Carries the pill's shape where the fill is too close to the
                 // canvas to do it alone. Transparent in light, which needs no
                 // edge and never drew one.
-                .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill))
+                .border(1.dp, CalinoColors.FloatBorder, pillShape)
                 // Where a modal's pill has to appear to continue from.
                 // Only the settled add shape is worth anchoring a modal pill
                 // to. "Saving" and "Saved" are narrower, and a modal opened
                 // mid-save would start from one of those widths.
                 .onGloballyPositioned {
-                    if (saveState == PillSaveState.Idle) lane.setAddPill(it.boundsInRoot(), label)
+                    if (saveState == PillSaveState.Idle && shownMode == AddPillMode.Rest) lane.setAddPill(it.boundsInRoot(), label)
                 }
                 .floatingPillSurface(backdrop, backdropOrigin)
-                // A route swipe can recompose the pill before clickable emits
-                // its release. Without this guard the release is interpreted
-                // as a tap on the newly arrived route (for example, opening a
-                // new contact immediately after swiping to Contacts).
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        suppressClickAfterDrag = false
-                        var pressed = true
-                        while (pressed) {
-                            pressed = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
-                        }
-                    }
-                }
-                .calinoPressable(
-                    pressedScale = .97f,
-                    onClick = {
-                        if (suppressClickAfterDrag) {
-                            suppressClickAfterDrag = false
-                        } else if (confirmationActive) {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            currentOnConfirmed()
-                        } else if (undoActive) {
-                            // The body of the pill is inert while it is
-                            // naming an undoable change -- only the Undo
-                            // word itself, below, acts -- so a stray tap
-                            // reading it can't launch the add sheet.
-                            Unit
-                        } else {
-                            currentOnClick()
-                        }
-                    },
-                )
-                .pointerInput(Unit) {
-                    var horizontal = false
-                    var vertical = false
-                    detectDragGestures(
-                        onDragStart = { horizontal = false; vertical = false },
-                        onDragEnd = {
-                            if (confirmationActive || undoActive) {
-                                settle()
-                                return@detectDragGestures
-                            }
-                            if (vertical && dragY <= -commitPx) currentOnSearch()
-                            if (horizontal) {
-                                val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
-                                if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
-                            }
-                            settle()
-                        },
-                        onDragCancel = { settle() },
-                    ) { change, amount ->
-                        if (confirmationActive || undoActive) return@detectDragGestures
-                        if (!horizontal && !vertical) {
-                            horizontal = abs(amount.x) >= abs(amount.y)
-                            vertical = !horizontal
-                        }
-                        change.consume()
-                        suppressClickAfterDrag = true
-                        if (horizontal) {
-                            val next = dragX + amount.x
-                            val direction = if (next < 0f) 1 else -1
-                            val limit = if (currentCanSwipe(direction)) maxTravelPx else edgeTravelPx
-                            dragX = next.coerceIn(-limit, limit)
-                        } else {
-                            dragY = (dragY + amount.y).coerceIn(-maxTravelPx, edgeTravelPx)
-                        }
-                    }
-                }
-                // Undo needs two independently reachable things -- the
-                // outcome, announced as it lands, and a separately focusable
-                // Undo button -- so it stops merging the row into the one
-                // node every other state collapses into.
-                .semantics(mergeDescendants = !undoActive) {
-                    if (undoActive) {
-                        liveRegion = LiveRegionMode.Polite
-                    } else {
-                        contentDescription = when (saveState) {
-                            PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) "Removing" else "Saving"
-                            PillSaveState.Saved -> if (writeKind == PillWriteKind.Remove) "Removed" else "Saved"
-                            PillSaveState.Idle -> if (confirmationActive) "Confirm delete event" else "$label. Swipe up to search"
-                        }
-                    }
-                }
-                .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
+                // The pill reports its own coordinates to the menu gestures
+                // below, which hit-test the view button and the menu rows in
+                // root space: the pill changes shape under a finger that is
+                // still down, so its local space is not a stable frame.
+                .onGloballyPositioned { pillCoordinates = it }
+                .then(if (menuEnabled) Modifier.pointerInput(Unit) { menuGestures() } else Modifier),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // While a swipe is live the pair names both of its days, and the
-            // first of them is the page the calendar is actually on -- so the
-            // pill never has to be told when to stop showing one day and start
-            // showing the other. It shows both, positioned by the page.
-            val shownLabel = if (confirmationActive) confirmationLabel else swipeLabels?.first ?: label
-            val directionalLabel = saveState == PillSaveState.Idle &&
-                !confirmationActive && swipeLabels == null && !undoActive && labelSlideDirection != 0
-            // Whether a swipe owns the label motion travels *in* the state,
-            // not beside it. Held in a state the effects write after the fact,
-            // transitionSpec would read the previous composition's value and
-            // get the answer backwards at both ends of a gesture: a fade
-            // through on the frame the pair appears, a hard cut on the frame
-            // it leaves.
             AnimatedContent(
-                // Only a swipe that is actually between two days owns the
-                // motion. At rest the pair names one day twice, and a change
-                // of that day -- a tapped date, a new route -- is a relabel
-                // like any other and still fades through.
-                targetState = PillLabelState(
-                    saveState,
-                    writeKind,
-                    if (directionalLabel) DirectionalPillLabelKey else shownLabel,
-                    previewing = swipeLabels != null && swipeLabels.first != swipeLabels.second,
-                    undo = if (undoActive) laneUndo?.message else null,
-                ),
+                targetState = shownMode,
                 transitionSpec = {
-                    val sameState = initialState.save == targetState.save &&
-                        initialState.kind == targetState.kind
-                    if (sameState && (initialState.previewing || targetState.previewing || directionalLabel)) {
-                        // The pair is already drawing both days at their drag
-                        // positions, and sizing itself to them as it goes.
-                        // Anything here would be a second, slower copy of the
-                        // move the finger is making -- including the size
-                        // animation AnimatedContent supplies by default, which
-                        // is what made the pill hunt for its width on the way
-                        // out of a swipe: it was easing toward the width of
-                        // the child it had just swapped in while the pair
-                        // underneath was already measuring itself exactly.
-                        // `using null` hands the width back to the content.
-                        EnterTransition.None togetherWith ExitTransition.None using null
-                    } else {
-                        // A genuine relabel still crosses over, and the pill
-                        // takes the width change with it on a spring rather
-                        // than a tween -- it is the one moment the size really
-                        // is animating rather than tracking something.
-                        fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith
-                            fadeOut(tween(CalinoMotion.FadeThroughMillis)) using
-                            SizeTransform(clip = false) { _, _ ->
-                                spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                    visibilityThreshold = IntSize.VisibilityThreshold,
-                                )
-                            }
-                    }
+                    // The same fade-through a relabel takes, with the size
+                    // carried on a spring: the menu is the pill changing
+                    // shape, exactly as it does when a modal takes the lane.
+                    fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith
+                        fadeOut(tween(CalinoMotion.FadeThroughMillis)) using
+                        SizeTransform(clip = false) { _, _ ->
+                            spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow,
+                                visibilityThreshold = IntSize.VisibilityThreshold,
+                            )
+                        }
                 },
-                label = "add pill label",
-            ) { (state, kind, text, _, undoMessage) ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    when (state) {
-                        // Saving keeps the lane quiet: the border is already
-                        // carrying the news, so the label drops its icon
-                        // rather than adding a second moving thing.
-                        PillSaveState.Saving -> Unit
-                        PillSaveState.Saved -> CalinoIcon(
-                            if (kind == PillWriteKind.Remove) CalinoIcon.Trash else CalinoIcon.Check,
-                            tint = if (kind == PillWriteKind.Remove) CalinoColors.Rose else CalinoColors.Green,
-                            modifier = Modifier.size(19.dp),
-                            contentDescription = null,
-                        )
-                        PillSaveState.Idle -> if (undoMessage != null) {
-                            // The same outcome icon a deliberate save lands
-                            // in Saved -- this is that same kind of report,
-                            // just started somewhere else on screen.
-                            CalinoIcon(
-                                CalinoIcon.Check,
-                                tint = CalinoColors.Green,
-                                modifier = Modifier.size(19.dp),
-                                contentDescription = null,
+                contentAlignment = Alignment.BottomCenter,
+                label = "add pill mode",
+            ) { targetMode ->
+                when (targetMode) {
+                    AddPillMode.Menu -> PillViewMenu(
+                        routes = routes,
+                        hot = scrubHot,
+                        onBounds = { key, bounds -> menuItemBounds[key] = bounds },
+                        onPick = ::pickMenuItem,
+                    )
+                    AddPillMode.Dock -> PillViewDock(
+                        routes = routes,
+                        onPick = { index -> pickMenuItem(index) },
+                        onAdd = { currentOnModeChange(AddPillMode.Types) },
+                    )
+                    AddPillMode.Types -> PillCreateTypes(
+                        onPick = { kind -> currentOnModeChange(AddPillMode.Rest); currentOnCreate(kind) },
+                        onClose = { currentOnModeChange(AddPillMode.Rest) },
+                    )
+                    AddPillMode.Rest -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (menuEnabled) {
+                            PillViewButton(
+                                route = routes.firstOrNull { it.current },
+                                pressed = viewPressed,
+                                enabled = !menuInert,
+                                onBounds = { viewButtonBounds = it },
+                                onOpenMenu = { currentOnModeChange(AddPillMode.Menu) },
+                                onOpenDock = { currentOnModeChange(AddPillMode.Dock) },
                             )
-                        } else if (!confirmationActive) {
-                            CalinoIcon(
-                                CalinoIcon.Plus,
-                                tint = CalinoColors.OnFloat,
-                                modifier = Modifier.size(19.dp),
-                                contentDescription = null,
-                            )
+                            PillSeparator()
                         }
-                    }
-                    val pillText = when (state) {
-                        PillSaveState.Saving -> if (kind == PillWriteKind.Remove) "Removing" else "Saving"
-                        PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
-                        PillSaveState.Idle -> text
-                    }
-                    if (state == PillSaveState.Idle && undoMessage != null) {
-                        PillLabelText(
-                            undoMessage,
-                            // Capped rather than weighted: this row is not
-                            // itself width-constrained -- the pill sizes to
-                            // it -- so an uncapped title would grow the
-                            // pill to match instead of giving way to Undo.
-                            modifier = Modifier.widthIn(max = 240.dp),
-                        )
-                        Text(
-                            "Undo",
-                            color = CalinoColors.Accent,
-                            fontSize = 15.sp,
-                            lineHeight = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .calinoPressable(pressedScale = .92f, role = Role.Button) {
-                                    currentOnUndo?.invoke()
+                        Row(
+                            Modifier
+                                // A route swipe can recompose the pill before clickable emits
+                                // its release. Without this guard the release is interpreted
+                                // as a tap on the newly arrived route (for example, opening a
+                                // new contact immediately after swiping to Contacts).
+                                .pointerInput(Unit) {
+                                    awaitEachGesture {
+                                        awaitFirstDown(requireUnconsumed = false)
+                                        suppressClickAfterDrag = false
+                                        var pressed = true
+                                        while (pressed) {
+                                            pressed = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
+                                        }
+                                    }
                                 }
-                                .padding(horizontal = 8.dp, vertical = 10.dp)
-                                .semantics { contentDescription = "Undo: $undoMessage" },
-                        )
-                    } else if (state == PillSaveState.Idle && swipeLabels != null && !confirmationActive) {
-                        // Only the part that actually differs moves. Both
-                        // labels are "Add on <day>", and sliding the whole
-                        // string sends "Add on" out of the pill and back for
-                        // a change it has no part in; kept still, it reads as
-                        // one sentence whose last words are being swapped.
-                        val (from, to) = swipeLabels
-                        val prefix = sharedLabelPrefix(from, to)
-                        val moving = prefix.length
-                        Row(horizontalArrangement = Arrangement.Start) {
-                            if (prefix.isNotEmpty()) PillLabelText(prefix)
-                            PillLabelSwipePair(
-                                departing = from.drop(moving),
-                                arriving = to.drop(moving),
-                                progress = swipeTravel,
-                            )
+                                .calinoPressable(
+                                    pressedScale = .97f,
+                                    onClick = {
+                                        if (suppressClickAfterDrag) {
+                                            suppressClickAfterDrag = false
+                                        } else if (confirmationActive) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            currentOnConfirmed()
+                                        } else if (undoActive) {
+                                            // The body of the pill is inert while it is
+                                            // naming an undoable change -- only the Undo
+                                            // word itself, below, acts -- so a stray tap
+                                            // reading it can't launch the add sheet.
+                                            Unit
+                                        } else {
+                                            currentOnClick()
+                                        }
+                                    },
+                                )
+                                .pointerInput(Unit) {
+                                    var horizontal = false
+                                    var vertical = false
+                                    detectDragGestures(
+                                        onDragStart = { horizontal = false; vertical = false },
+                                        onDragEnd = {
+                                            if (confirmationActive || undoActive) {
+                                                settle()
+                                                return@detectDragGestures
+                                            }
+                                            if (vertical && dragY <= -commitPx) currentOnSearch()
+                                            if (horizontal) {
+                                                val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
+                                                if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
+                                            }
+                                            settle()
+                                        },
+                                        onDragCancel = { settle() },
+                                    ) { change, amount ->
+                                        if (confirmationActive || undoActive) return@detectDragGestures
+                                        if (!horizontal && !vertical) {
+                                            horizontal = abs(amount.x) >= abs(amount.y)
+                                            vertical = !horizontal
+                                        }
+                                        change.consume()
+                                        suppressClickAfterDrag = true
+                                        if (horizontal) {
+                                            val next = dragX + amount.x
+                                            val direction = if (next < 0f) 1 else -1
+                                            val limit = if (currentCanSwipe(direction)) maxTravelPx else edgeTravelPx
+                                            dragX = next.coerceIn(-limit, limit)
+                                        } else {
+                                            dragY = (dragY + amount.y).coerceIn(-maxTravelPx, edgeTravelPx)
+                                        }
+                                    }
+                                }
+                                // Undo needs two independently reachable things -- the
+                                // outcome, announced as it lands, and a separately focusable
+                                // Undo button -- so it stops merging the row into the one
+                                // node every other state collapses into.
+                                .semantics(mergeDescendants = !undoActive) {
+                                    if (undoActive) {
+                                        liveRegion = LiveRegionMode.Polite
+                                    } else {
+                                        contentDescription = when (saveState) {
+                                            PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) "Removing" else "Saving"
+                                            PillSaveState.Saved -> if (writeKind == PillWriteKind.Remove) "Removed" else "Saved"
+                                            PillSaveState.Idle -> if (confirmationActive) "Confirm delete event" else "$label. Swipe up to search"
+                                        }
+                                    }
+                                }
+                                .padding(start = if (menuEnabled) 10.dp else 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            // While a swipe is live the pair names both of its days, and the
+                            // first of them is the page the calendar is actually on -- so the
+                            // pill never has to be told when to stop showing one day and start
+                            // showing the other. It shows both, positioned by the page.
+                            val shownLabel = if (confirmationActive) confirmationLabel else swipeLabels?.first ?: label
+                            val directionalLabel = saveState == PillSaveState.Idle &&
+                                !confirmationActive && swipeLabels == null && !undoActive && labelSlideDirection != 0
+                            // Whether a swipe owns the label motion travels *in* the state,
+                            // not beside it. Held in a state the effects write after the fact,
+                            // transitionSpec would read the previous composition's value and
+                            // get the answer backwards at both ends of a gesture: a fade
+                            // through on the frame the pair appears, a hard cut on the frame
+                            // it leaves.
+                            AnimatedContent(
+                                // Only a swipe that is actually between two days owns the
+                                // motion. At rest the pair names one day twice, and a change
+                                // of that day -- a tapped date, a new route -- is a relabel
+                                // like any other and still fades through.
+                                targetState = PillLabelState(
+                                    saveState,
+                                    writeKind,
+                                    if (directionalLabel) DirectionalPillLabelKey else shownLabel,
+                                    previewing = swipeLabels != null && swipeLabels.first != swipeLabels.second,
+                                    undo = if (undoActive) laneUndo?.message else null,
+                                ),
+                                transitionSpec = {
+                                    val sameState = initialState.save == targetState.save &&
+                                        initialState.kind == targetState.kind
+                                    if (sameState && (initialState.previewing || targetState.previewing || directionalLabel)) {
+                                        // The pair is already drawing both days at their drag
+                                        // positions, and sizing itself to them as it goes.
+                                        // Anything here would be a second, slower copy of the
+                                        // move the finger is making -- including the size
+                                        // animation AnimatedContent supplies by default, which
+                                        // is what made the pill hunt for its width on the way
+                                        // out of a swipe: it was easing toward the width of
+                                        // the child it had just swapped in while the pair
+                                        // underneath was already measuring itself exactly.
+                                        // `using null` hands the width back to the content.
+                                        EnterTransition.None togetherWith ExitTransition.None using null
+                                    } else {
+                                        // A genuine relabel still crosses over, and the pill
+                                        // takes the width change with it on a spring rather
+                                        // than a tween -- it is the one moment the size really
+                                        // is animating rather than tracking something.
+                                        fadeIn(tween(CalinoMotion.FadeThroughMillis)) togetherWith
+                                            fadeOut(tween(CalinoMotion.FadeThroughMillis)) using
+                                            SizeTransform(clip = false) { _, _ ->
+                                                spring(
+                                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow,
+                                                    visibilityThreshold = IntSize.VisibilityThreshold,
+                                                )
+                                            }
+                                    }
+                                },
+                                label = "add pill label",
+                            ) { (state, kind, text, _, undoMessage) ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    when (state) {
+                                        // Saving keeps the lane quiet: the border is already
+                                        // carrying the news, so the label drops its icon
+                                        // rather than adding a second moving thing.
+                                        PillSaveState.Saving -> Unit
+                                        PillSaveState.Saved -> CalinoIcon(
+                                            if (kind == PillWriteKind.Remove) CalinoIcon.Trash else CalinoIcon.Check,
+                                            tint = if (kind == PillWriteKind.Remove) CalinoColors.Rose else CalinoColors.Green,
+                                            modifier = Modifier.size(19.dp),
+                                            contentDescription = null,
+                                        )
+                                        PillSaveState.Idle -> if (undoMessage != null) {
+                                            // The same outcome icon a deliberate save lands
+                                            // in Saved -- this is that same kind of report,
+                                            // just started somewhere else on screen.
+                                            CalinoIcon(
+                                                CalinoIcon.Check,
+                                                tint = CalinoColors.Green,
+                                                modifier = Modifier.size(19.dp),
+                                                contentDescription = null,
+                                            )
+                                        } else if (!confirmationActive) {
+                                            CalinoIcon(
+                                                CalinoIcon.Plus,
+                                                tint = CalinoColors.OnFloat,
+                                                modifier = Modifier.size(19.dp),
+                                                contentDescription = null,
+                                            )
+                                        }
+                                    }
+                                    val pillText = when (state) {
+                                        PillSaveState.Saving -> if (kind == PillWriteKind.Remove) "Removing" else "Saving"
+                                        PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
+                                        PillSaveState.Idle -> text
+                                    }
+                                    if (state == PillSaveState.Idle && undoMessage != null) {
+                                        PillLabelText(
+                                            undoMessage,
+                                            // Capped rather than weighted: this row is not
+                                            // itself width-constrained -- the pill sizes to
+                                            // it -- so an uncapped title would grow the
+                                            // pill to match instead of giving way to Undo.
+                                            modifier = Modifier.widthIn(max = 240.dp),
+                                        )
+                                        Text(
+                                            "Undo",
+                                            color = CalinoColors.Accent,
+                                            fontSize = 15.sp,
+                                            lineHeight = 20.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .calinoPressable(pressedScale = .92f, role = Role.Button) {
+                                                    currentOnUndo?.invoke()
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 10.dp)
+                                                .semantics { contentDescription = "Undo: $undoMessage" },
+                                        )
+                                    } else if (state == PillSaveState.Idle && swipeLabels != null && !confirmationActive) {
+                                        // Only the part that actually differs moves. Both
+                                        // labels are "Add on <day>", and sliding the whole
+                                        // string sends "Add on" out of the pill and back for
+                                        // a change it has no part in; kept still, it reads as
+                                        // one sentence whose last words are being swapped.
+                                        val (from, to) = swipeLabels
+                                        val prefix = sharedLabelPrefix(from, to)
+                                        val moving = prefix.length
+                                        Row(horizontalArrangement = Arrangement.Start) {
+                                            if (prefix.isNotEmpty()) PillLabelText(prefix)
+                                            PillLabelSwipePair(
+                                                departing = from.drop(moving),
+                                                arriving = to.drop(moving),
+                                                progress = swipeTravel,
+                                            )
+                                        }
+                                    } else if (state == PillSaveState.Idle && directionalLabel) {
+                                        DirectionalPillLabel(shownLabel, labelSlideDirection)
+                                    } else {
+                                        PillLabelText(pillText)
+                                    }
+                                }
+                            }
                         }
-                    } else if (state == PillSaveState.Idle && directionalLabel) {
-                        DirectionalPillLabel(shownLabel, labelSlideDirection)
-                    } else {
-                        PillLabelText(pillText)
                     }
                 }
             }
+        }
+    }
+}
+
+/** The shapes the root pill takes. Rest is the add pill; the rest are the menu pill's. */
+enum class AddPillMode { Rest, Menu, Dock, Types }
+
+/** What the dock's add row can start. */
+enum class AddPillCreate(val label: String) { Event("Event"), Task("Task"), Journal("Journal") }
+
+/** One view the pill's menu and dock offer. */
+@Immutable
+data class PillRoute(val label: String, val icon: ImageVector, val current: Boolean)
+
+private const val PillMenuSearchKey = -1
+private const val PillHoldMillis = 450L
+/** How far up the view button has to travel before a press becomes a scrub. */
+private val PillScrubStart = 14.dp
+
+@Composable
+private fun PillSeparator() {
+    Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .16f)))
+}
+
+/** The rest pill's leading segment: the current view's glyph, and the way into the menu. */
+@Composable
+private fun PillViewButton(
+    route: PillRoute?,
+    pressed: Boolean,
+    enabled: Boolean,
+    onBounds: (Rect) -> Unit,
+    onOpenMenu: () -> Unit,
+    onOpenDock: () -> Unit,
+) {
+    val wash by animateColorAsState(
+        if (pressed) CalinoColors.OnFloat.copy(alpha = .16f) else CalinoColors.OnFloat.copy(alpha = 0f),
+        label = "pill view button press",
+    )
+    Box(
+        Modifier
+            .padding(start = 4.dp)
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(wash)
+            .onGloballyPositioned { onBounds(it.boundsInRoot()) }
+            // Taps, scrubs and holds are read by the pill's own handler; this
+            // node only speaks for them, including the hold TalkBack cannot make.
+            .semantics {
+                role = Role.Button
+                contentDescription = "Views, current: ${route?.label.orEmpty()}"
+                if (enabled) {
+                    onClick(label = "Open views") { onOpenMenu(); true }
+                    customActions = listOf(CustomAccessibilityAction("Open quick switcher") { onOpenDock(); true })
+                } else {
+                    disabled()
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            route?.icon ?: CalinoIcons.Calendar,
+            contentDescription = null,
+            tint = CalinoColors.OnFloat.copy(alpha = if (enabled) 1f else .5f),
+            modifier = Modifier.size(19.dp),
+        )
+    }
+}
+
+/** The pill grown upward into a list: Search, then the views nearest-last, so the nearest sits under the thumb. */
+@Composable
+private fun PillViewMenu(
+    routes: List<PillRoute>,
+    hot: Int?,
+    onBounds: (Int, Rect) -> Unit,
+    onPick: (Int) -> Unit,
+) {
+    Column(
+        Modifier
+            .width(IntrinsicSize.Max)
+            .widthIn(min = 220.dp)
+            .padding(6.dp)
+            .semantics { paneTitle = "Views" },
+    ) {
+        PillMenuRow(CalinoIcons.Search, "Search", selected = false, hot = hot == PillMenuSearchKey, dim = true,
+            onBounds = { onBounds(PillMenuSearchKey, it) }) { onPick(PillMenuSearchKey) }
+        Box(Modifier.padding(horizontal = 6.dp, vertical = 4.dp).fillMaxWidth().height(1.dp).background(CalinoColors.OnFloat.copy(alpha = .16f)))
+        for (index in routes.indices.reversed()) {
+            val route = routes[index]
+            PillMenuRow(route.icon, route.label, selected = route.current, hot = hot == index, dim = false,
+                onBounds = { onBounds(index, it) }) { onPick(index) }
+        }
+    }
+}
+
+@Composable
+private fun PillMenuRow(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    hot: Boolean,
+    dim: Boolean,
+    onBounds: (Rect) -> Unit,
+    onClick: () -> Unit,
+) {
+    val wash by animateColorAsState(
+        CalinoColors.OnFloat.copy(alpha = if (hot) .22f else if (selected) .12f else 0f),
+        label = "pill menu row",
+    )
+    val content = CalinoColors.OnFloat.copy(alpha = if (dim) .66f else 1f)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .onGloballyPositioned { onBounds(it.boundsInRoot()) }
+            .clip(RoundedCornerShape(CalinoShapes.Button))
+            .background(wash)
+            .calinoPressable(pressedScale = .98f, onClick = onClick)
+            .semantics { this.selected = selected }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(19.dp))
+        Text(label, color = content, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1, modifier = Modifier.weight(1f))
+        if (selected) Text("HERE", style = CalinoTypography.labelSmall, color = CalinoColors.OnFloat.copy(alpha = .6f))
+    }
+}
+
+/** The hold shape: every view one tap away, and a copper add at the end. */
+@Composable
+private fun PillViewDock(routes: List<PillRoute>, onPick: (Int) -> Unit, onAdd: () -> Unit) {
+    Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        routes.forEachIndexed { index, route ->
+            val wash = CalinoColors.OnFloat.copy(alpha = if (route.current) .16f else 0f)
+            Box(
+                Modifier
+                    .size(width = 40.dp, height = 44.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Button))
+                    .background(wash)
+                    .calinoPressable(pressedScale = .92f) { onPick(index) }
+                    .semantics { contentDescription = route.label; selected = route.current },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(route.icon, contentDescription = null, modifier = Modifier.size(19.dp),
+                    tint = CalinoColors.OnFloat.copy(alpha = if (route.current) 1f else .66f))
+            }
+        }
+        Box(Modifier.padding(horizontal = 4.dp)) { PillSeparator() }
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(CalinoColors.Accent)
+                .calinoPressable(pressedScale = .92f, onClick = onAdd)
+                .semantics { contentDescription = "Add" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(CalinoIcons.Plus, contentDescription = null, tint = CalinoColors.OnAccent, modifier = Modifier.size(19.dp))
+        }
+    }
+}
+
+/** The dock's add, opened: pick what to make. The editor pill morphs from here. */
+@Composable
+private fun PillCreateTypes(onPick: (AddPillCreate) -> Unit, onClose: () -> Unit) {
+    Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        AddPillCreate.entries.forEach { kind ->
+            Row(
+                Modifier
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Pill))
+                    .calinoPressable(pressedScale = .95f) { onPick(kind) }
+                    .semantics(mergeDescendants = true) { contentDescription = "New ${kind.label.lowercase()}" }
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Icon(
+                    when (kind) {
+                        AddPillCreate.Event -> CalinoIcons.Calendar
+                        AddPillCreate.Task -> CalinoIcons.ListChecks
+                        AddPillCreate.Journal -> CalinoIcons.BookOpen
+                    },
+                    contentDescription = null,
+                    tint = CalinoColors.OnFloat,
+                    modifier = Modifier.size(19.dp),
+                )
+                Text(kind.label, color = CalinoColors.OnFloat, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1)
+            }
+        }
+        Box(Modifier.padding(horizontal = 4.dp)) { PillSeparator() }
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .calinoPressable(pressedScale = .92f, onClick = onClose)
+                .semantics { contentDescription = "Close" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(CalinoIcons.X, contentDescription = null, tint = CalinoColors.OnFloat.copy(alpha = .66f), modifier = Modifier.size(19.dp))
         }
     }
 }

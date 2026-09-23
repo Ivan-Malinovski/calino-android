@@ -41,9 +41,10 @@ import org.junit.rules.RuleChain
  */
 abstract class CalinoUiTest(
     defaultView: CalinoDefaultView = CalinoDefaultView.Default,
+    menuPill: Boolean = true,
 ) {
 
-    private val reset = CalinoResetRule(defaultView)
+    private val reset = CalinoResetRule(defaultView, menuPill)
 
     protected val compose: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeRule()
@@ -119,6 +120,7 @@ abstract class CalinoUiTest(
 /** Returns the app to a first-launch state: default preferences, no account, fixture data. */
 class CalinoResetRule(
     private val defaultView: CalinoDefaultView = CalinoDefaultView.Default,
+    private val menuPill: Boolean = true,
 ) : ExternalResource() {
     override fun before() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -133,6 +135,7 @@ class CalinoResetRule(
         SharedPreferencesPreferenceStore(context).apply {
             saveNotificationPromptShown(true)
             saveDefaultView(defaultView)
+            saveMenuPill(menuPill)
             // Device defaults are exercised by unit tests; UI tests stay
             // deterministic across emulator images with different locales.
             saveTimeFormat(CalinoTimeFormat.TwelveHour)

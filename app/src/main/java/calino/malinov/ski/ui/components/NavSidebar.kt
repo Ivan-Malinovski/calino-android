@@ -56,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -139,17 +140,17 @@ fun NavSidebar(
     // The calendar views come first as a group; the rule separates them from
     // the other surfaces.
     val calendarItems = listOf(
-        NavItem(pockRouteLabel(PockRoute.Day), PockRoute.Day, CalinoIcons.Calendar),
-        NavItem(pockRouteLabel(PockRoute.Range), PockRoute.Range, CalinoIcons.Calendar),
-        NavItem(pockRouteLabel(PockRoute.Agenda), PockRoute.Agenda, CalinoIcons.AgendaList),
+        NavItem(pockRouteLabel(PockRoute.Day), PockRoute.Day, pockRouteIcon(PockRoute.Day)),
+        NavItem(pockRouteLabel(PockRoute.Range), PockRoute.Range, pockRouteIcon(PockRoute.Range)),
+        NavItem(pockRouteLabel(PockRoute.Agenda), PockRoute.Agenda, pockRouteIcon(PockRoute.Agenda)),
     )
     val items = listOfNotNull(
-        NavItem(pockRouteLabel(PockRoute.Tasks), PockRoute.Tasks, CalinoIcons.ListChecks),
-        NavItem(pockRouteLabel(PockRoute.Journal), PockRoute.Journal, CalinoIcons.BookOpen)
+        NavItem(pockRouteLabel(PockRoute.Tasks), PockRoute.Tasks, pockRouteIcon(PockRoute.Tasks)),
+        NavItem(pockRouteLabel(PockRoute.Journal), PockRoute.Journal, pockRouteIcon(PockRoute.Journal))
             .takeIf { preferences.journalEnabled },
-        NavItem(pockRouteLabel(PockRoute.Contacts), PockRoute.Contacts, CalinoIcons.Users)
+        NavItem(pockRouteLabel(PockRoute.Contacts), PockRoute.Contacts, pockRouteIcon(PockRoute.Contacts))
             .takeIf { preferences.contactsEnabled },
-        NavItem(pockRouteLabel(PockRoute.Settings), PockRoute.Settings, CalinoIcons.Settings),
+        NavItem(pockRouteLabel(PockRoute.Settings), PockRoute.Settings, pockRouteIcon(PockRoute.Settings)),
     )
     val settingsItem = items.first { it.route == PockRoute.Settings }
     val mainItems = items.filterNot { it.route == PockRoute.Settings }
@@ -955,6 +956,20 @@ fun pockRouteLabel(route: PockRoute): String = when (route) {
     PockRoute.TaskDetail -> "Task"
     PockRoute.QuickAdd -> "Quick add"
     PockRoute.Notifications -> "Notifications"
+}
+
+/**
+ * The glyph a route goes by. The sidebar and the root pill's view button,
+ * menu and dock all draw from here, for the same reason as [pockRouteLabel].
+ */
+fun pockRouteIcon(route: PockRoute): ImageVector = when (route) {
+    PockRoute.Range -> CalinoIcons.CalendarRange
+    PockRoute.Agenda -> CalinoIcons.AgendaList
+    PockRoute.Tasks -> CalinoIcons.ListChecks
+    PockRoute.Journal -> CalinoIcons.BookOpen
+    PockRoute.Contacts -> CalinoIcons.Users
+    PockRoute.Settings -> CalinoIcons.Settings
+    else -> CalinoIcons.Calendar
 }
 
 private data class NavItem(
