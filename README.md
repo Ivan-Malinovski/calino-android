@@ -1,148 +1,79 @@
-# Calino Android
+# Calino for Android
 
-Calino is a native Android calendar for people who want to keep their calendar
-and contacts on a standards-based server. It is written in Kotlin and Jetpack
-Compose and connects directly to CalDAV and CardDAV services, with no WebView
-or Capacitor layer.
+**A calm, native Android calendar for your own CalDAV and CardDAV server.**
 
-This is the standalone Android sister project to the
-[Calino web app](https://github.com/ivan-malinovski/calino). It is under active
-development rather than presented as a finished release. A built-in sample
-dataset keeps the interface explorable without connecting a server.
+Calino connects straight to the calendar and contacts server you already use, with no Calino account, hosted backend or telemetry in between. Events, tasks, journals and contacts live on your server; Calino keeps a local cache so it stays fast and works offline, and queues your edits until the connection is back.
 
-## Features
-
-- Month, day, 3-day, 7-day, and agenda calendar views, with fluid paging and
-  zoom transitions.
-- Event, task, and journal creation and editing, including recurrence,
-  reminders, attendees, categories, travel time, priorities, and completion.
-- Contact browsing and editing through CardDAV.
-- Global search and Quick Add for getting to records or creating them with
-  less navigation.
-- Local reminder notifications with event and task actions, deep links, exact
-  alarm support, and an inexact fallback where Android requires it.
-- Resizable agenda, calendar-card, and task home-screen widgets backed by the
-  same local cache as the app.
-- Android calendar intents, `.ics` import and sharing, map intents, and dynamic
-  launcher shortcuts.
-- Adaptive layouts for phones, tablets, and landscape split panes. Early
-  foldable posture and hinge handling is also included.
-- Optional AI Photo Import using a provider and API key chosen by the user.
-  Images are sent directly to that provider; Calino does not bundle a key.
-- Experimental Wear OS companion with a local phone-to-watch agenda, tasks, Tile, complication, and acknowledged task actions.
-
-## How it works
-
-Calino talks directly to CalDAV and CardDAV servers; it does not require a
-Calino account, companion service, or hosted backend. Server resources are
-cached locally for reading, and retryable edits stay in a durable queue until
-the connection returns.
-
-Writes use ETags and conditional requests. When server data has changed,
-Calino rebases the fields it edits while preserving properties it does not
-understand. Recurring events remain recurring series and can be edited for one
-occurrence, this and future occurrences, or the entire series.
-
-The interface and its platform integrations are native Android. Credentials
-are stored with Android Keystore, cached calendar data never contains account
-passwords, and the app does not include telemetry. Once per day while the app
-is opened, Calino may ask its fixed GitHub Releases endpoint whether a newer
-stable version exists; no calendar or account data is included.
-
-With no account connected, Calino uses a frozen May 2026 fixture. Once an
-account is connected, CalDAV and CardDAV data replaces the fixture across the
-relevant screens.
-
-## Screenshots
-
-The screenshots below use the built-in May 2026 fixture and contain no account
-data. The second group is from the API 36 emulator in the landscape tablet
-layout and light mode.
+It is written in Kotlin and Jetpack Compose and is the Android sister project to the [Calino web app](https://github.com/ivan-malinovski/calino). It is under active development. A built-in sample calendar lets you explore everything before connecting a server.
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/calendar-day.png" alt="Calendar day view" width="100%"></td>
+    <td><img src="docs/screenshots/month.png" alt="Month view pulled open above the day's agenda" width="100%"></td>
     <td><img src="docs/screenshots/range.png" alt="Three-day range view" width="100%"></td>
+    <td><img src="docs/screenshots/event.png" alt="An event sheet open over the range view" width="100%"></td>
+    <td><img src="docs/screenshots/menu.png" alt="The add pill opened into its navigation menu" width="100%"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/tasks.png" alt="Tasks" width="100%"></td>
+    <td><img src="docs/screenshots/tasks.png" alt="Tasks grouped into overdue, today, this week and later" width="100%"></td>
+    <td><img src="docs/screenshots/journal.png" alt="Journal entries" width="100%"></td>
+    <td><img src="docs/screenshots/drawer.png" alt="Navigation drawer with views and calendars" width="100%"></td>
     <td><img src="docs/screenshots/settings.png" alt="Settings" width="100%"></td>
   </tr>
 </table>
 
-<table>
-  <tr>
-    <td><img src="docs/screenshots/calendar-day-landscape-light.png" alt="Calendar day view in landscape tablet light mode" width="100%"></td>
-    <td><img src="docs/screenshots/range-landscape-light.png" alt="Three-day range view in landscape tablet light mode" width="100%"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/event-open-landscape-light.png" alt="An event open in the landscape tablet light layout" width="100%"></td>
-    <td><img src="docs/screenshots/settings-landscape-light.png" alt="Settings in landscape tablet light mode" width="100%"></td>
-  </tr>
-</table>
+<sub>Screenshots use the built-in May 2026 sample data on the API 36 emulator; no real account data.</sub>
+
+## Highlights
+
+- **One calendar that zooms.** Pull the week strip down into a month, pull again for detail, or switch between agenda, 1/3/7-day range and month views. Paging and zoom follow your finger.
+- **Events, tasks and journals.** Recurrence (with this / this-and-following / all edits), reminders, attendees, categories, travel time, priorities and completion, all stored as standard iCalendar.
+- **Contacts** through CardDAV, including birthday and anniversary reminders.
+- **Reminders that arrive**: exact alarms with event and task actions, and a clear explanation in-app when Android is holding them back.
+- **Home-screen widgets** for agenda, calendar card and tasks, backed by the same cache as the app.
+- **Fits into Android**: calendar intents, `.ics` import and sharing, map links, launcher shortcuts, optional device-calendar import, and opt-in phone search and assistant access (both off by default, and they never write without you).
+- **Phones, tablets, landscape and foldables**, with split-pane layouts on large screens.
+- **Optional AI Photo Import**: turn a photo of a poster or ticket into an event using the provider and key you choose. Nothing is sent unless you use it.
+- **Experimental Wear OS companion** with agenda, tasks, a Tile and a complication, synced locally from the phone.
+
+## Privacy and how it works
+
+- Talks only to your CalDAV/CardDAV server. No telemetry, no Calino cloud.
+- Passwords are kept in Android Keystore and never enter the cache or logs.
+- Edits use ETags and conditional requests. If the server copy changed, Calino rebases just the fields you edited and keeps every property it does not understand, so other clients' data is not flattened.
+- Offline edits wait in a durable queue and sync when the connection returns.
+- Once a day, when opened, Calino may ask its GitHub Releases page whether a newer stable version exists. No calendar or account data is sent.
+
+## Install
+
+Download `app-release.apk` from the [latest release](https://github.com/ivan-malinovski/calino-android/releases/latest) and install it on your phone.
+
+## Wear OS companion
+
+Calino has an experimental watch app that shows your agenda and tasks on a Wear OS watch. It gets its data only from the phone app, over the connection between your phone and watch. The watch never connects to your server and never stores your password. The phone stays in charge: reminders still come from the phone. From the watch you can mark a task done or push it to tomorrow, and you can add Calino as a Tile or as a complication on your watch face that counts down to your next event.
+
+The watch app is not on Google Play. Download `calino-wear-release.apk` from the same release and sideload it with ADB:
+
+```bash
+adb -s <watch-serial> install -r calino-wear-release.apk
+```
 
 ## If a reminder never arrives
 
-Calino schedules reminders with an exact alarm, but several manufacturers --
-Samsung, Xiaomi, Huawei, OnePlus and others -- shut background apps down
-aggressively to save battery, and an app that has been shut down does not get
-its alarm. If reminders stop arriving, exempt Calino from battery
-optimisation; <https://dontkillmyapp.com> has the exact steps per manufacturer.
+Calino schedules reminders with an exact alarm, but several manufacturers -- Samsung, Xiaomi, Huawei, OnePlus and others -- shut background apps down aggressively to save battery, and an app that has been shut down does not get its alarm. If reminders stop arriving, exempt Calino from battery optimisation; <https://dontkillmyapp.com> has the exact steps per manufacturer.
 
-Two other things can hold a reminder back, and both are reported on the
-Notifications screen inside the app:
+Two other things can hold a reminder back, and both are reported on the Notifications screen inside the app:
 
 - Android's notification permission has not been granted, so nothing is shown.
-- Exact alarms are not permitted, so delivery falls back to an inexact alarm
-  and can be up to about fifteen minutes late, and later during Doze.
+- Exact alarms are not permitted, so delivery falls back to an inexact alarm and can be up to about fifteen minutes late, and later during Doze.
 
-## Build and install
+## Building from source
 
-From the repository root:
-
-```bash
-./gradlew assembleDebug
-adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-The generated debug APK is `app/build/outputs/apk/debug/app-debug.apk` and is labelled **Calino Debug**. Release remains `calino.malinov.ski`; debug is `calino.malinov.ski.nativeDebug`, so both can be installed at once. Tagged releases publish `app-release.apk` and a separate `calino-wear-release.apk`.
-
-The Wear companion is experimental and is not distributed through Google Play; currently it must be sideloaded to a compatible watch with ADB, for example `adb -s <watch-serial> install -r calino-wear-release.apk`. Its long-term future is uncertain.
-
-`assembleRelease` uses the private release key when the ignored `keystore/release.keystore.properties` and keystore are present; otherwise it produces an unsigned APK. The key is never committed.
-
-The app is routinely validated on the `calino-poc-api36` API 36 emulator for
-build, unit tests, install/launch, and accessibility hierarchy. Live CalDAV and
-CardDAV write probes are opt-in and use only environment-provided credentials.
-
-This AVD has previously accumulated debug builds of the unrelated Capacitor
-Calino project (`calino.malinov.ski.debug`, `calino.malinov.ski.poc`), which
-declare the same launcher category and `image/*` share intent filters as this
-app. When both are installed, Android can silently route a share/launch
-intent to the stale Capacitor build instead of the native one you just
-installed. Keep the emulator free of those packages:
+Requires JDK 17+ and the Android SDK. From the repository root:
 
 ```bash
-adb -s emulator-5554 shell pm list packages | grep calino.malinov.ski
-adb -s emulator-5554 uninstall calino.malinov.ski.debug   # if present
-adb -s emulator-5554 uninstall calino.malinov.ski.poc     # if present
+./gradlew assembleDebug   # phone app, app/build/outputs/apk/debug/app-debug.apk
+./gradlew :wear:assembleDebug   # Wear OS companion
+./gradlew test            # unit tests
 ```
 
-## Emulator
-
-Start the documented API 36 emulator with:
-
-```bash
-emulator -avd calino-poc-api36
-```
-
-Then install with the `adb` command above (use the emulator's serial from
-`adb devices` if it is not `emulator-5554`).
-
-The unit tests cover the frozen fixture/date contract, formatting and
-recurrence behavior, zoom rest-state/selected-date continuity, and task bucket
-rules. Run them with:
-
-```bash
-./gradlew test
-```
+The debug build installs as **Calino Debug** (`calino.malinov.ski.nativeDebug`), so you can install it next to the release app (`calino.malinov.ski`). An unsigned release APK comes from `./gradlew assembleRelease`.
