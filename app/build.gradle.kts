@@ -32,7 +32,7 @@ android {
 
     defaultConfig {
         applicationId = "calino.malinov.ski"
-        minSdk = 26
+        minSdk = 31
         targetSdk = 36
         // Keep the native APK on the same monotonically increasing version-code
         // line as the web/Capacitor Android app.
@@ -47,7 +47,13 @@ android {
     }
     kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
     buildFeatures { compose = true }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // From minSdk 28 AGP stores dex uncompressed for mmap, which nearly
+        // doubled the sideloaded APK. Compress it: the download matters more
+        // here than the one-time extraction at install.
+        dex.useLegacyPackaging = true
+    }
     signingConfigs {
         if (releaseKeystoreProperties.containsKey("storeFile")) {
             create("release") {
@@ -79,10 +85,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // AppSearch's local storage bundles a native engine per ABI, and
-            // x86/x86_64/32-bit ARM copies tripled the APK. Release targets
-            // 64-bit ARM phones only; debug keeps every ABI for the emulator.
-            ndk { abiFilters += "arm64-v8a" }
             if (releaseKeystoreProperties.containsKey("storeFile")) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -120,10 +122,11 @@ dependencies {
     // on the classpath transitively; declared because this app now uses it
     // directly and a transitive version is not a contract.
     implementation("androidx.core:core-ktx:1.15.0")
-    // Search stays in Calino's private local database. LocalStorage does not
-    // publish these documents to Android or to another app.
+    // Search uses Android's built-in AppSearch (API 31+), so no native engine
+    // ships in the APK. The schema sets no visibility, so the documents stay
+    // private to Calino and are removed with its data.
     implementation("androidx.appsearch:appsearch:1.1.0")
-    implementation("androidx.appsearch:appsearch-local-storage:1.1.0")
+    implementation("androidx.appsearch:appsearch-platform-storage:1.1.0")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")

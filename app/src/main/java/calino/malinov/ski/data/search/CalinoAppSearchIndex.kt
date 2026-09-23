@@ -8,7 +8,7 @@ import androidx.appsearch.app.PutDocumentsRequest
 import androidx.appsearch.app.RemoveByDocumentIdRequest
 import androidx.appsearch.app.SearchSpec
 import androidx.appsearch.app.SetSchemaRequest
-import androidx.appsearch.localstorage.LocalStorage
+import androidx.appsearch.platformstorage.PlatformStorage
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.Contact
@@ -292,8 +292,8 @@ class CalinoAppSearchIndex(
 
     private suspend fun session(): AppSearchSession {
         appSearchSession?.let { return it }
-        val opened = LocalStorage.createSearchSessionAsync(
-            LocalStorage.SearchContext.Builder(application, databaseName).build(),
+        val opened = PlatformStorage.createSearchSessionAsync(
+            PlatformStorage.SearchContext.Builder(application, databaseName).build(),
         ).awaitAppSearch()
         opened.setSchemaAsync(
             SetSchemaRequest.Builder().addSchemas(recordSchema()).build(),
