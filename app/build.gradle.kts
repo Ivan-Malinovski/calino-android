@@ -21,7 +21,6 @@ val releaseKeystoreProperties = Properties().apply {
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("androidx.baselineprofile")
 }
@@ -46,7 +45,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; resValues = true }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         // From minSdk 28 AGP stores dex uncompressed for mmap, which nearly

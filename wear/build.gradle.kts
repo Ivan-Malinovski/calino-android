@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
-plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose") }
+plugins { id("com.android.application"); id("org.jetbrains.kotlin.plugin.compose") }
 
 val repositoryVersion = providers.gradleProperty("appVersionName").orElse("0.1.0").get()
 val p = repositoryVersion.substringBefore('-').split('.').map(String::toInt)
