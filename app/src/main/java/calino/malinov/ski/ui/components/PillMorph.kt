@@ -74,17 +74,29 @@ class CalinoPillLane {
         internal set
 
     /**
+     * The views the root pill shows while it rests as the dock, or null when
+     * it rests as the add pill. A modal pill morphs back into the dock then.
+     */
+    var addPillDock by mutableStateOf<List<PillRoute>?>(null)
+        internal set
+
+    /** The dock [addPillBounds] were measured with. */
+    var addPillBoundsDock by mutableStateOf<List<PillRoute>?>(null)
+        internal set
+
+    /**
      * Records where the root pill is resting. Ignored while a modal holds the
      * lane: the root pill is only the anchor while it owns the lane, and a
      * root pill that is on its way out is still laid out on the frames it
      * spends leaving. Taking those, the modal pill chases the departing pill
      * off the bottom of the screen and stays wherever it last saw it.
      */
-    internal fun setAddPill(bounds: Rect, label: String, leadingIcon: ImageVector?) {
+    internal fun setAddPill(bounds: Rect, label: String, leadingIcon: ImageVector?, dock: List<PillRoute>?) {
         if (claimedByModal) return
         addPillBounds = bounds
         addPillBoundsLabel = label
         addPillBoundsLeadingIcon = leadingIcon
+        addPillBoundsDock = dock
     }
 
     private var claims by mutableIntStateOf(0)

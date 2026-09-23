@@ -1085,7 +1085,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     // The root pill's menu shape. Held here rather than in the pill so Back,
     // the outside-tap scrim and a modal taking the lane can all put it away.
-    var pillMode by rememberSaveable { mutableStateOf(AddPillMode.Rest) }
+    var pillMode by rememberSaveable {
+        mutableStateOf(if (preferences.menuPill && preferences.pillDocked) AddPillMode.Dock else AddPillMode.Rest)
+    }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchOriginRoute by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf<PockRoute>(PockRoute.Day) }
     var notificationOrigin by rememberSaveable(stateSaver = ReturnTargetSaver) { mutableStateOf(PocReturnTarget.Calendar) }
@@ -1738,7 +1740,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     }
     // Registered after the root handler so an open pill menu or dock is
     // what Back closes first, before any route or sheet.
-    BackHandler(enabled = pillMode != AddPillMode.Rest) { pillMode = AddPillMode.Rest }
+    // The dock is a saved resting shape; Back only closes what opened over it.
+    val pillBaseMode = if (preferences.menuPill && preferences.pillDocked) AddPillMode.Dock else AddPillMode.Rest
+    BackHandler(enabled = pillMode != pillBaseMode) { pillMode = pillBaseMode }
 
     val aiContextBlur by animateDpAsState(
         targetValue = if (aiBusy || aiCandidates != null) 10.dp else 0.dp,
@@ -2569,18 +2573,39 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             rangeSpansDays || monthNamesNoDay -> "New event"
             else -> "Add on ${selectedDate.format(DateLabel)}"
         }
-        val addPillLeadingIcon = if (preferences.menuPill) pockRouteIcon(rootRoute) else null
+        val addPillLeadingIcon = if (preferences.menuPill && !preferences.pillDocked) pockRouteIcon(rootRoute) else null
+        val menuPillRoutes = listOfNotNull(
+            PockRoute.Day,
+            PockRoute.Range,
+            PockRoute.Agenda,
+            PockRoute.Tasks,
+            PockRoute.Journal.takeIf { preferences.journalEnabled },
+            PockRoute.Contacts.takeIf { preferences.contactsEnabled },
+        )
+        // The calendar views, then the rest: the menu divides the two.
+        val pillRouteItems = menuPillRoutes.map {
+            PillRoute(
+                pockRouteLabel(it),
+                pockRouteIcon(it),
+                current = it == rootRoute,
+                section = if (it == PockRoute.Day || it == PockRoute.Range || it == PockRoute.Agenda) 0 else 1,
+            )
+        }
+        val addPillDock = if (pillBaseMode == AddPillMode.Dock) pillRouteItems else null
         androidx.compose.runtime.SideEffect {
             pillLane.addPillLabel = addPillLabel
             pillLane.addPillLeadingIcon = addPillLeadingIcon
+            pillLane.addPillDock = addPillDock
         }
         val laneHandoff = pillLane.claimedByModal || pillLane.handingBack
         // Anything that hides the pill or takes its lane puts the menu away.
         val pillMenuShown = pillVisible && !sidebarVisible && !searchVisible && !pillLane.claimedByModal
-        LaunchedEffect(pillMenuShown, preferences.menuPill) {
-            if (!pillMenuShown || !preferences.menuPill) pillMode = AddPillMode.Rest
+        LaunchedEffect(pillMenuShown, pillBaseMode) {
+            if (!pillMenuShown || pillMode == AddPillMode.Rest || pillMode == AddPillMode.Dock) pillMode = pillBaseMode
         }
-        if (pillMode != AddPillMode.Rest) {
+        // Only the transient shapes over the resting one take the screen's
+        // taps; a docked pill leaves everything else usable.
+        if (pillMode != pillBaseMode) {
             // Clear, not a dim: a tap anywhere else only closes the menu,
             // and is not also delivered to whatever it landed on.
             Box(
@@ -2615,14 +2640,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             )
             // The pill also carries the three main views: a horizontal
             // drag steps through them in the same order the sidebar lists.
-            val pillRoutes = listOfNotNull(
-                PockRoute.Day,
-                PockRoute.Range,
-                PockRoute.Agenda,
-                PockRoute.Tasks,
-                PockRoute.Journal.takeIf { preferences.journalEnabled },
-                PockRoute.Contacts.takeIf { preferences.contactsEnabled },
-            )
+            val pillRoutes = menuPillRoutes
             val pillIndex = pillRoutes.indexOf(rootRoute)
             Box(
                 if (pillLaneWidth > 0.dp) Modifier.width(pillLaneWidth) else Modifier.fillMaxWidth(),
@@ -2651,13 +2669,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     searchOriginRoute = rootRoute
                     searchVisible = true
                 },
-                routes = if (preferences.menuPill) {
-                    pillRoutes.map { PillRoute(pockRouteLabel(it), pockRouteIcon(it), current = it == rootRoute) }
-                } else {
-                    emptyList()
-                },
+                routes = if (preferences.menuPill) pillRouteItems else emptyList(),
                 mode = pillMode,
-                onModeChange = { pillMode = it },
+                // Entering the dock saves it; holding it again un-saves it.
+                // Every other close returns to whichever shape is saved.
+                onModeChange = { next ->
+                    when {
+                        next == AddPillMode.Dock -> preferences.setPillDocked(true)
+                        next == AddPillMode.Rest && pillMode == AddPillMode.Dock -> preferences.setPillDocked(false)
+                    }
+                    pillMode = when {
+                        next == AddPillMode.Rest && pillMode != AddPillMode.Dock -> pillBaseMode
+                        else -> next
+                    }
+                },
                 onNavigate = { index -> pillRoutes.getOrNull(index)?.let(::navigateRoot) },
                 onCreate = { kind ->
                     val origin = when (rootRoute) {

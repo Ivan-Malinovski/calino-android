@@ -102,16 +102,17 @@ class PillMenuTest : CalinoUiTest() {
         viewButton("Month").assertIsDisplayed()
     }
 
-    @Test fun holdingTheViewButtonOpensADockThatStaysUp() {
+    @Test fun holdingTheViewButtonSavesTheDockUntilItIsHeldAgain() {
         viewButton("Month").performTouchInput { longClick() }
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Tasks").performClick()
         compose.waitForIdle()
 
-        // The dock stays open on the new view, now marking it as current.
+        // The dock is a saved resting shape: it stays up on the new view.
         compose.onNodeWithContentDescription("Tasks").assertIsSelected()
-        compose.onNodeWithContentDescription("Add").assertIsDisplayed()
-        Espresso.pressBack()
+
+        // Holding it is the way back to the add pill.
+        compose.onNodeWithContentDescription("Tasks").performTouchInput { longClick() }
         compose.waitForIdle()
         viewButton("Tasks").assertIsDisplayed()
     }

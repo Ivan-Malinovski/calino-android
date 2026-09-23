@@ -2193,8 +2193,37 @@ fun AddPill(
                     if (dragging) {
                         val fling = velocity.calculateVelocity().y
                         val shown = menuDrag ?: 1f
-                        // A flick up keeps it open even past halfway.
-                        releaseMenuDrag(close = fling >= dismissFlingPx || (shown < .5f && fling > -dismissFlingPx))
+                        // Folded a third of the way is a decision, as with a
+                        // sheet; a flick up keeps it open regardless.
+                        releaseMenuDrag(close = fling >= dismissFlingPx || (shown < .7f && fling > -dismissFlingPx))
+                    }
+                }
+                AddPillMode.Dock -> {
+                    // The dock is a resting shape, not a menu, so the way
+                    // out is the way in: hold it. A tap is left to the icon
+                    // under it; only a hold that stays put is taken.
+                    var held = true
+                    withTimeoutOrNull(holdMillis) {
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                .firstOrNull { it.id == down.id }
+                            val at = change?.let { toRoot(it.position) }
+                            if (change == null || !change.pressed || at == null || (at - downRoot).getDistance() > slop) {
+                                held = false
+                                break
+                            }
+                        }
+                    }
+                    if (held) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        currentOnModeChange(AddPillMode.Rest)
+                        // Swallow the rest so the release is not a tap on an icon.
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                .firstOrNull { it.id == down.id } ?: break
+                            change.consume()
+                            if (!change.pressed) break
+                        }
                     }
                 }
                 else -> Unit
@@ -2269,7 +2298,9 @@ fun AddPill(
                 // mid-save would start from one of those widths.
                 .onGloballyPositioned {
                     if (saveState == PillSaveState.Idle && shownMode == AddPillMode.Rest && menuProgress() == 0f) {
-                        lane.setAddPill(it.boundsInRoot(), label, if (menuEnabled) currentRouteGlyph else null)
+                        lane.setAddPill(it.boundsInRoot(), label, if (menuEnabled) currentRouteGlyph else null, null)
+                    } else if (saveState == PillSaveState.Idle && shownMode == AddPillMode.Dock) {
+                        lane.setAddPill(it.boundsInRoot(), label, null, routes)
                     }
                 }
                 .floatingPillSurface(backdrop, backdropOrigin)
@@ -2589,7 +2620,18 @@ enum class AddPillCreate(val label: String) { Event("Event"), Task("Task"), Jour
 
 /** One view the pill's menu and dock offer. */
 @Immutable
-data class PillRoute(val label: String, val icon: ImageVector, val current: Boolean)
+data class PillRoute(
+    val label: String,
+    val icon: ImageVector,
+    val current: Boolean,
+    /** Views in different sections get a divider between them in the menu. */
+    val section: Int = 0,
+)
+
+@Composable
+private fun PillMenuDivider() {
+    Box(Modifier.padding(horizontal = 6.dp, vertical = 4.dp).fillMaxWidth().height(1.dp).background(CalinoColors.OnFloat.copy(alpha = .16f)))
+}
 
 private const val PillMenuSearchKey = -1
 private const val PillHoldMillis = 450L
@@ -2744,9 +2786,10 @@ private fun PillViewMenu(
     ) {
         PillMenuRow(CalinoIcons.Search, "Search", selected = false, hot = hot == PillMenuSearchKey, dim = true,
             onBounds = { onBounds(PillMenuSearchKey, it) }) { onPick(PillMenuSearchKey) }
-        Box(Modifier.padding(horizontal = 6.dp, vertical = 4.dp).fillMaxWidth().height(1.dp).background(CalinoColors.OnFloat.copy(alpha = .16f)))
+        PillMenuDivider()
         for (index in routes.indices.reversed()) {
             val route = routes[index]
+            if (index < routes.lastIndex && routes[index + 1].section != route.section) PillMenuDivider()
             PillMenuRow(route.icon, route.label, selected = route.current, hot = hot == index, dim = false,
                 onBounds = { onBounds(index, it) }) { onPick(index) }
         }
@@ -2788,7 +2831,13 @@ private fun PillMenuRow(
 
 /** The hold shape: every view one tap away, and a copper add at the end. */
 @Composable
-private fun PillViewDock(routes: List<PillRoute>, onPick: (Int) -> Unit, onAdd: () -> Unit) {
+private fun PillViewDock(
+    routes: List<PillRoute>,
+    onPick: (Int) -> Unit = {},
+    onAdd: () -> Unit = {},
+    /** False for the picture of the dock a modal pill morphs through. */
+    interactive: Boolean = true,
+) {
     Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
         routes.forEachIndexed { index, route ->
             // Animated, since the dock stays up while it moves between views.
@@ -2801,8 +2850,15 @@ private fun PillViewDock(routes: List<PillRoute>, onPick: (Int) -> Unit, onAdd: 
                     .size(44.dp)
                     .clip(CircleShape)
                     .background(wash)
-                    .calinoPressable(pressedScale = .92f) { onPick(index) }
-                    .semantics { contentDescription = route.label; selected = route.current },
+                    .then(
+                        if (interactive) {
+                            Modifier
+                                .calinoPressable(pressedScale = .92f) { onPick(index) }
+                                .semantics { contentDescription = route.label; selected = route.current }
+                        } else {
+                            Modifier
+                        },
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(route.icon, contentDescription = null, modifier = Modifier.size(19.dp),
@@ -2815,8 +2871,15 @@ private fun PillViewDock(routes: List<PillRoute>, onPick: (Int) -> Unit, onAdd: 
                 .size(44.dp)
                 .clip(CircleShape)
                 .background(CalinoColors.Accent)
-                .calinoPressable(pressedScale = .92f, onClick = onAdd)
-                .semantics { contentDescription = "Add" },
+                .then(
+                    if (interactive) {
+                        Modifier
+                            .calinoPressable(pressedScale = .92f, onClick = onAdd)
+                            .semantics { contentDescription = "Add" }
+                    } else {
+                        Modifier
+                    },
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(CalinoIcons.Plus, contentDescription = null, tint = CalinoColors.OnAccent, modifier = Modifier.size(19.dp))
@@ -3189,8 +3252,9 @@ fun ModalActionPill(
     // own add form instead, which is what it would have done from the start.
     val anchor = if (inPillLane) lane.addPillBounds else null
     val addLeadingIcon = if (inPillLane) lane.addPillLeadingIcon else null
+    val addDock = if (inPillLane) lane.addPillDock else null
     val anchorSized = anchor != null && lane.addPillBoundsLabel == addText &&
-        lane.addPillBoundsLeadingIcon == addLeadingIcon
+        lane.addPillBoundsLeadingIcon == addLeadingIcon && lane.addPillBoundsDock == addDock
 
     val morph = remember { Animatable(if (canMorph) 0f else 1f) }
     // A drag toward dismissal returns the pill to its add shape as it goes,
@@ -3258,14 +3322,20 @@ fun ModalActionPill(
     val addForm: @Composable () -> Unit = {
         // The root pill's own face, built by the same composable, so the
         // shape this pill returns to is the one that takes the lane back.
-        AddPillRestFace(
-            leading = addLeadingIcon?.let { icon -> { PillLeadingSlot(icon) } },
-            modifier = Modifier
+        // The whole face fades, leading glyph included.
+        Box(
+            Modifier
                 .graphicsLayer { alpha = addAlpha }
-                .semantics { contentDescription = addText ?: "Add" },
+                .clearAndSetSemantics { contentDescription = addText ?: "Add" },
         ) {
-            CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
-            PillLabelText(addText.orEmpty())
+            if (addDock != null) {
+                PillViewDock(addDock, interactive = false)
+            } else {
+                AddPillRestFace(leading = addLeadingIcon?.let { icon -> { PillLeadingSlot(icon) } }) {
+                    CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
+                    PillLabelText(addText.orEmpty())
+                }
+            }
         }
     }
 
