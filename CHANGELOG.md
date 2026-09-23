@@ -3,9 +3,15 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
-## Unreleased
+## 0.6.0 — 2026-09-23
+
+Calino 0.6.0 adds a menu pill for moving between views, background sync for connected accounts, faster private search, and opt-in access for assistants and the phone's own search.
 
 ### Added
+
+- **Background sync.** Connected CalDAV and CardDAV accounts refresh in the background, hourly by default. Settings offers 4-hour, 12-hour and 24-hour intervals, or Off. Queued edits are sent before new data is fetched, and reminders and the widget update from the result. Android may delay a sync to save battery.
+
+- **Faster search.** Search for a connected account uses a private on-device index. The index stays inside Calino and is never shown to the system.
 
 - **Menu pill.** The root add pill gains a view button showing the current view's icon. Tap it or swipe up from it to open a view menu (swipe up and release on a view to jump straight there; swipe the menu down to dismiss). Hold it for a dock with every view one tap away and an add button for events, tasks and journal entries. The label keeps its tap-to-add, sideways swipe between views and swipe up to search. Settings → **Menu pill** turns it off to keep the swipe-only pill.
 
@@ -15,7 +21,16 @@ history and their tags.
 
 ### Changed
 
+- **Navigation pill.** The collapsed pill shows just "+ <date>". The extended pill has a divider between the calendar views and Tasks, Journal and Contacts, and swiping right on it opens the sidebar.
+
+- **Wear OS complication.** When an event is in progress, the complication shows its title and counts down the time left. Tasks show as an open ring in the watch agenda, so they are easy to tell apart from events.
+
 - **Android 12 or newer is now required.** Search uses Android's built-in AppSearch instead of a bundled copy, which brings the APK back to about 4.4 MB. The search index is rebuilt after updating and stays private to Calino.
+
+### Fixed
+
+- Background retries of queued edits now report their result correctly.
+- The watch app no longer reads its state or sends commands on the UI thread. If no phone accepts a request, the Phone button now shows a message.
 
 ## 0.5.0 — 2026-09-22
 
