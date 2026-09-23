@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -278,7 +279,14 @@ class WearActivity : ComponentActivity() {
 
     @Composable
     private fun ColorDot(row: Any) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(Color(rowColor(row))))
+        val color = Color(rowColor(row))
+        // A task's marker is an open ring, like an unticked checkbox, so it
+        // reads differently from an event's filled dot in the mixed agenda.
+        if (row is WearTask) {
+            Box(Modifier.size(10.dp).border(1.5.dp, color, CircleShape))
+        } else {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+        }
     }
 
     @Composable
