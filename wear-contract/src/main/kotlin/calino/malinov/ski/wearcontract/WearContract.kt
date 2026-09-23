@@ -260,12 +260,23 @@ object WearFormatting {
         val value = LocalTime.of(normalized / 60, normalized % 60)
         return when {
             format == WearTimeFormat.H24 -> value.format(time24Formatter)
-            compact -> value.format(time12CompactFormatter).lowercase(Locale.ENGLISH)
+            // "10am", not "10:00am": compact slots (tile rows, complications) are a few glyphs wide.
+            compact -> value.format(time12CompactFormatter).lowercase(Locale.ENGLISH).replace(":00", "")
             else -> value.format(time12Formatter)
         }
     }
 
     fun date(epochDay: Long): String = LocalDate.ofEpochDay(epochDay).format(dateFormatter)
+
+    /**
+     * Title for a few-character complication slot. A leading emoji or symbol eats the whole slot
+     * ("💰 Work" rendered as "💰"), so it is dropped when words follow; symbol-only titles stay.
+     */
+    fun glanceTitle(title: String): String {
+        val trimmed = title.trim()
+        val firstWord = trimmed.indexOfFirst { Character.isLetterOrDigit(it.code) }
+        return if (firstWord > 0) trimmed.substring(firstWord) else trimmed
+    }
 
     fun eventDate(event: WearEvent): String = if (event.endEpochDay > event.startEpochDay) {
         "${date(event.startEpochDay)} – ${date(event.endEpochDay)}"

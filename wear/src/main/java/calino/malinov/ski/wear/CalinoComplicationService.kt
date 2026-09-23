@@ -95,14 +95,16 @@ class CalinoComplicationService : ComplicationDataSourceService() {
                     val endMillis = startMillis + (row.durationMinutes ?: 0) * 60_000L
                     val startLabel = WearFormatting.time(start, format, compact = true)
                     when {
+                        // "Now" in the large line left a one-glyph title ("💰" for "💰 Work").
                         atMillis >= startMillis -> Glance(
-                            "Now",
+                            WearFormatting.glanceTitle(row.title),
                             row.title,
                             "Now · until ${WearFormatting.time(start + (row.durationMinutes ?: 0), format, compact = true)}",
                             progress = 0f,
                             occurrenceId = row.occurrenceId,
                             startMillis = startMillis,
                             endMillis = endMillis,
+                            running = true,
                         )
                         row.startEpochDay == today -> Glance(
                             startLabel,
@@ -136,6 +138,14 @@ class CalinoComplicationService : ComplicationDataSourceService() {
                 CountDownTimeReference(Instant.ofEpochMilli(target)),
             ).setMinimumTimeUnit(TimeUnit.MINUTES).build()
         } ?: plain(glance.short)
+        // Faces draw the title as the small top line and the text as the large bottom one, each
+        // shrunk to fit. A running event's title takes the large line; the time left sits on top.
+        val label: ComplicationText = glance.endMillis?.takeIf { glance.running }?.let { end ->
+            TimeDifferenceComplicationText.Builder(
+                TimeDifferenceStyle.SHORT_SINGLE_UNIT,
+                CountDownTimeReference(Instant.ofEpochMilli(end)),
+            ).setMinimumTimeUnit(TimeUnit.MINUTES).build()
+        } ?: plain(WearFormatting.glanceTitle(glance.title))
         return when (type) {
             ComplicationType.LONG_TEXT -> LongTextComplicationData.Builder(plain(glance.title), description)
                 .setTitle(plain(glance.longTitle))
@@ -146,12 +156,12 @@ class CalinoComplicationService : ComplicationDataSourceService() {
                 (glance.progress ?: 0f) * 100f, 0f, 100f, description,
             )
                 .setText(shortText)
-                .setTitle(plain(glance.title))
+                .setTitle(label)
                 .setMonochromaticImage(icon)
                 .setTapAction(tap)
                 .build()
             else -> ShortTextComplicationData.Builder(shortText, description)
-                .setTitle(plain(glance.title))
+                .setTitle(label)
                 .setMonochromaticImage(icon)
                 .setTapAction(tap)
                 .build()
@@ -186,6 +196,7 @@ class CalinoComplicationService : ComplicationDataSourceService() {
         val countdownTo: Long? = null,
         val startMillis: Long? = null,
         val endMillis: Long? = null,
+        val running: Boolean = false,
     ) {
         /** Progress through a running event at [millis]; other glances are time-independent. */
         fun at(millis: Long): Glance {

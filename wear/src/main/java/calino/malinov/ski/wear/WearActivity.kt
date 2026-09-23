@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,7 +33,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
@@ -44,6 +47,7 @@ import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.ConfirmationDialogDefaults
 import androidx.wear.compose.material3.EdgeButton
+import androidx.wear.compose.material3.FailureConfirmationDialog
 import androidx.wear.compose.material3.HorizontalPagerScaffold
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
@@ -74,7 +78,10 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class WearActivity : ComponentActivity() {
     private var requestedDetailId by mutableStateOf<String?>(null)
@@ -82,7 +89,7 @@ class WearActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedDetailId = intent.detailId()
-        WearCommands.replay(this)
+        lifecycleScope.launch(Dispatchers.IO) { WearCommands.replay(this@WearActivity) }
         setContent { MaterialTheme { AppScaffold { WearRoot() } } }
     }
 
@@ -95,11 +102,16 @@ class WearActivity : ComponentActivity() {
     @Composable
     private fun WearRoot() {
         val revision by WearStateUpdates.revision.collectAsStateWithLifecycle()
-        val state = remember(revision) { WearStore(this).state() }
+        // Decoding the stored snapshot/outbox is file IO; keep it off the UI thread. The previous
+        // state stays on screen while a newer revision loads.
+        val loaded by produceState<WearReducedState?>(null, revision) {
+            value = withContext(Dispatchers.IO) { WearStore(this@WearActivity).state() }
+        }
+        val state = loaded ?: return
         val nowMillis = rememberMinuteClock()
         var selectedId by remember { mutableStateOf(requestedDetailId) }
         val navController = rememberSwipeDismissableNavController()
-        LaunchedEffect(requestedDetailId) {
+        LaunchedEffect(requestedDetailId, state.snapshot != null) {
             requestedDetailId?.takeIf { state.snapshot?.record(it) != null }?.let {
                 selectedId = it
                 if (navController.currentDestination?.route != "detail") navController.navigate("detail")
@@ -297,13 +309,14 @@ class WearActivity : ComponentActivity() {
         val listState = rememberScalingLazyListState()
         val haptics = LocalHapticFeedback.current
         var confirmation by remember { mutableStateOf<String?>(null) }
+        var phoneFailed by remember { mutableStateOf(false) }
         val tomorrow = WearFormatting.today(snapshot) + 1
         ScreenScaffold(
             scrollState = listState,
             edgeButton = {
                 EdgeButton(onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    openPhone(row)
+                    openPhone(row) { phoneFailed = true }
                 }) { Text("Phone") }
             },
         ) { contentPadding ->
@@ -360,6 +373,11 @@ class WearActivity : ComponentActivity() {
             },
             curvedText = { confirmationDialogCurvedText(confirmation.orEmpty(), curvedStyle) },
         )
+        FailureConfirmationDialog(
+            visible = phoneFailed,
+            onDismissRequest = { phoneFailed = false },
+            curvedText = { confirmationDialogCurvedText("Phone unreachable", curvedStyle) },
+        )
     }
 
     @Composable
@@ -374,6 +392,10 @@ class WearActivity : ComponentActivity() {
     }
 
     private fun command(snapshot: WearSnapshot, task: WearTask, op: WearCommandOp, targetEpochDay: Long?) {
+        lifecycleScope.launch(Dispatchers.IO) { sendCommand(snapshot, task, op, targetEpochDay) }
+    }
+
+    private fun sendCommand(snapshot: WearSnapshot, task: WearTask, op: WearCommandOp, targetEpochDay: Long?) {
         WearCommands.send(
             this,
             WearCommand(
@@ -389,14 +411,19 @@ class WearActivity : ComponentActivity() {
         )
     }
 
-    private fun openPhone(row: Any) {
+    /** [onFailure] runs on the main thread when no phone accepted the request. */
+    private fun openPhone(row: Any, onFailure: () -> Unit) {
         val kind = if (row is WearTask) "task" else "event"
         val id = if (row is WearTask) row.recordId else (row as WearEvent).recordId
         val day = if (row is WearTask) row.dueEpochDay else (row as WearEvent).startEpochDay
         val encoded = URLEncoder.encode(id, StandardCharsets.UTF_8.name())
-        RemoteActivityHelper(this).startRemoteActivity(
+        val result = RemoteActivityHelper(this).startRemoteActivity(
             Intent(Intent.ACTION_VIEW, Uri.parse("calino.malinov.ski://reminder/$kind?id=$encoded&day=$day")),
             null,
+        )
+        result.addListener(
+            { if (runCatching { result.get() }.isFailure && !isFinishing) onFailure() },
+            ContextCompat.getMainExecutor(this),
         )
     }
 }

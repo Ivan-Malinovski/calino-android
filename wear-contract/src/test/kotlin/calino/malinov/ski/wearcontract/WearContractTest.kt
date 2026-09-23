@@ -92,6 +92,10 @@ class WearContractTest {
         )
         assertEquals("10:00", WearFormatting.time(600, WearTimeFormat.H24))
         assertEquals("1:05pm", WearFormatting.time(785, WearTimeFormat.H12, compact = true))
+        assertEquals("10am", WearFormatting.time(600, WearTimeFormat.H12, compact = true))
+        assertEquals("Work", WearFormatting.glanceTitle("💰 Work"))
+        assertEquals("Work 💰", WearFormatting.glanceTitle(" Work 💰"))
+        assertEquals("🎉", WearFormatting.glanceTitle("🎉"))
     }
 
     private fun id(row: Any) = when (row) { is WearEvent -> row.occurrenceId; is WearTask -> row.occurrenceId; else -> "" }

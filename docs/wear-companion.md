@@ -35,8 +35,11 @@ launch exported activities, so rows target `WearActivity` with an
 `occurrenceId` extra.
 
 The complication remains deliberately terse. Time is the primary datum: a live
-countdown to the next event today, "Now" for a running event, the weekday for
-later ones, "Late" for an overdue task; the title is the label. It supports
+countdown to the next event today, the weekday for later ones, "Late" for an
+overdue task; the title is the label. A running event inverts this:
+its title is the headline and the label is the time left ("3h"). The short
+label is a few glyphs wide, so a leading emoji/symbol is dropped when words
+follow (`WearFormatting.glanceTitle`), and compact 12-hour times omit ":00". It supports
 SHORT_TEXT, LONG_TEXT and RANGED_VALUE (progress through the running event),
 carries a monochrome icon, and publishes a timeline across event boundaries and
 midnight. A tap opens that exact watch record, or the app when there is
