@@ -8,6 +8,8 @@ import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.notify.ReminderDeepLinks
 import calino.malinov.ski.notify.ReminderKind
 import calino.malinov.ski.platform.assistant.AssistantCalendar
+import calino.malinov.ski.platform.search.subtitle
+import java.util.Locale
 import java.time.LocalDate
 import java.time.LocalTime
 import org.junit.Assert.assertEquals
@@ -104,5 +106,18 @@ class AssistantCalendarTest {
         assertEquals(AssistantCalendar.MaxAgendaDays, AssistantCalendar.agenda(snapshot(), today, 400).size)
         assertEquals(1, AssistantCalendar.agenda(snapshot(), today, 0).size)
         assertNull(AssistantCalendar.agenda(snapshot(), today, 1).single().items.firstOrNull())
+    }
+
+    @Test
+    fun `the phone search subtitle says when and which calendar`() {
+        val snapshot = snapshot(
+            events = listOf(event("e", "Standup", today.atTime(17, 0))),
+            tasks = listOf(CalTask(id = "t", title = "Standup notes", color = 0L, due = today, calendarId = "work")),
+        )
+        val results = AssistantCalendar.search(snapshot, "standup", today).associateBy { it.kind }
+
+        assertEquals("Mon 14 Sep · 17:00 · Work", results.getValue("event").subtitle(clock24 = true, locale = Locale.US))
+        assertEquals("Mon 14 Sep · 5:00 PM · Work", results.getValue("event").subtitle(clock24 = false, locale = Locale.US))
+        assertEquals("Mon 14 Sep · Work", results.getValue("task").subtitle(clock24 = true, locale = Locale.US))
     }
 }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Calino's entry in the phone's search (Samsung Finder and similar). Only
+    reachable while PhoneSearchAlias is enabled from Settings.
+-->
+<searchable xmlns:android="http://schemas.android.com/apk/res/android"
+    android:label="@string/app_name"
+    android:hint="@string/phone_search_hint"
+    android:searchSettingsDescription="@string/phone_search_settings_description"
+    android:includeInGlobalSearch="true"
+    android:searchSuggestAuthority="@string/calino_search_authority"
+    android:searchSuggestIntentAction="android.intent.action.VIEW"
+    android:searchSuggestThreshold="2" />

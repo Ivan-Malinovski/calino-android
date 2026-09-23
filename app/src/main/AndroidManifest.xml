@@ -85,6 +85,30 @@
                 <action android:name="android.app.appfunctions.AppFunctionService" />
             </intent-filter>
         </service>
+        <!--
+            The phone's own search (Samsung Finder "Apps to search in", and
+            other holders of GLOBAL_SEARCH). The searchable alias is always
+            declared: SearchManager only rebuilds its list on whole-package
+            changes, so toggling it would leave Finder stale. The provider,
+            which is what hands out data, ships disabled and is the switch.
+        -->
+        <activity-alias
+            android:name=".PhoneSearchAlias"
+            android:targetActivity=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEARCH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.searchable"
+                android:resource="@xml/searchable" />
+        </activity-alias>
+        <provider
+            android:name=".platform.search.PhoneSearchProvider"
+            android:authorities="${applicationId}.search"
+            android:enabled="false"
+            android:exported="true"
+            android:readPermission="android.permission.GLOBAL_SEARCH" />
         <property
             android:name="android.app.appfunctions.app_metadata"
             android:resource="@xml/app_function_metadata" />

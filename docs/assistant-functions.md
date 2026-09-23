@@ -1,4 +1,4 @@
-# Assistant functions (AppFunctions)
+# Assistant functions and phone search
 
 Calino exposes a small set of Android [AppFunctions](https://developer.android.com/ai/appfunctions)
 so an assistant such as Gemini can read the person's calendar and prepare new
@@ -66,3 +66,38 @@ location and calendar name. Nothing else.
   emulator 37.1.11 and 37.3.1, in the distrobox and on the host, with every
   `-gpu` mode and with `-feature -GLDMA,-GLDMA2`. So the device-level test has
   not run yet; the read logic is covered by `AssistantCalendarTest`.
+
+## Phone search
+
+A second, separate surface: the phone's own search, such as Samsung Finder's
+"Apps to search in". This is Android's legacy global search, not AppSearch or
+AppFunctions; Finder queries each app's search suggestion provider.
+
+- Settings → Data → "Show in phone search", off by default and independent of
+  the assistant switch. `PhoneSearchAccess` toggles `PhoneSearchProvider`,
+  which ships disabled, and the provider also re-checks that state on every
+  query: a provider already published in a live process stays reachable after
+  its component is disabled.
+- Calino is **always listed** as searchable: `PhoneSearchAlias` (an
+  `activity-alias` of `MainActivity` with `ACTION_SEARCH` and
+  `@xml/searchable`, `includeInGlobalSearch`) is permanently enabled.
+  SearchManager rebuilds its list only on whole-package changes
+  (`PackageMonitor` ignores single-component changes), so toggling the alias
+  left Finder stale until the next update or reboot. Finder's own "Apps to
+  search in" toggle is the listing control; Calino's switch controls data.
+- The provider is readable only with `android.permission.GLOBAL_SEARCH`,
+  which only system search components hold. It is not limited to Finder.
+- It returns `AssistantCalendar.search` results, so the same invariants apply:
+  events and tasks on visible calendars, never journals, contacts, notes or
+  fixture data. Rows carry title, "when · calendar", and Calino's record deep
+  link as intent data.
+- The authority is `${applicationId}.search`; `searchable.xml` reads it from
+  the `calino_search_authority` resValue, which must match per build type.
+- Nothing leaves the device. Samsung decides what Finder shows and whether it
+  shows anything before unlock. Google has deprecated much of this API;
+  if Samsung drops it the provider is simply never queried.
+- `PhoneSearchTest` checks the listing and authority through
+  `SearchManager.getSearchablesInGlobalSearch`, and that the provider answers
+  nothing while switched off. On fixture data the provider is empty anyway, so
+  the switched-off check cannot fail there; the in-query gate is what matters
+  on a real account.

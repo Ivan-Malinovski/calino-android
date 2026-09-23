@@ -78,9 +78,13 @@ android {
             // owns an account -- which is the boundary that keeps it off the
             // person's Google and Exchange rows.
             resValue("string", "calino_account_type", "calino.malinov.ski.nativeDebug")
+            // Must equal the provider authority in the manifest; searchable.xml
+            // cannot read the applicationId placeholder.
+            resValue("string", "calino_search_authority", "calino.malinov.ski.nativeDebug.search")
         }
         getByName("release") {
             resValue("string", "calino_account_type", "calino.malinov.ski")
+            resValue("string", "calino_search_authority", "calino.malinov.ski.search")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import calino.malinov.ski.platform.assistant.AssistantAccess
+import calino.malinov.ski.platform.search.PhoneSearchAccess
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -951,12 +952,23 @@ private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) = SettingsP
         SettingDivider()
         SettingActionRow("Import calendar", "Review events from an existing .ics file", "Choose file", enabled = true, onClick = onImport)
     }
-    // AppFunctions exist from Android 16. Below that the row would switch on
-    // a service nothing can call.
-    if (android.os.Build.VERSION.SDK_INT >= 36) {
-        val context = LocalContext.current
-        var assistants by remember { mutableStateOf(AssistantAccess.isEnabled(context)) }
-        SettingsGroup("Assistants") {
+    val context = LocalContext.current
+    var phoneSearch by remember { mutableStateOf(PhoneSearchAccess.isEnabled(context)) }
+    var assistants by remember { mutableStateOf(AssistantAccess.isEnabled(context)) }
+    SettingsGroup("Search & assistants") {
+        SettingToggleRow(
+            "Show in phone search",
+            "Find your events and tasks from the phone's search, such as Samsung Finder. " +
+                "Stays on this phone. Journals and contacts stay private",
+            phoneSearch,
+        ) { enabled ->
+            PhoneSearchAccess.setEnabled(context, enabled)
+            phoneSearch = enabled
+        }
+        // AppFunctions exist from Android 16. Below that the row would switch
+        // on a service nothing can call.
+        if (android.os.Build.VERSION.SDK_INT >= 36) {
+            SettingDivider()
             SettingToggleRow(
                 "Let assistants use Calino",
                 "Assistants such as Gemini can read your events and tasks, which may leave the phone, " +

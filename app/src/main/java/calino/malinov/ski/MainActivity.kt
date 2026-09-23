@@ -429,7 +429,7 @@ class MainActivity : ComponentActivity() {
     fun consumeAddAccount() { addAccountPending = false }
 
     private fun consumeLauncherShortcut(intent: Intent?) {
-        if (intent?.action == ActionSearch) searchShortcutPending = true
+        if (intent?.action == ActionSearch || intent?.action == Intent.ACTION_SEARCH) searchShortcutPending = true
         if (intent?.action == ActionAddAccount) addAccountPending = true
     }
 

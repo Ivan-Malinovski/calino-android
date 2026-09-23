@@ -11,6 +11,8 @@ history and their tags.
 
 - **Assistant access (experimental).** On Android 16 and newer, Settings → Data → **Let assistants use Calino** lets assistants such as Gemini read your events and tasks, open them in Calino, and prepare new events and tasks in Calino's editor for you to save. Off by default; journals and contacts are never shared, and nothing is saved without your Save.
 
+- **Phone search.** Settings → Data → **Show in phone search** lets the phone's own search, such as Samsung Finder, find your events and tasks. Calino appears in Finder's app list either way, but answers only while this is on (off by default). Everything stays on the phone, and journals and contacts are never included.
+
 ### Changed
 
 - **Android 12 or newer is now required.** Search uses Android's built-in AppSearch instead of a bundled copy, which brings the APK back to about 4.4 MB. The search index is rebuilt after updating and stays private to Calino.

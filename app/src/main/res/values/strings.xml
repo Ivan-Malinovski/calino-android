@@ -11,4 +11,6 @@
     <string name="calino_cards_widget_description">Today\'s events and tasks as cards, with locations</string>
     <string name="calino_tasks_widget_description">Tasks due now and next, with anything overdue</string>
     <string name="app_function_display_description">Read your events and tasks, open them in Calino, and prepare new ones for you to save</string>
+    <string name="phone_search_hint">Search Calino</string>
+    <string name="phone_search_settings_description">Events and tasks</string>
 </resources>
