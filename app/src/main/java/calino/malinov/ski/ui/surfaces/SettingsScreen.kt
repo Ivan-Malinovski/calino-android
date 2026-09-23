@@ -53,6 +53,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import calino.malinov.ski.platform.assistant.AssistantAccess
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -949,6 +950,23 @@ private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) = SettingsP
         SettingActionRow("Export calendar", "Save a local .ics copy of one calendar", "Export", enabled = true, onClick = onExport)
         SettingDivider()
         SettingActionRow("Import calendar", "Review events from an existing .ics file", "Choose file", enabled = true, onClick = onImport)
+    }
+    // AppFunctions exist from Android 16. Below that the row would switch on
+    // a service nothing can call.
+    if (android.os.Build.VERSION.SDK_INT >= 36) {
+        val context = LocalContext.current
+        var assistants by remember { mutableStateOf(AssistantAccess.isEnabled(context)) }
+        SettingsGroup("Assistants") {
+            SettingToggleRow(
+                "Let assistants use Calino",
+                "Assistants such as Gemini can read your events and tasks, which may leave the phone, " +
+                    "and prepare new ones for you to save. Journals and contacts stay private",
+                assistants,
+            ) { enabled ->
+                AssistantAccess.setEnabled(context, enabled)
+                assistants = enabled
+            }
+        }
     }
     SettingsGroup("Danger zone") {
         Text("These actions are not available yet.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(18.dp))

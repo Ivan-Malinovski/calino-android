@@ -472,6 +472,22 @@ class MainActivity : ComponentActivity() {
                     intent.type.equals("application/ics", ignoreCase = true) ||
                     intent.data?.lastPathSegment?.endsWith(".ics", ignoreCase = true) == true) ->
                 incomingCalendar = intent.data
+            intent.action == ActionDraftTask -> {
+                incomingEventKey = null
+                val dueMinute = intent.getIntExtra(ExtraTaskDueMinute, -1)
+                val title = intent.getStringExtra(ExtraTaskTitle).orEmpty()
+                incomingEventDraft = EditorDraft(
+                    kind = PocQuickAddKind.Task,
+                    rawInput = title,
+                    title = title,
+                    date = java.time.LocalDate.ofEpochDay(
+                        intent.getLongExtra(ExtraTaskDueDay, java.time.LocalDate.now().toEpochDay()),
+                    ),
+                    startTime = dueMinute.takeIf { it in 0 until 24 * 60 }
+                        ?.let { java.time.LocalTime.MIDNIGHT.plusMinutes(it.toLong()) },
+                    touched = calino.malinov.ski.data.model.EditorField.entries.toSet(),
+                )
+            }
             intent.action == Intent.ACTION_INSERT || intent.action == Intent.ACTION_EDIT -> {
                 incomingEventKey = if (intent.action == Intent.ACTION_EDIT) {
                     intent.getStringExtra("calino.malinov.ski.extra.EVENT_ID")
@@ -506,6 +522,15 @@ class MainActivity : ComponentActivity() {
 
         /** Sent by [calino.malinov.ski.platform.CalinoAuthenticator]. */
         const val ActionAddAccount = "calino.malinov.ski.action.ADD_ACCOUNT"
+
+        /**
+         * A prefilled task editor, from an assistant's draftTask. Explicit
+         * intents only; it opens the editor and never saves on its own.
+         */
+        const val ActionDraftTask = "calino.malinov.ski.action.DRAFT_TASK"
+        const val ExtraTaskTitle = "calino.malinov.ski.extra.TASK_TITLE"
+        const val ExtraTaskDueDay = "calino.malinov.ski.extra.TASK_DUE_DAY"
+        const val ExtraTaskDueMinute = "calino.malinov.ski.extra.TASK_DUE_MINUTE"
     }
 }
 
@@ -1342,6 +1367,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         val existing = activity.incomingEventKey?.let { key -> snapshot.events.firstOrNull { it.id == key || it.uid == key } }
         activity.consumeIncomingEventDraft()
         selectedDate = draft.date
+        if (draft.kind == PocQuickAddKind.Task) {
+            openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks)
+            externalDraft = draft.copy(
+                calendarId = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VTODO") }?.id ?: draft.calendarId,
+            )
+            return@LaunchedEffect
+        }
         openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar)
         externalDraft = draft.copy(
             editingId = existing?.id,

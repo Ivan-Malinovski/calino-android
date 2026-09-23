@@ -23,11 +23,14 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("androidx.baselineprofile")
+    // Generates the AppFunctions schema the OS indexes.
+    id("com.google.devtools.ksp")
 }
 
 android {
     namespace = "calino.malinov.ski"
-    compileSdk = 36
+    // 37 for the AppFunctions library; the app still targets 36.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "calino.malinov.ski"
@@ -126,6 +129,10 @@ dependencies {
     // private to Calino and are removed with its data.
     implementation("androidx.appsearch:appsearch:1.1.0")
     implementation("androidx.appsearch:appsearch-platform-storage:1.1.0")
+    // Assistant access. Experimental (alpha) and off until the person turns it
+    // on in Settings; see docs/assistant-functions.md.
+    implementation("androidx.appfunctions:appfunctions:1.0.0-alpha11")
+    ksp("androidx.appfunctions:appfunctions-compiler:1.0.0-alpha11")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")
@@ -184,3 +191,5 @@ dependencies {
     // the account-persistence round trip untestable.
     testImplementation("org.json:json:20240303")
 }
+
+ksp { arg("appfunctions:aggregateAppFunctions", "true") }

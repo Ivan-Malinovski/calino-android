@@ -9,6 +9,8 @@ history and their tags.
 
 - **Menu pill.** The root add pill gains a view button showing the current view's icon. Tap it or swipe up from it to open a view menu (swipe up and release on a view to jump straight there; swipe the menu down to dismiss). Hold it for a dock with every view one tap away and an add button for events, tasks and journal entries. The label keeps its tap-to-add, sideways swipe between views and swipe up to search. Settings → **Menu pill** turns it off to keep the swipe-only pill.
 
+- **Assistant access (experimental).** On Android 16 and newer, Settings → Data → **Let assistants use Calino** lets assistants such as Gemini read your events and tasks, open them in Calino, and prepare new events and tasks in Calino's editor for you to save. Off by default; journals and contacts are never shared, and nothing is saved without your Save.
+
 ### Changed
 
 - **Android 12 or newer is now required.** Search uses Android's built-in AppSearch instead of a bundled copy, which brings the APK back to about 4.4 MB. The search index is rebuilt after updating and stays private to Calino.

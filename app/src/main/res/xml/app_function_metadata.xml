@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What assistants are told about Calino's app functions as a whole. -->
+<AppFunctionAppMetadata xmlns:appfn="http://schemas.android.com/apk/androidx.appfunctions"
+    appfn:description="Reads the user's calendar events and tasks from Calino, opens them in Calino, and prepares new events and tasks for the user to review.
+Operational patterns:
+  - Use getAgenda for questions about a day or date range, and searchCalendar to find a specific event or task by name.
+  - Pass an itemId from getAgenda or searchCalendar to openItem to show that item to the user.
+  - draftEvent and draftTask never save anything. They open Calino's editor prefilled; tell the user to check the details and tap Save.
+Constraints:
+  - Only downloaded events and tasks on calendars the user shows in Calino are visible. Journals, contacts, notes and attendees are not available.
+  - Results may be incomplete for dates far from today."
+    appfn:displayDescription="@string/app_function_display_description" />
