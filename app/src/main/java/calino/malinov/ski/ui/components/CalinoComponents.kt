@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.components
 
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.ui.unit.Density
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -2027,6 +2030,7 @@ fun AddPill(
     // menu rows under a scrubbing finger never see it); the label segment
     // keeps its own tap and drag handlers exactly as before.
     val menuEnabled = routes.isNotEmpty()
+    val currentRouteGlyph = routes.firstOrNull { it.current }?.icon ?: CalinoIcons.Calendar
     val currentRoutes by rememberUpdatedState(routes)
     val currentMode by rememberUpdatedState(mode)
     val currentOnModeChange by rememberUpdatedState(onModeChange)
@@ -2036,19 +2040,45 @@ fun AddPill(
     val menuInert = saveState != PillSaveState.Idle || confirmationActive || undoActive
     val currentMenuInert by rememberUpdatedState(menuInert)
     val shownMode = if (menuEnabled) mode else AddPillMode.Rest
-    // A tall menu clamps a 999dp corner to half its width; it wants a card corner.
-    val pillShape = RoundedCornerShape(if (shownMode == AddPillMode.Menu) CalinoShapes.Card else CalinoShapes.Pill)
+    // How far the pill has grown into its menu: 0 is the rest face, 1 the
+    // open list. The size, the corner and the crossfade are all read from
+    // this one number, so a drag on the open menu shrinks the pill itself
+    // under the finger and letting go continues the same move rather than
+    // starting a second one.
+    val menuOpen = remember { Animatable(0f) }
+    // While a finger holds the open menu it owns the progress outright.
+    var menuDrag by remember { mutableStateOf<Float?>(null) }
+    val menuProgress = { menuDrag ?: menuOpen.value }
+    val menuMetrics = remember { PillMenuMetrics() }
+    val menuCorner = with(density) { PillMenuCorner.toPx() }
+    // The corner follows the pill's live height: fully round at the rest
+    // face's height, the menu's card corner at the menu's. Any measured size
+    // in between gets the corner in between, with nothing tabulated.
+    val pillShape = remember(menuMetrics, menuCorner) {
+        RoundedCornerShape(object : CornerSize {
+            override fun toPx(shapeSize: Size, density: Density): Float {
+                val half = shapeSize.minDimension / 2f
+                val rest = menuMetrics.restHeight
+                val open = menuMetrics.menuHeight
+                if (rest <= 0 || open <= rest) return half
+                val t = ((shapeSize.height - rest) / (open - rest)).coerceIn(0f, 1f)
+                return minOf(half, androidx.compose.ui.util.lerp(rest / 2f, menuCorner, t))
+            }
+        })
+    }
     var pillCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var viewButtonBounds by remember { mutableStateOf<Rect?>(null) }
     val menuItemBounds = remember { HashMap<Int, Rect>() }
     var scrubHot by remember { mutableStateOf<Int?>(null) }
     var viewPressed by remember { mutableStateOf(false) }
-    var menuDragY by remember { mutableFloatStateOf(0f) }
     val scrubStartPx = with(density) { PillScrubStart.toPx() }
     val dismissFlingPx = with(density) { 1200.dp.toPx() }
     LaunchedEffect(shownMode) {
         if (shownMode != AddPillMode.Menu) menuItemBounds.clear()
-        if (shownMode == AddPillMode.Rest) menuDragY = 0f
+        menuOpen.animateTo(
+            if (shownMode == AddPillMode.Menu) 1f else 0f,
+            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        )
     }
 
     /** A menu row by key: [PillMenuSearchKey] or an index into [routes]. */
@@ -2060,9 +2090,17 @@ fun AddPill(
         }
     }
 
-    fun settleMenuDrag() {
+    /** Hands a released menu drag back to the animation, from where the finger left it. */
+    fun releaseMenuDrag(close: Boolean) {
+        val from = menuDrag ?: return
         scope.launch {
-            animate(menuDragY, 0f, animationSpec = spring(dampingRatio = .78f, stiffness = 520f)) { value, _ -> menuDragY = value }
+            menuOpen.snapTo(from)
+            menuDrag = null
+            if (close) {
+                currentOnModeChange(AddPillMode.Rest)
+            } else {
+                menuOpen.animateTo(1f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
+            }
         }
     }
 
@@ -2129,11 +2167,15 @@ fun AddPill(
                     }
                 }
                 AddPillMode.Menu -> {
-                    // Swipe down anywhere on the open menu to put it away.
-                    // Only a downward drag past slop is taken; a tap stays
-                    // with the row under it.
+                    // Swipe down anywhere on the open menu to fold it back
+                    // into the pill. The pill's top edge stays under the
+                    // finger: the drag is spent shrinking the menu toward
+                    // the rest face, not moving the menu as a card. Only a
+                    // downward drag past slop is taken; a tap stays with the
+                    // row under it.
                     val velocity = VelocityTracker()
                     var dragging = false
+                    val start = menuProgress()
                     while (true) {
                         val change = awaitPointerEvent(PointerEventPass.Initial).changes
                             .firstOrNull { it.id == down.id } ?: break
@@ -2143,15 +2185,16 @@ fun AddPill(
                         if (!dragging && dy > slop && dy > abs(at.x - downRoot.x)) dragging = true
                         if (dragging) {
                             change.consume()
-                            menuDragY = (dy - slop).coerceAtLeast(0f)
+                            val travel = (menuMetrics.menuHeight - menuMetrics.restHeight).coerceAtLeast(1f)
+                            menuDrag = (start - (dy - slop) / travel).coerceIn(0f, 1f)
                         }
                         if (!change.pressed) break
                     }
                     if (dragging) {
-                        if (menuDragY >= commitPx || velocity.calculateVelocity().y >= dismissFlingPx) {
-                            currentOnModeChange(AddPillMode.Rest)
-                        }
-                        settleMenuDrag()
+                        val fling = velocity.calculateVelocity().y
+                        val shown = menuDrag ?: 1f
+                        // A flick up keeps it open even past halfway.
+                        releaseMenuDrag(close = fling >= dismissFlingPx || (shown < .5f && fling > -dismissFlingPx))
                     }
                 }
                 else -> Unit
@@ -2205,7 +2248,7 @@ fun AddPill(
         }
         Row(
             Modifier
-                .offset { IntOffset(dragX.roundToInt(), (dragY + menuDragY).roundToInt()) }
+                .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
                 // Above the pill's own fill and border, so the trace reads as
                 // something running along the edge rather than under it.
                 .pillSaveTrace(saveTrace)
@@ -2225,7 +2268,9 @@ fun AddPill(
                 // to. "Saving" and "Saved" are narrower, and a modal opened
                 // mid-save would start from one of those widths.
                 .onGloballyPositioned {
-                    if (saveState == PillSaveState.Idle && shownMode == AddPillMode.Rest) lane.setAddPill(it.boundsInRoot(), label)
+                    if (saveState == PillSaveState.Idle && shownMode == AddPillMode.Rest && menuProgress() == 0f) {
+                        lane.setAddPill(it.boundsInRoot(), label, if (menuEnabled) currentRouteGlyph else null)
+                    }
                 }
                 .floatingPillSurface(backdrop, backdropOrigin)
                 // The pill reports its own coordinates to the menu gestures
@@ -2236,8 +2281,10 @@ fun AddPill(
                 .then(if (menuEnabled) Modifier.pointerInput(Unit) { menuGestures() } else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Menu is not its own content here: it is the rest face grown,
+            // which [PillMenuMorph] draws continuously from [menuOpen].
             AnimatedContent(
-                targetState = shownMode,
+                targetState = if (shownMode == AddPillMode.Menu) AddPillMode.Rest else shownMode,
                 transitionSpec = {
                     // The same fade-through a relabel takes, with the size
                     // carried on a spring: the menu is the pill changing
@@ -2256,35 +2303,46 @@ fun AddPill(
                 label = "add pill mode",
             ) { targetMode ->
                 when (targetMode) {
-                    AddPillMode.Menu -> PillViewMenu(
-                        routes = routes,
-                        hot = scrubHot,
-                        onBounds = { key, bounds -> menuItemBounds[key] = bounds },
-                        onPick = ::pickMenuItem,
-                    )
+                    // Never a target: folded into Rest above.
+                    AddPillMode.Menu -> Unit
+                    // The dock stays up across the views it switches
+                    // between; only Back, a tap outside or add puts it away.
                     AddPillMode.Dock -> PillViewDock(
                         routes = routes,
-                        onPick = { index -> pickMenuItem(index) },
+                        onPick = { index -> if (currentRoutes.getOrNull(index)?.current == false) currentOnNavigate(index) },
                         onAdd = { currentOnModeChange(AddPillMode.Types) },
                     )
                     AddPillMode.Types -> PillCreateTypes(
                         onPick = { kind -> currentOnModeChange(AddPillMode.Rest); currentOnCreate(kind) },
                         onClose = { currentOnModeChange(AddPillMode.Rest) },
                     )
-                    AddPillMode.Rest -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (menuEnabled) {
-                            PillViewButton(
-                                route = routes.firstOrNull { it.current },
-                                pressed = viewPressed,
-                                enabled = !menuInert,
-                                onBounds = { viewButtonBounds = it },
-                                onOpenMenu = { currentOnModeChange(AddPillMode.Menu) },
-                                onOpenDock = { currentOnModeChange(AddPillMode.Dock) },
+                    AddPillMode.Rest -> PillMenuMorph(
+                        progress = menuProgress,
+                        metrics = menuMetrics,
+                        menuShown = menuEnabled && (shownMode == AddPillMode.Menu || menuProgress() > 0f),
+                        menu = {
+                            PillViewMenu(
+                                routes = routes,
+                                hot = scrubHot,
+                                onBounds = { key, bounds -> menuItemBounds[key] = bounds },
+                                onPick = ::pickMenuItem,
                             )
-                            PillSeparator()
-                        }
-                        Row(
-                            Modifier
+                        },
+                    ) {
+                        AddPillRestFace(
+                            leading = if (!menuEnabled) null else {
+                                {
+                                    PillViewButton(
+                                        route = routes.firstOrNull { it.current },
+                                        pressed = viewPressed,
+                                        enabled = !menuInert,
+                                        onBounds = { viewButtonBounds = it },
+                                        onOpenMenu = { currentOnModeChange(AddPillMode.Menu) },
+                                        onOpenDock = { currentOnModeChange(AddPillMode.Dock) },
+                                    )
+                                }
+                            },
+                            modifier = Modifier
                                 // A route swipe can recompose the pill before clickable emits
                                 // its release. Without this guard the release is interpreted
                                 // as a tap on the newly arrived route (for example, opening a
@@ -2369,9 +2427,6 @@ fun AddPill(
                                         }
                                     }
                                 }
-                                .padding(start = if (menuEnabled) 10.dp else 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             // While a swipe is live the pair names both of its days, and the
                             // first of them is the page the calendar is actually on -- so the
@@ -2541,6 +2596,97 @@ private const val PillHoldMillis = 450L
 /** How far up the view button has to travel before a press becomes a scrub. */
 private val PillScrubStart = 14.dp
 
+/** The open menu's corner: a row's round selector plus the menu's inset, so the two are concentric. */
+private val PillMenuCorner = 28.dp
+
+/** What [PillMenuMorph] last measured, read by the drag and the corner. Not state: size changes already redraw. */
+private class PillMenuMetrics {
+    var restHeight = 0f
+    var menuHeight = 0f
+}
+
+/**
+ * The rest pill's face: an optional leading glyph segment, then the add
+ * label. The root pill and a modal pill's add form both build it here, so
+ * the shape a modal hands back is the root pill's by construction.
+ */
+@Composable
+internal fun AddPillRestFace(
+    leading: (@Composable () -> Unit)?,
+    modifier: Modifier = Modifier,
+    label: @Composable RowScope.() -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (leading != null) {
+            leading()
+            PillSeparator()
+        }
+        Row(
+            modifier.padding(start = if (leading != null) 10.dp else 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = label,
+        )
+    }
+}
+
+/** The leading glyph's slot. The view button draws its press wash on [modifier]. */
+@Composable
+internal fun PillLeadingSlot(
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    tint: Color = CalinoColors.OnFloat,
+) {
+    Box(
+        Modifier.padding(start = 4.dp).size(44.dp).clip(CircleShape).then(modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(19.dp))
+    }
+}
+
+/**
+ * The rest face and the view menu as one shape. Both are measured every
+ * frame and the pill takes the size between them at [progress], bottom
+ * aligned so the menu grows up out of the lane; the pill's clip reveals the
+ * menu rather than anything scaling it. Nothing here knows a size in
+ * advance, so a longer label or another view changes the morph with it.
+ */
+@Composable
+private fun PillMenuMorph(
+    progress: () -> Float,
+    metrics: PillMenuMetrics,
+    menuShown: Boolean,
+    menu: @Composable () -> Unit,
+    rest: @Composable () -> Unit,
+) {
+    Layout(contents = listOf(rest, { if (menuShown) menu() })) { (restMeasurables, menuMeasurables), constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val restPlaceable = restMeasurables.first().measure(loose)
+        val menuPlaceable = menuMeasurables.firstOrNull()?.measure(loose)
+        val p = if (menuPlaceable == null) 0f else progress().coerceIn(0f, 1f)
+        metrics.restHeight = restPlaceable.height.toFloat()
+        if (menuPlaceable != null) metrics.menuHeight = menuPlaceable.height.toFloat()
+        val width = androidx.compose.ui.util.lerp(restPlaceable.width.toFloat(), (menuPlaceable?.width ?: 0).toFloat(), p).roundToInt()
+        val height = androidx.compose.ui.util.lerp(restPlaceable.height.toFloat(), (menuPlaceable?.height ?: 0).toFloat(), p).roundToInt()
+        layout(width, height) {
+            // The face leaves over the first half and the menu arrives over
+            // the second, with an overlap, as the modal pill crosses over.
+            // A form that cannot be seen is not placed, so it takes no taps.
+            if (p < 1f) {
+                restPlaceable.placeWithLayer((width - restPlaceable.width) / 2, height - restPlaceable.height) {
+                    alpha = ((.55f - progress()) / .55f).coerceIn(0f, 1f)
+                }
+            }
+            if (menuPlaceable != null && p > 0f) {
+                menuPlaceable.placeWithLayer((width - menuPlaceable.width) / 2, height - menuPlaceable.height) {
+                    alpha = ((progress() - .3f) / .7f).coerceIn(0f, 1f)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PillSeparator() {
     Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .16f)))
@@ -2560,11 +2706,10 @@ private fun PillViewButton(
         if (pressed) CalinoColors.OnFloat.copy(alpha = .16f) else CalinoColors.OnFloat.copy(alpha = 0f),
         label = "pill view button press",
     )
-    Box(
-        Modifier
-            .padding(start = 4.dp)
-            .size(44.dp)
-            .clip(CircleShape)
+    PillLeadingSlot(
+        icon = route?.icon ?: CalinoIcons.Calendar,
+        tint = CalinoColors.OnFloat.copy(alpha = if (enabled) 1f else .5f),
+        modifier = Modifier
             .background(wash)
             .onGloballyPositioned { onBounds(it.boundsInRoot()) }
             // Taps, scrubs and holds are read by the pill's own handler; this
@@ -2579,15 +2724,7 @@ private fun PillViewButton(
                     disabled()
                 }
             },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            route?.icon ?: CalinoIcons.Calendar,
-            contentDescription = null,
-            tint = CalinoColors.OnFloat.copy(alpha = if (enabled) 1f else .5f),
-            modifier = Modifier.size(19.dp),
-        )
-    }
+    )
 }
 
 /** The pill grown upward into a list: Search, then the views nearest-last, so the nearest sits under the thumb. */
@@ -2636,7 +2773,7 @@ private fun PillMenuRow(
             .fillMaxWidth()
             .height(44.dp)
             .onGloballyPositioned { onBounds(it.boundsInRoot()) }
-            .clip(RoundedCornerShape(CalinoShapes.Button))
+            .clip(CircleShape)
             .background(wash)
             .calinoPressable(pressedScale = .98f, onClick = onClick)
             .semantics { this.selected = selected }
@@ -2646,7 +2783,6 @@ private fun PillMenuRow(
     ) {
         Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(19.dp))
         Text(label, color = content, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1, modifier = Modifier.weight(1f))
-        if (selected) Text("HERE", style = CalinoTypography.labelSmall, color = CalinoColors.OnFloat.copy(alpha = .6f))
     }
 }
 
@@ -2655,11 +2791,15 @@ private fun PillMenuRow(
 private fun PillViewDock(routes: List<PillRoute>, onPick: (Int) -> Unit, onAdd: () -> Unit) {
     Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
         routes.forEachIndexed { index, route ->
-            val wash = CalinoColors.OnFloat.copy(alpha = if (route.current) .16f else 0f)
+            // Animated, since the dock stays up while it moves between views.
+            val wash by animateColorAsState(
+                CalinoColors.OnFloat.copy(alpha = if (route.current) .16f else 0f),
+                label = "pill dock selection",
+            )
             Box(
                 Modifier
-                    .size(width = 40.dp, height = 44.dp)
-                    .clip(RoundedCornerShape(CalinoShapes.Button))
+                    .size(44.dp)
+                    .clip(CircleShape)
                     .background(wash)
                     .calinoPressable(pressedScale = .92f) { onPick(index) }
                     .semantics { contentDescription = route.label; selected = route.current },
@@ -3048,7 +3188,9 @@ fun ModalActionPill(
     // worth nothing once the label has moved on -- then the pill measures its
     // own add form instead, which is what it would have done from the start.
     val anchor = if (inPillLane) lane.addPillBounds else null
-    val anchorSized = anchor != null && lane.addPillBoundsLabel == addText
+    val addLeadingIcon = if (inPillLane) lane.addPillLeadingIcon else null
+    val anchorSized = anchor != null && lane.addPillBoundsLabel == addText &&
+        lane.addPillBoundsLeadingIcon == addLeadingIcon
 
     val morph = remember { Animatable(if (canMorph) 0f else 1f) }
     // A drag toward dismissal returns the pill to its add shape as it goes,
@@ -3114,26 +3256,16 @@ fun ModalActionPill(
     }
 
     val addForm: @Composable () -> Unit = {
-        Row(
-            Modifier
+        // The root pill's own face, built by the same composable, so the
+        // shape this pill returns to is the one that takes the lane back.
+        AddPillRestFace(
+            leading = addLeadingIcon?.let { icon -> { PillLeadingSlot(icon) } },
+            modifier = Modifier
                 .graphicsLayer { alpha = addAlpha }
-                .semantics { contentDescription = addText ?: "Add" }
-                // The same metrics the root add pill wraps its label in, so
-                // the two measure identically for the same text.
-                .padding(start = 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .semantics { contentDescription = addText ?: "Add" },
         ) {
             CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.OnFloat, modifier = Modifier.size(19.dp), contentDescription = null)
-            Text(
-                addText.orEmpty(),
-                color = CalinoColors.OnFloat,
-                fontSize = 15.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            PillLabelText(addText.orEmpty())
         }
     }
 

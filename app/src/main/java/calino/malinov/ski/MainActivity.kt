@@ -2569,7 +2569,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             rangeSpansDays || monthNamesNoDay -> "New event"
             else -> "Add on ${selectedDate.format(DateLabel)}"
         }
-        androidx.compose.runtime.SideEffect { pillLane.addPillLabel = addPillLabel }
+        val addPillLeadingIcon = if (preferences.menuPill) pockRouteIcon(rootRoute) else null
+        androidx.compose.runtime.SideEffect {
+            pillLane.addPillLabel = addPillLabel
+            pillLane.addPillLeadingIcon = addPillLeadingIcon
+        }
         val laneHandoff = pillLane.claimedByModal || pillLane.handingBack
         // Anything that hides the pill or takes its lane puts the menu away.
         val pillMenuShown = pillVisible && !sidebarVisible && !searchVisible && !pillLane.claimedByModal

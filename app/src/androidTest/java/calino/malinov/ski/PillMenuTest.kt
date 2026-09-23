@@ -1,6 +1,7 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -101,12 +102,17 @@ class PillMenuTest : CalinoUiTest() {
         viewButton("Month").assertIsDisplayed()
     }
 
-    @Test fun holdingTheViewButtonOpensTheDock() {
+    @Test fun holdingTheViewButtonOpensADockThatStaysUp() {
         viewButton("Month").performTouchInput { longClick() }
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Tasks").performClick()
         compose.waitForIdle()
 
+        // The dock stays open on the new view, now marking it as current.
+        compose.onNodeWithContentDescription("Tasks").assertIsSelected()
+        compose.onNodeWithContentDescription("Add").assertIsDisplayed()
+        Espresso.pressBack()
+        compose.waitForIdle()
         viewButton("Tasks").assertIsDisplayed()
     }
 
