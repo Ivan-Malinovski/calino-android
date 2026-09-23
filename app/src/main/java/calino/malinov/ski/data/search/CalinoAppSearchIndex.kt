@@ -296,7 +296,13 @@ class CalinoAppSearchIndex(
             PlatformStorage.SearchContext.Builder(application, databaseName).build(),
         ).awaitAppSearch()
         opened.setSchemaAsync(
-            SetSchemaRequest.Builder().addSchemas(recordSchema()).build(),
+            SetSchemaRequest.Builder()
+                .addSchemas(recordSchema())
+                // Platform AppSearch shows every schema on system surfaces
+                // unless told otherwise. This one holds journal and contact
+                // text too, so it must never be displayed.
+                .setSchemaTypeDisplayedBySystem(RecordSchema, false)
+                .build(),
         ).awaitAppSearch()
         appSearchSession = opened
         return opened

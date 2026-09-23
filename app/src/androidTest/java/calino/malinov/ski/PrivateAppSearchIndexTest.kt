@@ -1,5 +1,6 @@
 package calino.malinov.ski
 
+import androidx.appsearch.platformstorage.PlatformStorage
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import calino.malinov.ski.data.model.CalEvent
@@ -116,6 +117,35 @@ class PrivateAppSearchIndexTest {
             assertTrue(index.searchRecords("ava", removedAccount, true, true).isEmpty())
         } finally {
             index.close()
+        }
+    }
+
+    /**
+     * Platform AppSearch displays a schema on system surfaces unless it opts
+     * out, and this index holds journal and contact text.
+     */
+    @Test fun thePrivateSchemaIsNotDisplayedBySystem() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val databaseName = "test-${UUID.randomUUID()}"
+        val index = CalinoAppSearchIndex(context = context, databaseName = databaseName)
+        try {
+            index.reconcile(
+                CalinoSnapshot(events = emptyList(), tasks = emptyList(), journals = emptyList(), calendars = emptyList()),
+                journalsEnabled = true,
+                contactsEnabled = true,
+            )
+        } finally {
+            index.close()
+        }
+        val session = PlatformStorage.createSearchSessionAsync(
+            PlatformStorage.SearchContext.Builder(context, databaseName).build(),
+        ).get()
+        try {
+            val schema = session.schemaAsync.get()
+            assertTrue(schema.schemas.any { it.schemaType == "CalinoLocalRecord" })
+            assertTrue("CalinoLocalRecord" in schema.schemaTypesNotDisplayedBySystem)
+        } finally {
+            session.close()
         }
     }
 }
