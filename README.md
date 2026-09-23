@@ -8,16 +8,16 @@ It is written in Kotlin and Jetpack Compose and is the Android sister project to
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/month.png" alt="Month view pulled open above the day's agenda" width="100%"></td>
-    <td><img src="docs/screenshots/range.png" alt="Three-day range view" width="100%"></td>
-    <td><img src="docs/screenshots/event.png" alt="An event sheet open over the range view" width="100%"></td>
-    <td><img src="docs/screenshots/menu.png" alt="The add pill opened into its navigation menu" width="100%"></td>
+    <td><img src="docs/screenshots/phone-month.png" alt="Month view pulled open above the day's agenda" width="200"></td>
+    <td><img src="docs/screenshots/phone-range.png" alt="Three-day range view" width="200"></td>
+    <td><img src="docs/screenshots/phone-event.png" alt="An event sheet open over the range view" width="200"></td>
+    <td><img src="docs/screenshots/phone-menu.png" alt="The add pill opened into its navigation menu" width="200"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/tasks.png" alt="Tasks grouped into overdue, today, this week and later" width="100%"></td>
-    <td><img src="docs/screenshots/journal.png" alt="Journal entries" width="100%"></td>
-    <td><img src="docs/screenshots/drawer.png" alt="Navigation drawer with views and calendars" width="100%"></td>
-    <td><img src="docs/screenshots/settings.png" alt="Settings" width="100%"></td>
+    <td><img src="docs/screenshots/phone-tasks.png" alt="Tasks grouped into overdue, today, this week and later" width="200"></td>
+    <td><img src="docs/screenshots/phone-journal.png" alt="Journal entries" width="200"></td>
+    <td><img src="docs/screenshots/phone-drawer.png" alt="Navigation drawer with views and calendars" width="200"></td>
+    <td><img src="docs/screenshots/phone-settings.png" alt="Settings" width="200"></td>
   </tr>
 </table>
 
