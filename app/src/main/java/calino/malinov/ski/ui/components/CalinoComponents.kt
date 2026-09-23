@@ -1911,11 +1911,15 @@ private data class PillLabelState(
     val undo: String? = null,
 )
 
+private const val PillAddOnPrefix = "Add on "
+
 /** The add pill's own text style, shared by the label and its swipe pair. */
 @Composable
 private fun PillLabelText(text: String, modifier: Modifier = Modifier) {
     Text(
-        text,
+        // The plus already says "add"; the pill shows only the day. The
+        // label keeps the words for the pill's spoken description.
+        text.removePrefix(PillAddOnPrefix),
         modifier = modifier,
         color = CalinoColors.OnFloat,
         fontSize = 15.sp,
@@ -1973,6 +1977,8 @@ fun AddPill(
     onNavigate: (Int) -> Unit = {},
     /** A record type picked from the dock's add row. */
     onCreate: (AddPillCreate) -> Unit = {},
+    /** A rightward swipe on the dock: the sidebar it leads to sits on that side. */
+    onOpenSidebar: () -> Unit = {},
     confirmationActive: Boolean = false,
     confirmationLabel: String = "Are you sure?",
     onConfirmationExpired: () -> Unit = {},
@@ -2036,6 +2042,10 @@ fun AddPill(
     val currentOnModeChange by rememberUpdatedState(onModeChange)
     val currentOnNavigate by rememberUpdatedState(onNavigate)
     val currentOnCreate by rememberUpdatedState(onCreate)
+    val currentOnOpenSidebar by rememberUpdatedState(onOpenSidebar)
+    // The dock's own sideways lean toward the sidebar. Separate from dragX so
+    // the rest face's view-swipe chip never reads it as a route preview.
+    var dockDragX by remember { mutableFloatStateOf(0f) }
     // Anything the pill is already narrating owns it; the view button waits.
     val menuInert = saveState != PillSaveState.Idle || confirmationActive || undoActive
     val currentMenuInert by rememberUpdatedState(menuInert)
@@ -2077,6 +2087,8 @@ fun AddPill(
     var viewPressed by remember { mutableStateOf(false) }
     val scrubStartPx = with(density) { PillScrubStart.toPx() }
     val dismissFlingPx = with(density) { 1200.dp.toPx() }
+    val dockLeanPx = with(density) { 24.dp.toPx() }
+    val dockOpenFlingPx = with(density) { 800.dp.toPx() }
     LaunchedEffect(shownMode) {
         if (shownMode != AddPillMode.Menu) menuItemBounds.clear()
         // Opening is a spatial arrival and takes the expressive spring's
@@ -2235,20 +2247,59 @@ fun AddPill(
                 AddPillMode.Dock -> {
                     // The dock is a resting shape, not a menu, so the way
                     // out is the way in: hold it. A tap is left to the icon
-                    // under it; only a hold that stays put is taken.
+                    // under it; only a hold that stays put is taken. A drag
+                    // to the right is the other exception: it pulls the
+                    // sidebar out from the side it lives on.
                     var held = true
+                    var swiping = false
+                    val velocity = VelocityTracker()
                     withTimeoutOrNull(holdMillis) {
                         while (true) {
                             val change = awaitPointerEvent(PointerEventPass.Initial).changes
                                 .firstOrNull { it.id == down.id }
                             val at = change?.let { toRoot(it.position) }
-                            if (change == null || !change.pressed || at == null || (at - downRoot).getDistance() > slop) {
+                            if (change == null || !change.pressed || at == null) {
+                                held = false
+                                break
+                            }
+                            velocity.addPosition(change.uptimeMillis, at)
+                            val moved = at - downRoot
+                            if (moved.x > slop && moved.x > abs(moved.y)) {
+                                change.consume()
+                                held = false
+                                swiping = true
+                                break
+                            }
+                            if (moved.getDistance() > slop) {
                                 held = false
                                 break
                             }
                         }
                     }
-                    if (held) {
+                    if (swiping) {
+                        // The pill leans after the finger, damped, so the
+                        // gesture reads as pulling rather than moving it.
+                        var travel = 0f
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                .firstOrNull { it.id == down.id } ?: break
+                            change.consume()
+                            toRoot(change.position)?.let { at ->
+                                velocity.addPosition(change.uptimeMillis, at)
+                                travel = at.x - downRoot.x - slop
+                                dockDragX = (travel * .3f).coerceIn(0f, dockLeanPx)
+                            }
+                            if (!change.pressed) break
+                        }
+                        val fling = velocity.calculateVelocity().x
+                        if (travel >= commitPx || fling >= dockOpenFlingPx) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            currentOnOpenSidebar()
+                        }
+                        scope.launch {
+                            animate(dockDragX, 0f, animationSpec = CalinoMotion.gestureReturn()) { value, _ -> dockDragX = value }
+                        }
+                    } else if (held) {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         currentOnModeChange(AddPillMode.Rest)
                         // Swallow the rest so the release is not a tap on an icon.
@@ -2311,7 +2362,7 @@ fun AddPill(
         }
         Row(
             Modifier
-                .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
+                .offset { IntOffset((dragX + dockDragX).roundToInt(), dragY.roundToInt()) }
                 // Above the pill's own fill and border, so the trace reads as
                 // something running along the edge rather than under it.
                 .pillSaveTrace(saveTrace)
@@ -2628,7 +2679,8 @@ fun AddPill(
                                         // string sends "Add on" out of the pill and back for
                                         // a change it has no part in; kept still, it reads as
                                         // one sentence whose last words are being swapped.
-                                        val (from, to) = swipeLabels
+                                        val from = swipeLabels.first.removePrefix(PillAddOnPrefix)
+                                        val to = swipeLabels.second.removePrefix(PillAddOnPrefix)
                                         val prefix = sharedLabelPrefix(from, to)
                                         val moving = prefix.length
                                         Row(horizontalArrangement = Arrangement.Start) {
@@ -2884,6 +2936,10 @@ private fun PillViewDock(
 ) {
     Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
         routes.forEachIndexed { index, route ->
+            // The calendar views and the rest, divided as in the menu.
+            if (index > 0 && routes[index - 1].section != route.section) {
+                Box(Modifier.padding(horizontal = 4.dp)) { PillSeparator() }
+            }
             // Animated, since the dock stays up while it moves between views.
             val wash by animateColorAsState(
                 CalinoColors.OnFloat.copy(alpha = if (route.current) .16f else 0f),
@@ -2909,7 +2965,7 @@ private fun PillViewDock(
                     tint = CalinoColors.OnFloat.copy(alpha = if (route.current) 1f else .66f))
             }
         }
-        Box(Modifier.padding(horizontal = 4.dp)) { PillSeparator() }
+        Spacer(Modifier.width(4.dp))
         Box(
             Modifier
                 .size(44.dp)
@@ -2975,14 +3031,12 @@ private fun PillCreateTypes(onPick: (AddPillCreate) -> Unit, onClose: () -> Unit
 
 private const val DirectionalPillLabelKey = "__directional_pill_label__"
 
-/** A settled Agenda relabel keeps the shared sentence still and moves only its date. */
+/** A settled Agenda relabel moves only the date. */
 @Composable
 private fun DirectionalPillLabel(label: String, direction: Int) {
-    val prefix = "Add on ".takeIf(label::startsWith).orEmpty()
     Row(horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
-        if (prefix.isNotEmpty()) PillLabelText(prefix)
         AnimatedContent(
-            targetState = label.drop(prefix.length),
+            targetState = label.removePrefix(PillAddOnPrefix),
             transitionSpec = {
                 // Match the horizontal pager label's soft edge departure: a
                 // date loses opacity while it travels out instead of staying

@@ -2703,6 +2703,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 },
                 routes = if (preferences.menuPill) pillRouteItems else emptyList(),
                 mode = pillMode,
+                onOpenSidebar = { sidebarVisible = true },
                 // Entering the dock saves it; holding it again un-saves it.
                 // Every other close returns to whichever shape is saved.
                 onModeChange = { next ->
