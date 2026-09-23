@@ -79,6 +79,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // AppSearch's local storage bundles a native engine per ABI, and
+            // x86/x86_64/32-bit ARM copies tripled the APK. Release targets
+            // 64-bit ARM phones only; debug keeps every ABI for the emulator.
+            ndk { abiFilters += "arm64-v8a" }
             if (releaseKeystoreProperties.containsKey("storeFile")) {
                 signingConfig = signingConfigs.getByName("release")
             }
