@@ -30,17 +30,17 @@ enum class CalinoEventDensity(val label: String, val maxItems: Int) {
 }
 
 /**
- * The zoom level the calendar opens on.
+ * The view the app opens on. Calendar views also supply their zoom level.
  *
- * These are levels of the month-to-day continuum rather than separate screens,
- * so the preference seeds the zoom state; [zoomLevel] is the value that goes
- * into it.
+ * Month, Week and Day seed the calendar zoom state through [zoomLevel].
+ * Range and Agenda open their own routes.
  */
 enum class CalinoDefaultView(val label: String, val zoomLevel: Float?) {
     Month("Month", 2f),
     Week("Week", 0f),
     Day("Day", 1f),
     Range("Range", null),
+    Agenda("Agenda", null),
     ;
 
     companion object {

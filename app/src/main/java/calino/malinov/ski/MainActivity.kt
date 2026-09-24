@@ -1027,7 +1027,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val webcalSubscriptions = rememberWebcalSubscriptions(pocViewModel.webcalStore)
     val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var route by rememberSaveable(stateSaver = RouteSaver) {
-        mutableStateOf<PockRoute>(if (preferences.defaultView == calino.malinov.ski.util.CalinoDefaultView.Range) PockRoute.Range else PockRoute.Day)
+        mutableStateOf<PockRoute>(when (preferences.defaultView) {
+            calino.malinov.ski.util.CalinoDefaultView.Range -> PockRoute.Range
+            calino.malinov.ski.util.CalinoDefaultView.Agenda -> PockRoute.Agenda
+            else -> PockRoute.Day
+        })
     }
     var selectedContactId by rememberSaveable { mutableStateOf<String?>(null) }
     // The fixture data lives around May 2026, so that is where the sample
