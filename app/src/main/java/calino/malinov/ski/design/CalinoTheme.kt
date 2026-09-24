@@ -78,6 +78,13 @@ data class CalinoPalette(
     val OnFloat: Color,
     val FloatBorder: Color,
     /**
+     * The edge of a modal card (sheet, floating window, side panel). Light
+     * separates it with a shadow; flat dark has none, so the card would melt
+     * into the page behind it. A faint warm hairline draws the edge instead,
+     * quieter than [FloatBorder] because it runs the whole card.
+     */
+    val SurfaceBorder: Color,
+    /**
      * The selected day in the week strip, and its compact pill.
      *
      * The same problem as [FloatFill], and the same answer. Light paints a
@@ -222,6 +229,7 @@ object CalinoThemes {
         FloatFill = Color(0xFF2C2823),
         OnFloat = Color(0xFFFAF8F3),
         FloatBorder = Color.Transparent,
+        SurfaceBorder = Color.Transparent,
         SelectionFill = Color(0xFF2C2823),
         OnSelection = Color.White,
         SelectionBorder = Color.Transparent,
@@ -259,6 +267,7 @@ object CalinoThemes {
         FloatFill = Color(0xFF242220),
         OnFloat = Color(0xFFF0ECE6),
         FloatBorder = Color(0xFFF0ECE6).copy(alpha = .22f),
+        SurfaceBorder = Color(0xFFF0ECE6).copy(alpha = .10f),
         SelectionFill = Color(0xFF2F2C29),
         OnSelection = Color(0xFFF0ECE6),
         SelectionBorder = Color(0xFFF0ECE6).copy(alpha = .26f),

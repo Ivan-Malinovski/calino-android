@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -887,7 +888,8 @@ fun DetailCardSurface(
         modifier
             .shadow(18.dp * if (mode == CalinoSurfaceMode.EndPanel) CalinoColors.elevationAlpha else 0f, shape, clip = false)
             .clip(shape)
-            .background(CalinoColors.Canvas),
+            .background(CalinoColors.Canvas)
+            .border(1.dp, CalinoColors.SurfaceBorder, shape),
     ) {
         if (mode == CalinoSurfaceMode.EndPanel) {
             Box(
