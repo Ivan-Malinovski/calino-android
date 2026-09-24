@@ -177,14 +177,20 @@ class CalDavFetcher(
         )
 
         if (!previous.hasSyncToken) {
-            return fullFetch(
-                calendar = calendar,
-                credentials = credentials,
-                windowStart = windowStart,
-                windowEnd = windowEnd,
-                cursor = CollectionCursor(ctag = calendar.ctag),
-                mode = CalendarFetchMode.Full,
-            )
+            val baseline = CollectionCursor(ctag = calendar.ctag, syncToken = calendar.syncToken)
+            // A new calendar has an empty committed-cursor sentinel. Its
+            // discovery token cannot describe an old cache, but it can safely
+            // bracket a fresh full read when we reconcile changes afterward.
+            return if (baseline.hasSyncToken) {
+                fullFetchThenReconcile(
+                    calendar, credentials, windowStart, windowEnd, baseline, CalendarFetchMode.Full,
+                )
+            } else {
+                fullFetch(
+                    calendar, credentials, windowStart, windowEnd,
+                    CollectionCursor(ctag = calendar.ctag), CalendarFetchMode.Full,
+                )
+            }
         }
 
         if (cachedResources == null) {

@@ -261,6 +261,34 @@ class CalDavPhase4IntegrationTest {
     }
 
     @Test
+    fun `new calendar reconciles discovery token despite empty committed cursor`() = runBlocking {
+        val collection = server.url("/cal/").toString()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.body.readUtf8().contains("sync-collection")) {
+                    multiStatus(syncReport("${collection}late.ics", null, "after-full"))
+                } else if (request.method == "GET") {
+                    MockResponse().setResponseCode(200).setHeader("ETag", "\"late\"")
+                        .setBody(calendarIcs("late"))
+                } else fullResponse()
+        }
+
+        val result = fetcher().fetchIncremental(
+            calendar = calendar(url = collection, syncToken = "discovery-token"),
+            credentials = credentials,
+            cachedResources = null,
+            windowStart = start,
+            windowEnd = end,
+            storedCursor = CollectionCursor(),
+        )
+
+        assertEquals(CalendarFetchMode.Full, result.mode)
+        assertEquals("after-full", result.cursor.syncToken)
+        assertTrue(result.resources.any { it.href.endsWith("late.ics") })
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test
     fun `a rejected sync token falls back to full fetch and clears the old token`() = runBlocking {
         server.enqueue(
             MockResponse()
