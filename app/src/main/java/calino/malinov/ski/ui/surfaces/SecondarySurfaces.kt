@@ -24,6 +24,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
+import calino.malinov.ski.data.model.Reminder
+import calino.malinov.ski.ui.components.EditorReveal
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -723,6 +725,8 @@ fun EventDetailSurface(
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
     onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
+    localReminders: (CalEvent) -> List<Reminder>? = { null },
+    onLocalReminders: ((CalEvent, List<Reminder>) -> Unit)? = null,
 ) {
     var shown by remember { mutableStateOf(true) }
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -776,7 +780,8 @@ fun EventDetailSurface(
             (descriptionLines - 1) * 22 +
             attendeeLines * 24 +
             (if (sizingEvent.recurrence != null) 54 else 0) +
-            (if (sizingEvent.reminders.isNotEmpty()) 54 else 0) +
+            (if (sizingEvent.reminders.isNotEmpty() ||
+                (onLocalReminders != null && eventDetailReadOnly(readOnly, sizingEvent))) 54 else 0) +
             (if (sizingEvent.travelTimeMinutes != null) 54 else 0)
         // Matches CalinoSurfaceKind.EventPreviewCompact's own ceiling, which
         // clamps this anyway; asking for more here only hides that.
@@ -869,6 +874,8 @@ fun EventDetailSurface(
                             closeAfterAnimation { onDeleteEvent(target, scope) }
                         },
                         onInlineSave = onInlineSave,
+                        localReminders = localReminders(pageEvent),
+                        onLocalReminders = onLocalReminders,
                         active = page == pager.currentPage,
                         listState = detailListState,
                         onPillState = { pillState = it },
@@ -888,6 +895,8 @@ private fun EventDetailContent(
     onPrimary: () -> Unit,
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean,
+    localReminders: List<Reminder>?,
+    onLocalReminders: ((CalEvent, List<Reminder>) -> Unit)?,
     active: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     onPillState: (EventPreviewPillState) -> Unit,
@@ -1111,7 +1120,34 @@ private fun EventDetailContent(
                     onExpandedChange = { occurrencesExpanded = it },
                 )
             }
-            if (event.reminders.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Bell, "Reminder", event.reminders.joinToString { "${it.minutesBefore} minutes before" }) }
+            if (readOnly && onLocalReminders != null) item {
+                // The event cannot take a VALARM, but a reminder never needs
+                // to change the event: it is kept on this device instead.
+                val shownReminders = localReminders ?: event.reminders
+                var open by remember(event.id) { mutableStateOf(false) }
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                            .clickable(onClickLabel = "Change reminder") { open = !open },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CalinoIcon(CalinoIcon.Bell, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                        Column(Modifier.padding(start = 16.dp)) {
+                            label("Reminder")
+                            Text(
+                                eventReminderSummary(shownReminders) +
+                                    if (localReminders != null) " · this device" else "",
+                                style = CalinoTypography.bodyLarge,
+                            )
+                        }
+                    }
+                    EditorReveal(open) {
+                        Column(Modifier.fillMaxWidth().padding(start = 38.dp, bottom = 10.dp)) {
+                            EventReminderChips(shownReminders) { onLocalReminders(event, it) }
+                        }
+                    }
+                }
+            } else if (event.reminders.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Bell, "Reminder", event.reminders.joinToString { "${it.minutesBefore} minutes before" }) }
             event.travelTimeMinutes?.takeIf { it > 0 }?.let { minutes ->
                 item { PreviewStaticRow(CalinoIcon.Clock, "Travel time", formatCalinoDuration(minutes)) }
             }
@@ -2844,6 +2880,8 @@ fun EventDetail(
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
     onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
+    localReminders: (CalEvent) -> List<Reminder>? = { null },
+    onLocalReminders: ((CalEvent, List<Reminder>) -> Unit)? = null,
 ) = EventDetailSurface(
     event = event,
     readOnly = readOnly,
@@ -2856,6 +2894,8 @@ fun EventDetail(
     onDeleteEvent = onDeleteEvent,
     onEventAction = onEventAction,
     onInlineSave = onInlineSave,
+    localReminders = localReminders,
+    onLocalReminders = onLocalReminders,
 )
 
 @Composable

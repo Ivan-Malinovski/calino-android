@@ -1100,6 +1100,13 @@ private fun MoreSection(
     }
 }
 
+/** The editor's event reminder choices, for the read-only card's device-only reminder. */
+@Composable
+internal fun EventReminderChips(reminders: List<Reminder>, onChange: (List<Reminder>) -> Unit) =
+    ReminderChips(reminders, single = false, onChange = onChange)
+
+internal fun eventReminderSummary(reminders: List<Reminder>): String = reminderSummary(reminders)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: (List<Reminder>) -> Unit) {

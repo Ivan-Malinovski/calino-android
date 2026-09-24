@@ -43,6 +43,8 @@ class ReminderSchedulerBridge(
      * notifications for one meeting.
      */
     private val importedCalendarsRemindedElsewhere: () -> Set<String> = { emptySet() },
+    /** Device-only reminders on read-only events, read fresh on every plan. */
+    private val localEventReminders: () -> Map<String, List<calino.malinov.ski.data.model.Reminder>> = { emptyMap() },
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val now: () -> Instant = { Instant.now() },
 ) {
@@ -100,6 +102,10 @@ class ReminderSchedulerBridge(
                 // other way round: an imported calendar's own app already
                 // notifies for it, so Calino stays quiet unless the person
                 // opts that calendar back out of this set.
+                localEventReminders = localEventReminders(),
+                // Visible, and only where the event itself cannot carry one.
+                localReminderCalendarIds = snapshot.calendars
+                    .filter { it.visible && it.readOnly }.map { it.id }.toSet(),
                 providerOwnedCalendarIds = if (preferences.loadProviderRemindersEnabled()) {
                     projectedCalendarIds() + importedCalendarsRemindedElsewhere()
                 } else {

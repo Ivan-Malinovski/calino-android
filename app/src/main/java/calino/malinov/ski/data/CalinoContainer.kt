@@ -17,6 +17,8 @@ import calino.malinov.ski.data.caldav.FileCalendarCache
 import calino.malinov.ski.data.caldav.KeystoreCredentialStore
 import calino.malinov.ski.data.caldav.SharedPreferencesAccountPersistence
 import calino.malinov.ski.data.model.CalDavCalendar
+import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.data.model.CalDavForm
 import calino.malinov.ski.data.model.WebcalForm
 import calino.malinov.ski.data.repository.CalDavAccountStore
@@ -40,6 +42,7 @@ import calino.malinov.ski.data.search.appSearchRecords
 import calino.malinov.ski.data.webcal.FileWebcalCache
 import calino.malinov.ski.data.webcal.WebcalFetcher
 import calino.malinov.ski.data.webcal.WebcalManager
+import calino.malinov.ski.notify.LocalReminderStore
 import calino.malinov.ski.notify.ReminderActions
 import calino.malinov.ski.notify.ReminderSchedulerBridge
 import calino.malinov.ski.notify.Reminders
@@ -253,8 +256,11 @@ class CalinoContainer private constructor(context: Context) {
         optedIn = { projectedCalendarIds },
     )
 
+    val localReminderStore = LocalReminderStore(java.io.File(application.filesDir, "local-reminders.json"))
+
     val reminderBridge = ReminderSchedulerBridge(
         preferences = preferenceStore,
+        localEventReminders = { localReminderStore.all() },
         store = Reminders.scheduleStore(application),
         scheduler = Reminders.scheduler(application),
         projectedCalendarIds = { projectedCalendars() },
@@ -706,6 +712,12 @@ class CalinoContainer private constructor(context: Context) {
         // Reminder ownership follows projection, so a toggle has to re-plan:
         // turning projection off must give Calino its own alarms back, and
         // the schedule is only rebuilt when something asks it to be.
+        reminderBridge.refresh()
+    }
+
+    /** Set or clear this device's reminder on an event Calino cannot write to. */
+    fun setLocalReminders(event: CalEvent, reminders: List<Reminder>) {
+        localReminderStore.set(event, reminders)
         reminderBridge.refresh()
     }
 

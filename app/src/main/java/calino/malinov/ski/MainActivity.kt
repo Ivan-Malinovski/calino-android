@@ -128,6 +128,7 @@ import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.WebcalForm
 import calino.malinov.ski.data.model.WebcalSubscription
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.placementDate
@@ -156,6 +157,7 @@ import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.CalinoContainer
 import calino.malinov.ski.data.update.AppUpdateChecker
 import calino.malinov.ski.notify.LocalNotificationPermission
+import calino.malinov.ski.notify.localReminderKey
 import calino.malinov.ski.notify.ReminderChannels
 import calino.malinov.ski.notify.AgendaDeepLinks
 import calino.malinov.ski.notify.ReminderDeepLink
@@ -776,6 +778,15 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     fun onWebcalVisibilityChanged(id: String, visible: Boolean) =
         container.onWebcalVisibilityChanged(id, visible)
+
+    /** Device-only reminders on read-only events; see `LocalReminderStore`. */
+    var localReminders by mutableStateOf(container.localReminderStore.all())
+        private set
+
+    fun setLocalReminders(event: CalEvent, reminders: List<Reminder>) {
+        container.setLocalReminders(event, reminders)
+        localReminders = container.localReminderStore.all()
+    }
 
     fun onWebcalNotifyRemindersChanged(id: String, notify: Boolean) =
         container.onWebcalNotifyRemindersChanged(id, notify)
@@ -2241,6 +2252,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 EventDetail(
                     event = event,
                     readOnly = event.calendarId in readOnlyCalendarIds,
+                    localReminders = { pocViewModel.localReminders[localReminderKey(it)] },
+                    onLocalReminders = pocViewModel::setLocalReminders,
                     events = remember(snapshot.events, selectedEventOccurrenceDay) {
                         snapshot.events.filter {
                             it.occursOn(selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay) ?: selectedDate)

@@ -2,6 +2,7 @@ package calino.malinov.ski.notify
 
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.CalTask
+import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.data.model.lastCoveredDate
 import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.placementDate
@@ -102,6 +103,17 @@ data class ReminderPlanOptions(
      * `docs/calendar-provider.md`.
      */
     val providerOwnedCalendarIds: Set<String> = emptySet(),
+    /**
+     * Device-only reminders on events whose calendar cannot be written to,
+     * keyed by [localReminderKey]. See [LocalReminderStore].
+     *
+     * An entry replaces the event's own reminders and is planned for any
+     * calendar in [localReminderCalendarIds]: the person set it on this phone
+     * for this event, so neither a feed's alarm mute nor another app's
+     * ownership of the calendar's own reminders speaks for it.
+     */
+    val localEventReminders: Map<String, List<Reminder>> = emptyMap(),
+    val localReminderCalendarIds: Set<String> = emptySet(),
 )
 
 object ReminderPlanner {
@@ -141,10 +153,17 @@ object ReminderPlanner {
 
         if (options.eventRemindersEnabled) {
             events.asSequence()
-                .filter { it.reminders.isNotEmpty() }
-                .filter { it.calendarId in visibleCalendarIds }
-                .filter { it.calendarId !in options.providerOwnedCalendarIds }
-                .forEach { event -> firings += event.firings(now, until, zone, options) }
+                .map { event ->
+                    val local = options.localEventReminders[localReminderKey(event)]
+                        ?.takeIf { event.calendarId in options.localReminderCalendarIds }
+                    if (local != null) event.copy(reminders = local) to true else event to false
+                }
+                .filter { (event, _) -> event.reminders.isNotEmpty() }
+                .filter { (event, local) ->
+                    local || (event.calendarId in visibleCalendarIds &&
+                        event.calendarId !in options.providerOwnedCalendarIds)
+                }
+                .forEach { (event, _) -> firings += event.firings(now, until, zone, options) }
         }
 
         if (options.taskRemindersEnabled) {

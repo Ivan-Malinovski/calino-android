@@ -6,6 +6,7 @@ import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.notify.ReminderKind
+import calino.malinov.ski.notify.localReminderKey
 import calino.malinov.ski.notify.ReminderPlanOptions
 import calino.malinov.ski.notify.ReminderPlanner
 import java.time.Duration
@@ -326,6 +327,35 @@ class ReminderPlannerTest {
         )
 
         assertEquals(listOf("evt-2"), firings.map { it.recordId })
+    }
+
+    @Test
+    fun `a device-only reminder fires on a read-only calendar its own app or mute would silence`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val feed = event(id = "evt-1", start = start, calendarId = "feed")
+        val firings = plan(
+            events = listOf(feed, event(id = "evt-2", start = start, calendarId = "feed")),
+            options = ReminderPlanOptions(
+                providerOwnedCalendarIds = setOf("feed"),
+                localEventReminders = mapOf(localReminderKey(feed) to listOf(Reminder(15))),
+                localReminderCalendarIds = setOf("feed"),
+            ),
+        )
+
+        assertEquals(listOf("evt-1"), firings.map { it.recordId })
+        assertEquals(instantAt(start.toLocalDate(), LocalTime.of(9, 45)), firings.single().at)
+    }
+
+    @Test
+    fun `a device-only reminder is ignored once its calendar is not read-only`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val own = event(start = start, calendarId = "work", reminders = listOf(Reminder(10)))
+        val firings = plan(
+            events = listOf(own),
+            options = ReminderPlanOptions(localEventReminders = mapOf(localReminderKey(own) to listOf(Reminder(30)))),
+        )
+
+        assertEquals(listOf(10), firings.map { it.minutesBefore })
     }
 
     @Test
