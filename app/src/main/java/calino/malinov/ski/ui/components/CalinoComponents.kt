@@ -3210,6 +3210,8 @@ private data class ModalPillAction(
      * stop competing for width with the actions that differ per modal.
      */
     val icon: CalinoIcon? = null,
+    /** Drawn beside the label, for a word that should still say what it is about. */
+    val leadingIcon: CalinoIcon? = null,
     /** This action owns the press that runs the hold-to-confirm countdown. */
     val holdInteraction: Boolean = false,
 )
@@ -3457,6 +3459,7 @@ fun ModalActionPill(
                         enabled = true,
                         description = "Confirm $deleteDescription",
                         tone = ModalPillActionTone.Delete,
+                        leadingIcon = CalinoIcon.Trash,
                     )
                 )
             } else {
@@ -3561,6 +3564,14 @@ fun ModalActionPill(
                             contentDescription = null,
                         )
                     } else {
+                        if (action.leadingIcon != null) {
+                            CalinoIcon(
+                                action.leadingIcon,
+                                tint = tint,
+                                modifier = Modifier.padding(end = 8.dp).size(18.dp),
+                                contentDescription = null,
+                            )
+                        }
                         AnimatedContent(
                             targetState = action.label,
                             transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
