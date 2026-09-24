@@ -9,8 +9,12 @@ import java.time.temporal.ChronoUnit
 /** Visual-POC data contract; server persistence and sync live in the DAV layer. */
 data class Attendee(val name: String, val email: String)
 
-/** A single alarm expressed as lead time before the record's start. */
-data class Reminder(val minutesBefore: Int)
+/** A lead-time alarm, optionally repeated at a fixed minute interval. */
+data class Reminder(
+    val minutesBefore: Int,
+    val repeatCount: Int = 0,
+    val repeatIntervalMinutes: Int = 0,
+)
 
 /** Free/busy transparency. The POC keeps it to the two states a person picks. */
 enum class Availability { Busy, Free }

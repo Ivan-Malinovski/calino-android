@@ -2,6 +2,7 @@ package calino.malinov.ski.state
 
 import calino.malinov.ski.data.model.CalTask
 import java.time.LocalDate
+import java.time.LocalTime
 import java.util.Locale
 
 /**
@@ -13,6 +14,7 @@ fun tasksDueOn(tasks: List<CalTask>, date: LocalDate): List<CalTask> =
         .filter { it.due == date }
         .sortedWith(
             compareBy<CalTask> { it.done }
+                .thenBy { it.dueTime ?: LocalTime.MIN }
                 .thenBy { it.title.lowercase(Locale.US) }
                 .thenBy { it.id },
         )

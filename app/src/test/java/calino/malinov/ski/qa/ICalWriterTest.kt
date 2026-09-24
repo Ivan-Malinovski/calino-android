@@ -407,8 +407,21 @@ class ICalWriterTest {
             uid = "task-alarm",
             reminder = Reminder(60),
         )
-        val back = reparse(serialize(writer.writeTask(task, now = now))).tasks.single()
+        val ics = serialize(writer.writeTask(task, now = now))
+        assertTrue(ics, ics.contains("TRIGGER;RELATED=END:-PT60M"))
+        val back = reparse(ics).tasks.single()
 
         assertEquals(Reminder(60), back.reminder)
+    }
+
+    @Test
+    fun `a repeating task reminder survives a write and read`() {
+        val task = CalTask(id = "repeated", title = "Follow up", color = 1L,
+            due = LocalDate.of(2026, 3, 5), dueTime = LocalTime.of(9, 0),
+            reminder = Reminder(60, repeatCount = 1, repeatIntervalMinutes = 10))
+        val ics = serialize(writer.writeTask(task, now = now))
+        assertTrue(ics, ics.contains("REPEAT:1"))
+        assertTrue(ics, ics.contains("DURATION:PT10M"))
+        assertEquals(task.reminder, reparse(ics).tasks.single().reminder)
     }
 }

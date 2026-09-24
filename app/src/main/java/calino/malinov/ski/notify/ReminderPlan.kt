@@ -172,10 +172,11 @@ object ReminderPlanner {
     ): List<ReminderFiring> = occurrenceStarts(now, until, zone, options)
         .flatMap { start ->
             val anchor = start.atZone(zone).toInstant()
-            reminders.map { reminder ->
+            reminders.flatMap { reminder -> (0..reminder.repeatCount.coerceIn(0, 24)).map { repeatIndex ->
                 ReminderFiring(
-                    key = "event:$id:${reminder.minutesBefore}:${start.toLocalDate().toEpochDay()}",
-                    at = anchor.minusSeconds(reminder.minutesBefore * 60L),
+                    key = "event:$id:${reminder.minutesBefore}:${start.toLocalDate().toEpochDay()}:$repeatIndex",
+                    at = anchor.minusSeconds(reminder.minutesBefore * 60L)
+                        .plusSeconds(repeatIndex.toLong() * reminder.repeatIntervalMinutes * 60L),
                     kind = ReminderKind.Event,
                     recordId = id,
                     uid = uid,
@@ -186,7 +187,7 @@ object ReminderPlanner {
                     minutesBefore = reminder.minutesBefore,
                     anchor = anchor,
                 )
-            }
+            } }
         }
         .filter { it.at > now && it.at <= until }
 
@@ -248,9 +249,10 @@ object ReminderPlanner {
         val dueDate = due ?: return emptyList()
         val anchorLocal = dueDate.atTime(dueTime ?: options.allDayAnchor)
         val anchor = anchorLocal.atZone(zone).toInstant()
-        val firing = ReminderFiring(
-            key = "task:$id:${reminder.minutesBefore}",
-            at = anchor.minusSeconds(reminder.minutesBefore * 60L),
+        return (0..reminder.repeatCount.coerceIn(0, 24)).map { repeatIndex -> ReminderFiring(
+            key = "task:$id:${reminder.minutesBefore}:$repeatIndex",
+            at = anchor.minusSeconds(reminder.minutesBefore * 60L)
+                .plusSeconds(repeatIndex.toLong() * reminder.repeatIntervalMinutes * 60L),
             kind = ReminderKind.Task,
             recordId = id,
             uid = uid,
@@ -259,8 +261,7 @@ object ReminderPlanner {
             subtitle = taskSubtitle(dueDate, now, zone),
             minutesBefore = reminder.minutesBefore,
             anchor = anchor,
-        )
-        return listOf(firing).filter { it.at > now && it.at <= until }
+        ) }.filter { it.at > now && it.at <= until }
     }
 
     private fun CalTask.taskSubtitle(dueDate: LocalDate, now: Instant, zone: ZoneId): String {

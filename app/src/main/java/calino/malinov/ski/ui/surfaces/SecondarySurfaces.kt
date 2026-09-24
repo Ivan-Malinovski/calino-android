@@ -156,6 +156,7 @@ import calino.malinov.ski.state.LocalCalinoNow
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.state.TaskTree
+import calino.malinov.ski.state.orderTasksByDue
 import calino.malinov.ski.ui.components.taskNestIndent
 import calino.malinov.ski.ui.components.rememberDatePicker
 import calino.malinov.ski.ui.components.rememberTimePicker
@@ -2062,11 +2063,11 @@ fun TasksSurface(
             TaskBucket.NO_DATE,
             TaskBucket.DONE,
         ).flatMap { bucket ->
-            candidates.filter { task ->
+            orderTasksByDue(candidates.filter { task ->
                 !isHiddenByCollapsedAncestor(task) &&
                     displayBucket(task) == bucket &&
                     (bucket == TaskBucket.DONE || isOpenForBucket(task))
-            }
+            })
         }
     }
     val dropTarget = remember(dragOrder, draggingTaskId, dragDistanceY) {
@@ -2411,6 +2412,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     unnestingTaskId: String?,
 ) {
     if (tasks.isNotEmpty()) {
+        val orderedTasks = orderTasksByDue(tasks)
         item(key = "bucket:$name") {
             label(
                 "$name · ${tasks.size}",
@@ -2426,9 +2428,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
         }
         // Rails are drawn from the rendered order: a level keeps its rail when a
         // later row still sits at that depth before the list climbs above it.
-        val depths = tasks.map { taskTree.depth(it.id) }
+        val depths = orderedTasks.map { taskTree.depth(it.id) }
         val lineages = nestingLinesFor(depths)
-        tasks.forEachIndexed { index, originalTask ->
+        orderedTasks.forEachIndexed { index, originalTask ->
             val task = renderTask(originalTask)
             // A completion can move a row from its date bucket to Completed.
             // Give each bucket its own identity so LazyColumn fades the old
@@ -2525,6 +2527,7 @@ private fun TaskRow(
     val description = buildString {
         append(task.title)
         task.due?.let { append(", due "); append(it.format(DateTimeFormatter.ofPattern("MMM d", Locale.US))) }
+        task.dueTime?.let { append(" at "); append(it.format(DateTimeFormatter.ofPattern("h:mm a", Locale.US))) }
         task.category?.let { append(", "); append(it) }
         if (task.priority > 0) append(", priority ${task.priority}")
         if (!task.done && task.percentComplete > 0) append(", ${task.percentComplete} percent complete")
@@ -2674,7 +2677,8 @@ private fun TaskRow(
                     ) {
                         task.due?.let { due ->
                             Text(
-                                due.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)),
+                                due.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)) +
+                                    (task.dueTime?.let { " · ${it.format(DateTimeFormatter.ofPattern("h:mm a", Locale.US))}" } ?: ""),
                                 color = if (due.isBefore(today) && !task.done) CalinoColors.Rose else CalinoColors.Ink3,
                                 style = CalinoTypography.bodySmall,
                             )

@@ -112,6 +112,22 @@ class ICalPatcherTest {
     }
 
     @Test
+    fun `title-only task edit preserves a Nextcloud repeating alarm`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeated",
+            "DUE:20260303T170000Z", "SUMMARY:Original",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Reminder",
+            "TRIGGER;RELATED=END:-PT1H", "REPEAT:1", "DURATION:PT10M",
+            "END:VALARM", "END:VTODO", "END:VCALENDAR",
+        )
+        val task = mapper.parse(resource, "cal", 1L, "repeated.ics").tasks.single()
+        val patched = patcher.patchTask(resource, task.copy(title = "Edited"), now)!!
+        assertTrue(patched, patched.contains("REPEAT:1"))
+        assertTrue(patched, patched.contains("DURATION:PT10M"))
+        assertEquals(1, "BEGIN:VALARM".toRegex().findAll(patched).count())
+    }
+
+    @Test
     fun `future-scope task edit never rewrites the master anchor from the selected date`() {
         val resource = ics(
             "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",

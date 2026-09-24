@@ -139,6 +139,27 @@ class ICalMapperTest {
     }
 
     @Test
+    fun `date-only DTSTART does not hide a timed DUE`() {
+        val task = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTODO
+            UID:server-deadline
+            DTSTART;VALUE=DATE:20260924
+            DUE:20260924T150000Z
+            SUMMARY:Server deadline
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "deadline.ics",
+        ).tasks.single()
+
+        assertEquals(LocalTime.of(17, 0), task.dueTime)
+        assertEquals(LocalDate.of(2026, 9, 24), task.startDate)
+        assertNull(task.startTime)
+    }
+
+    @Test
     fun `a recurring VTODO with only DUE still expands`() {
         // tasks.org and other task clients omit DTSTART entirely. Issue #3.
         val tasks = ICalMapper(ZoneId.of("America/Chicago")).parse(
@@ -578,8 +599,8 @@ class ICalMapperTest {
         assertEquals(listOf(Reminder(60), Reminder(10)), event.reminders)
     }
 
-    // Each of these is an alarm the model cannot state. It must not arrive in
-    // the editor as a lead time it is not -- it is left on the resource instead.
+    // The following unsupported alarms stay on the resource instead of being
+    // presented as a different lead-time reminder in the editor.
 
     @Test
     fun `an absolute trigger is not a reminder`() {
@@ -609,12 +630,12 @@ class ICalMapperTest {
     }
 
     @Test
-    fun `a repeating alarm is not a reminder`() {
+    fun `a whole-minute repeating alarm is a reminder`() {
         val event = withAlarm(
             "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M", "DESCRIPTION:soon",
             "REPEAT:3", "DURATION:PT5M", "END:VALARM",
         )
-        assertTrue(event.reminders.isEmpty())
+        assertEquals(listOf(Reminder(15, repeatCount = 3, repeatIntervalMinutes = 5)), event.reminders)
     }
 
     @Test
@@ -646,6 +667,33 @@ class ICalMapperTest {
         ).tasks.single()
 
         assertEquals(Reminder(60), task.reminder)
+    }
+
+    @Test
+    fun `a task alarm before DUE becomes the task reminder`() {
+        val task = mapper.parse(
+            listOf(
+                "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:due-alarm", "DTSTART:20260518T060000Z", "DUE:20260518T140000Z",
+                "SUMMARY:File taxes", "BEGIN:VALARM", "ACTION:DISPLAY",
+                "TRIGGER;RELATED=END:-PT1H", "DESCRIPTION:soon", "END:VALARM",
+                "END:VTODO", "END:VCALENDAR",
+            ).joinToString("\n"), "cal", 0L, "href", null,
+        ).tasks.single()
+        assertEquals(Reminder(60), task.reminder)
+    }
+
+    @Test
+    fun `a Nextcloud repeating task alarm keeps its second firing`() {
+        val task = mapper.parse(
+            listOf("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:nextcloud-alarm", "DUE:20260518T140000Z", "SUMMARY:File taxes",
+                "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER;RELATED=END:-PT1H",
+                "DESCRIPTION:Reminder", "REPEAT:1", "DURATION:PT10M", "END:VALARM",
+                "END:VTODO", "END:VCALENDAR").joinToString("\n"),
+            "cal", 0L, "href", null,
+        ).tasks.single()
+        assertEquals(Reminder(60, repeatCount = 1, repeatIntervalMinutes = 10), task.reminder)
     }
 
     // --- helpers --------------------------------------------------------------

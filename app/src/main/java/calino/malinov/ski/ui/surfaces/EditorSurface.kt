@@ -800,7 +800,10 @@ private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onD
 
 private fun reminderSummary(reminders: List<Reminder>): String = when {
     reminders.isEmpty() -> "Add reminder"
-    reminders.size == 1 -> formatReminder(reminders.first().minutesBefore)
+    reminders.size == 1 -> reminders.first().let { reminder ->
+        formatReminder(reminder.minutesBefore) +
+            if (reminder.repeatCount > 0) " · repeats ${reminder.repeatCount}× every ${reminder.repeatIntervalMinutes} min" else ""
+    }
     else -> "${reminders.size} reminders"
 }
 
@@ -1091,7 +1094,7 @@ private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: 
     FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         ReminderChoices.forEach { minutes ->
             val reminder = Reminder(minutes)
-            val on = reminder in reminders
+            val on = reminders.any { it.minutesBefore == minutes }
             CalinoChip(
                 text = formatReminder(minutes),
                 selected = on,
@@ -1101,10 +1104,23 @@ private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: 
                     onChange(
                         when {
                             single -> if (on) emptyList() else listOf(reminder)
-                            on -> reminders - reminder
+                            on -> reminders.filterNot { it.minutesBefore == minutes }
                             else -> reminders + reminder
                         },
                     )
+                },
+            )
+        }
+        if (single && reminders.isNotEmpty()) {
+            val current = reminders.first()
+            CalinoChip(
+                text = if (current.repeatCount > 0) "Repeat ${current.repeatCount}× / ${current.repeatIntervalMinutes} min" else "Repeat once / 10 min",
+                selected = current.repeatCount > 0,
+                description = "Repeat task reminder",
+                semanticsRole = Role.Checkbox,
+                onClick = {
+                    onChange(listOf(if (current.repeatCount > 0) current.copy(repeatCount = 0, repeatIntervalMinutes = 0)
+                        else current.copy(repeatCount = 1, repeatIntervalMinutes = 10)))
                 },
             )
         }

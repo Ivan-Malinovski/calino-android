@@ -145,6 +145,16 @@ class ReminderPlannerTest {
     }
 
     @Test
+    fun `a repeating task reminder schedules each firing once`() {
+        val due = LocalDate.of(2026, 9, 15)
+        val firings = plan(tasks = listOf(task(due = due, dueTime = LocalTime.of(17, 0),
+            reminder = Reminder(60, repeatCount = 1, repeatIntervalMinutes = 10))))
+        assertEquals(listOf(LocalTime.of(16, 0), LocalTime.of(16, 10)),
+            firings.map { it.at.atZone(zone).toLocalTime() })
+        assertEquals(2, firings.map { it.key }.toSet().size)
+    }
+
+    @Test
     fun `a task with no date, and a completed task, produce nothing`() {
         assertTrue(plan(tasks = listOf(task(due = null, reminder = Reminder(10)))).isEmpty())
         assertTrue(

@@ -30,10 +30,9 @@ import java.util.TimeZone
  * each one is called out at its site rather than left to be rediscovered.
  *
  * Alarms are read, but only the ones [Reminder] can state exactly -- see
- * `ICalAlarms.kt`. An absolute trigger, a `RELATED=END` trigger, a `REPEAT` or
- * `DURATION`, and any `ACTION` this app cannot present are deliberately *not*
- * modelled: they stay on the resource untouched rather than arriving in the
- * editor as a lead time they are not.
+ * `ICalAlarms.kt`. Whole-minute repeats and task `RELATED=END` alarms are
+ * modelled. Absolute triggers, sub-minute repeats, and actions this app cannot
+ * present stay on the raw resource untouched.
  */
 class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
@@ -544,19 +543,13 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val start = vtodo.dateStart
         val due = vtodo.dateDue
 
-        // DTSTART decides the value type when both are present. Clients
-        // routinely emit a date-time DTSTART alongside a date-only DUE; reading
-        // the type off DUE flips a timed task to all-day.
-        val typeCarrier = start ?: due
-        val dateOnly = typeCarrier?.isDateOnly() ?: true
-
         val anchor = due ?: start
         val dueDate: LocalDate?
         val dueTime: LocalTime?
         if (anchor == null) {
             dueDate = null
             dueTime = null
-        } else if (dateOnly) {
+        } else if (anchor.isDateOnly()) {
             dueDate = anchor.toLocalDateOnly() ?: return null
             dueTime = null
         } else {

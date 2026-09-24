@@ -2,6 +2,29 @@ package calino.malinov.ski.state
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import calino.malinov.ski.data.model.CalTask
+import java.time.LocalDate
+import java.time.LocalTime
+import java.util.Locale
+
+/** Due order with parents kept next to their subtasks. */
+fun orderTasksByDue(tasks: List<CalTask>): List<CalTask> {
+    val byId = tasks.associateBy { it.id }
+    val ordering = compareBy<CalTask> { it.due ?: LocalDate.MAX }
+        .thenBy { it.dueTime ?: LocalTime.MIN }
+        .thenBy { it.title.lowercase(Locale.US) }
+        .thenBy { it.id }
+    val children = tasks.groupBy { it.parentTaskId }
+    val result = mutableListOf<CalTask>()
+    val seen = mutableSetOf<String>()
+    fun append(task: CalTask) {
+        if (!seen.add(task.id)) return
+        result += task
+        children[task.id].orEmpty().sortedWith(ordering).forEach(::append)
+    }
+    tasks.filter { it.parentTaskId !in byId }.sortedWith(ordering).forEach(::append)
+    tasks.sortedWith(ordering).forEach(::append)
+    return result
+}
 
 /** A cycle-safe index for rendering and editing VTODO hierarchies. */
 class TaskTree(tasks: List<CalTask>) {

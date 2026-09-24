@@ -4,12 +4,22 @@ import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.state.openTasksDueOn
 import calino.malinov.ski.state.taskDueCountsForWeek
 import calino.malinov.ski.state.tasksDueOn
+import calino.malinov.ski.state.orderTasksByDue
 import java.time.LocalDate
+import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CalendarTaskRulesTest {
     private val monday = LocalDate.of(2026, 5, 18)
+
+    @Test
+    fun taskList_ordersDueTimesWhileKeepingSubtasksWithTheirParent() {
+        val late = task("late", "Late", monday).copy(dueTime = LocalTime.of(17, 0))
+        val early = task("early", "Early", monday).copy(dueTime = LocalTime.of(9, 0))
+        val child = task("child", "Child", monday).copy(parentTaskId = "early", dueTime = LocalTime.of(20, 0))
+        assertEquals(listOf("early", "child", "late"), orderTasksByDue(listOf(late, child, early)).map { it.id })
+    }
 
     @Test
     fun tasksDueOn_sortsOpenBeforeCompleted_andIgnoresUndatedTasks() {
@@ -25,6 +35,13 @@ class CalendarTaskRulesTest {
             tasksDueOn(tasks, monday).map(CalTask::id),
         )
         assertEquals(listOf("open-first", "open-later"), openTasksDueOn(tasks, monday).map(CalTask::id))
+    }
+
+    @Test
+    fun tasksDueOn_ordersTimedDeadlinesBeforeTitle() {
+        val later = task("a", "Alpha", monday).copy(dueTime = LocalTime.of(18, 0))
+        val earlier = task("z", "Zulu", monday).copy(dueTime = LocalTime.of(9, 0))
+        assertEquals(listOf("z", "a"), tasksDueOn(listOf(later, earlier), monday).map { it.id })
     }
 
     @Test

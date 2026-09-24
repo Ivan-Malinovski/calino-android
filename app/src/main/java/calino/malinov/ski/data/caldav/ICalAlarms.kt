@@ -2,6 +2,7 @@ package calino.malinov.ski.data.caldav
 
 import biweekly.component.ICalComponent
 import biweekly.component.VAlarm
+import biweekly.component.VTodo
 import biweekly.parameter.Related
 import biweekly.property.Trigger
 import calino.malinov.ski.data.model.Reminder
@@ -26,23 +27,26 @@ import biweekly.util.Duration as ICalDuration
 /**
  * The reminder this alarm represents, or null when it is somebody else's.
  *
- * Every clause here is a thing [Reminder] cannot say. `minutesBefore` is a lead
- * time before the start and nothing more: no action, no anchor, no repeat.
+ * Every clause here is a thing [Reminder] cannot say. Repeats are accepted only
+ * when their count and interval can be expressed in whole minutes.
  */
-internal fun VAlarm.calinoReminder(): Reminder? {
+internal fun VAlarm.calinoReminder(task: Boolean = false): Reminder? {
     val action = action?.value?.uppercase() ?: return null
     if (action != "DISPLAY" && action != "AUDIO") return null
 
-    // A repeating alarm, or one with its own duration, says something about
-    // delivery that the model would silently drop.
-    if (repeat?.value != null || duration?.value != null) return null
+    val repeatCount = repeat?.value ?: 0
+    val repeatDuration = duration?.value
+    if (repeatCount < 0 || repeatCount > 24) return null
+    if ((repeatCount > 0) != (repeatDuration != null)) return null
+    val repeatMillis = repeatDuration?.toMillis() ?: 0L
+    if (repeatCount > 0 && (repeatMillis <= 0 || repeatMillis % 60_000L != 0L || repeatMillis / 60_000L > Int.MAX_VALUE)) return null
 
     val trigger = trigger ?: return null
     // An absolute trigger is a moment, not a lead time. It does not move when
     // the event moves, and rewriting it from `minutesBefore` would change that.
     val lead = trigger.duration ?: return null
     val related = trigger.related
-    if (related != null && related != Related.START) return null
+    if (related != null && related != Related.START && !(task && related == Related.END)) return null
 
     // Magnitude only: the direction lives in `isPrior`, and biweekly's sign
     // convention for it is not something to depend on.
@@ -53,7 +57,8 @@ internal fun VAlarm.calinoReminder(): Reminder? {
 
     val minutes = millis / 60_000L
     if (minutes > Int.MAX_VALUE) return null
-    return Reminder(minutesBefore = minutes.toInt())
+    return Reminder(minutesBefore = minutes.toInt(), repeatCount = repeatCount,
+        repeatIntervalMinutes = (repeatMillis / 60_000L).toInt())
 }
 
 /**
@@ -64,7 +69,7 @@ internal fun VAlarm.calinoReminder(): Reminder? {
  */
 internal fun ICalComponent.readReminders(): List<Reminder> =
     getComponents(VAlarm::class.java)
-        .mapNotNull { it.calinoReminder() }
+        .mapNotNull { it.calinoReminder(this is VTodo) }
         .distinct()
         .sortedByDescending { it.minutesBefore }
 
@@ -84,27 +89,32 @@ internal fun ICalComponent.readReminders(): List<Reminder> =
  * server's. If you change the shape of this function, run `ICalPatcherTest`.
  */
 internal fun ICalComponent.writeReminders(reminders: List<Reminder>, summary: String) {
-    val wanted = reminders.map { it.minutesBefore.coerceAtLeast(0) }.distinct().sortedDescending()
+    val wanted = reminders.map { it.copy(minutesBefore = it.minutesBefore.coerceAtLeast(0)) }
+        .distinct().sortedByDescending { it.minutesBefore }
 
     // Copied before removing: the component list biweekly hands back is a live
     // view, and mutating it mid-iteration skips entries.
     val ours = getComponents(VAlarm::class.java)
-        .mapNotNull { alarm -> alarm.calinoReminder()?.let { alarm to it.minutesBefore } }
+        .mapNotNull { alarm -> alarm.calinoReminder(this is VTodo)?.let { alarm to it } }
         .toList()
 
     // An alarm whose lead time is unchanged is left exactly as it is rather
     // than rebuilt. Rewriting it would churn its DESCRIPTION and any parameter
     // another client put on it, and would defeat ICalPatcher.mergeAlarms as
     // described above.
-    val kept = mutableSetOf<Int>()
-    ours.forEach { (alarm, minutes) ->
-        if (minutes in wanted && kept.add(minutes)) return@forEach
+    val kept = mutableSetOf<Reminder>()
+    ours.forEach { (alarm, reminder) ->
+        if (reminder in wanted && kept.add(reminder)) return@forEach
         removeComponent(alarm)
     }
 
     val description = summary.trim().takeIf(String::isNotEmpty) ?: "Reminder"
-    wanted.filterNot { it in kept }.forEach { minutes ->
-        val duration = ICalDuration.builder().prior(true).minutes(minutes).build()
-        addComponent(VAlarm.display(Trigger(duration, null), description))
+    wanted.filterNot { it in kept }.forEach { reminder ->
+        val duration = ICalDuration.builder().prior(true).minutes(reminder.minutesBefore).build()
+        val alarm = VAlarm.display(Trigger(duration, if (this is VTodo) Related.END else null), description)
+        if (reminder.repeatCount > 0 && reminder.repeatIntervalMinutes > 0) {
+            alarm.setRepeat(reminder.repeatCount, ICalDuration.builder().minutes(reminder.repeatIntervalMinutes).build())
+        }
+        addComponent(alarm)
     }
 }
