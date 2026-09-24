@@ -8,6 +8,7 @@ import biweekly.component.VTodo
 import biweekly.property.DateOrDateTimeProperty
 import biweekly.property.ExceptionDates
 import biweekly.property.ICalProperty
+import biweekly.parameter.RelationshipType
 import biweekly.util.ICalDate
 import calino.malinov.ski.data.model.Attendee
 import calino.malinov.ski.data.model.Availability
@@ -435,7 +436,6 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
     private fun readCategories(component: biweekly.component.ICalComponent): List<String> =
         component.getProperties(biweekly.property.Categories::class.java)
             .flatMap { it.values.orEmpty() }
-            .flatMap { it.split(',') }
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
@@ -564,7 +564,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
 
         val status = vtodo.status?.value?.uppercase()
         val percent = vtodo.percentComplete?.value ?: 0
-        val done = status == "COMPLETED" || percent >= 100
+        val done = status == "COMPLETED" || percent >= 100 || vtodo.completed != null
         val recurrenceDate = vtodo.recurrenceId?.takeIf { !it.value.hasTime() }?.let { rid ->
             rid.value.rawComponents?.let { LocalDate.of(it.year, it.month, it.date) }
                 ?: rid.value.toInstant().atZone(zone).toLocalDate()
@@ -597,7 +597,9 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             href = href,
             etag = etag,
             calendarId = calendarId,
-            parentTaskId = vtodo.relatedTo.firstOrNull()?.value?.trim()?.takeIf(String::isNotEmpty),
+            parentTaskId = vtodo.relatedTo.firstOrNull {
+                it.relationshipType == null || it.relationshipType == RelationshipType.PARENT
+            }?.value?.trim()?.takeIf(String::isNotEmpty),
             recurrence = recurrenceRuleText(vtodo),
             recurrenceId = recurrenceInstant,
             recurrenceDate = recurrenceDate,

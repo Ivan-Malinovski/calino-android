@@ -149,9 +149,10 @@ object ReminderPlanner {
 
         if (options.taskRemindersEnabled) {
             tasks.asSequence()
-                .filter { !it.done && it.reminder != null && it.due != null }
+                .filter { task -> !task.done && task.reminder != null &&
+                    (task.reminder.absoluteAt != null || if (task.reminder.relativeToStart) task.startDate != null else task.due != null) }
                 .filter { it.calendarId in visibleCalendarIds }
-                .forEach { task -> firings += task.firings(now, until, zone, options) }
+                .forEach { task -> firings += task.firings(now, until, zone) }
         }
 
         // Deduplicate on the key, keeping the earliest, then order
@@ -243,22 +244,29 @@ object ReminderPlanner {
         now: Instant,
         until: Instant,
         zone: ZoneId,
-        options: ReminderPlanOptions,
     ): List<ReminderFiring> {
         val reminder = reminder ?: return emptyList()
-        val dueDate = due ?: return emptyList()
-        val anchorLocal = dueDate.atTime(dueTime ?: options.allDayAnchor)
-        val anchor = anchorLocal.atZone(zone).toInstant()
+        val dueDate = due
+        val anchorDate = if (reminder.relativeToStart) startDate else dueDate
+        val anchorTime = if (reminder.relativeToStart) startTime else dueTime
+        // RFC 5545 anchors a DATE-valued VTODO DUE at 00:00, not the
+        // user-facing all-day reminder hour used for calendar events.
+        val anchor = anchorDate?.atTime(anchorTime ?: LocalTime.MIDNIGHT)?.atZone(zone)?.toInstant()
+            ?: reminder.absoluteAt ?: return emptyList()
+        val baseAt = reminder.absoluteAt ?: anchor.minusSeconds(reminder.minutesBefore * 60L)
         return (0..reminder.repeatCount.coerceIn(0, 24)).map { repeatIndex -> ReminderFiring(
-            key = "task:$id:${reminder.minutesBefore}:$repeatIndex",
-            at = anchor.minusSeconds(reminder.minutesBefore * 60L)
-                .plusSeconds(repeatIndex.toLong() * reminder.repeatIntervalMinutes * 60L),
+            key = if (reminder.absoluteAt != null) {
+                // RFC 5545: an absolute alarm on a recurring VTODO fires once,
+                // even when the mapper supplied several expanded occurrences.
+                "task:${uid ?: id}:absolute:${reminder.absoluteAt}:$repeatIndex"
+            } else "task:$id:${reminder.minutesBefore}:${reminder.relativeToStart}:$repeatIndex",
+            at = baseAt.plusSeconds(repeatIndex.toLong() * reminder.repeatIntervalMinutes * 60L),
             kind = ReminderKind.Task,
             recordId = id,
             uid = uid,
-            occurrenceDay = dueDate.toEpochDay(),
+            occurrenceDay = anchorDate?.toEpochDay(),
             title = title,
-            subtitle = taskSubtitle(dueDate, now, zone),
+            subtitle = dueDate?.let { taskSubtitle(it, now, zone) } ?: "Task reminder",
             minutesBefore = reminder.minutesBefore,
             anchor = anchor,
         ) }.filter { it.at > now && it.at <= until }

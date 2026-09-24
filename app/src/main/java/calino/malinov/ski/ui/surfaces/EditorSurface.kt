@@ -92,6 +92,7 @@ import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.util.formatRecurrenceRule
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.ZoneId
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.util.formatCalinoDuration
@@ -169,10 +170,12 @@ fun EditorSurface(
 
 
     val pickStartDate = rememberDatePicker({ draft.date }) {
-        draft = draft.copy(date = it, touched = draft.touched + EditorField.Date)
+        draft = draft.copy(date = it, taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
+            touched = draft.touched + EditorField.Date)
     }
     val pickStartTime = rememberTimePicker({ draft.startTime }) {
-        draft = draft.copy(startTime = it, touched = draft.touched + EditorField.Time)
+        draft = draft.copy(startTime = it, taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
+            touched = draft.touched + EditorField.Time)
     }
     val pickEndDate = rememberDatePicker({ draft.endDate }) { picked ->
         draft.endTime?.let { draft = draft.withEnd(picked, it) }
@@ -536,7 +539,9 @@ private fun TaskEditorFields(
     pickStartTime: () -> Unit,
     pickUntil: () -> Unit,
 ) {
-    EditorValueRow(CalinoIcon.Calendar, "Due date", draft.date.format(EditorDateFormat), pickStartDate)
+    EditorValueRow(CalinoIcon.Calendar, "Due date",
+        if (draft.taskDueAbsent && !draft.taskDueChanged) "Add due date" else draft.date.format(EditorDateFormat),
+        pickStartDate)
     EditorDivider()
     EditorValueRow(
         icon = CalinoIcon.Clock,
@@ -801,8 +806,11 @@ private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onD
 private fun reminderSummary(reminders: List<Reminder>): String = when {
     reminders.isEmpty() -> "Add reminder"
     reminders.size == 1 -> reminders.first().let { reminder ->
-        formatReminder(reminder.minutesBefore) +
-            if (reminder.repeatCount > 0) " · repeats ${reminder.repeatCount}× every ${reminder.repeatIntervalMinutes} min" else ""
+        (reminder.absoluteAt?.atZone(ZoneId.systemDefault())
+            ?.format(DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US))
+            ?: formatReminder(reminder.minutesBefore)) +
+            (if (reminder.relativeToStart) " · from start" else "") +
+            (if (reminder.repeatCount > 0) " · repeats ${reminder.repeatCount}× every ${reminder.repeatIntervalMinutes} min" else "")
     }
     else -> "${reminders.size} reminders"
 }
@@ -1094,7 +1102,7 @@ private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: 
     FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         ReminderChoices.forEach { minutes ->
             val reminder = Reminder(minutes)
-            val on = reminders.any { it.minutesBefore == minutes }
+            val on = reminders.any { it.absoluteAt == null && it.minutesBefore == minutes }
             CalinoChip(
                 text = formatReminder(minutes),
                 selected = on,
@@ -1104,11 +1112,20 @@ private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: 
                     onChange(
                         when {
                             single -> if (on) emptyList() else listOf(reminder)
-                            on -> reminders.filterNot { it.minutesBefore == minutes }
+                            on -> reminders.filterNot { it.absoluteAt == null && it.minutesBefore == minutes }
                             else -> reminders + reminder
                         },
                     )
                 },
+            )
+        }
+        if (single && reminders.firstOrNull()?.absoluteAt != null) {
+            CalinoChip(
+                text = "At ${reminderSummary(reminders).substringBefore(" · repeats")}",
+                selected = true,
+                description = "Remove exact-time reminder",
+                semanticsRole = Role.Checkbox,
+                onClick = { onChange(emptyList()) },
             )
         }
         if (single && reminders.isNotEmpty()) {

@@ -229,6 +229,15 @@ class EditorDraftTest {
     }
 
     @Test
+    fun editingAnUndatedTask_doesNotInventADueDate() {
+        val task = CalTask(id = "undated", title = "Call Alex", color = 1L,
+            due = null, reminder = Reminder(0, absoluteAt = java.time.Instant.parse("2026-05-20T12:00:00Z")))
+        val draft = editorDraftFor(task, fixtureDate)
+        assertEquals(null, draft.copy(title = "Call Sam").toNewTask().due)
+        assertEquals(fixtureDate, draft.copy(taskDueChanged = true).toNewTask().due)
+    }
+
+    @Test
     fun journalDraft_keepsItsBodySeparateFromTheTitle() {
         val draft = blankEditorDraft(PocQuickAddKind.Journal, fixtureDate, "A clear Monday")
             .copy(body = "  A small, useful beginning.  ")

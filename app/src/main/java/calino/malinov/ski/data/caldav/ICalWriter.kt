@@ -14,6 +14,7 @@ import biweekly.property.DateEnd
 import biweekly.property.DateStart
 import biweekly.property.DateTimeStamp
 import biweekly.property.Description
+import biweekly.property.DurationProperty
 import biweekly.property.LastModified
 import biweekly.property.Location
 import biweekly.property.PercentComplete
@@ -21,6 +22,7 @@ import biweekly.property.Priority
 import biweekly.property.RecurrenceRule
 import biweekly.property.RecurrenceId
 import biweekly.property.RelatedTo
+import biweekly.parameter.RelationshipType
 import biweekly.property.Sequence
 import biweekly.property.Status
 import biweekly.property.Summary
@@ -135,24 +137,40 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         vtodo.setUidValue(task.uid ?: task.id)
         vtodo.setSummaryValue(task.title)
 
-        val originalStart = vtodo.dateStart?.copy() as? DateStart
+        val previousReminder = original?.readReminders()?.firstOrNull()
+        val originalStart = vtodo.dateStart?.copy()
+        val originalStartLocal = originalStart?.value?.let { value ->
+            if (!value.hasTime()) value.rawComponents?.let { LocalDate.of(it.year, it.month, it.date) }?.let { it to null }
+            else value.toInstant().atZone(zone).toLocalDateTime().let { it.toLocalDate() to it.toLocalTime() }
+        }
+        val preserveStartOnly = original?.dateDue == null && originalStartLocal != null &&
+            task.due == originalStartLocal.first && task.dueTime == originalStartLocal.second
         vtodo.removeProperties(DateStart::class.java)
         vtodo.removeProperties(DateDue::class.java)
-        val occurrence = task.recurrenceId != null || task.recurrenceDate != null
-        val derivedStart = task.startDate == null && task.due != null && (task.recurrence != null || occurrence)
-        val startDate = task.startDate ?: task.due?.takeIf { derivedStart }
-        val startTime = task.startTime ?: task.dueTime?.takeIf { derivedStart }
-        if (startDate == null && originalStart != null && task.due != null && original?.recurrenceRule != null) {
-            // Legacy callers may not yet carry the separately modelled DTSTART.
-            // Retaining the recurring master's raw property is safer than
-            // dropping its recurrence anchor on an unrelated edit.
+        val startDate = task.startDate ?: originalStartLocal?.first.takeIf { preserveStartOnly }
+        // RFC 5545 requires matching DTSTART/DUE value types and DUE strictly
+        // later. Reading malformed external data is tolerant; writing it back
+        // must not reproduce the malformed pair. A date-only start preceding a
+        // timed due can safely become midnight on that same start date.
+        val startTime = task.startTime ?: originalStartLocal?.second.takeIf { preserveStartOnly }
+            ?: java.time.LocalTime.MIDNIGHT.takeIf {
+            startDate != null && task.dueTime != null
+        }
+        val validStart = startDate != null && (task.due == null || preserveStartOnly || when {
+            (startTime == null) != (task.dueTime == null) -> false
+            startTime == null -> startDate.isBefore(task.due)
+            else -> startDate.atTime(startTime).isBefore(task.due.atTime(task.dueTime))
+        })
+        if (startDate == null && originalStart != null && task.due == null && original?.recurrenceRule != null) {
             vtodo.addProperty(originalStart)
-        } else startDate?.let { date ->
+        } else if (validStart) startDate.let { date ->
             val value = startTime?.let { date.atTime(it).atZone(zone).toInstant().toDateTime() }
                 ?: date.toDateOnly()
             vtodo.addProperty(DateStart(value))
         }
-        task.due?.let { due ->
+        task.due?.takeUnless { preserveStartOnly }?.let { due ->
+            // RFC 5545 permits DUE or DURATION on a VTODO, never both.
+            vtodo.removeProperties(DurationProperty::class.java)
             task.dueTime?.let { time ->
                 val value = due.atTime(time).atZone(zone).toInstant().toDateTime()
                 vtodo.addProperty(DateDue(value))
@@ -163,16 +181,28 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         }
 
         vtodo.replaceOrRemove(task.notes?.trim()?.takeIf(String::isNotEmpty)) { Description(it) }
-        vtodo.writeCategories(listOfNotNull(task.category))
-        vtodo.removeProperties(RelatedTo::class.java)
-        task.parentTaskId?.trim()?.takeIf(String::isNotEmpty)?.let { parentId ->
-            vtodo.addRelatedTo(RelatedTo(parentId))
+        val existingCategories = vtodo.getProperties(Categories::class.java)
+            .flatMap { it.values.orEmpty() }
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+        if (original == null || task.category != existingCategories.firstOrNull()) {
+            // Calino edits one task category; Nextcloud can store several tags.
+            // Keep every tag beyond the one Calino exposes.
+            vtodo.writeCategories(listOfNotNull(task.category) + existingCategories.drop(1))
+        }
+        val parentId = task.parentTaskId?.trim()?.takeIf(String::isNotEmpty)
+        val parentLinks = vtodo.relatedTo.filter {
+            it.relationshipType == null || it.relationshipType == RelationshipType.PARENT
+        }
+        if (parentLinks.firstOrNull()?.value != parentId || parentLinks.size > 1) {
+            parentLinks.forEach(vtodo::removeProperty)
+            parentId?.let { vtodo.addRelatedTo(RelatedTo(it)) }
         }
         // Per-occurrence VALARM is deliberately unsupported. A generated
         // occurrence inherits the master's reminder for display, but must not
         // copy it into a detached VTODO when completed or edited.
         if (task.recurrenceId == null && task.recurrenceDate == null) {
-            vtodo.writeReminders(listOfNotNull(task.reminder), task.title)
+            vtodo.writeTaskReminder(task.reminder, previousReminder, task.title)
         }
         vtodo.removeProperties(Priority::class.java)
         vtodo.addProperty(Priority(task.priority.coerceIn(0, 9)))

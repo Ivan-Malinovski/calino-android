@@ -655,7 +655,7 @@ class ICalMapperTest {
     }
 
     @Test
-    fun `a task alarm becomes the task reminder`() {
+    fun `a START task alarm without DTSTART stays foreign`() {
         val task = mapper.parse(
             listOf(
                 "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
@@ -666,7 +666,20 @@ class ICalMapperTest {
             "cal", 0L, "href", null,
         ).tasks.single()
 
-        assertEquals(Reminder(60), task.reminder)
+        assertNull(task.reminder)
+    }
+
+    @Test
+    fun `a task START alarm keeps its distinct DTSTART anchor`() {
+        val task = mapper.parse(
+            listOf("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:start-alarm", "DTSTART:20260518T060000Z", "DUE:20260518T140000Z",
+                "SUMMARY:Work", "BEGIN:VALARM", "ACTION:DISPLAY",
+                "TRIGGER;RELATED=START:-PT1H", "DESCRIPTION:soon", "END:VALARM",
+                "END:VTODO", "END:VCALENDAR").joinToString("\n"),
+            "cal", 0L, "href", null,
+        ).tasks.single()
+        assertEquals(Reminder(60, relativeToStart = true), task.reminder)
     }
 
     @Test
@@ -694,6 +707,54 @@ class ICalMapperTest {
             "cal", 0L, "href", null,
         ).tasks.single()
         assertEquals(Reminder(60, repeatCount = 1, repeatIntervalMinutes = 10), task.reminder)
+    }
+
+    @Test
+    fun `Nextcloud sibling link is not mistaken for a subtask parent`() {
+        val task = mapper.parse(
+            listOf("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:child", "SUMMARY:Child", "RELATED-TO;RELTYPE=SIBLING:other",
+                "RELATED-TO;RELTYPE=PARENT:actual-parent", "END:VTODO", "END:VCALENDAR")
+                .joinToString("\n"), "cal", 0L, "href", null,
+        ).tasks.single()
+        assertEquals("actual-parent", task.parentTaskId)
+    }
+
+    @Test
+    fun `an escaped comma stays inside one task category`() {
+        val task = mapper.parse(
+            listOf("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:tags", "SUMMARY:Tagged", "CATEGORIES:Smith\\, Jr,Work",
+                "END:VTODO", "END:VCALENDAR").joinToString("\n"),
+            "cal", 0L, "href", null,
+        ).tasks.single()
+        assertEquals("Smith, Jr", task.category)
+    }
+
+    @Test
+    fun `completion timestamp alone marks a Nextcloud task done`() {
+        val task = mapper.parse(
+            listOf("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:finished", "SUMMARY:Finished", "COMPLETED:20260924T120000Z",
+                "END:VTODO", "END:VCALENDAR").joinToString("\n"),
+            "cal", 0L, "href", null,
+        ).tasks.single()
+        assertTrue(task.done)
+        assertEquals(Instant.parse("2026-09-24T12:00:00Z"), task.completedAt)
+    }
+
+    @Test
+    fun `Nextcloud exact-time task alarm remains fixed`() {
+        val task = mapper.parse(
+            listOf("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+                "UID:exact-alarm", "SUMMARY:Call Alex",
+                "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Reminder",
+                "TRIGGER;VALUE=DATE-TIME:20260925T120000Z", "END:VALARM",
+                "END:VTODO", "END:VCALENDAR").joinToString("\n"),
+            "cal", 0L, "href", null,
+        ).tasks.single()
+        assertEquals(Instant.parse("2026-09-25T12:00:00Z"), task.reminder?.absoluteAt)
+        assertNull(task.due)
     }
 
     // --- helpers --------------------------------------------------------------

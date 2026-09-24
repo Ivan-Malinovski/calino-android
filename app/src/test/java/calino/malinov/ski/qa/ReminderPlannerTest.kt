@@ -134,13 +134,13 @@ class ReminderPlannerTest {
     }
 
     @Test
-    fun `a task anchors at its due time, or at the all-day hour without one`() {
+    fun `a task anchors at its due time or midnight for a DATE value`() {
         val due = LocalDate.of(2026, 9, 15)
         val timed = plan(tasks = listOf(task(due = due, dueTime = LocalTime.of(17, 0), reminder = Reminder(30))))
         assertEquals(instantAt(due, LocalTime.of(16, 30)), timed.single().at)
 
         val dateOnly = plan(tasks = listOf(task(due = due, reminder = Reminder(0))))
-        assertEquals(instantAt(due, LocalTime.of(9, 0)), dateOnly.single().at)
+        assertEquals(instantAt(due, LocalTime.MIDNIGHT), dateOnly.single().at)
         assertEquals(ReminderKind.Task, dateOnly.single().kind)
     }
 
@@ -152,6 +152,33 @@ class ReminderPlannerTest {
         assertEquals(listOf(LocalTime.of(16, 0), LocalTime.of(16, 10)),
             firings.map { it.at.atZone(zone).toLocalTime() })
         assertEquals(2, firings.map { it.key }.toSet().size)
+    }
+
+    @Test
+    fun `an undated task can fire an exact-time reminder`() {
+        val exact = instantAt(LocalDate.of(2026, 9, 15), LocalTime.of(12, 0))
+        val firings = plan(tasks = listOf(task(due = null, reminder = Reminder(0, absoluteAt = exact))))
+        assertEquals(exact, firings.single().at)
+        assertEquals("Task reminder", firings.single().subtitle)
+    }
+
+    @Test
+    fun `a recurring task absolute alarm fires once across expanded instances`() {
+        val exact = instantAt(LocalDate.of(2026, 9, 15), LocalTime.of(12, 0))
+        val first = task(due = LocalDate.of(2026, 9, 15), reminder = Reminder(0, absoluteAt = exact))
+            .copy(id = "series@first", uid = "series")
+        val second = first.copy(id = "series@second", due = LocalDate.of(2026, 9, 16))
+        assertEquals(1, plan(tasks = listOf(first, second)).size)
+    }
+
+    @Test
+    fun `a START task alarm fires from DTSTART instead of DUE`() {
+        val day = LocalDate.of(2026, 9, 15)
+        val task = task(due = day, dueTime = LocalTime.of(17, 0),
+            reminder = Reminder(60, relativeToStart = true))
+            .copy(startDate = day, startTime = LocalTime.of(9, 0))
+        val firing = plan(tasks = listOf(task)).single()
+        assertEquals(instantAt(day, LocalTime.of(8, 0)), firing.at)
     }
 
     @Test

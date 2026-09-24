@@ -59,15 +59,31 @@ class ICalWriterTest {
     }
 
     @Test
-    fun `recurring task writes matching DTSTART and DUE`() {
+    fun `recurring due-only task does not invent an equal DTSTART`() {
         val task = CalTask(
             id = "repeat", title = "Exercise", color = 1L, due = LocalDate.of(2026, 3, 3),
             uid = "repeat", recurrence = "FREQ=WEEKLY;BYDAY=TU",
         )
         val text = serialize(writer.writeTask(task, now = now))
-        assertTrue(text.contains("DTSTART;VALUE=DATE:20260303"))
+        assertFalse(text.contains("DTSTART"))
         assertTrue(text.contains("DUE;VALUE=DATE:20260303"))
         assertTrue(text.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+    }
+
+    @Test
+    fun `task writer normalizes mixed or non-increasing start and due`() {
+        val day = LocalDate.of(2026, 3, 5)
+        val mixed = CalTask(id = "mixed", title = "Mixed", color = 1L, due = day,
+            dueTime = LocalTime.of(15, 0), startDate = day)
+        val mixedText = serialize(writer.writeTask(mixed, now = now))
+        assertTrue(mixedText, mixedText.contains("DTSTART:20260304T230000Z"))
+        assertTrue(mixedText, mixedText.contains("DUE:20260305T140000Z"))
+
+        val equal = CalTask(id = "equal", title = "Equal", color = 1L, due = day,
+            startDate = day)
+        val equalText = serialize(writer.writeTask(equal, now = now))
+        assertFalse(equalText, equalText.contains("DTSTART"))
+        assertTrue(equalText, equalText.contains("DUE;VALUE=DATE:20260305"))
     }
 
     @Test
@@ -423,5 +439,15 @@ class ICalWriterTest {
         assertTrue(ics, ics.contains("REPEAT:1"))
         assertTrue(ics, ics.contains("DURATION:PT10M"))
         assertEquals(task.reminder, reparse(ics).tasks.single().reminder)
+    }
+
+    @Test
+    fun `an exact-time task reminder writes a UTC absolute trigger`() {
+        val exact = Instant.parse("2026-09-25T12:00:00Z")
+        val task = CalTask(id = "exact", title = "Call", color = 1L, due = null,
+            reminder = Reminder(0, absoluteAt = exact))
+        val ics = serialize(writer.writeTask(task, now = now))
+        assertTrue(ics, ics.contains("TRIGGER;VALUE=DATE-TIME:20260925T120000Z"))
+        assertEquals(exact, reparse(ics).tasks.single().reminder?.absoluteAt)
     }
 }

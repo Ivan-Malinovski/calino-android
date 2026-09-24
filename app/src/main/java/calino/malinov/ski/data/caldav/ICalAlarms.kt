@@ -7,6 +7,7 @@ import biweekly.parameter.Related
 import biweekly.property.Trigger
 import calino.malinov.ski.data.model.Reminder
 import kotlin.math.abs
+import java.util.Date
 import biweekly.util.Duration as ICalDuration
 
 /**
@@ -30,7 +31,7 @@ import biweekly.util.Duration as ICalDuration
  * Every clause here is a thing [Reminder] cannot say. Repeats are accepted only
  * when their count and interval can be expressed in whole minutes.
  */
-internal fun VAlarm.calinoReminder(task: Boolean = false): Reminder? {
+internal fun VAlarm.calinoReminder(task: Boolean = false, taskHasStart: Boolean = true): Reminder? {
     val action = action?.value?.uppercase() ?: return null
     if (action != "DISPLAY" && action != "AUDIO") return null
 
@@ -42,11 +43,13 @@ internal fun VAlarm.calinoReminder(task: Boolean = false): Reminder? {
     if (repeatCount > 0 && (repeatMillis <= 0 || repeatMillis % 60_000L != 0L || repeatMillis / 60_000L > Int.MAX_VALUE)) return null
 
     val trigger = trigger ?: return null
-    // An absolute trigger is a moment, not a lead time. It does not move when
-    // the event moves, and rewriting it from `minutesBefore` would change that.
+    val absoluteAt = trigger.date?.toInstant()
+    if (absoluteAt != null && task) return Reminder(0, repeatCount, (repeatMillis / 60_000L).toInt(), absoluteAt)
+    // Event absolute alarms remain foreign until the event editor can show them.
     val lead = trigger.duration ?: return null
     val related = trigger.related
     if (related != null && related != Related.START && !(task && related == Related.END)) return null
+    if (task && related != Related.END && !taskHasStart) return null
 
     // Magnitude only: the direction lives in `isPrior`, and biweekly's sign
     // convention for it is not something to depend on.
@@ -58,7 +61,8 @@ internal fun VAlarm.calinoReminder(task: Boolean = false): Reminder? {
     val minutes = millis / 60_000L
     if (minutes > Int.MAX_VALUE) return null
     return Reminder(minutesBefore = minutes.toInt(), repeatCount = repeatCount,
-        repeatIntervalMinutes = (repeatMillis / 60_000L).toInt())
+        repeatIntervalMinutes = (repeatMillis / 60_000L).toInt(),
+        relativeToStart = task && related != Related.END)
 }
 
 /**
@@ -69,7 +73,7 @@ internal fun VAlarm.calinoReminder(task: Boolean = false): Reminder? {
  */
 internal fun ICalComponent.readReminders(): List<Reminder> =
     getComponents(VAlarm::class.java)
-        .mapNotNull { it.calinoReminder(this is VTodo) }
+        .mapNotNull { it.calinoReminder(this is VTodo, (this as? VTodo)?.dateStart != null) }
         .distinct()
         .sortedByDescending { it.minutesBefore }
 
@@ -95,7 +99,7 @@ internal fun ICalComponent.writeReminders(reminders: List<Reminder>, summary: St
     // Copied before removing: the component list biweekly hands back is a live
     // view, and mutating it mid-iteration skips entries.
     val ours = getComponents(VAlarm::class.java)
-        .mapNotNull { alarm -> alarm.calinoReminder(this is VTodo)?.let { alarm to it } }
+        .mapNotNull { alarm -> alarm.calinoReminder(this is VTodo, (this as? VTodo)?.dateStart != null)?.let { alarm to it } }
         .toList()
 
     // An alarm whose lead time is unchanged is left exactly as it is rather
@@ -108,13 +112,34 @@ internal fun ICalComponent.writeReminders(reminders: List<Reminder>, summary: St
         removeComponent(alarm)
     }
 
-    val description = summary.trim().takeIf(String::isNotEmpty) ?: "Reminder"
-    wanted.filterNot { it in kept }.forEach { reminder ->
-        val duration = ICalDuration.builder().prior(true).minutes(reminder.minutesBefore).build()
-        val alarm = VAlarm.display(Trigger(duration, if (this is VTodo) Related.END else null), description)
-        if (reminder.repeatCount > 0 && reminder.repeatIntervalMinutes > 0) {
-            alarm.setRepeat(reminder.repeatCount, ICalDuration.builder().minutes(reminder.repeatIntervalMinutes).build())
-        }
-        addComponent(alarm)
+    wanted.filterNot { it in kept }.forEach { addReminderAlarm(it, summary) }
+}
+
+/** A task exposes one alarm. Editing it must not erase its other server alarms. */
+internal fun VTodo.writeTaskReminder(reminder: Reminder?, previous: Reminder?, summary: String) {
+    if (reminder == previous) return
+    if (previous != null) {
+        getComponents(VAlarm::class.java).firstOrNull {
+            it.calinoReminder(task = true, taskHasStart = true) == previous
+        }?.let(::removeComponent)
     }
+    reminder?.takeUnless { wanted ->
+        getComponents(VAlarm::class.java).any {
+            it.calinoReminder(task = true, taskHasStart = dateStart != null) == wanted
+        }
+    }?.let { addReminderAlarm(it, summary) }
+}
+
+private fun ICalComponent.addReminderAlarm(reminder: Reminder, summary: String) {
+    val description = summary.trim().takeIf(String::isNotEmpty) ?: "Reminder"
+    val duration = ICalDuration.builder().prior(true).minutes(reminder.minutesBefore).build()
+    val trigger = reminder.absoluteAt?.let { Trigger(Date.from(it)) }
+        ?: Trigger(duration, if (this is VTodo) {
+            if (reminder.relativeToStart) Related.START else Related.END
+        } else null)
+    val alarm = VAlarm.display(trigger, description)
+    if (reminder.repeatCount > 0 && reminder.repeatIntervalMinutes > 0) {
+        alarm.setRepeat(reminder.repeatCount, ICalDuration.builder().minutes(reminder.repeatIntervalMinutes).build())
+    }
+    addComponent(alarm)
 }

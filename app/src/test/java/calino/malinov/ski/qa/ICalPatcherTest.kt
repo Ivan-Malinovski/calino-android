@@ -128,6 +128,87 @@ class ICalPatcherTest {
     }
 
     @Test
+    fun `task edit preserves sibling links while changing its parent`() {
+        val resource = ics("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+            "UID:linked", "SUMMARY:Original", "RELATED-TO;RELTYPE=SIBLING:peer",
+            "RELATED-TO;RELTYPE=PARENT:old-parent", "END:VTODO", "END:VCALENDAR")
+        val task = mapper.parse(resource, "cal", 1L, "linked.ics").tasks.single()
+        val patched = patcher.patchTask(resource, task.copy(parentTaskId = "new-parent"), now)!!
+        assertTrue(patched, patched.contains("RELATED-TO;RELTYPE=SIBLING:peer"))
+        assertTrue(patched, patched.contains("RELATED-TO:new-parent"))
+        assertFalse(patched, patched.contains("old-parent"))
+    }
+
+    @Test
+    fun `title edit does not reopen timestamp-only completed task`() {
+        val resource = ics("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+            "UID:finished", "SUMMARY:Original", "COMPLETED:20260924T120000Z",
+            "END:VTODO", "END:VCALENDAR")
+        val task = mapper.parse(resource, "cal", 1L, "finished.ics").tasks.single()
+        val patched = patcher.patchTask(resource, task.copy(title = "Edited"), now)!!
+        assertTrue(patched, patched.contains("COMPLETED:20260924T120000Z"))
+        assertTrue(patched, patched.contains("STATUS:COMPLETED"))
+    }
+
+    @Test
+    fun `task edit preserves Nextcloud tags beyond the first category`() {
+        val resource = ics("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+            "UID:tagged", "SUMMARY:Original", "CATEGORIES:Work,Important",
+            "CATEGORIES:Follow-up", "END:VTODO", "END:VCALENDAR")
+        val task = mapper.parse(resource, "cal", 1L, "tagged.ics").tasks.single()
+        val titleEdit = patcher.patchTask(resource, task.copy(title = "Edited"), now)!!
+        assertTrue(titleEdit, titleEdit.contains("CATEGORIES:Work,Important"))
+        assertTrue(titleEdit, titleEdit.contains("CATEGORIES:Follow-up"))
+
+        val categoryEdit = patcher.patchTask(resource, task.copy(category = "Personal"), now)!!
+        assertTrue(categoryEdit, categoryEdit.contains("Personal"))
+        assertTrue(categoryEdit, categoryEdit.contains("Important"))
+        assertTrue(categoryEdit, categoryEdit.contains("Follow-up"))
+    }
+
+    @Test
+    fun `moving task due date keeps Nextcloud exact-time alarm fixed`() {
+        val resource = ics("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+            "UID:exact", "SUMMARY:Original", "DUE:20260925T150000Z",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Reminder",
+            "TRIGGER;VALUE=DATE-TIME:20260924T120000Z", "END:VALARM",
+            "END:VTODO", "END:VCALENDAR")
+        val task = mapper.parse(resource, "cal", 1L, "exact.ics").tasks.single()
+        val patched = patcher.patchTask(resource, task.copy(due = task.due!!.plusDays(1)), now)!!
+        assertTrue(patched, patched.contains("TRIGGER;VALUE=DATE-TIME:20260924T120000Z"))
+    }
+
+    @Test
+    fun `moving a duration-based task writes DUE without DURATION`() {
+        val resource = ics("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+            "UID:duration", "SUMMARY:Original", "DTSTART:20260924T090000Z",
+            "DURATION:PT2H", "END:VTODO", "END:VCALENDAR")
+        val task = mapper.parse(resource, "cal", 1L, "duration.ics").tasks.single()
+        val patched = patcher.patchTask(resource, task.copy(due = task.due!!.plusDays(1)), now)!!
+        assertTrue(patched, patched.contains("DUE:"))
+        assertFalse(patched, patched.contains("DURATION:PT2H"))
+    }
+
+    @Test
+    fun `task edit preserves additional Nextcloud alarms`() {
+        val resource = ics("BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO",
+            "UID:two-alarms", "SUMMARY:Original", "DUE:20260924T150000Z",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Early",
+            "TRIGGER;RELATED=END:-PT1H", "END:VALARM",
+            "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Late",
+            "TRIGGER;RELATED=END:-PT10M", "END:VALARM",
+            "END:VTODO", "END:VCALENDAR")
+        val task = mapper.parse(resource, "cal", 1L, "two.ics").tasks.single()
+        val titleEdit = patcher.patchTask(resource, task.copy(title = "Edited"), now)!!
+        assertEquals(2, "BEGIN:VALARM".toRegex().findAll(titleEdit).count())
+        assertTrue(titleEdit, titleEdit.contains("TRIGGER;RELATED=END:-PT10M"))
+
+        val reminderEdit = patcher.patchTask(resource, task.copy(reminder = Reminder(30)), now)!!
+        assertEquals(2, "BEGIN:VALARM".toRegex().findAll(reminderEdit).count())
+        assertTrue(reminderEdit, reminderEdit.contains("TRIGGER;RELATED=END:-PT10M"))
+    }
+
+    @Test
     fun `future-scope task edit never rewrites the master anchor from the selected date`() {
         val resource = ics(
             "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",

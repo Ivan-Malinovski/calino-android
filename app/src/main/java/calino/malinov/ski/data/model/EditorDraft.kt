@@ -67,6 +67,9 @@ data class EditorDraft(
     /** Hidden VTODO DTSTART fields retained while the editor changes DUE. */
     val taskStartDate: LocalDate? = null,
     val taskStartTime: LocalTime? = null,
+    /** An imported task with no DUE stays undated until its date/time is picked. */
+    val taskDueAbsent: Boolean = false,
+    val taskDueChanged: Boolean = false,
 ) {
     val isEditing: Boolean get() = editingId != null
 
@@ -124,7 +127,7 @@ data class EditorDraft(
 
     fun toNewTask(): NewTask = NewTask(
         title = title.trim(),
-        due = date,
+        due = date.takeUnless { taskDueAbsent && !taskDueChanged },
         color = color,
         category = categories.firstOrNull(),
         dueTime = startTime,
@@ -301,6 +304,7 @@ fun editorDraftFor(task: CalTask, fallbackDate: LocalDate): EditorDraft = Editor
     sequence = task.sequence,
     taskStartDate = task.startDate,
     taskStartTime = task.startTime,
+    taskDueAbsent = task.due == null,
     recurrenceScope = if (task.recurrenceId != null || task.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All,
 )
 

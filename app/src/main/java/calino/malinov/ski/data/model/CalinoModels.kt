@@ -14,6 +14,10 @@ data class Reminder(
     val minutesBefore: Int,
     val repeatCount: Int = 0,
     val repeatIntervalMinutes: Int = 0,
+    /** Fixed trigger, used by task alarms chosen at an exact date and time. */
+    val absoluteAt: Instant? = null,
+    /** Task alarm anchored to DTSTART rather than DUE. */
+    val relativeToStart: Boolean = false,
 )
 
 /** Free/busy transparency. The POC keeps it to the two states a person picks. */
