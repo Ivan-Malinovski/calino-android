@@ -200,10 +200,13 @@ class JournalFlowTest : CalinoUiTest() {
     @Test fun deletesAnEntryAfterConfirming() {
         openEntry()
 
+        // The question is asked on the pill and times out, so hold the clock
+        // inside its window while answering it.
+        compose.mainClock.autoAdvance = false
         compose.onNodeWithContentDescription("Delete journal entry").performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText("Remove this note?").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Confirm delete journal entry").performClick()
+        compose.mainClock.advanceTimeBy(200L)
+        compose.onNodeWithContentDescription("Confirm Delete journal entry").assertIsDisplayed().performClick()
+        compose.mainClock.autoAdvance = true
 
         awaitNoDescribed("Open journal entry $Existing")
     }

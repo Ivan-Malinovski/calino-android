@@ -173,6 +173,8 @@ class CalinoPillLane {
     /** Writes currently in flight. The lane only settles when this reaches 0. */
     private var writesInFlight = 0
     private var savingSinceMillis = 0L
+    /** Whether any write in the current run failed; the run cannot end on "Saved" then. */
+    private var runFailed = false
     private var settleJob: Job? = null
 
     /**
@@ -194,6 +196,7 @@ class CalinoPillLane {
         // the older of the two would name the wrong record.
         writeKind = kind
         if (saveState != PillSaveState.Saving) {
+            runFailed = false
             savingSinceMillis = System.currentTimeMillis()
             saveState = PillSaveState.Saving
         }
@@ -207,12 +210,14 @@ class CalinoPillLane {
      */
     fun saveFinished(scope: CoroutineScope, success: Boolean) {
         writesInFlight = (writesInFlight - 1).coerceAtLeast(0)
+        if (!success) runFailed = true
         if (writesInFlight > 0) return
+        val landed = !runFailed
         settleJob?.cancel()
         settleJob = scope.launch {
             val elapsed = System.currentTimeMillis() - savingSinceMillis
             delay((MinSavingMillis - elapsed).coerceAtLeast(0L))
-            if (!success) {
+            if (!landed) {
                 // A failure has its own message in the feedback lane. The pill
                 // just stops rather than claiming something landed.
                 saveState = PillSaveState.Idle

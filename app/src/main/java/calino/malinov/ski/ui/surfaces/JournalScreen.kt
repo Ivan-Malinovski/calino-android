@@ -805,8 +805,11 @@ private fun JournalEditor(
                 primaryEnabled = !isEditing || canSave,
                 primaryDescription = if (isEditing) "Save journal entry" else "Edit journal entry",
                 deleteLabel = "Delete",
-                onDelete = { confirmDelete = !confirmDelete },
+                onDelete = { confirmDelete = false; closeAnimated { onDelete(entry) } },
                 deleteDescription = "Delete journal entry",
+                deleteConfirmationActive = confirmDelete,
+                onDeleteConfirmationChange = { confirmDelete = it },
+                deleteHoldToConfirm = true,
             )
         },
     ) { overlayModifier ->
@@ -875,8 +878,6 @@ private fun JournalEditor(
                             headerTint = headerTint,
                             focusTitle = focusTitle,
                             titleFocusRequester = titleFocusRequester,
-                            confirmDelete = confirmDelete,
-                            onConfirmDelete = { closeAnimated { onDelete(entry) } },
                             showDiscard = showDiscard,
                             onKeepEditing = { showDiscard = false },
                             onDiscard = {
@@ -911,8 +912,6 @@ private fun ColumnScope.JournalEditorContent(
     headerTint: Color,
     focusTitle: Boolean,
     titleFocusRequester: FocusRequester,
-    confirmDelete: Boolean,
-    onConfirmDelete: () -> Unit,
     showDiscard: Boolean,
     onKeepEditing: () -> Unit,
     onDiscard: () -> Unit,
@@ -948,25 +947,6 @@ private fun ColumnScope.JournalEditorContent(
                 title = title,
                 body = body.text,
             )
-        }
-    }
-
-    AnimatedVisibility(
-        visible = confirmDelete,
-        enter = fadeIn(tween(150)) + expandVertically(tween(180)),
-        exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(CalinoShapes.Row))
-                .background(CalinoColors.Rose.copy(alpha = .09f))
-                .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Remove this note?", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
-            TextButton(onClick = onConfirmDelete, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Confirm delete journal entry" }) {
-                Text("Delete", color = CalinoColors.Rose)
-            }
         }
     }
 

@@ -568,6 +568,7 @@ private fun ContactDetailPill(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var confirmingDelete by remember { mutableStateOf(false) }
     ModalActionPill(
         addLabel = "New contact",
         morphFromAddPill = true,
@@ -582,6 +583,9 @@ private fun ContactDetailPill(
         deleteLabel = "Delete",
         onDelete = onDelete,
         deleteDescription = "Delete contact",
+        deleteConfirmationActive = confirmingDelete,
+        onDeleteConfirmationChange = { confirmingDelete = it },
+        deleteHoldToConfirm = true,
         modifier = modifier,
     )
 }
@@ -672,8 +676,11 @@ private fun ContactEditor(
                 onCancel = ::dismiss,
                 cancelDescription = "Cancel contact editing",
                 deleteLabel = onDelete?.let { "Delete" },
-                onDelete = onDelete?.let { { showDelete = !showDelete } },
+                onDelete = onDelete?.let { delete -> { showDelete = false; closeAnimated(delete) } },
                 deleteDescription = "Delete contact",
+                deleteConfirmationActive = showDelete,
+                onDeleteConfirmationChange = { showDelete = it },
+                deleteHoldToConfirm = true,
                 primaryLabel = "Save",
                 onPrimary = ::saveContact,
                 primaryVisible = isNew || dirty,
@@ -697,16 +704,6 @@ private fun ContactEditor(
                     item { CalinoTextField(birthdayText, { birthdayText = it }, "Birthday", placeholder = "YYYY-MM-DD") }
                     item { CalinoTextField(anniversaryText, { anniversaryText = it }, "Anniversary", placeholder = "YYYY-MM-DD") }
                     item { CalinoTextField(note, { note = it }, "Notes", singleLine = false, minLines = 4, maxLines = 8) }
-                    onDelete?.let { delete ->
-                        item {
-                            AnimatedVisibility(showDelete, enter = fadeIn(tween(150)), exit = fadeOut(tween(120))) {
-                                Row(Modifier.fillMaxWidth().background(CalinoColors.Rose.copy(.09f)).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Remove this contact?", style = CalinoTypography.bodyMedium, modifier = Modifier.weight(1f))
-                                    TextButton(onClick = { closeAnimated(delete) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Delete", color = CalinoColors.Rose) }
-                                }
-                            }
-                        }
-                    }
                     if (showDiscard) item {
                         Row(Modifier.fillMaxWidth().background(CalinoColors.Ink).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Discard your changes?", color = CalinoColors.Panel, modifier = Modifier.weight(1f))

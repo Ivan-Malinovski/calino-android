@@ -210,6 +210,10 @@ fun EditorSurface(
                 onCancel = dismiss,
                 primaryLabel = "Save",
                 onPrimary = {
+                    // A second press while the card is already leaving would
+                    // start another write report that no write ever finishes,
+                    // leaving the pill tracing forever.
+                    if (closing) return@ModalActionPill
                     val saved = draft
                     onSaveStarted(saved)
                     closeAfterAnimation { onSave(saved) }
