@@ -432,6 +432,14 @@ internal fun selectorColumnForDayTravel(selectedColumn: Int, liveOffset: Float):
  * A committed single-day move that leaves one edge of the grid's week and
  * arrives at the opposite edge of the next.
  */
+/**
+ * Paging to another month, as opposed to a day or week step that happens to
+ * cross into one. The open grid fades the marker with its pages instead, so
+ * the strip's pill has no travel to show for it either.
+ */
+internal fun isSelectorMonthJump(from: LocalDate, to: LocalDate): Boolean =
+    abs(to.toEpochDay() - from.toEpochDay()) > 7L && YearMonth.from(from) != YearMonth.from(to)
+
 internal data class MonthSelectorCrossing(
     val from: LocalDate,
     val to: LocalDate,
@@ -714,10 +722,23 @@ fun HomeScreen(
     var monthCrossingEnds by remember { mutableStateOf<Pair<LocalDate, LocalDate>?>(null) }
     val monthCrossingProgress = remember { Animatable(0f) }
     var lastSelectorDay by remember { mutableStateOf(selectorDay) }
+    var selectorMonthJump by remember { mutableStateOf(false) }
+    // The effects below run a frame after the date commits. On a month jump
+    // the pill must already stand on its new column in that frame.
+    val currentSelectorDay by rememberUpdatedState(selectorDay)
+    val currentSelectorColumn by rememberUpdatedState(selectorWeekdayIndex)
+    val selectorMonthJumpPending = {
+        selectorMonthJump || isSelectorMonthJump(lastSelectorDay, currentSelectorDay)
+    }
     LaunchedEffect(selectorDay, weekStart) {
         val previous = lastSelectorDay
         lastSelectorDay = selectorDay
         val step = selectorDay.toEpochDay() - previous.toEpochDay()
+        if (isSelectorMonthJump(previous, selectorDay)) {
+            // The open grid already faded this across with its pages.
+            selectorMonthJump = true
+            return@LaunchedEffect
+        }
         val fromColumn = previous.weekdayColumn(weekStart)
         val toColumn = selectorDay.weekdayColumn(weekStart)
         val wraps = (fromColumn == 6 && toColumn == 0) || (fromColumn == 0 && toColumn == 6)
@@ -754,6 +775,12 @@ fun HomeScreen(
             if (handoff == target) compactSelectorPosition.snapTo(target)
             compactSelectorHandoff = null
             if (handoff == target) return@LaunchedEffect
+        }
+        if (selectorMonthJump) {
+            // A month away is not a place along the strip either.
+            selectorMonthJump = false
+            compactSelectorPosition.snapTo(target)
+            return@LaunchedEffect
         }
         if (abs(compactSelectorPosition.value - target) > 3f) {
             // Sunday/Monday crossings deliberately traverse the row in one
@@ -1149,7 +1176,9 @@ fun HomeScreen(
     }
     val compactSelectorIndex = remember(compactSelectorPreview) {
         derivedStateOf {
-            compactSelectorPreview.value ?: compactSelectorHandoff ?: compactSelectorPosition.value
+            compactSelectorPreview.value ?: compactSelectorHandoff
+                ?: if (selectorMonthJumpPending()) currentSelectorColumn.toFloat()
+                else compactSelectorPosition.value
         }
     }
 
@@ -3013,6 +3042,13 @@ private fun MonthPager(
                         compactSelectorIndex = compactSelectorIndex,
                         compactDayPagerTravel = compactDayPagerTravel,
                         monthSelectorCrossing = monthSelectorCrossing,
+                        // Each page marks the day it would select. The marker
+                        // leaves with its page and arrives with the next, so a
+                        // month swipe fades it along with the finger and the
+                        // settle has nothing left to move.
+                        monthSelectorAlpha = {
+                            (1f - 2f * abs(state.getOffsetDistanceInPages(page))).coerceIn(0f, 1f)
+                        },
                         selectionVisibleWhenExpanded = selectionVisibleWhenExpanded,
                         interactionEnabled = monthInteractive,
                         onDay = onDay,
@@ -3691,6 +3727,7 @@ private fun StaticMonthGrid(
     compactSelectorIndex: () -> Float,
     compactDayPagerTravel: () -> Float?,
     monthSelectorCrossing: () -> MonthSelectorCrossing?,
+    monthSelectorAlpha: () -> Float = { 1f },
     selectionVisibleWhenExpanded: Boolean = false,
     interactionEnabled: Boolean,
     onDay: (LocalDate) -> Unit,
@@ -3928,6 +3965,18 @@ private fun StaticMonthGrid(
                         )
                     }
                 } else if (compactProgress < .5f) {
+                    // The open grid names the committed day on its own page.
+                    // The strip's week row and column describe a single week
+                    // and trail a month change, so they only steer the pill
+                    // within the week the strip is showing.
+                    val selectedCell = (selected.toEpochDay() - start.toEpochDay()).toInt()
+                    selectorPlacements = listOfNotNull(
+                        monthSelectorPlacementAt(selectedCell, 0f, monthSelectorAlpha(), rows)?.let { placement ->
+                            if (selected.startOfWeek(weekStart) == compactWeekStart) {
+                                placement.copy(column = compactSelectorIndex)
+                            } else placement
+                        },
+                    )
                     val crossing = monthSelectorCrossing()
                     if (crossing != null) {
                         val progress = crossing.progress.coerceIn(0f, 1f)
