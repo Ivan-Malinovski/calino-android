@@ -3,6 +3,37 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.6.1 — 2026-09-24
+
+Calino 0.6.1 adds Agenda as an opening view, a search box in Settings and device-only reminders for read-only events, and fixes a round of CalDAV, task and month-view issues.
+
+### Added
+
+- **Agenda as the opening view.** Agenda can now be chosen as the view Calino opens on.
+
+- **Settings search.** Settings are regrouped, and a search field at the top finds any setting by name.
+
+- **Reminders for read-only events.** Events from subscriptions, read-only CalDAV calendars and non-writable imported calendars can now take a reminder from the detail card. The reminder is kept on the device and never written to the event.
+
+### Changed
+
+- **Search grows out of the pill.** Search opens from the add pill's own shape and shrinks back into it when closed, with the pill's glass over a blurred background.
+
+- **Delete confirmation on the pill.** Contacts and journal entries now ask on the pill before deleting, like events and tasks, with a trash icon beside the question.
+
+- **Dark mode cards.** Sheets, floating windows and side panels have a faint outline in dark mode so they stand apart from the page behind them.
+
+- **Month view motion.** The month title stays level while sliding and fades at its edges, and the selected day fades with its page instead of sliding across unrelated dates.
+
+### Fixed
+
+- Nextcloud task due times and repeating reminders are read and written correctly, and task and alarm mapping now follows RFC 5545.
+- Newly added calendars on the server are picked up, and incremental sync handles more server responses correctly.
+- Stricter handling of server origins, the local cache, recurrences and cross-calendar moves.
+- Multi-day events keep one lane across a month week row instead of splitting their bar.
+- The event detail list runs to the card's edge instead of being cut off above the pill.
+- A repeated Save no longer leaves the pill's progress running, and an overlapping failed write no longer reports Saved.
+
 ## 0.6.0 — 2026-09-23
 
 Calino 0.6.0 adds a menu pill for moving between views, background sync for connected accounts, faster private search, and opt-in access for assistants and the phone's own search.
