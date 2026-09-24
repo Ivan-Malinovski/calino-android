@@ -44,6 +44,12 @@ interface CalendarCache {
     fun load(calendarUrl: String): CachedCalendar?
     fun save(entry: CachedCalendar)
 
+    /** True only when the complete snapshot is durable with no omitted resources. */
+    fun saveComplete(entry: CachedCalendar): Boolean {
+        save(entry)
+        return true
+    }
+
     /**
      * One resource as the server last sent it.
      *
@@ -113,14 +119,19 @@ class FileCalendarCache(private val root: File) : CalendarCache {
 
     @Synchronized
     override fun save(entry: CachedCalendar) {
-        // Refuse rather than let a pathological collection grow the app's data
-        // directory without bound. Skipping the write costs a refetch next
-        // launch; the alternative has no ceiling.
-        val kept = entry.resources.filter { it.ics.length <= MaxResourceChars }
-        val encoded = CalendarCacheJson.encode(entry.copy(resources = kept))
-        if (encoded.length > MaxPayloadChars) return
+        saveComplete(entry)
+    }
 
-        runCatching {
+    @Synchronized
+    override fun saveComplete(entry: CachedCalendar): Boolean {
+        // Refuse rather than let a pathological collection grow the app's data
+        // directory without bound. Never persist a partial collection as a
+        // complete snapshot: the repository must not commit its sync cursor.
+        if (entry.resources.any { it.ics.length > MaxResourceChars }) return false
+        val encoded = CalendarCacheJson.encode(entry)
+        if (encoded.length > MaxPayloadChars) return false
+
+        return runCatching {
             root.mkdirs()
             val file = fileFor(entry.calendarUrl)
             val temp = File(file.parentFile, file.name + ".tmp")
@@ -131,8 +142,11 @@ class FileCalendarCache(private val root: File) : CalendarCache {
             // previous copy intact rather than a truncated one.
             if (!temp.renameTo(file)) {
                 temp.delete()
+                false
+            } else {
+                true
             }
-        }
+        }.getOrDefault(false)
     }
 
     /**
@@ -231,7 +245,8 @@ class FileCalendarCache(private val root: File) : CalendarCache {
 object CalendarCacheJson {
 
     /** Bumped whenever the shape changes; an older file is discarded, not migrated. */
-    const val Version = 1
+    // Version 1 files could silently omit oversized resources. Refetch them.
+    const val Version = 2
 
     fun encode(entry: CachedCalendar): String {
         val resources = JSONArray()
@@ -259,19 +274,19 @@ object CalendarCacheJson {
             val json = JSONObject(raw)
             if (json.optInt("version", -1) != Version) return null
             val url = json.optString("calendarUrl").takeIf { it.isNotEmpty() } ?: return null
-            val resourcesJson = json.optJSONArray("resources") ?: JSONArray()
-            val resources = (0 until resourcesJson.length()).mapNotNull { index ->
+            val resourcesJson = json.optJSONArray("resources") ?: return null
+            val resources = (0 until resourcesJson.length()).map { index ->
                 resourcesJson.optJSONObject(index)?.let { resource ->
                     val href = resource.optString("href").takeIf { it.isNotEmpty() }
-                        ?: return@mapNotNull null
+                        ?: return null
                     val ics = resource.optString("ics").takeIf { it.isNotEmpty() }
-                        ?: return@mapNotNull null
+                        ?: return null
                     CalendarResource(
                         href = href,
                         etag = resource.optString("etag").takeIf { it.isNotEmpty() },
                         ics = ics,
                     )
-                }
+                } ?: return null
             }
             CachedCalendar(
                 calendarUrl = url,

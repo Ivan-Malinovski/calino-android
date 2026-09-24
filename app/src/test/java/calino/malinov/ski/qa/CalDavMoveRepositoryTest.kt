@@ -109,6 +109,69 @@ class CalDavMoveRepositoryTest {
     }
 
     @Test
+    fun `destination collision rejects move without deleting source`() = runBlocking {
+        val calls = serveSourceAndTarget(
+            destinationPutCode = 412,
+            destinationGetBody = { "BEGIN:VCALENDAR\nVERSION:2.0\nEND:VCALENDAR" },
+        )
+        val source = calendar("/source/", "Source")
+        val target = calendar("/target/", "Target")
+        val repository = repository(MemoryCache())
+        repository.setSources(listOf(CalDavSource(source, credentials, "account"), CalDavSource(target, credentials, "account")))
+        repository.awaitSync()
+        calls.clear()
+
+        val event = repository.events().single()
+        val result = repository.updateEvent(event.id, inputFor(event, target.url))
+
+        assertTrue("expected a rejected collision: $result", result is WriteResult.Rejected)
+        assertTrue(calls.any { it.startsWith("GET /target/") })
+        assertTrue(calls.none { it.startsWith("DELETE /source/") })
+    }
+
+    @Test
+    fun `UID conflict leaves the source in place`() = runBlocking {
+        val calls = serveSourceAndTarget(destinationPutCode = 409)
+        val source = calendar("/source/", "Source")
+        val target = calendar("/target/", "Target")
+        val repository = repository(MemoryCache())
+        repository.setSources(listOf(CalDavSource(source, credentials, "account"), CalDavSource(target, credentials, "account")))
+        repository.awaitSync()
+        calls.clear()
+
+        val event = repository.events().single()
+        assertTrue(repository.updateEvent(event.id, inputFor(event, target.url)) is WriteResult.Rejected)
+        assertTrue(calls.none { it.startsWith("DELETE /source/") })
+    }
+
+    @Test
+    fun `replayed move accepts only its own existing destination copy`() = runBlocking {
+        val queueFile = File.createTempFile("calino-move-lost-response", ".json").also { it.delete() }
+        val queue = FilePendingChangeStore(queueFile)
+        val calls = serveSourceAndTarget(
+            destinationPutCodes = ArrayDeque(listOf(503, 412)),
+            destinationGetBody = { queue.snapshot().firstOrNull()?.data },
+        )
+        val source = calendar("/source/", "Source")
+        val target = calendar("/target/", "Target")
+        val repository = repository(MemoryCache(), queue)
+        repository.setSources(listOf(CalDavSource(source, credentials, "account"), CalDavSource(target, credentials, "account")))
+        repository.awaitSync()
+        calls.clear()
+
+        val event = repository.events().single()
+        assertTrue(repository.updateEvent(event.id, inputFor(event, target.url)) is WriteResult.Queued)
+        repository.drainPendingWrites()
+        awaitQueueCondition(queue) { it.isEmpty() }
+
+        assertEquals(2, calls.count { it.startsWith("PUT /target/") })
+        assertTrue(calls.any { it.startsWith("GET /target/") })
+        assertTrue(calls.any { it.startsWith("DELETE /source/") })
+        queueFile.delete()
+        Unit
+    }
+
+    @Test
     fun `source cleanup outage queues delete href after destination succeeds`() = runBlocking {
         val calls = serveSourceAndTarget(sourceDeleteCode = 503)
         val cache = MemoryCache()
@@ -311,6 +374,7 @@ END:VCALENDAR
         sourceDeleteCode: Int = 204,
         destinationPutCodes: Queue<Int>? = null,
         sourceDeleteCodes: Queue<Int>? = null,
+        destinationGetBody: () -> String? = { null },
     ): MutableList<String> {
         val calls = Collections.synchronizedList(mutableListOf<String>())
         val sourceXml = """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
@@ -336,6 +400,10 @@ END:VCALENDAR
                     method == "PUT" && path.startsWith("/target/") ->
                         MockResponse().setResponseCode(destinationPutCodes?.poll() ?: destinationPutCode)
                             .setHeader("ETag", "\"target-v1\"")
+                    method == "GET" && path.startsWith("/target/") ->
+                        destinationGetBody()?.let { body ->
+                            MockResponse().setResponseCode(200).setHeader("ETag", "\"target-v1\"").setBody(body)
+                        } ?: MockResponse().setResponseCode(404)
                     method == "DELETE" && path.startsWith("/source/") ->
                         MockResponse().setResponseCode(sourceDeleteCodes?.poll() ?: sourceDeleteCode)
                     method == "REPORT" && path.startsWith("/source/") && request.body.readUtf8().contains("VEVENT") ->

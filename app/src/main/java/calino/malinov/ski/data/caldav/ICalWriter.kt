@@ -74,10 +74,14 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         preserveRecurrenceIfMissing: Boolean = false,
     ): VEvent {
         val vevent = original ?: VEvent().also { it.properties.clear() }
+        val originalRecurrenceRange = original?.recurrenceId?.getParameter("RANGE")
 
         vevent.setUidValue(event.uid ?: event.id)
         vevent.setSummaryValue(event.title)
 
+        // VEVENT permits DTEND or DURATION, never both. We normalize writes to
+        // DTEND, so remove a legal source DURATION before replacing its dates.
+        vevent.removeProperties(DurationProperty::class.java)
         if (event.allDay) {
             val startDate = event.date ?: LocalDate.now(zone)
             vevent.replace(DateStart(startDate.toDateOnly()))
@@ -88,8 +92,21 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         } else {
             val start = event.start?.atZone(zone)?.toInstant() ?: now
             val minutes = (event.durationMinutes ?: DefaultDurationMinutes).coerceAtLeast(0)
-            vevent.replace(DateStart(start.toDateTime()))
-            vevent.replace(DateEnd(start.plusSeconds(minutes * 60L).toDateTime()))
+            val end = start.plusSeconds(minutes * 60L)
+            // Keep the original value frame when the instant is unchanged.
+            // This preserves an existing TZID or floating DTSTART on unrelated
+            // edits; recurrence edits also restore the series frame in
+            // RecurrenceEdit when the start itself changes.
+            val originalStart = original?.dateStart?.takeIf { property ->
+                property.value?.hasTime() == true &&
+                    runCatching { property.value.toInstant() == start }.getOrDefault(false)
+            }
+            val originalEnd = original?.dateEnd?.takeIf { property ->
+                property.value?.hasTime() == true &&
+                    runCatching { property.value.toInstant() == end }.getOrDefault(false)
+            }
+            if (originalStart == null) vevent.replace(DateStart(start.toDateTime()))
+            if (originalEnd == null) vevent.replace(DateEnd(end.toDateTime()))
         }
 
         vevent.replaceOrRemove(event.location?.trim()?.takeIf(String::isNotEmpty)) { Location(it) }
@@ -115,17 +132,37 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
             },
         )
 
-        vevent.removeProperties(ICalAttendee::class.java)
-        event.attendees.forEach { attendee ->
-            vevent.addProperty(
-                ICalAttendee(attendee.name.takeIf { it != attendee.email }, attendee.email),
-            )
+        val unmatchedOriginalAttendees = vevent.attendees.toMutableList()
+        val attendeesToWrite = event.attendees.map { attendee ->
+            val existing = unmatchedOriginalAttendees.firstOrNull { originalAttendee ->
+                attendeeAddress(originalAttendee).equals(attendee.email.normalizedAttendeeAddress(), ignoreCase = true)
+            }
+            if (existing == null) {
+                ICalAttendee(attendee.name.takeIf { it != attendee.email }, attendee.email)
+            } else {
+                unmatchedOriginalAttendees.remove(existing)
+                existing.copy().also { copy ->
+                    val oldName = existing.commonName?.trim()?.takeIf(String::isNotEmpty)
+                        ?: attendeeAddress(existing)
+                    if (oldName != attendee.name) {
+                        copy.commonName = attendee.name.takeIf { it != attendee.email }
+                    }
+                }
+            }
         }
+        vevent.removeProperties(ICalAttendee::class.java)
+        attendeesToWrite.forEach(vevent::addProperty)
 
         if (!(preserveRecurrenceIfMissing && event.recurrence == null && original?.recurrenceRule != null)) {
             vevent.writeRecurrenceRule(event.recurrence)
         }
         vevent.stamp(now)
+        // RANGE=THISANDFUTURE changes the meaning of the override and is not
+        // represented in CalEvent. Carry it over when the recurrence id is
+        // recreated from the model.
+        if (!originalRecurrenceRange.isNullOrBlank() && vevent.recurrenceId != null) {
+            vevent.recurrenceId.setParameter("RANGE", originalRecurrenceRange)
+        }
         return vevent
     }
 
@@ -313,6 +350,13 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         if (values.isEmpty()) return
         addProperty(Categories(values))
     }
+
+    private fun attendeeAddress(attendee: ICalAttendee): String? =
+        attendee.email?.trim()?.takeIf(String::isNotEmpty)?.normalizedAttendeeAddress()
+            ?: attendee.uri?.trim()?.takeIf(String::isNotEmpty)?.normalizedAttendeeAddress()
+
+    private fun String.normalizedAttendeeAddress(): String =
+        removePrefix("mailto:").removePrefix("MAILTO:").trim()
 
     /**
      * Replaces RRULE, or removes it when the record no longer recurs.

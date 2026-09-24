@@ -177,7 +177,7 @@ class CardDavFetcher(
                 failures += CardFetchFailure("<unknown>", "The server returned a contact response without a resource URL.")
                 return@forEach
             }
-            val href = resolveHref(book.url, rawHref)
+            val href = resolveDavHref(book.url, rawHref)
             val status = DavXml.text(entry, DavNs.Dav, "status")
             if (status != null && !status.contains(" 200 ") && !status.endsWith(" 200 OK")) {
                 failures += CardFetchFailure(href, status)

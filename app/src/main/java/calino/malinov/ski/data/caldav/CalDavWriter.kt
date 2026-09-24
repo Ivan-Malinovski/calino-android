@@ -27,13 +27,11 @@ data class PreparedCalendarWrite(
  * The small, conditional CalDAV write surface used by [CalDavRepository].
  *
  * The writer intentionally writes one resource at a time. Existing resources are
- * patched only when the raw cache carries the same ETag as the mapped record;
- * otherwise the writer rebuilds a resource from the model. That fallback keeps
- * a stale cache from being used as if it were current, while the repository's
- * conditional request still prevents a stale update from overwriting the
- * server. Deletes are stricter: without a current raw resource there is no
- * safe way to know whether the resource contains another component, so the
- * writer rejects instead of deleting unrelated data.
+ * patched only when the raw cache carries the same ETag as the mapped record.
+ * If those bytes are missing, stale, or cannot be patched, an existing resource
+ * is rejected instead of being rebuilt from the partial model. Deletes are
+ * similarly strict: without a current raw resource there is no safe way to know
+ * whether the resource contains another component.
  */
 class CalDavWriter(
     private val http: DavHttp = DavHttp(),
@@ -82,7 +80,6 @@ class CalDavWriter(
             forceCreate = record.href == null && record.etag == null,
             build = { writer.writeTask(record, now = now()) },
             patch = { original -> patcher.patchTask(original, record, now()) },
-            requireCachedPatch = true,
         )
     }
 
@@ -229,23 +226,21 @@ class CalDavWriter(
         build: () -> biweekly.component.ICalComponent,
         patch: (String) -> String?,
         validatePatch: ((String) -> Unit)? = null,
-        requireCachedPatch: Boolean = false,
     ): PreparedCalendarWrite {
         val resourceUrl = hrefFor(calendar.url, href, uid)
         val cached = if (forceCreate) null else cache.loadResource(calendar.url, resourceUrl)
         val expectedEtag = if (forceCreate) null else etag ?: cached?.etag
-        if (requireCachedPatch && !forceCreate &&
-            (cached == null || expectedEtag == null || !sameEtag(cached.etag, expectedEtag))
-        ) {
-            throw staleResource(resourceUrl)
+        val body = if (forceCreate) {
+            writer.buildCalendar(listOf(build()))
+        } else {
+            val current = cached ?: throw staleResource(resourceUrl)
+            val currentEtag = expectedEtag ?: throw staleResource(resourceUrl)
+            if (!sameEtag(current.etag, currentEtag)) throw staleResource(resourceUrl)
+            validatePatch?.invoke(current.ics)
+            patch(current.ics) ?: throw invalidWrite(
+                "That calendar item could not be patched safely. Refresh and try again.",
+            )
         }
-        val body = cached
-            ?.takeIf { expectedEtag != null && sameEtag(it.etag, expectedEtag) }
-            ?.let {
-                validatePatch?.invoke(it.ics)
-                patch(it.ics)
-            }
-            ?: writer.buildCalendar(listOf(build()))
 
         val precondition = if (forceCreate) {
             DavPrecondition.New

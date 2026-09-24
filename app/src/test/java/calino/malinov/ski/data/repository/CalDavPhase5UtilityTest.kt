@@ -185,9 +185,7 @@ class CalDavPhase5UtilityTest {
         )
 
         assertEquals(CalDavMoveFailureKind.UidConflict, uidConflict.kind)
-        assertTrue(uidConflict.mayUseUidConflictFallback)
         assertEquals(CalDavMoveFailureKind.Forbidden, bareForbidden.kind)
-        assertFalse(bareForbidden.mayUseUidConflictFallback)
     }
 
     @Test

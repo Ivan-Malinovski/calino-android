@@ -541,6 +541,172 @@ class ICalMapperTest {
     }
 
     @Test
+    fun `all-day DURATION supplies the exclusive event end`() {
+        val oneOff = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:all-day-duration
+            DTSTART;VALUE=DATE:20260518
+            DURATION:P3D
+            SUMMARY:Conference
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal", 0L, "href", null,
+        ).events.single()
+        assertEquals(LocalDate.of(2026, 5, 20), oneOff.endDate)
+
+        val series = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:all-day-duration-series
+            DTSTART;VALUE=DATE:20260518
+            DURATION:P3D
+            RRULE:FREQ=WEEKLY;COUNT=2
+            SUMMARY:Conference
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal", 0L, "href", null,
+            LocalDate.of(2026, 5, 18), LocalDate.of(2026, 6, 1),
+        ).events
+        assertEquals(2, series.size)
+        assertTrue(series.all { ChronoUnit.DAYS.between(it.date, it.endDate) == 2L })
+    }
+
+    @Test
+    fun `cancelled masters and detached occurrences are not displayed`() {
+        val events = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:cancelled-master
+            DTSTART:20260518T060000Z
+            DTEND:20260518T070000Z
+            STATUS:CANCELLED
+            SUMMARY:Cancelled series
+            RRULE:FREQ=DAILY;COUNT=2
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:cancelled-occurrence
+            DTSTART:20260518T060000Z
+            DTEND:20260518T070000Z
+            SUMMARY:Active series
+            RRULE:FREQ=DAILY;COUNT=3
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:cancelled-occurrence
+            RECURRENCE-ID:20260519T060000Z
+            DTSTART:20260519T060000Z
+            DTEND:20260519T070000Z
+            STATUS:CANCELLED
+            SUMMARY:Cancelled occurrence
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal", 0L, "href", null,
+            LocalDate.of(2026, 5, 18), LocalDate.of(2026, 5, 20),
+        ).events
+
+        assertEquals(listOf("2026-05-18", "2026-05-20"), events.map { it.start!!.toLocalDate().toString() }.sorted())
+        assertTrue(events.all { it.title == "Active series" })
+    }
+
+    @Test
+    fun `THISANDFUTURE moves later instances and keeps the shifted duration through DST`() {
+        val events = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:range-dst
+            DTSTART;TZID=Europe/Copenhagen:20260315T090000
+            DTEND;TZID=Europe/Copenhagen:20260315T100000
+            RRULE:FREQ=WEEKLY;COUNT=4
+            SUMMARY:Weekly
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:range-dst
+            RECURRENCE-ID;TZID=Europe/Copenhagen;RANGE=THISANDFUTURE:20260322T090000
+            DTSTART;TZID=Europe/Copenhagen:20260322T110000
+            DTEND;TZID=Europe/Copenhagen:20260322T123000
+            SUMMARY:Weekly moved
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal", 0L, "href", null,
+            LocalDate.of(2026, 3, 15), LocalDate.of(2026, 4, 5),
+        ).events.sortedBy { it.start }
+
+        assertEquals(4, events.size)
+        assertEquals(listOf(9, 11, 11, 11), events.map { it.start!!.hour })
+        assertEquals(listOf(60, 90, 90, 90), events.map { it.durationMinutes })
+        assertEquals(
+            listOf(15, 22, 29, 5),
+            events.map { it.start!!.dayOfMonth },
+        )
+    }
+
+    @Test
+    fun `a cancelled THISANDFUTURE override suppresses its occurrence and later ones`() {
+        val events = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:range-cancel
+            DTSTART:20260518T060000Z
+            DTEND:20260518T070000Z
+            RRULE:FREQ=WEEKLY;COUNT=4
+            SUMMARY:Weekly
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:range-cancel
+            RECURRENCE-ID;RANGE=THISANDFUTURE:20260525T060000Z
+            DTSTART:20260525T060000Z
+            STATUS:CANCELLED
+            SUMMARY:Cancelled from here
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal", 0L, "href", null,
+            LocalDate.of(2026, 5, 18), LocalDate.of(2026, 6, 8),
+        ).events
+
+        assertEquals(1, events.size)
+        assertEquals(LocalDate.of(2026, 5, 18), events.single().start!!.toLocalDate())
+    }
+
+    @Test
+    fun `recurring TZID instances are selected by dates in the display zone`() {
+        val events = ICalMapper(ZoneId.of("Europe/Copenhagen")).parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:la-evening
+            DTSTART;TZID=America/Los_Angeles:20260601T170000
+            DTEND;TZID=America/Los_Angeles:20260601T180000
+            RRULE:FREQ=DAILY;COUNT=3
+            SUMMARY:Evening
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal", 0L, "href", null,
+            LocalDate.of(2026, 6, 2), LocalDate.of(2026, 6, 2),
+        ).events
+
+        assertEquals(1, events.size)
+        assertEquals(LocalDate.of(2026, 6, 2), events.single().start!!.toLocalDate())
+        assertEquals(LocalTime.of(2, 0), events.single().start!!.toLocalTime())
+    }
+
+    @Test
     fun `a non-recurring event keeps its uid as its id`() {
         val event = expand(rule = null).single()
         assertEquals("nothing addresses an occurrence of a single event", event.uid, event.id)

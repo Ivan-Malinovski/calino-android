@@ -114,6 +114,36 @@ class CalDavRepositoryIncrementalTest {
         assertTrue(refreshBody.contains("next-token"))
     }
 
+    @Test
+    fun `repository does not commit cursor when complete cache write fails`() {
+        val collection = server.url("/cal/").toString()
+        val cache = MemoryCalendarCache().apply { refuseCompleteSave = true }
+        val href = "${collection}changed.ics"
+        cache.entries[collection] = CachedCalendar(
+            collection, Instant.EPOCH, start, end,
+            listOf(CalendarResource(href, "old", ics("old"))),
+        )
+        server.enqueue(syncResponse(href, "next-token", "new"))
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("ETag", "\"new\"").setBody(ics("new")))
+        val repository = CalDavRepository(
+            fetcher = CalDavFetcher(DavHttp()), scope = scope, cache = cache,
+            mapper = ICalMapper(ZoneId.of("Europe/Copenhagen")),
+            today = { LocalDate.of(2026, 9, 8) },
+        )
+        var committed = false
+        repository.setCalendarCursorListener { _, _, _ -> committed = true }
+        repository.setSources(listOf(CalDavSource(
+            calendar = DiscoveredCalendar(collection, "Personal", 0xFF11A602, false,
+                setOf("VEVENT"), ctag = "new-ctag", syncToken = "old-token"),
+            credentials = credentials, accountId = "account",
+        )))
+
+        awaitReady(repository)
+        assertEquals("new", repository.snapshot().events.single().title)
+        assertTrue(!committed)
+        assertEquals("old", cache.entries.getValue(collection).resources.single().etag)
+    }
+
     private fun awaitReady(repository: CalDavRepository) {
         val deadline = System.currentTimeMillis() + 10_000
         while (System.currentTimeMillis() < deadline) {
@@ -155,11 +185,18 @@ END:VCALENDAR
 
     private class MemoryCalendarCache : CalendarCache {
         val entries = mutableMapOf<String, CachedCalendar>()
+        var refuseCompleteSave = false
 
         override fun load(calendarUrl: String): CachedCalendar? = entries[calendarUrl]
 
         override fun save(entry: CachedCalendar) {
             entries[entry.calendarUrl] = entry
+        }
+
+        override fun saveComplete(entry: CachedCalendar): Boolean {
+            if (refuseCompleteSave) return false
+            save(entry)
+            return true
         }
 
         override fun evictExcept(calendarUrls: Set<String>) {

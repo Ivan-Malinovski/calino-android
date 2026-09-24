@@ -143,7 +143,7 @@ END:VCALENDAR
     }
 
     @Test
-    fun `an etag mismatch rebuilds instead of copying stale server-only properties`() = runBlocking {
+    fun `an etag mismatch refuses to replace the raw resource`() = runBlocking {
         val calendar = calendar()
         val href = server.url("/cal/event.ics").toString()
         cache.save(
@@ -170,18 +170,15 @@ END:VCALENDAR
                 ),
             ),
         )
-        server.enqueue(MockResponse().setResponseCode(204).setHeader("ETag", "client-version"))
-
-        val result = CalDavWriter(cache = cache).putEvent(
+        val error = runCatching { CalDavWriter(cache = cache).putEvent(
             calendar,
             credentials,
             event(calendar, href = href, etag = "client-version", title = "Client title"),
-        )
+        ) }.exceptionOrNull()
 
-        val request = server.takeRequest()
-        assertEquals("\"client-version\"", request.getHeader("If-Match"))
-        assertTrue(request.body.readUtf8().contains("SUMMARY:Client title"))
-        assertFalse(result.ics.contains("X-SERVER-ONLY:must-not-be-resurrected"))
+        assertTrue(error is CalDavException)
+        assertEquals(0, server.requestCount)
+        assertTrue(cache.loadResource(calendar.url, href)!!.ics.contains("X-SERVER-ONLY:must-not-be-resurrected"))
     }
 
     @Test

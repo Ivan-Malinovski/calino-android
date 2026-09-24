@@ -22,6 +22,7 @@ import calino.malinov.ski.data.caldav.DiscoveredAddressBook
 import calino.malinov.ski.data.caldav.CalDavException
 import calino.malinov.ski.data.caldav.CalDavErrorCode
 import calino.malinov.ski.data.caldav.PreparedCalendarWrite
+import calino.malinov.ski.data.caldav.DavPrecondition
 import calino.malinov.ski.data.caldav.WrittenCalendarResource
 import calino.malinov.ski.data.caldav.PreparedCardWrite
 import calino.malinov.ski.data.caldav.calDavErrorForThrowable
@@ -37,6 +38,7 @@ import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import biweekly.Biweekly
+import biweekly.component.ICalComponent
 import biweekly.component.VEvent
 import java.io.Closeable
 import java.time.Instant
@@ -74,6 +76,8 @@ sealed interface RepositorySyncResult {
 }
 
 private class AccountSyncAbortedException : Exception()
+
+private class MoveDestinationConflictException(message: String) : Exception(message)
 
 private fun CalDavException.isTransientSyncFailure(): Boolean = code in setOf(
     CalDavErrorCode.Network,
@@ -783,10 +787,13 @@ class CalDavRepository(
                     // on the next launch that would turn a read failure into
                     // an apparent deletion. The partial resources are still
                     // useful for this session and the warning remains visible.
-                    if (!fetchResult.hadComponentFailures && parsed.failedResourceHrefs.isEmpty()) {
+                    val cacheComplete = if (!fetchResult.hadComponentFailures && parsed.failedResourceHrefs.isEmpty()) {
                         saveCache(source, fetchResult.resources, start, end)
+                    } else false
+                    if (!cacheComplete && !fetchResult.hadComponentFailures && parsed.failedResourceHrefs.isEmpty()) {
+                        warnings += "$name -- The complete calendar could not be cached; it will be fetched again."
                     }
-                    if (!fetchResult.hadComponentFailures && parsed.failedResourceHrefs.isEmpty()) {
+                    if (cacheComplete) {
                         cursorUpdates += CalendarCursorUpdate(
                             accountId = source.accountId,
                             calendarUrl = source.calendar.url,
@@ -904,8 +911,8 @@ class CalDavRepository(
         resources: List<CalendarResource>,
         start: LocalDate,
         end: LocalDate,
-    ) {
-        cache.save(
+    ): Boolean =
+        cache.saveComplete(
             CachedCalendar(
                 calendarUrl = source.calendar.url,
                 fetchedAt = Instant.now(),
@@ -914,7 +921,6 @@ class CalDavRepository(
                 resources = resources,
             ),
         )
-    }
 
     private fun saveAddressBookCache(source: CardDavSource, resources: List<CardResource>) {
         cache.saveAddressBook(
@@ -1292,67 +1298,25 @@ class CalDavRepository(
             planResult.message ?: "That event cannot be moved safely.",
         )
 
-        var sourceWasDeletedForConflict = false
         var destinationOutcome = attemptWrite(destination.calendar.url) {
-            writer.putPrepared(
-                destination.calendar,
-                destination.credentials,
-                PreparedCalendarWrite(
-                    href = plan.destination.href,
-                    body = plan.destination.payload,
-                    precondition = calino.malinov.ski.data.caldav.DavPrecondition.Unconditional,
-                    expectedEtag = null,
-                ),
+            putMoveDestination(
+                destination = destination,
+                href = plan.destination.href,
+                uid = plan.uid,
+                body = plan.destination.payload,
             )
         }
-        var destinationError = destinationOutcome.exceptionOrNull()
-        if (destinationError != null &&
-            CalDavMoveFailureClassifier.classify(destinationError).mayUseUidConflictFallback
-        ) {
-            // Some servers reject a duplicate UID before accepting the target
-            // resource. Only this explicit protocol signal permits the risky
-            // source-first fallback; a bare 403 always preserves the source.
-            val sourceDeletion = plan.sourceDeletion
-            if (sourceDeletion != null) {
-                val fallbackDelete = attemptWrite(source.calendar.url) {
-                    writer.delete(
-                        calendar = sourceDeletion.calendar,
-                        credentials = source.credentials,
-                        href = sourceDeletion.href,
-                        uid = sourceDeletion.uid,
-                        etag = sourceDeletion.etag,
-                        component = "VEVENT",
-                    )
-                }
-                val fallbackError = fallbackDelete.exceptionOrNull()
-                if (fallbackError == null || isGoneOrMissing(fallbackError)) {
-                    sourceWasDeletedForConflict = true
-                    destinationOutcome = attemptWrite(destination.calendar.url) {
-                        writer.putPrepared(
-                            destination.calendar,
-                            destination.credentials,
-                            PreparedCalendarWrite(
-                                href = plan.destination.href,
-                                body = plan.destination.payload,
-                                precondition = calino.malinov.ski.data.caldav.DavPrecondition.Unconditional,
-                                expectedEtag = null,
-                            ),
-                        )
-                    }
-                    destinationError = destinationOutcome.exceptionOrNull()
-                } else {
-                    destinationError = fallbackError
-                }
-            }
-        }
+        val destinationError = destinationOutcome.exceptionOrNull()
         if (destinationError != null) {
+            if (destinationError is MoveDestinationConflictException) {
+                return WriteResult.Rejected(destinationError.message ?: "The destination already has a different item.")
+            }
             return queueMoveFailure(
                 source = source,
                 destination = destination,
                 plan = plan,
                 candidate = candidate.copy(href = plan.destination.href, etag = null),
                 error = destinationError,
-                sourceWasDeleted = sourceWasDeletedForConflict,
                 sourceData = raw.ics,
             ).also { result ->
                 if (result !is WriteResult.Rejected) {
@@ -1372,7 +1336,7 @@ class CalDavRepository(
 
         val written = destinationOutcome.getOrThrow()
         val sourceDeletion = plan.sourceDeletion
-        if (sourceDeletion != null && !sourceWasDeletedForConflict) {
+        if (sourceDeletion != null) {
             val deleteOutcome = attemptWrite(source.calendar.url) {
                 writer.delete(
                     calendar = sourceDeletion.calendar,
@@ -2360,59 +2324,11 @@ class CalDavRepository(
         plan: CalDavMovePlan,
         candidate: CalEvent,
         error: Throwable,
-        sourceWasDeleted: Boolean = false,
         sourceData: String? = null,
     ): WriteResult<CalEvent> {
         val moveFailure = CalDavMoveFailureClassifier.classify(error)
         val classification = classifyWriteError(error, PendingChangeType.MOVE)
         val store = pendingStore
-        if (sourceWasDeleted) {
-            // The source-first UID-conflict fallback has already crossed the
-            // point where replaying MOVE is safe. Preserve the complete target
-            // resource as a CREATE recovery instead; otherwise a retry would
-            // attempt to delete a source that no longer exists.
-            if (store == null) {
-                val reason = "MoveLostSource: the old copy was removed, but the destination write failed. " +
-                    classification.message
-                setWriteStatus(candidate.id, RecordWriteState.Failed, reason)
-                return WriteResult.Rejected(reason)
-            }
-            val recovery = runCatching {
-                withContext(ioDispatcher) {
-                    store.enqueue(
-                        PendingChangeRequest(
-                            type = PendingChangeType.CREATE,
-                            eventId = candidate.id,
-                            accountId = destination.accountId,
-                            calendarId = destination.calendar.url,
-                            component = "VEVENT",
-                            calendarUrl = destination.calendar.url,
-                            uid = plan.uid,
-                            href = plan.destination.href,
-                            data = plan.destination.payload,
-                        ),
-                    )
-                }
-            }.getOrElse { enqueueError ->
-                val reason = "MoveLostSource: the old copy was removed and recovery could not be queued: " +
-                    enqueueError.message.orEmpty()
-                setWriteStatus(candidate.id, RecordWriteState.Failed, reason)
-                return WriteResult.Rejected(reason)
-            }
-            return when (recovery) {
-                is PendingChangeEnqueueResult.Enqueued -> {
-                    val reason = "MoveLostSource: the old copy was removed; a destination recovery is queued."
-                    setWriteStatus(candidate.id, RecordWriteState.Pending, reason)
-                    onPendingChangeEnqueued?.invoke()
-                    WriteResult.Queued(candidate.copy(href = plan.destination.href, etag = null))
-                }
-                is PendingChangeEnqueueResult.Rejected -> {
-                    val reason = "MoveLostSource: the old copy was removed and recovery could not be queued: ${recovery.reason}"
-                    setWriteStatus(candidate.id, RecordWriteState.Failed, reason)
-                    WriteResult.Rejected(reason)
-                }
-            }
-        }
         if (moveFailure.kind != CalDavMoveFailureKind.Other ||
             classification.disposition is WriteDisposition.Drop ||
             store == null ||
@@ -2440,12 +2356,12 @@ class CalDavRepository(
             uid = plan.uid,
             href = plan.destination.href,
             data = plan.destination.payload,
-            sourceAccountId = source.accountId.takeUnless { sourceWasDeleted },
-            sourceCalendarId = source.calendar.url.takeUnless { sourceWasDeleted },
-            sourceCalendarUrl = source.calendar.url.takeUnless { sourceWasDeleted },
-            sourceHref = plan.sourceDeletion?.href?.takeUnless { sourceWasDeleted },
-            sourceEtag = plan.sourceDeletion?.etag?.takeUnless { sourceWasDeleted },
-            sourceData = sourceData?.takeUnless { sourceWasDeleted },
+            sourceAccountId = source.accountId,
+            sourceCalendarId = source.calendar.url,
+            sourceCalendarUrl = source.calendar.url,
+            sourceHref = plan.sourceDeletion?.href,
+            sourceEtag = plan.sourceDeletion?.etag,
+            sourceData = sourceData,
         )
         val enqueue = runCatching {
             withContext(ioDispatcher) { store.enqueue(request) }
@@ -3205,86 +3121,26 @@ class CalDavRepository(
             return false
         }
 
-        val destinationWrite = PreparedCalendarWrite(
-            href = destinationHref,
-            body = body,
-            precondition = calino.malinov.ski.data.caldav.DavPrecondition.Unconditional,
-            expectedEtag = null,
-        )
-        var destinationOutcome = attemptWrite(destination.calendar.url) {
-            writer.putPrepared(destination.calendar, destination.credentials, destinationWrite)
+        val destinationOutcome = attemptWrite(destination.calendar.url) {
+            putMoveDestination(destination, destinationHref, change.uid ?: change.eventId, body)
         }
-        var destinationError = destinationOutcome.exceptionOrNull()
-        var sourceDeletedForConflict = false
+        val destinationError = destinationOutcome.exceptionOrNull()
         var source = sourceForQueuedMove(change)
-
-        if (destinationError != null &&
-            CalDavMoveFailureClassifier.classify(destinationError).mayUseUidConflictFallback
-        ) {
-            // A queued MOVE has the same duplicate-UID hazard as an immediate
-            // one. Only the explicit conflict response permits deleting the
-            // source first; a bare 403 remains a normal retry/drop and leaves
-            // the source untouched.
-            val sourceHrefForConflict = change.sourceHref
-            val sourceEtagForConflict = normalizeEtag(change.sourceEtag)
-            val conflictSource = source
-            if (conflictSource != null && !sourceHrefForConflict.isNullOrBlank() && sourceEtagForConflict != null) {
-                val sourceResource = withContext(ioDispatcher) {
-                    cache.loadResource(conflictSource.calendar.url, sourceHrefForConflict)
-                }
-                if (sourceResource == null) {
-                    // Refresh is read-only. writer.delete will still require
-                    // the original ETag and therefore cannot remove a changed
-                    // source merely because this refresh succeeded.
-                    attemptWrite(conflictSource.calendar.url) {
-                        writer.refreshResource(
-                            conflictSource.calendar,
-                            conflictSource.credentials,
-                            sourceHrefForConflict,
-                            change.uid ?: change.eventId,
-                        )
-                    }
-                }
-                val sourceDelete = attemptWrite(conflictSource.calendar.url) {
-                    writer.delete(
-                        calendar = conflictSource.calendar,
-                        credentials = conflictSource.credentials,
-                        href = sourceHrefForConflict,
-                        uid = change.uid ?: change.eventId,
-                        etag = sourceEtagForConflict,
-                        component = "VEVENT",
-                    )
-                }
-                val sourceDeleteError = sourceDelete.exceptionOrNull()
-                if (sourceDeleteError == null || isGoneOrMissing(sourceDeleteError)) {
-                    sourceDeletedForConflict = true
-                    destinationOutcome = attemptWrite(destination.calendar.url) {
-                        writer.putPrepared(destination.calendar, destination.credentials, destinationWrite)
-                    }
-                    destinationError = destinationOutcome.exceptionOrNull()
-                    if (destinationError != null) {
-                        // The dangerous half of the fallback has happened:
-                        // the source is gone and the destination retry did not
-                        // confirm. Preserve the full resource as a CREATE
-                        // recovery, rather than replaying MOVE and attempting
-                        // to delete a source that no longer exists.
-                        return queueMoveRecovery(
-                            store = store,
-                            change = change,
-                            error = destinationError,
-                        )
-                    }
-                } else {
-                    // The source is still present, so the original MOVE is
-                    // safe to retry according to the ordinary queue policy.
-                    return handleQueuedFailure(store, change, sourceDeleteError)
-                }
+        if (destinationError != null) {
+            if (destinationError is MoveDestinationConflictException) {
+                val failure = PendingChangeFailure(
+                    destinationError.message ?: "The destination already has a different item.",
+                    statusCode = 412,
+                )
+                withContext(ioDispatcher) { store.markDeadLetter(change.id, failure) }
+                setWriteStatus(change.eventId, RecordWriteState.Failed, failure.message)
+                return false
             }
+            return handleQueuedFailure(store, change, destinationError)
         }
-        if (destinationError != null) return handleQueuedFailure(store, change, destinationError)
 
         val written = destinationOutcome.getOrThrow()
-        if (sourceHref.isNullOrBlank() || sourceDeletedForConflict) {
+        if (sourceHref.isNullOrBlank()) {
             restoreQueuedEventOverlay(change, destination, today().withDayOfMonth(1).minusMonths(windowMonths), today().withDayOfMonth(1).plusMonths(windowMonths))
             withContext(ioDispatcher) { store.acknowledge(change.id) }
             updateOverlayIdentity(change, written)
@@ -3484,63 +3340,6 @@ class CalDavRepository(
         }
     }
 
-    /**
-     * Converts a MOVE whose source was deleted during UID-conflict fallback
-     * into a durable destination CREATE. This is the Android equivalent of the
-     * web client's MoveLostSource recovery: the source is no longer available
-     * for another MOVE attempt, but the complete ICS payload still is.
-     */
-    private suspend fun queueMoveRecovery(
-        store: PendingChangeStore,
-        change: PendingChange,
-        error: Throwable,
-    ): Boolean {
-        val failure = PendingChangeFailure(
-            message = "MoveLostSource: the old copy was removed, so a destination recovery is queued. " +
-                (calDavErrorForThrowable(error, change.calendarUrl.orEmpty()).message),
-            statusCode = (error as? CalDavException)?.status,
-        )
-        val enqueue = runCatching {
-            withContext(ioDispatcher) {
-                store.enqueueBefore(
-                    beforeId = change.id,
-                    request = PendingChangeRequest(
-                        type = PendingChangeType.CREATE,
-                        eventId = change.eventId,
-                        accountId = change.accountId,
-                        calendarId = change.calendarId,
-                        component = "VEVENT",
-                        calendarUrl = change.calendarUrl,
-                        uid = change.uid,
-                        href = change.href,
-                        data = change.data,
-                    ),
-                )
-            }
-        }.getOrElse { enqueueError ->
-            val terminal = failure.copy(
-                message = "MoveLostSource: the old copy was removed and recovery could not be queued: " +
-                    enqueueError.message.orEmpty(),
-            )
-            withContext(ioDispatcher) { store.markDeadLetter(change.id, terminal) }
-            setWriteStatus(change.eventId, RecordWriteState.Failed, terminal.message)
-            return false
-        }
-        return when (enqueue) {
-            is PendingChangeEnqueueResult.Enqueued -> {
-                withContext(ioDispatcher) { store.acknowledge(change.id) }
-                setWriteStatus(change.eventId, RecordWriteState.Pending, failure.message)
-                true
-            }
-            is PendingChangeEnqueueResult.Rejected -> {
-                val terminal = failure.copy(message = "${failure.message} ${enqueue.reason}")
-                withContext(ioDispatcher) { store.markDeadLetter(change.id, terminal) }
-                setWriteStatus(change.eventId, RecordWriteState.Failed, terminal.message)
-                false
-            }
-        }
-    }
-
     private suspend fun replayQueuedPut(
         store: PendingChangeStore,
         source: CalDavSource,
@@ -3682,6 +3481,34 @@ class CalDavRepository(
 
     private fun sameQueuedPayload(left: String, right: String): Boolean =
         left.replace("\r\n", "\n").trim() == right.replace("\r\n", "\n").trim()
+
+    /** Create the destination once; a retry may only accept the copy we already wrote. */
+    private suspend fun putMoveDestination(
+        destination: CalDavSource,
+        href: String,
+        uid: String,
+        body: String,
+    ): WrittenCalendarResource {
+        val prepared = PreparedCalendarWrite(href, body, DavPrecondition.New, null)
+        try {
+            return writer.putPrepared(destination.calendar, destination.credentials, prepared)
+        } catch (error: CalDavException) {
+            if (!isPreconditionFailure(error)) throw error
+        }
+        val existing = try {
+            writer.refreshResource(destination.calendar, destination.credentials, href, uid)
+        } catch (error: CalDavException) {
+            if (!isGoneOrMissing(error)) throw error
+            // The competing resource vanished. The second PUT remains create-only.
+            return writer.putPrepared(destination.calendar, destination.credentials, prepared)
+        }
+        if (!sameQueuedPayload(existing.ics, body)) {
+            throw MoveDestinationConflictException(
+                "The destination already has a different item; the source was kept.",
+            )
+        }
+        return WrittenCalendarResource(existing.href, existing.etag, existing.ics)
+    }
 
     private suspend fun replayQueuedDelete(
         store: PendingChangeStore,

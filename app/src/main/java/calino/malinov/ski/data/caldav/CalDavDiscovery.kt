@@ -83,9 +83,6 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
      */
     private suspend fun resolveBaseUrl(enteredUrl: String, credentials: DavCredentials): String {
         probeWellKnown(enteredUrl, credentials)?.let { return it }
-        caldavSubdomain(enteredUrl)?.let { candidate ->
-            if (isDavEndpoint(candidate, credentials)) return candidate
-        }
         // Fall back to what the user typed. If it is wrong, the principal
         // lookup below reports a specific failure rather than a vague one.
         return enteredUrl
@@ -97,15 +94,12 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
             .getOrNull() ?: return null
         if (!isDavStatus(response.status)) return null
         val landed = response.url
+        requireSameDavOrigin(baseUrl, landed)
         // A redirect that ends back on /.well-known/ means the server has no
         // opinion; treat it as unsupported rather than as the calendar root.
         if (landed.contains("/.well-known/")) return null
         return stripTrailingSlash(landed)
     }
-
-    private suspend fun isDavEndpoint(url: String, credentials: DavCredentials): Boolean =
-        runCatching { propfind(url, credentials, depth = "0", body = PropfindDisplayName) }
-            .getOrNull()?.let { isDavStatus(it.status) } ?: false
 
     // --- step 2 and 3: principal, then calendar home --------------------------
 
@@ -120,7 +114,7 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
             DavXml.successfulProperty(it, DavNs.Dav, "current-user-principal")
         } ?: return null
         val href = DavXml.text(holder, DavNs.Dav, "href") ?: return null
-        return resolveHref(baseUrl, href)
+        return resolveDavHref(baseUrl, href)
     }
 
     private suspend fun findCalendarHome(principalUrl: String, credentials: DavCredentials): String? {
@@ -133,7 +127,7 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
             DavXml.successfulProperty(it, DavNs.CalDav, "calendar-home-set")
         } ?: return null
         val href = DavXml.text(holder, DavNs.Dav, "href") ?: return null
-        return resolveHref(principalUrl, href)
+        return resolveDavHref(principalUrl, href)
     }
 
     // --- step 4: the collection listing ---------------------------------------
@@ -151,7 +145,7 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
 
     private fun parseCalendarResponse(entry: Element, homeUrl: String): DiscoveredCalendar? {
         val href = DavXml.directText(entry, DavNs.Dav, "href") ?: return null
-        val url = resolveHref(homeUrl, href)
+        val url = resolveDavHref(homeUrl, href)
 
         // Only calendar collections. The account home also lists the principal
         // itself and, on this server, address books -- which are DAV
@@ -304,6 +298,9 @@ internal fun DiscoveredCalendar.toCalDavCalendar(): CalDavCalendar = CalDavCalen
  */
 internal fun resolveHref(baseUrl: String, href: String): String =
     runCatching { URI(baseUrl).resolve(href).toString() }.getOrElse { href }
+
+internal fun resolveDavHref(baseUrl: String, href: String): String =
+    requireSameDavOrigin(baseUrl, resolveHref(baseUrl, href))
 
 internal fun joinUrl(baseUrl: String, path: String): String =
     runCatching { URI(baseUrl).resolve(path).toString() }.getOrElse { baseUrl.trimEnd('/') + path }

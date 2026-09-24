@@ -7,7 +7,7 @@ import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.Headers.Companion.toHeaders
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -25,14 +25,16 @@ import okhttp3.Response
  */
 class DavHttp(client: OkHttpClient? = null) {
 
-    private val client: OkHttpClient = client ?: OkHttpClient.Builder()
+    private val client: OkHttpClient = (client ?: OkHttpClient.Builder()
         .connectTimeout(TimeoutSeconds, TimeUnit.SECONDS)
         .readTimeout(TimeoutSeconds, TimeUnit.SECONDS)
         .writeTimeout(TimeoutSeconds, TimeUnit.SECONDS)
-        // Redirects are followed because well-known probing depends on it, and
-        // across schemes because a server may bounce http -> https mid-chain.
-        .followRedirects(true)
-        .followSslRedirects(true)
+        .build())
+        // Follow redirects ourselves so a DAV server cannot redirect an
+        // authenticated request (or its body) to another origin.
+        .newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     suspend fun request(
@@ -47,7 +49,39 @@ class DavHttp(client: OkHttpClient? = null) {
         val builder = Request.Builder().url(url).method(method, requestBody)
         headers.forEach { (name, value) -> builder.header(name, value) }
         credentials?.let { builder.header("Authorization", it.basicAuthHeader()) }
-        return client.newCall(builder.build()).await()
+        val initial = builder.build()
+        var current = initial
+        for (redirectCount in 0..MaxRedirects) {
+            val response = client.newCall(current).await()
+            val location = response.header("Location")
+            val nextUrl = location?.let(current.url::resolve)
+            if (response.status !in RedirectStatuses || nextUrl == null) return response
+            if (!hasSameDavOrigin(initial.url.toString(), nextUrl.toString())) {
+                throw CalDavException(
+                    CalDavErrorCode.NotCalDav,
+                    "The server redirected a DAV request to a different origin.",
+                    status = response.status,
+                    body = response.body,
+                )
+            }
+            if (redirectCount == MaxRedirects) {
+                throw CalDavException(
+                    CalDavErrorCode.NotCalDav,
+                    "The server redirected a DAV request too many times.",
+                    status = response.status,
+                )
+            }
+
+            val redirected = current.newBuilder().url(nextUrl)
+            if (response.status == SeeOther && current.method != "HEAD") {
+                redirected.method("GET", null)
+                    .removeHeader("Content-Type")
+                    .removeHeader("Content-Length")
+                    .removeHeader("Transfer-Encoding")
+            }
+            current = redirected.build()
+        }
+        error("Redirect loop exited unexpectedly")
     }
 
     /**
@@ -112,10 +146,31 @@ class DavHttp(client: OkHttpClient? = null) {
 
     companion object {
         private const val TimeoutSeconds = 15L
+        private const val MaxRedirects = 20
+        private const val SeeOther = 303
+        private val RedirectStatuses = setOf(300, 301, 302, SeeOther, 307, 308)
         val XmlMediaType: MediaType = "application/xml; charset=utf-8".toMediaType()
         val CalendarMediaType: MediaType = "text/calendar; charset=utf-8".toMediaType()
         val VCardMediaType: MediaType = "text/vcard; charset=utf-8".toMediaType()
     }
+}
+
+/** Origin comparison for authenticated DAV traffic; default ports are normalized by HttpUrl. */
+internal fun hasSameDavOrigin(firstUrl: String, secondUrl: String): Boolean {
+    val first = firstUrl.toHttpUrlOrNull() ?: return false
+    val second = secondUrl.toHttpUrlOrNull() ?: return false
+    return first.scheme == second.scheme && first.host == second.host && first.port == second.port
+}
+
+/** Rejects server-supplied hrefs that would move authenticated DAV access to another origin. */
+internal fun requireSameDavOrigin(referenceUrl: String, targetUrl: String): String {
+    if (!hasSameDavOrigin(referenceUrl, targetUrl)) {
+        throw CalDavException(
+            CalDavErrorCode.NotCalDav,
+            "The server returned a DAV URL on a different origin.",
+        )
+    }
+    return targetUrl
 }
 
 /**

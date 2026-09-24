@@ -288,7 +288,7 @@ class CalendarCacheTest {
 
     @Test
     fun `an unknown version is discarded rather than misread`() {
-        val raw = CalendarCacheJson.encode(entry()).replace("\"version\":1", "\"version\":99")
+        val raw = CalendarCacheJson.encode(entry()).replace("\"version\":${CalendarCacheJson.Version}", "\"version\":99")
         assertNull(CalendarCacheJson.decode(raw))
     }
 
@@ -300,30 +300,23 @@ class CalendarCacheTest {
     }
 
     @Test
-    fun `a resource missing its text is skipped, not fatal`() {
-        // One usable resource and one with no `ics` field. Losing the damaged
-        // record is right; losing the calendar with it is not.
-        val raw = """{"version":1,"calendarUrl":"$url",
+    fun `a resource missing its text invalidates the whole snapshot`() {
+        val raw = """{"version":${CalendarCacheJson.Version},"calendarUrl":"$url",
             "fetchedAt":"2026-09-09T07:30:00Z","windowStart":"2026-03-01","windowEnd":"2027-03-01",
             "resources":[{"href":"$url/one.ics","etag":"e","ics":"$IcsOneLine"},
                          {"href":"$url/two.ics"}]}"""
 
-        val decoded = CalendarCacheJson.decode(raw)
-        assertEquals(1, decoded!!.resources.size)
-        assertEquals("$url/one.ics", decoded.resources.single().href)
+        assertNull(CalendarCacheJson.decode(raw))
     }
 
     // --- the size guards ------------------------------------------------------
 
     @Test
-    fun `an oversized resource is dropped rather than cached`() {
+    fun `an oversized resource rejects the complete cache write`() {
         val cache = FileCalendarCache(root)
         val huge = CalendarResource("$url/huge.ics", "e", "X".repeat(1_000_001))
-        cache.save(entry(resources = listOf(CalendarResource("$url/one.ics", "e", Ics), huge)))
-
-        val loaded = cache.load(url)!!
-        assertEquals(1, loaded.resources.size)
-        assertFalse(loaded.resources.any { it.href.endsWith("huge.ics") })
+        assertFalse(cache.saveComplete(entry(resources = listOf(CalendarResource("$url/one.ics", "e", Ics), huge))))
+        assertNull(cache.load(url))
     }
 
     @Test

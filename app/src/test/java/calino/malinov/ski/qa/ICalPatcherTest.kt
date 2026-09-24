@@ -68,6 +68,32 @@ class ICalPatcherTest {
             .events.first { it.uid == uid }
 
     @Test
+    fun `event title edit retains attendee state and timezone while normalizing duration`() {
+        val resource = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0",
+            "BEGIN:VTIMEZONE", "TZID:Europe/Copenhagen", "BEGIN:STANDARD",
+            "DTSTART:19701025T030000", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100",
+            "END:STANDARD", "END:VTIMEZONE",
+            "BEGIN:VEVENT", "UID:foreign-event",
+            "DTSTART;TZID=Europe/Copenhagen:20260305T090000", "DURATION:PT1H",
+            "SUMMARY:Original",
+            "ATTENDEE;CN=Ada;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=TRUE:mailto:ada@example.com",
+            "END:VEVENT", "END:VCALENDAR",
+        )
+        val event = eventFrom(resource, "foreign-event")
+
+        val patched = patcher.patchEvents(resource, listOf(event.copy(title = "Edited")), now)!!
+
+        assertTrue(patched, patched.contains("SUMMARY:Edited"))
+        assertTrue(patched, patched.contains("DTSTART;TZID=Europe/Copenhagen:20260305T090000"))
+        assertTrue(patched, patched.contains("DTEND"))
+        assertFalse(patched, patched.contains("DURATION:PT1H"))
+        assertTrue(patched, patched.contains("ROLE=REQ-PARTICIPANT"))
+        assertTrue(patched, patched.contains("PARTSTAT=ACCEPTED"))
+        assertTrue(patched, patched.contains("RSVP=TRUE"))
+    }
+
+    @Test
     fun `all-scope task edit from an occurrence retains the master anchor`() {
         val resource = ics(
             "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:repeat-task",

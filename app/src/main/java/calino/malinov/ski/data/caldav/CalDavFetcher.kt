@@ -2,6 +2,7 @@ package calino.malinov.ski.data.caldav
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.net.URI
@@ -91,6 +92,7 @@ data class IncrementalFetchResult(
 class CalDavFetcher(
     private val http: DavHttp = DavHttp(),
     private val incrementalSync: IncrementalSync = IncrementalSync(http),
+    private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
     /** Complete VEVENT collection for an explicit user export; never windowed or cached as sync data. */
     suspend fun fetchAllEvents(
@@ -324,8 +326,11 @@ class CalDavFetcher(
         windowStart: LocalDate,
         windowEnd: LocalDate,
     ): List<CalendarResource> {
-        val start = windowStart.atStartOfDay().toInstant(ZoneOffset.UTC).format()
-        val end = windowEnd.atStartOfDay().toInstant(ZoneOffset.UTC).format()
+        // These bounds describe local calendar dates. CalDAV time-range values
+        // are absolute UTC instants, so convert each local midnight through the
+        // same zone the mapper uses to bucket events for display.
+        val start = windowStart.atStartOfDay(zone).toInstant().format()
+        val end = windowEnd.atStartOfDay(zone).toInstant().format()
         // The time-range filter selects resources whose series overlaps the
         // window; the master it returns still carries the whole rule.
         val body = """<?xml version="1.0" encoding="UTF-8"?>
@@ -480,7 +485,7 @@ class CalDavFetcher(
                     "The server returned a calendar response without calendar data.",
                 )
             CalendarResource(
-                href = resolveHref(calendar.url, rawHref),
+                href = resolveDavHref(calendar.url, rawHref),
                 etag = normalizeEtag(DavXml.successfulText(entry, DavNs.Dav, "getetag")),
                 ics = data,
             )

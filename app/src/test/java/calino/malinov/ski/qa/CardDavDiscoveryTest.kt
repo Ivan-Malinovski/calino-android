@@ -1,6 +1,8 @@
 package calino.malinov.ski.qa
 
 import calino.malinov.ski.data.caldav.CardDavDiscovery
+import calino.malinov.ski.data.caldav.CalDavErrorCode
+import calino.malinov.ski.data.caldav.CalDavException
 import calino.malinov.ski.data.caldav.DavCredentials
 import calino.malinov.ski.data.caldav.DavHttp
 import kotlinx.coroutines.runBlocking
@@ -68,5 +70,29 @@ class CardDavDiscoveryTest {
 
         val books = CardDavDiscovery(DavHttp()).listAddressBooks(server.url("/").toString(), credentials)
         assertFalse(books.single().readOnly)
+    }
+
+    @Test
+    fun rejectsPrincipalHrefOnAnotherOrigin() = runBlocking {
+        val other = MockWebServer().also { it.start() }
+        try {
+            server.enqueue(MockResponse().setResponseCode(404))
+            server.enqueue(multiStatus(
+                """<multistatus xmlns="DAV:"><response><href>/</href><propstat><prop>
+                    <current-user-principal><href>${other.url("/principal/")}</href></current-user-principal>
+                </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
+            ))
+
+            val error = runCatching {
+                CardDavDiscovery(DavHttp()).discoverAccount(server.url("/").toString(), credentials)
+            }.exceptionOrNull()
+
+            assertTrue("expected a rejected DAV href, got $error", error is CalDavException)
+            assertEquals(CalDavErrorCode.NotCalDav, (error as CalDavException).code)
+            assertEquals(0, other.requestCount)
+            assertEquals(2, server.requestCount)
+        } finally {
+            other.shutdown()
+        }
     }
 }

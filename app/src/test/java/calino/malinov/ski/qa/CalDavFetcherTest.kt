@@ -31,7 +31,7 @@ class CalDavFetcherTest {
     @Before fun setUp() { server = MockWebServer().also { it.start() } }
     @After fun tearDown() { server.shutdown() }
 
-    private fun fetcher() = CalDavFetcher(DavHttp())
+    private fun fetcher() = CalDavFetcher(DavHttp(), zone = ZoneId.of("Europe/Copenhagen"))
 
     /**
      * The fetch returns the server's own resource text now; mapping is a
@@ -157,8 +157,8 @@ class CalDavFetcherTest {
         // any collection with a malformed calendar-timezone, and other servers
         // ignore it silently. ICalMapper expands instead.
         assertFalse("expansion is the client's job now", eventQuery.contains("expand"))
-        assertTrue(eventQuery.contains("""start="20260901T000000Z""""))
-        assertTrue(eventQuery.contains("""end="20261001T000000Z""""))
+        assertTrue(eventQuery.contains("""start="20260831T220000Z""""))
+        assertTrue(eventQuery.contains("""end="20260930T220000Z""""))
     }
 
     @Test

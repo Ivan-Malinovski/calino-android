@@ -33,6 +33,18 @@ class CalDavDiscoveryTest {
         MockResponse().setResponseCode(207).setBody(body)
             .setHeader("Content-Type", "application/xml; charset=utf-8")
 
+    private fun principalResponse(href: String) = multiStatus(
+        """<multistatus xmlns="DAV:"><response><href>/</href><propstat><prop>
+            <current-user-principal><href>$href</href></current-user-principal>
+        </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
+    )
+
+    private fun homeSetResponse(href: String) = multiStatus(
+        """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response><href>/principals/test-user/</href><propstat><prop>
+            <C:calendar-home-set><href>$href</href></C:calendar-home-set>
+        </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
+    )
+
     private fun discovery() = CalDavDiscovery(DavHttp())
     private fun url(path: String = "/") = server.url(path).toString()
 
@@ -137,6 +149,82 @@ class CalDavDiscoveryTest {
 
         val methods = (1..4).map { server.takeRequest().method }
         assertTrue("every discovery step uses PROPFIND", methods.all { it == "PROPFIND" })
+    }
+
+    @Test
+    fun `discovery rejects a principal href on another origin`() = runBlocking {
+        val other = MockWebServer().also { it.start() }
+        try {
+            server.enqueue(multiStatus("<multistatus xmlns=\"DAV:\"/>")) // well-known probe
+            server.enqueue(principalResponse(other.url("/principal/").toString()))
+
+            val error = runCatching {
+                discovery().discoverAccount(url().trimEnd('/'), credentials)
+            }.exceptionOrNull()
+
+            assertTrue("expected a rejected DAV href, got $error", error is CalDavException)
+            assertEquals(CalDavErrorCode.NotCalDav, (error as CalDavException).code)
+            assertEquals("the foreign principal must not be requested", 0, other.requestCount)
+            assertEquals("probe and principal lookup stay on the entered origin", 2, server.requestCount)
+            val requests = (1..2).map { server.takeRequest() }
+            assertTrue(requests.all {
+                it.getHeader("Authorization") == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="
+            })
+        } finally {
+            other.shutdown()
+        }
+    }
+
+    @Test
+    fun `discovery rejects a calendar home href on another origin`() = runBlocking {
+        val other = MockWebServer().also { it.start() }
+        try {
+            server.enqueue(multiStatus("<multistatus xmlns=\"DAV:\"/>")) // well-known probe
+            server.enqueue(principalResponse("/principals/test-user/"))
+            server.enqueue(multiStatus(
+                """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response><href>/principals/test-user/</href><propstat><prop>
+                    <C:calendar-home-set><href>${other.url("/home/")}</href></C:calendar-home-set>
+                </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
+            ))
+
+            val error = runCatching {
+                discovery().discoverAccount(url().trimEnd('/'), credentials)
+            }.exceptionOrNull()
+
+            assertTrue("expected a rejected DAV href, got $error", error is CalDavException)
+            assertEquals(CalDavErrorCode.NotCalDav, (error as CalDavException).code)
+            assertEquals(0, other.requestCount)
+            assertEquals(3, server.requestCount)
+        } finally {
+            other.shutdown()
+        }
+    }
+
+    @Test
+    fun `discovery rejects a calendar collection href on another origin`() = runBlocking {
+        val other = MockWebServer().also { it.start() }
+        try {
+            server.enqueue(multiStatus("<multistatus xmlns=\"DAV:\"/>")) // well-known probe
+            server.enqueue(principalResponse("/principals/test-user/"))
+            server.enqueue(homeSetResponse("/calendars/test-user/"))
+            server.enqueue(multiStatus(
+                """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response>
+                    <href>${other.url("/calendar/")}</href><propstat><prop>
+                    <resourcetype><collection/><C:calendar/></resourcetype><displayname>Foreign</displayname>
+                </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
+            ))
+
+            val error = runCatching {
+                discovery().discoverAccount(url().trimEnd('/'), credentials)
+            }.exceptionOrNull()
+
+            assertTrue("expected a rejected DAV href, got $error", error is CalDavException)
+            assertEquals(CalDavErrorCode.NotCalDav, (error as CalDavException).code)
+            assertEquals(0, other.requestCount)
+            assertEquals(4, server.requestCount)
+        } finally {
+            other.shutdown()
+        }
     }
 
     @Test

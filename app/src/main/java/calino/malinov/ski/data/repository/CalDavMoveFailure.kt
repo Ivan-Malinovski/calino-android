@@ -3,11 +3,11 @@ package calino.malinov.ski.data.repository
 import calino.malinov.ski.data.caldav.CalDavErrorCode
 import calino.malinov.ski.data.caldav.CalDavException
 
-/** The destination failure classes that affect whether source deletion is safe. */
+/** Destination failure classes used to report why a move was rejected. */
 enum class CalDavMoveFailureKind {
     /** 409 or a 403 carrying the CalDAV duplicate-UID precondition. */
     UidConflict,
-    /** A 403 without the duplicate-UID marker: preserve the source. */
+    /** A 403 without the duplicate-UID marker. */
     Forbidden,
     /** A different protocol or transport failure. */
     Other,
@@ -17,15 +17,11 @@ data class CalDavMoveFailure(
     val kind: CalDavMoveFailureKind,
     val status: Int?,
     val message: String,
-) {
-    /** Only this class permits the caller's explicit UID-conflict fallback. */
-    val mayUseUidConflictFallback: Boolean get() = kind == CalDavMoveFailureKind.UidConflict
-}
+)
 
 /**
- * Purely classifies a failed destination write. In particular, a bare 403 is
- * never treated as a duplicate UID: deleting the source in that case can lose
- * the event when the destination is simply read-only or permission denied.
+ * Purely classifies a failed destination write. A bare 403 means permission
+ * denied; all destination failures leave the source in place.
  */
 object CalDavMoveFailureClassifier {
     fun classify(error: Throwable): CalDavMoveFailure {

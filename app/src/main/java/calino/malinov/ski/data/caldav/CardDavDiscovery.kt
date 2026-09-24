@@ -42,11 +42,6 @@ class CardDavDiscovery(private val http: DavHttp = DavHttp()) {
 
     private suspend fun resolveBaseUrl(enteredUrl: String, credentials: DavCredentials): String {
         probeWellKnown(enteredUrl, credentials)?.let { return it }
-        caldavSubdomain(enteredUrl)?.let { candidate ->
-            if (runCatching { propfind(candidate, credentials, "0", CalDavDiscovery.PropfindDisplayName) }
-                    .getOrNull()?.let { CalDavDiscovery.isDavStatus(it.status) } == true
-            ) return candidate
-        }
         return enteredUrl
     }
 
@@ -56,6 +51,7 @@ class CardDavDiscovery(private val http: DavHttp = DavHttp()) {
         }.getOrNull() ?: return null
         if (!CalDavDiscovery.isDavStatus(response.status)) return null
         if (response.url.contains("/.well-known/")) return null
+        requireSameDavOrigin(baseUrl, response.url)
         return stripTrailingSlash(response.url)
     }
 
@@ -65,7 +61,7 @@ class CardDavDiscovery(private val http: DavHttp = DavHttp()) {
         if (!response.isMultiStatus) throw calDavErrorForStatus(response.status, baseUrl)
         val root = DavXml.parse(response.body) ?: return null
         val holder = DavXml.element(root, DavNs.Dav, "current-user-principal") ?: return null
-        return DavXml.text(holder, DavNs.Dav, "href")?.let { resolveHref(baseUrl, it) }
+        return DavXml.text(holder, DavNs.Dav, "href")?.let { resolveDavHref(baseUrl, it) }
     }
 
     private suspend fun findAddressBookHome(principalUrl: String, credentials: DavCredentials): String? {
@@ -75,7 +71,7 @@ class CardDavDiscovery(private val http: DavHttp = DavHttp()) {
         if (!response.isMultiStatus) return null
         val root = DavXml.parse(response.body) ?: return null
         val holder = DavXml.element(root, DavNs.CardDav, "addressbook-home-set") ?: return null
-        return DavXml.text(holder, DavNs.Dav, "href")?.let { resolveHref(principalUrl, it) }
+        return DavXml.text(holder, DavNs.Dav, "href")?.let { resolveDavHref(principalUrl, it) }
     }
 
     private fun parseAddressBookResponse(entry: Element, homeUrl: String): DiscoveredAddressBook? {
@@ -83,7 +79,7 @@ class CardDavDiscovery(private val http: DavHttp = DavHttp()) {
         val resourceType = DavXml.element(entry, DavNs.Dav, "resourcetype") ?: return null
         if (!DavXml.hasElement(resourceType, "addressbook")) return null
         if (DavXml.hasElement(resourceType, "calendar")) return null
-        val url = resolveHref(homeUrl, href)
+        val url = resolveDavHref(homeUrl, href)
         return DiscoveredAddressBook(
             url = url,
             displayName = DavXml.text(entry, DavNs.Dav, "displayname")
