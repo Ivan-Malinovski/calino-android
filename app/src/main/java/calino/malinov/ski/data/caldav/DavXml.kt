@@ -57,6 +57,28 @@ object DavXml {
     fun text(scope: Element, ns: String, localName: String): String? =
         element(scope, ns, localName)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
 
+    /** Read a property only from a successful propstat for this response. */
+    fun successfulProperty(response: Element, ns: String, localName: String): Element? =
+        directChildren(response, DavNs.Dav, "propstat")
+            .asSequence().filter { propstat ->
+                directChildren(propstat, DavNs.Dav, "status")
+                    .firstOrNull()?.textContent?.trim()?.let {
+                        Regex("^HTTP/\\S+\\s+2\\d\\d(?:\\s|$)", RegexOption.IGNORE_CASE).containsMatchIn(it)
+                    } == true
+            }.mapNotNull { directChildren(it, DavNs.Dav, "prop").firstOrNull() }
+            .mapNotNull { prop -> directChildren(prop, ns, localName).firstOrNull() }
+            .firstOrNull()
+
+    fun successfulText(response: Element, ns: String, localName: String): String? =
+        successfulProperty(response, ns, localName)?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+
+    fun directText(scope: Element, ns: String, localName: String): String? =
+        directChildren(scope, ns, localName).firstOrNull()?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun directChildren(scope: Element, ns: String, localName: String): List<Element> =
+        (0 until scope.childNodes.length).mapNotNull { scope.childNodes.item(it) as? Element }
+            .filter { (it.namespaceURI == ns || it.namespaceURI == null) && it.localNameOrTag() == localName }
+
     /**
      * Whether [scope] contains an element with this local name at any depth.
      * Used for resourcetype probing, where only presence matters.

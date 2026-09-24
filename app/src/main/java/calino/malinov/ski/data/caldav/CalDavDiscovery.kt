@@ -116,7 +116,9 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
         }
         if (!response.isMultiStatus) throw calDavErrorForStatus(response.status, baseUrl)
         val root = DavXml.parse(response.body) ?: return null
-        val holder = DavXml.element(root, DavNs.Dav, "current-user-principal") ?: return null
+        val holder = DavXml.elements(root, DavNs.Dav, "response").firstNotNullOfOrNull {
+            DavXml.successfulProperty(it, DavNs.Dav, "current-user-principal")
+        } ?: return null
         val href = DavXml.text(holder, DavNs.Dav, "href") ?: return null
         return resolveHref(baseUrl, href)
     }
@@ -127,7 +129,9 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
         }.getOrNull() ?: return null
         if (!response.isMultiStatus) return null
         val root = DavXml.parse(response.body) ?: return null
-        val holder = DavXml.element(root, DavNs.CalDav, "calendar-home-set") ?: return null
+        val holder = DavXml.elements(root, DavNs.Dav, "response").firstNotNullOfOrNull {
+            DavXml.successfulProperty(it, DavNs.CalDav, "calendar-home-set")
+        } ?: return null
         val href = DavXml.text(holder, DavNs.Dav, "href") ?: return null
         return resolveHref(principalUrl, href)
     }
@@ -146,19 +150,19 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
     }
 
     private fun parseCalendarResponse(entry: Element, homeUrl: String): DiscoveredCalendar? {
-        val href = DavXml.text(entry, DavNs.Dav, "href") ?: return null
+        val href = DavXml.directText(entry, DavNs.Dav, "href") ?: return null
         val url = resolveHref(homeUrl, href)
 
         // Only calendar collections. The account home also lists the principal
         // itself and, on this server, address books -- which are DAV
         // collections too and would otherwise show up as empty calendars.
-        val resourceType = DavXml.element(entry, DavNs.Dav, "resourcetype") ?: return null
+        val resourceType = DavXml.successfulProperty(entry, DavNs.Dav, "resourcetype") ?: return null
         if (!DavXml.hasElement(resourceType, "calendar")) return null
         if (DavXml.hasElement(resourceType, "addressbook")) return null
         // Scheduling collections are not user-facing calendars.
         if (SchedulingTypes.any { DavXml.hasElement(resourceType, it) }) return null
 
-        val components = DavXml.element(entry, DavNs.CalDav, "supported-calendar-component-set")
+        val components = DavXml.successfulProperty(entry, DavNs.CalDav, "supported-calendar-component-set")
             ?.let { set ->
                 DavXml.elements(set, DavNs.CalDav, "comp")
                     .mapNotNull { it.getAttribute("name")?.trim()?.uppercase()?.takeIf(String::isNotEmpty) }
@@ -168,15 +172,15 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
 
         return DiscoveredCalendar(
             url = url,
-            displayName = DavXml.text(entry, DavNs.Dav, "displayname")
+            displayName = DavXml.successfulText(entry, DavNs.Dav, "displayname")
                 ?: url.trimEnd('/').substringAfterLast('/'),
-            color = normalizeColor(DavXml.text(entry, DavNs.Apple, "calendar-color")),
+            color = normalizeColor(DavXml.successfulText(entry, DavNs.Apple, "calendar-color")),
             readOnly = isReadOnly(entry),
             components = components,
-            ctag = DavXml.text(entry, DavNs.CalendarServer, "getctag")
+            ctag = DavXml.successfulText(entry, DavNs.CalendarServer, "getctag")
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() },
-            syncToken = DavXml.text(entry, DavNs.Dav, "sync-token")
+            syncToken = DavXml.successfulText(entry, DavNs.Dav, "sync-token")
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() },
         )
@@ -192,8 +196,8 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
      * calendar on a terse server read-only.
      */
     private fun isReadOnly(entry: Element): Boolean {
-        if (DavXml.text(entry, DavNs.CalendarServer, "subscribed")?.lowercase() == "true") return true
-        val privileges = DavXml.element(entry, DavNs.Dav, "current-user-privilege-set") ?: return false
+        if (DavXml.successfulText(entry, DavNs.CalendarServer, "subscribed")?.lowercase() == "true") return true
+        val privileges = DavXml.successfulProperty(entry, DavNs.Dav, "current-user-privilege-set") ?: return false
         val granted = DavXml.elements(privileges, DavNs.Dav, "privilege")
             .flatMap { privilege ->
                 privilege.getElementsByTagName("*").let { nodes ->

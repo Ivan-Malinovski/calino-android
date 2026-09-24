@@ -152,7 +152,7 @@ class IncrementalSync(
             return fallback(SyncCollectionFallbackReason.MalformedResponse)
         }
 
-        val token = DavXml.text(root, DavNs.Dav, "sync-token")
+        val token = DavXml.directText(root, DavNs.Dav, "sync-token")
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: return fallback(SyncCollectionFallbackReason.MissingSyncToken)
@@ -188,11 +188,12 @@ class IncrementalSync(
     fun parseCollectionCursor(xml: String): CollectionCursor? {
         val root = DavXml.parse(xml) ?: return null
         if (localNameOrTag(root) != "multistatus") return null
+        val response = DavXml.elements(root, DavNs.Dav, "response").firstOrNull() ?: return null
         return CollectionCursor(
-            ctag = DavXml.text(root, DavNs.CalendarServer, "getctag")
+            ctag = DavXml.successfulText(response, DavNs.CalendarServer, "getctag")
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() },
-            syncToken = DavXml.text(root, DavNs.Dav, "sync-token")
+            syncToken = DavXml.successfulText(response, DavNs.Dav, "sync-token")
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() },
         )
@@ -251,7 +252,7 @@ class IncrementalSync(
             // getetag normally sits in propstat/prop. DavXml performs the
             // namespace-aware lookup first and then the local-name fallback,
             // which covers both prefixed and Radicale's default-DAV replies.
-            val etag = DavXml.text(response, DavNs.Dav, "getetag")
+            val etag = DavXml.successfulText(response, DavNs.Dav, "getetag")
                 ?.let(::normalizeEtag)
                 ?: return null
             return SyncCollectionChange.Changed(href, etag)

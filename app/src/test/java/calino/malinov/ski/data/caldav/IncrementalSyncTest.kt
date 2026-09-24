@@ -112,14 +112,9 @@ class IncrementalSyncTest {
 
         val result = IncrementalSync().parseReport(collection, xml)
 
-        assertEquals(
-            listOf(
-                SyncCollectionChange.Changed("${collection}property-failed.ics", "still-present"),
-                SyncCollectionChange.Removed("${collection}resource-deleted.ics"),
-                SyncCollectionChange.Removed("${collection}resource-gone.ics"),
-            ),
-            result.changes,
-        )
+        assertTrue(result.requiresFullSync)
+        assertEquals(SyncCollectionFallbackReason.MalformedResponse, result.fallbackReason)
+        assertTrue(result.changes.isEmpty())
     }
 
     @Test

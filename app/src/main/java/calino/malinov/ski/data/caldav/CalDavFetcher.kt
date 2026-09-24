@@ -188,10 +188,9 @@ class CalDavFetcher(
         }
 
         if (cachedResources == null) {
-            // A full read re-establishes a complete snapshot. The old token is
-            // still valid because it was never consumed, so retaining it is
-            // safe when the full read itself has no component failures.
-            return fullFetch(
+            // The token predates this full read. Reconcile changes since that
+            // token before attaching a cursor to the new snapshot.
+            return fullFetchThenReconcile(
                 calendar = calendar,
                 credentials = credentials,
                 windowStart = windowStart,
@@ -407,6 +406,34 @@ class CalDavFetcher(
         )
     }
 
+    private suspend fun fullFetchThenReconcile(
+        calendar: DiscoveredCalendar,
+        credentials: DavCredentials,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+        cursor: CollectionCursor,
+        mode: CalendarFetchMode,
+    ): IncrementalFetchResult {
+        val full = fullFetch(calendar, credentials, windowStart, windowEnd, cursor, mode)
+        if (full.fetchResult.hadComponentFailures || !cursor.hasSyncToken) return full
+        // A discovery token is a snapshot from before the three full REPORTs.
+        // Consume its delta even when the ctag is equal: otherwise a change
+        // during those REPORTs can be permanently skipped.
+        val reconciled = fetchIncremental(
+            calendar = calendar,
+            credentials = credentials,
+            cachedResources = full.resources,
+            windowStart = windowStart,
+            windowEnd = windowEnd,
+            storedCursor = cursor.copy(ctag = null),
+        )
+        return reconciled.copy(
+            mode = mode,
+            cursor = if (reconciled.fellBackToFull) reconciled.cursor.copy(syncToken = null)
+                else reconciled.cursor,
+        )
+    }
+
     private suspend fun fullFetch(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
@@ -436,19 +463,19 @@ class CalDavFetcher(
     /** Pulls the href, ETag and calendar text out of a multistatus reply. */
     private fun parseResources(root: Element, calendar: DiscoveredCalendar): List<CalendarResource> =
         DavXml.elements(root, DavNs.Dav, "response").map { entry ->
-            val rawHref = DavXml.text(entry, DavNs.Dav, "href")
+            val rawHref = DavXml.directText(entry, DavNs.Dav, "href")
                 ?: throw CalDavException(
                     CalDavErrorCode.NotCalDav,
                     "The server returned a calendar response without a resource URL.",
                 )
-            val data = DavXml.text(entry, DavNs.CalDav, "calendar-data")
+            val data = DavXml.successfulText(entry, DavNs.CalDav, "calendar-data")
                 ?: throw CalDavException(
                     CalDavErrorCode.NotCalDav,
                     "The server returned a calendar response without calendar data.",
                 )
             CalendarResource(
                 href = resolveHref(calendar.url, rawHref),
-                etag = normalizeEtag(DavXml.text(entry, DavNs.Dav, "getetag")),
+                etag = normalizeEtag(DavXml.successfulText(entry, DavNs.Dav, "getetag")),
                 ics = data,
             )
         }

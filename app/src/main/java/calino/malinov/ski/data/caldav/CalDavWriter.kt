@@ -120,15 +120,15 @@ class CalDavWriter(
             precondition = prepared.precondition,
         )
         requireSuccess(response)
-        val responseEtag = responseEtag(response, prepared.href, credentials)
+        val stored = storedAfterPut(response, prepared.href, credentials, prepared.body)
         val result = WrittenCalendarResource(
             href = prepared.href,
             // A successful PUT creates a new validator. Reusing the
-            // precondition when both the response and the Depth: 0 fallback
-            // omit it would make the cache claim that old bytes are current.
+            // precondition when the response and readback omit it would make
+            // the cache claim that old bytes are current.
             // The next edit will safely require a refresh instead.
-            etag = responseEtag,
-            ics = prepared.body,
+            etag = stored.etag,
+            ics = stored.ics,
         )
         cache.saveResource(calendar.url, CalendarResource(result.href, result.etag, result.ics))
         return result
@@ -211,10 +211,10 @@ class CalDavWriter(
                     precondition = DavPrecondition.Match(expectedEtag),
                 )
                 requireSuccess(response)
-                val responseEtag = responseEtag(response, resourceUrl, credentials)
+                val stored = storedAfterPut(response, resourceUrl, credentials, removal.ics)
                 cache.saveResource(
                     calendar.url,
-                    CalendarResource(resourceUrl, responseEtag, removal.ics),
+                    CalendarResource(resourceUrl, stored.etag, stored.ics),
                 )
             }
         }
@@ -274,6 +274,29 @@ class CalDavWriter(
             throw cancelled
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    private suspend fun storedAfterPut(
+        response: DavResponse,
+        url: String,
+        credentials: DavCredentials,
+        submitted: String,
+    ): CalendarResource {
+        normalizeEtag(response.header("ETag"))?.let { return CalendarResource(url, it, submitted) }
+        // A later PROPFIND validator does not prove that the server retained
+        // our exact bytes. Read the representation paired with that validator.
+        return try {
+            val fetched = http.request("GET", url, credentials, headers = mapOf("Accept" to "text/calendar"))
+            if (fetched.status in 200..299 && fetched.body.isNotBlank()) {
+                CalendarResource(url, normalizeEtag(fetched.header("ETag")), fetched.body)
+            } else {
+                CalendarResource(url, null, submitted)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            CalendarResource(url, null, submitted)
         }
     }
 

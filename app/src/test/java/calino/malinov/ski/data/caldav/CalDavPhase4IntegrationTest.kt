@@ -58,6 +58,17 @@ class CalDavPhase4IntegrationTest {
     }
 
     @Test
+    fun `failed property statuses cannot advertise a calendar or cursor`() = runBlocking {
+        val url = server.url("/cal/").toString()
+        server.enqueue(multiStatus("""<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+          <d:response><d:href>/cal/</d:href><d:propstat><d:prop>
+            <d:resourcetype><c:calendar/></d:resourcetype><d:sync-token>bad</d:sync-token>
+          </d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>
+        </d:multistatus>"""))
+        assertTrue(CalDavDiscovery().listCalendars(url, credentials).isEmpty())
+    }
+
+    @Test
     fun `calendar cursors survive account json and old payloads remain cursorless`() {
         val account = CalDavAccount(
             id = "account",
@@ -223,7 +234,16 @@ class CalDavPhase4IntegrationTest {
 
     @Test
     fun `missing cache falls back to a full fetch without risking a delta`() = runBlocking {
-        serveFullFetches()
+        val collection = server.url("/cal/").toString()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.body.readUtf8().contains("sync-collection")) {
+                    multiStatus(syncReport("${collection}during-fetch.ics", null, "after-full"))
+                } else if (request.method == "GET") {
+                    MockResponse().setResponseCode(200).setHeader("ETag", "\"during\"")
+                        .setBody(calendarIcs("during-fetch"))
+                } else fullResponse()
+        }
         val result = fetcher().fetchIncremental(
             calendar = calendar(syncToken = "still-valid"),
             credentials = credentials,
@@ -234,8 +254,9 @@ class CalDavPhase4IntegrationTest {
 
         assertEquals(CalendarFetchMode.FullFallback, result.mode)
         assertTrue(result.fellBackToFull)
-        assertEquals(3, server.requestCount)
-        assertEquals("still-valid", result.cursor.syncToken)
+        assertEquals(5, server.requestCount)
+        assertEquals("after-full", result.cursor.syncToken)
+        assertTrue(result.resources.any { it.href.endsWith("during-fetch.ics") })
         assertTrue(result.fetchResult.resources.isNotEmpty())
     }
 

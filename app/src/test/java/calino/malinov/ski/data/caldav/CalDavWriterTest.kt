@@ -185,30 +185,22 @@ END:VCALENDAR
     }
 
     @Test
-    fun `missing put etag falls back to depth-zero propfind and parses escaped xml`() = runBlocking {
+    fun `missing put etag reads back server representation and validator`() = runBlocking {
         val calendar = calendar()
         emptyCache(calendar)
         server.enqueue(MockResponse().setResponseCode(201))
-        server.enqueue(
-            MockResponse().setResponseCode(207).setBody(
-                """<d:multistatus xmlns:d="DAV:">
-                    <d:response><d:href>/cal/event~3A1.ics</d:href>
-                      <d:propstat><d:prop><d:getetag>&quot;from-propfind&quot;</d:getetag></d:prop>
-                      <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
-                    </d:response>
-                </d:multistatus>""".trimIndent(),
-            ),
-        )
+        val stored = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-SERVER:normalized\r\nEND:VCALENDAR\r\n"
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("ETag", "\"stored\"").setBody(stored))
 
         val result = CalDavWriter(cache = cache).putEvent(calendar, credentials, event(calendar))
         val put = server.takeRequest()
-        val propfind = server.takeRequest()
+        val get = server.takeRequest()
 
         assertNull(put.getHeader("ETag"))
-        assertEquals("PROPFIND", propfind.method)
-        assertEquals("0", propfind.getHeader("Depth"))
-        assertTrue(propfind.body.readUtf8().contains("getetag"))
-        assertEquals("from-propfind", result.etag)
+        assertEquals("GET", get.method)
+        assertEquals("stored", result.etag)
+        assertEquals(stored, result.ics)
+        assertEquals(stored, cache.loadResource(calendar.url, result.href)!!.ics)
     }
 
     @Test
