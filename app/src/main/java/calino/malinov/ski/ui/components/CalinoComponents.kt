@@ -2049,7 +2049,10 @@ fun AddPill(
     // Anything the pill is already narrating owns it; the view button waits.
     val menuInert = saveState != PillSaveState.Idle || confirmationActive || undoActive
     val currentMenuInert by rememberUpdatedState(menuInert)
-    val shownMode = if (menuEnabled) mode else AddPillMode.Rest
+    // Only the rest face can say "Are you sure?", "Saved" or offer Undo, so
+    // while the pill is narrating one of those it steps out of the dock or
+    // menu and returns once the narration ends.
+    val shownMode = if (menuEnabled && !menuInert) mode else AddPillMode.Rest
     // How far the pill has grown into its menu: 0 is the rest face, 1 the
     // open list. The size, the corner and the crossfade are all read from
     // this one number, so a drag on the open menu shrinks the pill itself

@@ -200,7 +200,7 @@ class NavigationDestinationsTest : CalinoUiTest() {
         compose.waitForIdle()
         compose.onNodeWithTag("Settings section rail")
             .performScrollToIndex(SettingsSyncSectionIndex)
-        compose.onNodeWithContentDescription("Sync settings").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Calendars & sync settings").performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Open calendars and accounts")
             .performScrollTo()
@@ -212,7 +212,7 @@ class NavigationDestinationsTest : CalinoUiTest() {
 
     private companion object {
         val MinimumTouchLane = 44.dp
-        const val SettingsSyncSectionIndex = 6
+        const val SettingsSyncSectionIndex = 3
 
         val Destinations = listOf("Tasks", "Journal", "Agenda", "Contacts", "Settings", "Range")
     }

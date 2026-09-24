@@ -36,7 +36,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -54,9 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -96,6 +93,7 @@ import calino.malinov.ski.state.searchContacts
 import calino.malinov.ski.ui.components.CalinoChip
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
+import calino.malinov.ski.ui.components.CalinoSearchField
 import calino.malinov.ski.ui.components.CalinoTextField
 import calino.malinov.ski.ui.components.DetailCardSurface
 import calino.malinov.ski.ui.components.DetailRow
@@ -338,7 +336,13 @@ private fun ContactDirectory(
             onOpenMenu?.let { MenuButton(onClick = it, modifier = Modifier.padding(end = 6.dp)) }
             Text("Contacts", style = CalinoTypography.displayLarge, modifier = Modifier.weight(1f))
         }
-        ContactSearchField(query, onQueryChanged)
+        CalinoSearchField(
+            query = query,
+            onQueryChanged = onQueryChanged,
+            placeholder = "Search people, numbers, tags…",
+            contentDescription = "Search contacts",
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        )
         if (addressBooks.size > 1) {
             ContactFilterRow("Address books", addressBooks.map { it.id to it.name }, bookFilter, onBookFilterChanged)
         }
@@ -364,44 +368,6 @@ private fun ContactDirectory(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ContactSearchField(query: String, onQueryChanged: (String) -> Unit) {
-    val focused = remember { mutableStateOf(false) }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .heightIn(min = 40.dp)
-            .clip(RoundedCornerShape(CalinoShapes.Pill))
-            .background(CalinoColors.Panel)
-            .border(
-                1.dp,
-                if (focused.value) CalinoColors.Accent.copy(.35f) else CalinoColors.Line,
-                RoundedCornerShape(CalinoShapes.Pill),
-            )
-            .padding(horizontal = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(CalinoIcons.Search, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp))
-        Box(Modifier.weight(1f).padding(start = 9.dp), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) {
-                Text("Search people, numbers, tags…", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink3)
-            }
-            BasicTextField(
-                value = query,
-                onValueChange = onQueryChanged,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { focused.value = it.isFocused }
-                    .semantics { contentDescription = "Search contacts" },
-                singleLine = true,
-                textStyle = CalinoTypography.bodyMedium.copy(color = CalinoColors.Ink),
-                cursorBrush = SolidColor(CalinoColors.Accent),
-            )
         }
     }
 }

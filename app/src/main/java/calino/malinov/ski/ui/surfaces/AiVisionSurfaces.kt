@@ -101,7 +101,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
-fun AiVisionSettingsPage() {
+fun AiVisionSettingsContent() {
     val context = LocalContext.current
     val store = remember { AiVisionSettingsStore(context) }
     val client = remember { AiVisionClient() }
@@ -133,14 +133,11 @@ fun AiVisionSettingsPage() {
         }
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp, 18.dp, 20.dp, CalinoSpacing.PillClearance),
+    Column(
+        Modifier.fillMaxWidth().padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { Text("AI Photo Import", style = CalinoTypography.headlineMedium) }
-        item { Text("Use your own API key to fill an event or task from a photo. The image is sent directly to your selected provider.", color = CalinoColors.Ink2) }
-        item {
+        Text("Use your own API key to fill an event or task from a photo. The image is sent directly to your selected provider.", color = CalinoColors.Ink2)
             Column(Modifier.fillMaxWidth().background(CalinoColors.Panel, RoundedCornerShape(18.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Provider", fontWeight = FontWeight.Bold)
                 Box {
@@ -173,7 +170,6 @@ fun AiVisionSettingsPage() {
                 }
                 status?.let { Text(it, color = CalinoColors.Ink2) }
             }
-        }
     }
 }
 

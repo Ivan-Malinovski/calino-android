@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,12 +42,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -53,6 +55,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import calino.malinov.ski.platform.assistant.AssistantAccess
 import calino.malinov.ski.platform.search.PhoneSearchAccess
 import androidx.compose.runtime.LaunchedEffect
@@ -80,6 +84,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -95,7 +100,10 @@ import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.CalinoIcons
+import calino.malinov.ski.ui.components.CalinoSearchField
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import calino.malinov.ski.data.CalinoContainer
 import calino.malinov.ski.data.sync.BackgroundSyncCadence
 import calino.malinov.ski.data.sync.BackgroundSyncStatus
@@ -103,7 +111,6 @@ import androidx.compose.ui.platform.testTag
 import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.systemSettingsIntent
 import calino.malinov.ski.state.LocalCalinoPreferences
-import calino.malinov.ski.state.LocalCalinoDeviceDefaults
 import calino.malinov.ski.state.LocalFoldPosture
 import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.ui.components.CompactSegmentedControl
@@ -116,22 +123,16 @@ import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-/** The mobile settings sections mirror the eight-section web handoff. */
 enum class SettingsSection(val title: String, val shortTitle: String) {
-    General("General", "General"),
-    Appearance("Appearance", "Look"),
-    Calendar("Calendar", "Calendar"),
-    Events("Events", "Events"),
-    Categories("Categories", "Categories"),
-    Notifications("Notifications", "Alerts"),
-    Sync("Sync", "Sync"),
-    Data("Data", "Data"),
-    AiVision("AI Photo Import", "AI Photo"),
+    Display("Display", "Display"),
+    EventsTasks("Events & tasks", "Events & tasks"),
+    Reminders("Reminders", "Reminders"),
+    CalendarsSync("Calendars & sync", "Calendars & sync"),
+    DataAccess("Data & access", "Data & access"),
 }
 
 private val SettingsNavLaneHeight = 44.dp
@@ -143,6 +144,48 @@ private val SettingsContentMaxWidth = 720.dp
 private val SettingsRowHorizontalPadding = 18.dp
 private val SettingsRowVerticalPadding = 14.dp
 private val SettingsGroupSpacing = 20.dp
+private data class SettingsSearchTarget(val title: String, val group: String, val request: Int)
+private val LocalSettingsSearchTarget = compositionLocalOf<SettingsSearchTarget?> { null }
+
+private data class SettingsSearchEntry(
+    val title: String,
+    val section: SettingsSection,
+    val group: String,
+    val description: String = "",
+)
+
+private val SettingsSearchEntries = listOf(
+    SettingsSearchEntry("Time format", SettingsSection.Display, "Regional defaults", "clock 12 24 hour"),
+    SettingsSearchEntry("Journal", SettingsSection.Display, "Surfaces", "navigation"),
+    SettingsSearchEntry("Contacts", SettingsSection.Display, "Surfaces", "navigation"),
+    SettingsSearchEntry("Theme", SettingsSection.Display, "Theme", "appearance light dark system"),
+    SettingsSearchEntry("Default view", SettingsSection.Display, "Display", "calendar start"),
+    SettingsSearchEntry("First day of week", SettingsSection.Display, "Display", "calendar grid"),
+    SettingsSearchEntry("Show week numbers", SettingsSection.Display, "Display"),
+    SettingsSearchEntry("Show pull bar", SettingsSection.Display, "Display", "zoom"),
+    SettingsSearchEntry("Menu pill", SettingsSection.Display, "Display", "navigation"),
+    SettingsSearchEntry("Event density", SettingsSection.Display, "Display", "month"),
+    SettingsSearchEntry("Hide completed tasks", SettingsSection.EventsTasks, "Tasks in calendar"),
+    SettingsSearchEntry("Default duration", SettingsSection.EventsTasks, "New event defaults"),
+    SettingsSearchEntry("Show end times", SettingsSection.EventsTasks, "Display"),
+    SettingsSearchEntry("Show locations", SettingsSection.EventsTasks, "Display"),
+    SettingsSearchEntry("Categories", SettingsSection.EventsTasks, "Labels used by your records", "labels"),
+    SettingsSearchEntry("Default reminder", SettingsSection.Reminders, "New event reminder"),
+    SettingsSearchEntry("Event reminders", SettingsSection.Reminders, "Events"),
+    SettingsSearchEntry("Tasks due", SettingsSection.Reminders, "Tasks"),
+    SettingsSearchEntry("Let another app remind me", SettingsSection.Reminders, "System calendar"),
+    SettingsSearchEntry("Reminders and channels", SettingsSection.Reminders, "Delivery", "notifications"),
+    SettingsSearchEntry("Android notification settings", SettingsSection.Reminders, "Delivery", "sounds"),
+    SettingsSearchEntry("Calendars and accounts", SettingsSection.CalendarsSync, "Connected accounts", "CalDAV address books"),
+    SettingsSearchEntry("Subscribed calendars", SettingsSection.CalendarsSync, "Subscribed calendars", "ics"),
+    SettingsSearchEntry("Background sync", SettingsSection.CalendarsSync, "Sync settings", "refresh frequency"),
+    SettingsSearchEntry("Event sync range", SettingsSection.CalendarsSync, "Sync settings", "offline search"),
+    SettingsSearchEntry("Import calendar", SettingsSection.DataAccess, "Import & export", "ics file"),
+    SettingsSearchEntry("Export calendar", SettingsSection.DataAccess, "Import & export", "ics file"),
+    SettingsSearchEntry("Show in phone search", SettingsSection.DataAccess, "Search & assistants", "Samsung Finder"),
+    SettingsSearchEntry("Let assistants use Calino", SettingsSection.DataAccess, "Search & assistants", "Gemini AppFunctions"),
+    SettingsSearchEntry("AI Photo Import", SettingsSection.DataAccess, "AI Photo Import", "provider API key model"),
+)
 
 private enum class SettingRowControlLayout {
     Inline,
@@ -170,17 +213,27 @@ fun SettingsSurface(
     backgroundSyncStatus: BackgroundSyncStatus = BackgroundSyncStatus(),
     onBackgroundSyncCadenceChanged: (BackgroundSyncCadence) -> Unit = {},
 ) {
-    var sectionName by rememberSaveable { mutableStateOf(SettingsSection.General.name) }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    var sectionName by rememberSaveable { mutableStateOf(SettingsSection.Display.name) }
     var subscribeOpen by rememberSaveable { mutableStateOf(false) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchTarget by remember { mutableStateOf<SettingsSearchTarget?>(null) }
+    var searchRequest by remember { mutableIntStateOf(0) }
     val section = remember(sectionName) {
-        runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.General)
+        runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.Display)
     }
     val currentSection by rememberUpdatedState(section)
     val sectionRailState = rememberLazyListState()
     val sectionPagerState = rememberPagerState(initialPage = section.ordinal) { SettingsSection.entries.size }
 
     LaunchedEffect(openAiVisionRequest) {
-        if (openAiVisionRequest > 0) sectionName = SettingsSection.AiVision.name
+        if (openAiVisionRequest > 0) {
+            sectionName = SettingsSection.DataAccess.name
+            searchRequest += 1
+            searchTarget = SettingsSearchTarget("AI Photo Import", "AI Photo Import", searchRequest)
+        }
     }
 
     LaunchedEffect(section) {
@@ -229,8 +282,28 @@ fun SettingsSurface(
                 }
                 Text(
                     "Settings",
-                    style = if (sideRail) CalinoTypography.headlineLarge else CalinoTypography.displayLarge,
+                    modifier = Modifier.weight(1f),
+                    style = if (sideRail) CalinoTypography.headlineMedium else CalinoTypography.displayLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                IconButton(
+                    onClick = {
+                        searchOpen = !searchOpen
+                        if (!searchOpen) {
+                            searchQuery = ""
+                            focusManager.clearFocus()
+                            keyboard?.hide()
+                        }
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        if (searchOpen) CalinoIcons.X else CalinoIcons.Search,
+                        contentDescription = if (searchOpen) "Close settings search" else "Search settings",
+                        tint = CalinoColors.Ink2,
+                    )
+                }
             }
         }
 
@@ -244,23 +317,51 @@ fun SettingsSurface(
                 beyondViewportPageCount = 1,
                 key = { page -> SettingsSection.entries[page].name },
             ) { page ->
-                SettingsSectionContent(
-                    SettingsSection.entries[page],
-                    onOpenNotifications,
-                    calDavAccounts,
-                    onOpenAccounts,
-                    onImportCalendar,
-                    onExportCalendar,
-                    webcalSubscriptions,
-                    onSubscribeWebcal,
-                    onRemoveWebcal,
-                    onSyncWebcal,
-                    onToggleWebcalNotify,
-                    backgroundSyncCadence,
-                    backgroundSyncStatus,
-                    onBackgroundSyncCadenceChanged,
-                    onOpenSubscribe = { subscribeOpen = true },
-                )
+                CompositionLocalProvider(
+                    LocalSettingsSearchTarget provides searchTarget.takeIf {
+                        sectionPagerState.settledPage == page && sectionPagerState.currentPage == page
+                    },
+                ) {
+                    SettingsSectionContent(
+                        SettingsSection.entries[page],
+                        onOpenNotifications,
+                        calDavAccounts,
+                        onOpenAccounts,
+                        onImportCalendar,
+                        onExportCalendar,
+                        webcalSubscriptions,
+                        onSubscribeWebcal,
+                        onRemoveWebcal,
+                        onSyncWebcal,
+                        onToggleWebcalNotify,
+                        backgroundSyncCadence,
+                        backgroundSyncStatus,
+                        onBackgroundSyncCadenceChanged,
+                        onOpenSubscribe = { subscribeOpen = true },
+                    )
+                }
+            }
+        }
+        val searchField: @Composable () -> Unit = {
+            CalinoSearchField(
+                query = searchQuery,
+                onQueryChanged = { searchQuery = it },
+                placeholder = "Search settings…",
+                contentDescription = "Search settings field",
+                modifier = Modifier.fillMaxWidth()
+                    .padding(horizontal = if (sideRail) 12.dp else 20.dp, vertical = 4.dp),
+                inputModifier = Modifier.testTag("Search settings"),
+            )
+        }
+        val results: @Composable () -> Unit = {
+            SettingsSearchResults(searchQuery) { entry ->
+                searchRequest += 1
+                searchTarget = SettingsSearchTarget(entry.title, entry.group, searchRequest)
+                sectionName = entry.section.name
+                searchOpen = false
+                searchQuery = ""
+                focusManager.clearFocus()
+                keyboard?.hide()
             }
         }
 
@@ -272,7 +373,10 @@ fun SettingsSurface(
                         .fillMaxHeight()
                         .background(CalinoColors.Side),
                 ) {
-                    header(Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
+                    header(Modifier.padding(horizontal = 12.dp, vertical = 14.dp))
+                    AnimatedVisibility(searchOpen, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                        searchField()
+                    }
                     LazyColumn(
                         state = sectionRailState,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -294,11 +398,15 @@ fun SettingsSurface(
                 } else {
                     Box(Modifier.fillMaxHeight().width(1.dp).background(CalinoColors.Line))
                 }
-                pager(Modifier.weight(1f).fillMaxHeight())
+                if (!searchOpen || searchQuery.isBlank()) pager(Modifier.weight(1f).fillMaxHeight())
+                else Box(Modifier.weight(1f).fillMaxHeight()) { results() }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
                 header(Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
+                AnimatedVisibility(searchOpen, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    searchField()
+                }
 
                 val endFadeAlpha by animateFloatAsState(
                     targetValue = if (sectionRailState.canScrollForward) 1f else 0f,
@@ -348,7 +456,8 @@ fun SettingsSurface(
 
                 Spacer(Modifier.height(10.dp))
                 Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
-                pager(Modifier.weight(1f).fillMaxWidth())
+                if (!searchOpen || searchQuery.isBlank()) pager(Modifier.weight(1f).fillMaxWidth())
+                else Box(Modifier.weight(1f).fillMaxWidth()) { results() }
             }
         }
         // Only compose the sheet while it is open. BottomDetailCard's host is a
@@ -411,6 +520,41 @@ private fun SettingsNavChip(
 }
 
 @Composable
+private fun SettingsSearchResults(query: String, onSelect: (SettingsSearchEntry) -> Unit) {
+    val context = LocalContext.current
+    val hasProjectedCalendars = remember { CalinoContainer.get(context).projectedCalendars().isNotEmpty() }
+    val words = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
+    val matches = SettingsSearchEntries.filter { entry ->
+        val searchable = "${entry.title} ${entry.section.title} ${entry.group} ${entry.description}"
+        (entry.title != "Let assistants use Calino" || android.os.Build.VERSION.SDK_INT >= 36) &&
+            (entry.title != "Let another app remind me" || hasProjectedCalendars) &&
+            words.all { searchable.contains(it, ignoreCase = true) }
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = CalinoSpacing.Screen, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (matches.isEmpty()) item { Text("No settings found", color = CalinoColors.Ink2) }
+        items(matches, key = { "${it.section.name}:${it.title}" }) { entry ->
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(CalinoShapes.Card))
+                    .background(CalinoColors.Panel)
+                    .clickable { onSelect(entry) }
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "Open ${entry.title} in ${entry.section.title} settings"
+                    },
+            ) {
+                Text(entry.title, style = CalinoTypography.bodyLarge)
+                Text(entry.section.title, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsSectionContent(
     section: SettingsSection,
     onOpenNotifications: () -> Unit,
@@ -429,26 +573,34 @@ private fun SettingsSectionContent(
     onOpenSubscribe: () -> Unit,
 ) {
     when (section) {
-        SettingsSection.General -> GeneralSettings()
-        SettingsSection.Appearance -> AppearanceSettings()
-        SettingsSection.Calendar -> CalendarSettings()
-        SettingsSection.Events -> EventSettings()
-        SettingsSection.Categories -> CategoriesSettings()
-        SettingsSection.Notifications -> NotificationSettings(onOpenNotifications)
-        SettingsSection.Sync -> SyncSettings(
-            calDavAccounts,
-            onOpenAccounts,
-            webcalSubscriptions,
-            onRemoveWebcal,
-            onSyncWebcal,
-            onToggleWebcalNotify,
-            backgroundSyncCadence,
-            backgroundSyncStatus,
-            onBackgroundSyncCadenceChanged,
-            onOpenSubscribe,
-        )
-        SettingsSection.Data -> DataSettings(onImportCalendar, onExportCalendar)
-        SettingsSection.AiVision -> AiVisionSettingsPage()
+        SettingsSection.Display -> SettingsPage {
+            GeneralSettings()
+            AppearanceSettings()
+            CalendarSettings()
+        }
+        SettingsSection.EventsTasks -> SettingsPage {
+            EventSettings()
+            CategoriesSettings()
+        }
+        SettingsSection.Reminders -> SettingsPage { NotificationSettings(onOpenNotifications) }
+        SettingsSection.CalendarsSync -> SettingsPage {
+            SyncSettings(
+                calDavAccounts,
+                onOpenAccounts,
+                webcalSubscriptions,
+                onRemoveWebcal,
+                onSyncWebcal,
+                onToggleWebcalNotify,
+                backgroundSyncCadence,
+                backgroundSyncStatus,
+                onBackgroundSyncCadenceChanged,
+                onOpenSubscribe,
+            )
+        }
+        SettingsSection.DataAccess -> SettingsPage {
+            DataSettings(onImportCalendar, onExportCalendar)
+            SettingsGroup("AI Photo Import") { AiVisionSettingsContent() }
+        }
     }
 }
 
@@ -480,16 +632,9 @@ private fun SettingsPage(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun GeneralSettings() = SettingsPage {
+private fun GeneralSettings() {
     val preferences = LocalCalinoPreferences.current
-    val deviceDefaults = LocalCalinoDeviceDefaults.current
     SettingsGroup("Regional defaults") {
-        PlannedRow("Timezone", "Used for event times and reminders", value = deviceDefaults.timeZone.id)
-        PlannedRow(
-            "Date format",
-            "How dates are written across Calino",
-            value = deviceDefaults.formatDate(LocalDate.of(2026, 5, 18)),
-        )
         SettingRow("Time format", "Choose the clock that feels natural", controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
             // Unlike its neighbours this one is wired through: it drives every
             // clock face in the app, not just its own segmented control.
@@ -502,7 +647,6 @@ private fun GeneralSettings() = SettingsPage {
                 semanticLabel = "Time format",
             )
         }
-        PlannedRow("Language", "The interface language", value = deviceDefaults.languageDisplayName)
     }
     SettingsGroup("Surfaces") {
         SettingToggleRow(
@@ -523,8 +667,7 @@ private fun GeneralSettings() = SettingsPage {
 @Composable
 private fun AppearanceSettings() {
     val preferences = LocalCalinoPreferences.current
-    val deviceDefaults = LocalCalinoDeviceDefaults.current
-    SettingsPage {
+    Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         SettingsGroup("Theme") {
             Column(Modifier.padding(18.dp)) {
                 Text("Appearance", style = CalinoTypography.labelLarge)
@@ -548,30 +691,6 @@ private fun AppearanceSettings() {
                     }
                 }
             }
-            SettingDivider()
-            Column(Modifier.padding(18.dp).alphaIfDisabled(false)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Accent color", style = CalinoTypography.labelLarge)
-                    PlannedTag()
-                }
-                Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    listOf(
-                        "Accent" to CalinoColors.Accent,
-                        "Rose" to CalinoColors.Rose,
-                        "Blue" to CalinoColors.Blue,
-                        "Green" to CalinoColors.Green,
-                        "Plum" to CalinoColors.Plum,
-                    ).forEachIndexed { index, (name, color) ->
-                        AccentSwatch(name, color, selected = index == 0, enabled = false) {}
-                    }
-                }
-            }
-            SettingDivider()
-            PlannedRow(
-                "Font size",
-                "Tune the reading scale",
-                value = "${(deviceDefaults.fontScale * 100).toInt()}%",
-            )
         }
     }
 }
@@ -579,7 +698,7 @@ private fun AppearanceSettings() {
 @Composable
 private fun CalendarSettings() {
     val preferences = LocalCalinoPreferences.current
-    SettingsPage {
+    Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         SettingsGroup("Display") {
             SettingChoiceRow(
                 label = "Default view",
@@ -624,23 +743,13 @@ private fun CalendarSettings() {
                 onSelected = preferences.setEventDensity,
             )
         }
-        SettingsGroup("Grid behaviour") {
-            PlannedToggleRow("Compact recurring events", "Keep repeated events calm in busy months", checked = true)
-            PlannedToggleRow("Compact past weeks", "Give more room to the weeks ahead", checked = false)
-            SettingToggleRow(
-                "Hide completed tasks",
-                "Keep finished work out of the calendar",
-                preferences.hideCompletedTasks,
-                preferences.setHideCompletedTasks,
-            )
-        }
     }
 }
 
 @Composable
 private fun EventSettings() {
     val preferences = LocalCalinoPreferences.current
-    SettingsPage {
+    Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         SettingsGroup("New event defaults") {
             SettingChoiceRow(
                 label = "Default duration",
@@ -650,15 +759,6 @@ private fun EventSettings() {
                 labelOf = { it.label },
                 onSelected = preferences.setDefaultDuration,
             )
-            SettingChoiceRow(
-                label = "Default reminder",
-                description = "What a new event reminds you with",
-                options = CalinoDefaultReminder.entries,
-                selected = preferences.defaultReminder,
-                labelOf = { it.label },
-                onSelected = preferences.setDefaultReminder,
-            )
-            PlannedRow("Default calendar", "Where quick additions are filed", value = "Personal")
         }
         SettingsGroup("Display") {
             SettingToggleRow(
@@ -673,7 +773,14 @@ private fun EventSettings() {
                 preferences.showLocations,
                 preferences.setShowLocations,
             )
-            PlannedToggleRow("Snap to grid", "Align times to 15-minute increments", checked = false)
+        }
+        SettingsGroup("Tasks in calendar") {
+            SettingToggleRow(
+                "Hide completed tasks",
+                "Keep finished work out of the calendar",
+                preferences.hideCompletedTasks,
+                preferences.setHideCompletedTasks,
+            )
         }
     }
 }
@@ -685,7 +792,7 @@ private fun CategoriesSettings() {
     var categories by remember { mutableStateOf(FixtureCategories) }
     var adding by rememberSaveable { mutableStateOf(false) }
     val colors = listOf(CalinoColors.Blue, CalinoColors.Rose, CalinoColors.Amber, CalinoColors.Plum, CalinoColors.Green)
-    SettingsPage {
+    Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         SettingsGroup("Labels used by your records") {
             val existingCategories = if (adding) categories.dropLast(1) else categories
             existingCategories.forEachIndexed { index, category ->
@@ -733,7 +840,7 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
     val preferences = LocalCalinoPreferences.current
     val permission = LocalNotificationPermission.current
     val context = LocalContext.current
-    SettingsPage {
+    Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         if (!permission.granted) {
             SettingsGroup("Permission") {
                 SettingActionRow(
@@ -806,8 +913,15 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
                     "dontkillmyapp.com lists the exact steps for each manufacturer.",
             )
         }
-        SettingsGroup("Default reminder") {
-            SettingNote("What a new event reminds you with is set under Events.")
+        SettingsGroup("New event reminder") {
+            SettingChoiceRow(
+                label = "Default reminder",
+                description = "What a new event reminds you with",
+                options = CalinoDefaultReminder.entries,
+                selected = preferences.defaultReminder,
+                labelOf = { it.label },
+                onSelected = preferences.setDefaultReminder,
+            )
         }
     }
 }
@@ -826,7 +940,7 @@ private fun SyncSettings(
     onOpenSubscribe: () -> Unit,
 ) {
     val preferences = LocalCalinoPreferences.current
-    SettingsPage {
+    Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         SettingsGroup("Connected accounts") {
             SettingActionRow(
                 title = "Calendars and accounts",
@@ -946,7 +1060,7 @@ private fun SyncSettings(
 }
 
 @Composable
-private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) = SettingsPage {
+private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) {
     SettingsGroup("Import & export") {
         SettingActionRow("Export calendar", "Save a local .ics copy of one calendar", "Export", enabled = true, onClick = onExport)
         SettingDivider()
@@ -980,19 +1094,20 @@ private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) = SettingsP
             }
         }
     }
-    SettingsGroup("Danger zone") {
-        Text("These actions are not available yet.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(18.dp))
-        SettingDivider()
-        SettingActionRow("Delete all records", "Remove the local fixture data", "Delete", danger = true)
-        SettingDivider()
-        SettingActionRow("Reset Calino", "Return every preference to its defaults", "Reset", danger = true)
-    }
 }
 
 @Composable
 private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
+    val target = LocalSettingsSearchTarget.current
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(target) {
+        if (target?.group == title && (target.title == title || target.title == "Categories")) {
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(CalinoShapes.Card)).background(CalinoColors.Panel)
+        Modifier.fillMaxWidth().bringIntoViewRequester(bringIntoViewRequester)
+            .clip(RoundedCornerShape(CalinoShapes.Card)).background(CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card)),
     ) {
         Text(
@@ -1019,9 +1134,15 @@ private fun SettingRow(
     controlLayout: SettingRowControlLayout = SettingRowControlLayout.Inline,
     control: @Composable () -> Unit,
 ) {
+    val target = LocalSettingsSearchTarget.current
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(target) {
+        if (target?.title == label) bringIntoViewRequester.bringIntoView()
+    }
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoViewRequester)
             .padding(horizontal = SettingsRowHorizontalPadding, vertical = SettingsRowVerticalPadding)
             .alphaIfDisabled(enabled)
             // Dimming alone used to leave the control live, so a row that meant
@@ -1097,65 +1218,6 @@ private fun <T> SettingChoiceRow(
     )
 }
 
-/**
- * A row for a setting that has no behaviour behind it yet.
- *
- * It reads as deliberately unavailable rather than broken: dimmed, tagged, and
- * genuinely inert -- the control cannot be moved by touch, and accessibility is
- * told the row is disabled rather than being offered a switch that does
- * nothing.
- */
-@Composable
-private fun PlannedRow(label: String, description: String, value: String? = null) = SettingRow(
-    label = label,
-    description = description,
-    enabled = false,
-    controlLayout = SettingRowControlLayout.AdaptiveTrailing,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        value?.let { SettingValue(it) }
-        PlannedTag()
-    }
-}
-
-@Composable
-private fun PlannedTag() = Text(
-    "PLANNED",
-    style = CalinoTypography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 1.sp),
-    color = CalinoColors.Ink3,
-    modifier = Modifier
-        .clip(RoundedCornerShape(6.dp))
-        .background(CalinoColors.Ink.copy(alpha = .05f))
-        .padding(horizontal = 6.dp, vertical = 3.dp),
-)
-
-@Composable
-private fun PlannedToggleRow(label: String, description: String, checked: Boolean) = SettingRow(
-    label = label,
-    description = description,
-    enabled = false,
-    controlLayout = SettingRowControlLayout.AdaptiveTrailing,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PlannedTag()
-        Switch(
-            checked = checked,
-            onCheckedChange = null,
-            enabled = false,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = CalinoColors.Canvas,
-                checkedTrackColor = CalinoColors.Accent,
-                uncheckedThumbColor = CalinoColors.Canvas,
-                uncheckedTrackColor = CalinoColors.Ink3.copy(alpha = .45f),
-                disabledCheckedThumbColor = CalinoColors.Canvas,
-                disabledCheckedTrackColor = CalinoColors.Accent,
-                disabledUncheckedThumbColor = CalinoColors.Canvas,
-                disabledUncheckedTrackColor = CalinoColors.Ink3.copy(alpha = .45f),
-            ),
-        )
-    }
-}
-
 @Composable
 private fun SettingToggleRow(label: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) = SettingRow(label, description) {
     Switch(
@@ -1167,43 +1229,6 @@ private fun SettingToggleRow(label: String, description: String, checked: Boolea
         // the state, so a screen reader reads the two separately and neither
         // node is the whole control. Merging makes it one switch again.
         modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "$label toggle" },
-    )
-}
-
-@Composable
-private fun SettingValue(value: String) {
-    Box(
-        Modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(CalinoColors.Canvas)
-            .padding(horizontal = 11.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        // The inline row gives the label a weight and the control its
-        // intrinsic width. Filling the width here starves the label into
-        // one-character wrapping on a wide (landscape) settings card.
-        Text(
-            value,
-            style = CalinoTypography.bodyMedium,
-            color = CalinoColors.Ink2,
-            textAlign = TextAlign.Center,
-        )
-    }
-}
-
-@Composable
-private fun SettingSegmented(label: String, options: List<String>, selected: Int) {
-    var activeIndex by rememberSaveable(options) { mutableIntStateOf(selected.coerceIn(0, options.lastIndex)) }
-    LaunchedEffect(selected) {
-        activeIndex = selected.coerceIn(0, options.lastIndex)
-    }
-    CompactSegmentedControl(
-        options = options,
-        selectedIndex = activeIndex,
-        onSelected = { activeIndex = it },
-        modifier = Modifier.fillMaxWidth(),
-        semanticLabel = label,
     )
 }
 
@@ -1253,33 +1278,6 @@ private fun ThemeCard(name: String, preview: CalinoPalette, selected: Boolean, e
 }
 
 @Composable
-private fun AccentSwatch(name: String, color: Color, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    val outlineWidth by androidx.compose.animation.core.animateDpAsState(
-        if (selected) 3.dp else 0.dp,
-        tween(180),
-        label = "accent selection indicator",
-    )
-    Box(
-        Modifier
-            .size(48.dp)
-            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "$name accent color"
-                if (!enabled) disabled()
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(31.dp)
-                .clip(CircleShape)
-                .background(color)
-                .border(outlineWidth, CalinoColors.Panel, CircleShape),
-        )
-    }
-}
-
-@Composable
 private fun SettingActionRow(
     title: String,
     description: String,
@@ -1289,8 +1287,13 @@ private fun SettingActionRow(
     actionContentDescription: String? = null,
     onClick: () -> Unit = {},
 ) {
+    val target = LocalSettingsSearchTarget.current
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(target) {
+        if (target?.title == title) bringIntoViewRequester.bringIntoView()
+    }
     BoxWithConstraints(
-        Modifier.fillMaxWidth().padding(
+        Modifier.fillMaxWidth().bringIntoViewRequester(bringIntoViewRequester).padding(
             horizontal = SettingsRowHorizontalPadding,
             vertical = SettingsRowVerticalPadding,
         ),

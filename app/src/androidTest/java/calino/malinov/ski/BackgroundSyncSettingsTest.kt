@@ -80,8 +80,8 @@ class BackgroundSyncSettingsTest : CalinoUiTest() {
     private fun openSyncSettings() {
         compose.openRoute("Settings")
         compose.waitForIdle()
-        compose.onNodeWithTag("Settings section rail").performScrollToIndex(6)
-        compose.onNodeWithContentDescription("Sync settings")
+        compose.onNodeWithTag("Settings section rail").performScrollToIndex(3)
+        compose.onNodeWithContentDescription("Calendars & sync settings")
             .performScrollTo()
             .performClick()
         compose.waitForIdle()

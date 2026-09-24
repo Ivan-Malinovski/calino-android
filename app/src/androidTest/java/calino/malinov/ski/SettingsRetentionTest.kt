@@ -5,8 +5,10 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import calino.malinov.ski.CalinoTestActions.FixtureDate
 import calino.malinov.ski.CalinoTestActions.WeekPager
@@ -27,8 +29,21 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SettingsRetentionTest : CalinoUiTest() {
 
+    @Test fun searchOpensTheMatchingReminderSetting() {
+        compose.openRoute("Settings")
+        compose.onNodeWithTag("Search settings").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Search settings").performClick()
+        compose.onNodeWithTag("Search settings").performTextInput("default reminder")
+        compose.onNodeWithContentDescription("Open Default reminder in Reminders settings")
+            .performClick()
+        compose.onNodeWithContentDescription("Reminders settings").assertIsSelected()
+        compose.onNodeWithContentDescription("Default reminder: None")
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
     @Test fun aToggleHoldsAcrossNavigation() {
-        openSettingsSection(Calendar)
+        openSettingsSection(Display)
         val weekNumbers = { compose.onNodeWithContentDescription("Show week numbers toggle") }
         // Week numbers default to on, so switching it off is the change that
         // has to survive -- and the direction a preference is easiest to lose.
@@ -39,26 +54,26 @@ class SettingsRetentionTest : CalinoUiTest() {
 
         compose.openRoute("Month")
         compose.waitForIdle()
-        openSettingsSection(Calendar)
+        openSettingsSection(Display)
 
         weekNumbers().performScrollTo().assertIsOff()
     }
 
     @Test fun aSegmentedChoiceHoldsAcrossNavigation() {
-        openSettingsSection(Calendar)
+        openSettingsSection(Display)
         compose.onNodeWithContentDescription("First day of week: Sunday").performScrollTo().performClick()
         compose.waitForIdle()
 
         compose.openRoute("Month")
         compose.waitForIdle()
-        openSettingsSection(Calendar)
+        openSettingsSection(Display)
 
         compose.onNodeWithContentDescription("First day of week: Sunday").performScrollTo().assertIsSelected()
     }
 
     /** A second selection interrupts the indicator spring without delaying state. */
     @Test fun aSegmentedChoiceCanReverseWhileMoving() {
-        openSettingsSection(Calendar)
+        openSettingsSection(Display)
         compose.onNodeWithContentDescription("First day of week: Sunday").performScrollTo().performClick()
         compose.onNodeWithContentDescription("First day of week: Monday").performClick()
         compose.waitForIdle()
@@ -67,7 +82,7 @@ class SettingsRetentionTest : CalinoUiTest() {
     }
 
     @Test fun aGridToggleHoldsAcrossNavigation() {
-        openSettingsSection(Calendar)
+        openSettingsSection("Events & tasks")
         val hideCompleted = { compose.onNodeWithContentDescription("Hide completed tasks toggle") }
         hideCompleted().performScrollTo().assertIsOff()
         hideCompleted().performClick()
@@ -75,7 +90,7 @@ class SettingsRetentionTest : CalinoUiTest() {
 
         compose.openRoute("Tasks")
         compose.waitForIdle()
-        openSettingsSection(Calendar)
+        openSettingsSection("Events & tasks")
 
         hideCompleted().performScrollTo().assertIsOn()
     }
@@ -86,7 +101,7 @@ class SettingsRetentionTest : CalinoUiTest() {
      * does not when the week starts on Monday.
      */
     @Test fun theWeekStartChangesTheWeekStrip() {
-        openSettingsSection(Calendar)
+        openSettingsSection(Display)
         compose.onNodeWithContentDescription("First day of week: Sunday").performScrollTo().performClick()
         compose.waitForIdle()
 
@@ -99,7 +114,7 @@ class SettingsRetentionTest : CalinoUiTest() {
 
     /** Turning the Journal surface off removes its navigation row. */
     @Test fun disablingJournalRemovesItsDestination() {
-        openSettingsSection(General)
+        openSettingsSection(Display)
         compose.onNodeWithContentDescription("Journal toggle").performScrollTo().performClick()
         compose.waitForIdle()
 
@@ -111,7 +126,7 @@ class SettingsRetentionTest : CalinoUiTest() {
 
     /** ...and turning it back on restores it, rather than needing a relaunch. */
     @Test fun reenablingJournalRestoresItsDestination() {
-        openSettingsSection(General)
+        openSettingsSection(Display)
         val journal = { compose.onNodeWithContentDescription("Journal toggle") }
         journal().performScrollTo().performClick()
         compose.waitForIdle()
@@ -132,7 +147,6 @@ class SettingsRetentionTest : CalinoUiTest() {
     }
 
     private companion object {
-        const val General = "General"
-        const val Calendar = "Calendar"
+        const val Display = "Display"
     }
 }
