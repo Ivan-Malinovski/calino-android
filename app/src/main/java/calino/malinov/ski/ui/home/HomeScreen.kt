@@ -3320,7 +3320,7 @@ private fun MonthGridHitTargets(
     selected: LocalDate,
     month: YearMonth,
     weekStart: CalinoWeekStart,
-    events: Map<LocalDate, List<CalEvent>>,
+    events: Map<LocalDate, List<CalEvent?>>,
     journalDates: Set<LocalDate>,
     tasks: Map<LocalDate, List<CalTask>> = emptyMap(),
     targetHeight: Dp,
@@ -3394,7 +3394,7 @@ private fun MonthGridHitTargets(
                     // drag that began on a neighboring surface.
                     if (zoom <= 1f && row != compactWeekRow) continue
                     val date = start.plusDays(index.toLong())
-                    events[date].orEmpty().take(eventCapacity).forEach { event -> add(date to event) }
+                    events[date].orEmpty().take(eventCapacity).forEach { event -> if (event != null) add(date to event) }
                 }
             }
         }
@@ -3405,7 +3405,7 @@ private fun MonthGridHitTargets(
             repeat(rows) { row ->
                 repeat(7) { column ->
                     val date = start.plusDays((row * 7 + column).toLong())
-                    val dayEvents = events[date].orEmpty()
+                    val dayEvents = events[date].orEmpty().filterNotNull()
                     val dueTasks = tasks[date].orEmpty()
                     val dateDescription = remember(date, selected, dayEvents, date in journalDates, dueTasks) {
                             buildString {
@@ -3545,12 +3545,13 @@ private fun MonthGridHitTargets(
                         events[date].orEmpty().take(eventCapacity)
                     }
                     if (rowHidden) {
-                        eventIndex += dateEvents.size
+                        eventIndex += dateEvents.count { it != null }
                     } else {
                         val eventTop = contentHeaderHeightPx +
                             (0 until row).sumOf { previous -> rowHeight(previous).toDouble() }.toFloat() +
                             25.dp.roundToPx()
-                        dateEvents.forEachIndexed { eventOffset, _ ->
+                        dateEvents.forEachIndexed { eventOffset, event ->
+                            if (event == null) return@forEachIndexed
                             val placeable = eventPlaceables.getOrNull(eventIndex++) ?: return@forEachIndexed
                             placeable.placeRelative(
                                 x = gridLeftPx + column * cellWidth,
@@ -3707,6 +3708,7 @@ private fun StaticMonthGrid(
     val start = geometry.start
     val rows = geometry.rows
     val monthEvents = remember(eventDateIndex, geometry) { monthEventIndex(eventDateIndex, month, weekStart) }
+    val laneSlots = remember(monthEvents, geometry) { monthLaneSlots(monthEvents, geometry.start, geometry.rows) }
     val monthJournalDates = remember(journals, geometry) { monthJournalDates(journals, month, weekStart) }
     val textMeasurer = rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -3795,8 +3797,10 @@ private fun StaticMonthGrid(
         val cellDates = remember(geometry) {
             List(rows * 7) { index -> start.plusDays(index.toLong()) }
         }
-        val cellEvents = remember(geometry, events) {
-            cellDates.map { date -> monthEvents[date].orEmpty() }
+        // Slots, not a plain list: a span holds one lane across its week row,
+        // and `null` is a lane left empty so the span below it stays level.
+        val cellEvents = remember(laneSlots, geometry) {
+            cellDates.map { date -> laneSlots[date].orEmpty() }
         }
         val inMonthFlags = remember(geometry) {
             cellDates.map { date -> YearMonth.from(date) == month }
@@ -3812,7 +3816,9 @@ private fun StaticMonthGrid(
             anchorDay = compactDay,
         )
         val compactMarkerWidths = remember(geometry, events, density, eventDensity) {
-            cellEvents.map { dayEvents ->
+            // Markers are dots, not lanes: they skip empty slots.
+            cellEvents.map { slots ->
+                val dayEvents = slots.filterNotNull()
                 FloatArray(dayEvents.size.coerceAtMost(monthCellMarkerCap(eventDensity, 4))) { index ->
                     with(density) { if (dayEvents[index].allDay) 18.dp.toPx() else 5.dp.toPx() }
                 }
@@ -3847,7 +3853,8 @@ private fun StaticMonthGrid(
         }
         val overflowLayouts = remember(geometry, events, chipCapacity, overflowChipCapacity, density) {
             cellEvents.mapIndexed { index, dayEvents ->
-                val overflow = dayEvents.size - shownCounts[index]
+                val overflow = dayEvents.count { it != null } -
+                    dayEvents.take(shownCounts[index]).count { it != null }
                 if (overflow > 0) {
                     textMeasurer.measure("+$overflow", overflowStyle)
                 } else {
@@ -4347,10 +4354,12 @@ private fun StaticMonthGrid(
                     // The collapsed grid only ever carries four markers, so a
                     // card past the fourth has nothing to grow out of: it
                     // simply fades in where it belongs.
-                    repeat(max(rawWidths.size, shownCount)) { eventIndex ->
-                        val event = dayEvents[eventIndex]
-                        val hasMarker = eventIndex < rawWidths.size
-                        val baseMarkerWidth = if (hasMarker) rawWidths[eventIndex] * markerScale else 0f
+                    var markerOrdinal = 0
+                    for (eventIndex in dayEvents.indices) {
+                        if (eventIndex >= shownCount && markerOrdinal >= rawWidths.size) break
+                        val event = dayEvents[eventIndex] ?: continue
+                        val hasMarker = markerOrdinal < rawWidths.size
+                        val baseMarkerWidth = if (hasMarker) rawWidths[markerOrdinal++] * markerScale else 0f
                         val baseMarkerHeight = with(density) { if (event.allDay) 3.dp.toPx() else 5.dp.toPx() }
                         val markerWidth = baseMarkerWidth * markerEntrance
                         val markerHeight = baseMarkerHeight * markerEntrance
@@ -4474,7 +4483,12 @@ private fun StaticMonthGrid(
                     // occupies in a cell with the same math the cells use.
                     fun laneMarker(cellIndex: Int, lane: Int): Rect? {
                         val widths = compactMarkerWidths[cellIndex]
-                        if (lane >= widths.size) return null
+                        val slots = cellEvents[cellIndex]
+                        val slotEvent = slots.getOrNull(lane) ?: return null
+                        // Markers skip empty slots, so a lane maps to the
+                        // count of real events above it.
+                        val marker = slots.take(lane).count { it != null }
+                        if (marker >= widths.size) return null
                         val gaps = eventMarkerGapPx * (widths.size - 1).coerceAtLeast(0)
                         var rawTotal = gaps
                         widths.forEach { width -> rawTotal += width }
@@ -4487,10 +4501,10 @@ private fun StaticMonthGrid(
                         val markerColumn = cellIndex % 7
                         var left = gridLeftPx + cellWidthPx * markerColumn +
                             (cellWidthPx - rawTotal * scale) / 2f
-                        repeat(lane) { earlier -> left += widths[earlier] * scale + eventMarkerGapPx }
-                        val width = widths[lane] * scale
+                        repeat(marker) { earlier -> left += widths[earlier] * scale + eventMarkerGapPx }
+                        val width = widths[marker] * scale
                         val height = with(density) {
-                            if (cellEvents[cellIndex][lane].allDay) 3.dp.toPx() else 5.dp.toPx()
+                            if (slotEvent.allDay) 3.dp.toPx() else 5.dp.toPx()
                         }
                         val areaTop = dateTopFor(markerRow, markerColumn) +
                             (compactDateSizePx + (detailedDateSizePx - compactDateSizePx) * detailProgress) +
@@ -4504,6 +4518,7 @@ private fun StaticMonthGrid(
                             val date = cellDates[index]
                             val dayEvents = cellEvents[index]
                             dayEvents.take(shownCounts[index]).forEachIndexed { lane, event ->
+                                if (event == null) return@forEachIndexed
                                 val span = expandedMonthSpanSegment(event, date, column)
                                 if (!span.isSpan || span.continuesFromPrevious) return@forEachIndexed
                                 var endColumn = column
@@ -4648,11 +4663,11 @@ private fun StaticMonthGrid(
             // duration of the drag.
             draggedEvent?.let { visual ->
                 val sourceIndex = cellEvents.indexOfFirst { dayEvents ->
-                    dayEvents.any { event -> event.id == visual.eventId }
+                    dayEvents.any { event -> event?.id == visual.eventId }
                 }
                 if (sourceIndex >= 0) {
                     val sourceEvents = cellEvents[sourceIndex]
-                    val draggedIndex = sourceEvents.indexOfFirst { it.id == visual.eventId }
+                    val draggedIndex = sourceEvents.indexOfFirst { it?.id == visual.eventId }
                     val shownCount = shownCounts[sourceIndex]
                     if (draggedIndex in 0 until shownCount) {
                         val row = sourceIndex / 7
@@ -4663,7 +4678,7 @@ private fun StaticMonthGrid(
                             chipPitchPx * draggedIndex + visual.offset.y
                         val ghostLeft = gridLeftPx + cellWidthPx * column +
                             chipHorizontalPaddingPx + visual.offset.x
-                        val dragged = sourceEvents[draggedIndex]
+                        val dragged = sourceEvents[draggedIndex] ?: return@let
                         val ghostColor = colors.forEvent(Color(dragged.color))
                         val ghostWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f).coerceAtLeast(1f)
                         drawRoundRect(
@@ -4712,7 +4727,7 @@ private fun StaticMonthGrid(
                 selected = selected,
                 month = month,
                 weekStart = weekStart,
-                events = monthEvents,
+                events = laneSlots,
                 journalDates = monthJournalDates,
                 tasks = tasksByDueDate,
                 targetHeight = detailedGridHeight,
@@ -5150,6 +5165,63 @@ internal fun monthEventIndex(
             val date = start.plusDays(index.toLong())
             val dayEvents = eventDateIndex.eventsOn(date).sortedBy(::expandedMonthEventPriority)
             if (dayEvents.isNotEmpty()) put(date, dayEvents)
+        }
+    }
+}
+
+/**
+ * Per-cell card slots for the month grid, `null` for a reserved empty lane.
+ *
+ * Within each week row a multi-day span keeps one lane on every day it covers,
+ * so its segments join into a single bar. Lanes are assigned greedily, longest
+ * run first, then earliest start, then id -- the same rule as Calino Web's
+ * `assignSpanLanes`. A lane a span leaves free on a day is filled by that
+ * day's next single-day event, and only stays empty when none is left.
+ */
+internal fun monthLaneSlots(
+    monthEvents: Map<LocalDate, List<CalEvent>>,
+    start: LocalDate,
+    rows: Int,
+): Map<LocalDate, List<CalEvent?>> = buildMap {
+    repeat(rows) { row ->
+        val dates = List(7) { column -> start.plusDays((row * 7 + column).toLong()) }
+        val columnsOf = linkedMapOf<String, MutableList<Int>>()
+        dates.forEachIndexed { column, date ->
+            monthEvents[date].orEmpty().forEach { event ->
+                if (expandedMonthSpanSegment(event, date, column).isSpan) {
+                    columnsOf.getOrPut(event.id) { mutableListOf() } += column
+                }
+            }
+        }
+        val laneOf = HashMap<String, Int>()
+        val occupied = mutableListOf<BooleanArray>()
+        columnsOf.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, MutableList<Int>>> { it.value.size }
+                    .thenBy { it.value.first() }
+                    .thenBy { it.key },
+            )
+            .forEach { (id, columns) ->
+                var lane = 0
+                while (lane < occupied.size && columns.any { occupied[lane][it] }) lane++
+                if (lane == occupied.size) occupied += BooleanArray(7)
+                columns.forEach { occupied[lane][it] = true }
+                laneOf[id] = lane
+            }
+        dates.forEach { date ->
+            val dayEvents = monthEvents[date].orEmpty()
+            if (dayEvents.isEmpty()) return@forEach
+            val byLane = HashMap<Int, CalEvent>()
+            val singles = ArrayDeque<CalEvent>()
+            dayEvents.forEach { event ->
+                val lane = laneOf[event.id]
+                if (lane != null && lane !in byLane) byLane[lane] = event else singles += event
+            }
+            val maxLane = byLane.keys.maxOrNull() ?: -1
+            val slots = ArrayList<CalEvent?>(dayEvents.size)
+            for (lane in 0..maxLane) slots += byLane[lane] ?: singles.removeFirstOrNull()
+            slots += singles
+            put(date, slots)
         }
     }
 }
