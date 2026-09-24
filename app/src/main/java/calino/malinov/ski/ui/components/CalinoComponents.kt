@@ -110,6 +110,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -1345,8 +1346,45 @@ fun CalinoMonthHeading(
                         monthForPage(firstPage) != monthForPage(secondPage)
                     }
                 }
-                if (headingFollowsPager) {
-                    Box(Modifier.fillMaxWidth().height(30.dp).clipToBounds()) {
+                // One wrap-height box for both states: a fixed-height slot
+                // for the sliding labels and a bare label at rest measured
+                // differently, so the title hopped up and back on each swipe.
+                // The slot reaches fadeEdge past the title on each side and
+                // fades there, so a label fades only once it slides into the
+                // margin; the settled title never sits under the mask.
+                val fadeEdge = 20.dp
+                Box(
+                    Modifier.fillMaxWidth()
+                        .layout { measurable, constraints ->
+                            val extra = (fadeEdge * 2).roundToPx()
+                            val placeable = measurable.measure(
+                                constraints.copy(
+                                    minWidth = constraints.minWidth + extra,
+                                    maxWidth = constraints.maxWidth + extra,
+                                ),
+                            )
+                            layout(placeable.width - extra, placeable.height) {
+                                placeable.place(-extra / 2, 0)
+                            }
+                        }
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        .drawWithContent {
+                            drawContent()
+                            if (!headingFollowsPager) return@drawWithContent
+                            val fade = fadeEdge.toPx().coerceAtMost(size.width / 2)
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    0f to Color.Transparent,
+                                    fade / size.width to Color.Black,
+                                    1f - fade / size.width to Color.Black,
+                                    1f to Color.Transparent,
+                                ),
+                                blendMode = BlendMode.DstIn,
+                            )
+                        }
+                        .padding(horizontal = fadeEdge),
+                ) {
+                    if (headingFollowsPager) {
                         ((centerPage - 1).coerceAtLeast(0)..(centerPage + 1).coerceAtMost(monthPagerState.pageCount - 1)).forEach { page ->
                             MonthHeadingLabel(
                                 month = monthForPage(page),
@@ -1357,13 +1395,13 @@ fun CalinoMonthHeading(
                                 },
                             )
                         }
+                    } else {
+                        // A week pager can move without changing the represented
+                        // month. Keep one title fixed in that case; sliding two
+                        // identical labels reads as a month transition that never
+                        // happened.
+                        MonthHeadingLabel(monthForPage(centerPage))
                     }
-                } else {
-                    // A week pager can move without changing the represented
-                    // month. Keep one title fixed in that case; sliding two
-                    // identical labels reads as a month transition that never
-                    // happened.
-                    MonthHeadingLabel(monthForPage(centerPage))
                 }
             } else {
                 AnimatedContent(
