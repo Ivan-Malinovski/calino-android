@@ -1081,6 +1081,9 @@ private fun EventDetailContent(
             state = listState,
             modifier = Modifier.weight(1f).padding(horizontal = 18.dp).testTag("event-detail-list"),
             verticalArrangement = Arrangement.spacedBy(2.dp),
+            // The pill floats over the tail of the list, so its lane is
+            // scroll content: the rows run to the card's edge under it.
+            contentPadding = PaddingValues(bottom = EventPreviewPillClearance),
         ) {
             item {
                 PreviewEditRow(
@@ -1186,9 +1189,14 @@ private fun EventDetailContent(
                 }
             }
         }
-        // This compact card's pill is 56dp high and sits close to the card
-        // edge; the global 96dp editor clearance needlessly hid the final row.
-        Spacer(Modifier.height(76.dp))
+        // The scope prompts sit below the list, so only while one is open
+        // does the card reserve the pill's lane as a fixed footer.
+        val footer by animateDpAsState(
+            targetValue = if (scopePrompt || (confirmDelete && isRecurringEvent(event))) EventPreviewPillClearance else 0.dp,
+            animationSpec = tween(180),
+            label = "event detail pill footer",
+        )
+        Spacer(Modifier.height(footer))
     }
 }
 
@@ -1211,6 +1219,10 @@ private data class EventPreviewPillState(
     val onDeleteOccurrence: () -> Unit,
     val onDeletePromptChanged: (Boolean) -> Unit,
 )
+
+// This compact card's pill is 56dp high and sits close to the card edge; the
+// global 96dp editor clearance needlessly hid the final row.
+private val EventPreviewPillClearance = 76.dp
 
 /** The default span an event gets when it is handed a time it did not have. */
 private const val DefaultEventMinutes = 60
