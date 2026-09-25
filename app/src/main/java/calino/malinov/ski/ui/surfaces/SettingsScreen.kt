@@ -830,19 +830,27 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
                     "alongside the ones your records already use.",
             )
             SettingDivider()
-            AnimatedSettingRows(userCategories, keyOf = { it }) { category ->
+            AnimatedSettingRows(offered, keyOf = { it }) { category ->
                 val count = catalog.records.count { (_, categories) -> category in categories }
+                // Only a name added here and on no record can go: removing a
+                // category from records would be a server edit, not a setting.
+                val removable = category in userCategories && count == 0
                 SettingActionRow(
                     title = category,
-                    description = if (count == 1) "1 record" else "$count records",
-                    action = "Remove",
+                    description = when {
+                        count == 1 -> "1 record"
+                        count > 0 -> "$count records"
+                        category in userCategories -> "Added here, not used yet"
+                        else -> "0 records"
+                    },
+                    action = if (removable) "Remove" else "",
                     danger = true,
-                    enabled = true,
+                    enabled = removable,
                     actionContentDescription = "Remove category $category",
                     onClick = { preferences.setUserCategories(userCategories - category) },
                 )
             }
-            if (userCategories.isNotEmpty()) SettingDivider()
+            if (offered.isNotEmpty()) SettingDivider()
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = SettingsRowHorizontalPadding, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1448,11 +1456,12 @@ private fun SettingActionRow(
                     Text(title, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
                     Text(description, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
                 }
-                if (!stackAction) {
+                if (!stackAction && action.isNotEmpty()) {
                     SettingActionButton(action, danger, enabled, actionContentDescription, onClick)
                 }
             }
-            if (stackAction) {
+            // An empty action is an informational row with no button.
+            if (stackAction && action.isNotEmpty()) {
                 SettingActionButton(
                     action,
                     danger,

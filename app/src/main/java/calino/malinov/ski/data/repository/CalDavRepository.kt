@@ -4130,7 +4130,11 @@ class CalDavRepository(
             addressBooks = addressBooks,
             revision = current.revisionOrZero() + 1,
             calendars = calendars.ifEmpty { FixtureCalendars },
-            categories = (FixtureCategories + events.flatMap { it.categories }).distinct(),
+            // Only what the account's records use: the fixture's sample names
+            // belong to the sample data, not to a real calendar.
+            categories = (events.flatMap { it.categories } + tasks.mapNotNull { it.category })
+                .distinct()
+                .sortedBy { it.lowercase() },
             sync = syncState,
             writeStatus = writeStatuses,
         )
