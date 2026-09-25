@@ -242,6 +242,7 @@ class FixtureRepository : CalinoRepository {
     override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
         val existing = snapshot().events.firstOrNull { it.id == id } ?: error("Unknown fixture event: $id")
         val event = eventFromInput(id, input)
+            .copy(conferenceUrl = existing.conferenceUrl)
             .let { if (input.attachments == null) it.copy(attachments = existing.attachments) else it }
         update { current ->
             current.copy(events = current.events.map { if (it.id == id) event else it })

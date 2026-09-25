@@ -61,7 +61,7 @@ private fun Attachment.fileName(): String? =
         ?.trim()
         ?.takeIf(String::isNotEmpty)
 
-private fun uriFileName(uri: String): String? =
+internal fun uriFileName(uri: String): String? =
     uri.substringBefore('?').substringBefore('#').trimEnd('/').substringAfterLast('/')
         .takeIf { it.isNotEmpty() && '.' in it }
         ?.let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }

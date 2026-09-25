@@ -1,5 +1,6 @@
 package calino.malinov.ski.ui.surfaces
 
+import calino.malinov.ski.data.caldav.uriFileName
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
@@ -1341,7 +1342,7 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
         TextButton(
             enabled = valid,
             onClick = {
-                onDraft(draft.copy(attachments = attachments + EventAttachment(uri = link)))
+                onDraft(draft.copy(attachments = attachments + EventAttachment(uri = link, fileName = uriFileName(link))))
                 input = ""
             },
         ) { Text("Add") }

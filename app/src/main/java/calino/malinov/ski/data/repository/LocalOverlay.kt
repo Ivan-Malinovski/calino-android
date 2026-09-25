@@ -104,7 +104,7 @@ internal class LocalOverlay {
         return eventFrom(id, input)
             // Server identity survives a local edit so a later write path can
             // still address the resource it came from.
-            .copy(uid = current.uid, href = current.href, etag = current.etag)
+            .copy(uid = current.uid, href = current.href, etag = current.etag, conferenceUrl = current.conferenceUrl)
             .let { if (input.attachments == null) it.copy(attachments = current.attachments) else it }
             .also(::putEvent)
     }

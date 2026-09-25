@@ -4177,6 +4177,12 @@ class CalDavRepository(
     }
 }
 
-/** An edit that did not supply attachments shows the ones the event already had. */
+/**
+ * An edit that did not supply attachments shows the ones the event already had.
+ * The editor never edits the meeting link, so it always carries over.
+ */
 private fun CalEvent.keepingAttachments(input: NewEvent, current: CalEvent): CalEvent =
-    if (input.attachments == null) copy(attachments = current.attachments) else this
+    copy(
+        conferenceUrl = current.conferenceUrl,
+        attachments = if (input.attachments == null) current.attachments else attachments,
+    )
