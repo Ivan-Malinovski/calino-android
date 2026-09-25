@@ -9,8 +9,8 @@
          tokens they need. CalinoThemes.PaperLight. -->
     <color name="widget_canvas">#FAF8F3</color>
     <color name="widget_ink">#2C2823</color>
-    <color name="widget_ink2">#6F6A62</color>
-    <color name="widget_ink3">#A39D93</color>
+    <color name="widget_ink2">#655F57</color>
+    <color name="widget_ink3">#756D62</color>
     <!-- CalinoPalette.Line: Ink at 9%, flattened onto the canvas. -->
     <color name="widget_hairline">#E7E5E0</color>
     <!-- The cards preview's fills and rails. The fills are what

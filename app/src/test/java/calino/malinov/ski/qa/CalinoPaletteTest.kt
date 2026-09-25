@@ -68,25 +68,43 @@ class CalinoPaletteTest {
     /**
      * The reason the registry is worth having is also the reason it is worth
      * guarding: a ported theme that looks plausible in a CSS file can be
-     * unreadable on a phone. Every dark palette has to clear WCAG AA for body
-     * text on the surface it is actually painted on.
+     * unreadable on a phone. Every palette has to clear WCAG AA for body text
+     * on the surface it is actually painted on.
      *
-     * Not applied to [CalinoThemes.PaperLight] on purpose. Its `Ink3` measures
-     * about 2.7:1 today, which fails. The web's `built-in.css` has since
-     * corrected the same tokens to `#655F57` and `#756D62`; adopting them here
-     * changes how light mode looks everywhere and is a deliberate follow-up,
-     * not something to smuggle in with dark mode.
+     * Light paper's `Ink2`/`Ink3` follow the web's corrected `built-in.css`
+     * values. White on the light `Accent` is 3.56:1 and is exempted here
+     * knowingly: it is a brand-color decision, not a text token.
      */
     @Test
-    fun `dark themes clear WCAG AA for text`() {
-        CalinoThemes.all.filter { it.isDark }.forEach { palette ->
+    fun `every theme clears WCAG AA for text`() {
+        CalinoThemes.all.forEach { palette ->
             assertContrast(palette, "Ink on Canvas", palette.Ink, palette.Canvas)
             assertContrast(palette, "Ink2 on Side", palette.Ink2, palette.Side)
             assertContrast(palette, "Ink3 on Canvas", palette.Ink3, palette.Canvas)
-            assertContrast(palette, "OnAccent on Accent", palette.OnAccent, palette.Accent)
+            assertContrast(palette, "Ink3 on Side", palette.Ink3, palette.Side)
+            if (palette.isDark) {
+                assertContrast(palette, "OnAccent on Accent", palette.OnAccent, palette.Accent)
+            }
             assertContrast(palette, "OnInk on Ink", palette.OnInk, palette.Ink)
             assertContrast(palette, "OnFloat on FloatFill", palette.OnFloat, palette.FloatFill)
             assertContrast(palette, "OnSelection on SelectionFill", palette.OnSelection, palette.SelectionFill)
+        }
+    }
+
+    /**
+     * A dark selection fill that sits within a hair of the panel leaves only
+     * the day number to carry the highlight.
+     */
+    @Test
+    fun `a dark selection fill reads against the surfaces it sits on`() {
+        CalinoThemes.all.filter { it.isDark }.forEach { palette ->
+            listOf("Panel" to palette.Panel, "Canvas" to palette.Canvas).forEach { (name, surface) ->
+                val ratio = contrastRatio(palette.SelectionFill, surface)
+                assertTrue(
+                    "${palette.id}: SelectionFill on $name is %.2f:1".format(ratio),
+                    ratio >= 1.25f,
+                )
+            }
         }
     }
 
