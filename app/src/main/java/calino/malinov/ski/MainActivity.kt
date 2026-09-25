@@ -1631,7 +1631,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         writeScope.launch {
             val opened = runCatching {
                 val file = withContext(Dispatchers.IO) {
-                    val bytes = repository.inlineAttachment(event, attachment) ?: return@withContext null
+                    val bytes = attachment.data ?: repository.inlineAttachment(event, attachment) ?: return@withContext null
                     // One file per name, replaced each time: the cache holds
                     // what is open now, never a second copy of the calendar.
                     val directory = java.io.File(activity.cacheDir, "attachments").also { it.mkdirs() }

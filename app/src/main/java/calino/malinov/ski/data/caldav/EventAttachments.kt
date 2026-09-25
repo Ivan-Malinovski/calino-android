@@ -67,19 +67,39 @@ internal fun uriFileName(uri: String): String? =
         ?.let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
 
 /**
- * Makes the component's link `ATTACH`es match [attachments]: a link that left
- * the list is removed, a new one is added. A kept link stays byte-identical
- * with every foreign parameter (Nextcloud's `X-NC-FILE-ID`, say), and inline
- * data is never touched -- Calino does not author it.
+ * Makes the component's `ATTACH`es match [attachments]. A link or inline file
+ * that left the list is removed; a new link is added, and a file picked in the
+ * editor ([EventAttachment.data]) is embedded as `VALUE=BINARY`. Everything kept
+ * stays byte-identical with every foreign parameter (Nextcloud's
+ * `X-NC-FILE-ID`, say). Kept inline files are matched by
+ * [EventAttachment.inlineIndex], which indexes the component as read, so the
+ * removals are decided before anything changes.
  */
-internal fun VEvent.writeAttachmentLinks(attachments: List<EventAttachment>) {
-    val wanted = attachments.mapNotNull { it.uri?.trim()?.takeIf(String::isNotEmpty) }
-    this.attachments.filter { it.uri != null && it.uri.trim() !in wanted }.forEach(::removeProperty)
-    val present = this.attachments.mapNotNull { it.uri?.trim() }.toSet()
+internal fun VEvent.writeAttachments(attachments: List<EventAttachment>) {
+    val wantedLinks = attachments.mapNotNull { it.uri?.trim()?.takeIf(String::isNotEmpty) }.toSet()
+    val keptInline = attachments.mapNotNull { it.inlineIndex }.toSet()
+    val existing = this.attachments.toList()
+    existing.forEachIndexed { index, attach ->
+        val uri = attach.uri?.trim()
+        val drop = when {
+            uri != null -> uri !in wantedLinks
+            attach.data != null -> index !in keptInline
+            else -> false
+        }
+        if (drop) removeProperty(attach)
+    }
+    val present = existing.mapNotNull { it.uri?.trim() }.toSet()
     attachments.filter { it.uri != null && it.uri.trim() !in present }.distinctBy { it.uri!!.trim() }.forEach { link ->
         addProperty(
             Attachment(link.mimeType, link.uri!!.trim()).apply {
                 link.fileName?.let { parameters.put("FILENAME", it) }
+            },
+        )
+    }
+    attachments.filter { it.uri == null && it.inlineIndex == null && it.data != null }.forEach { file ->
+        addProperty(
+            Attachment(file.mimeType ?: "application/octet-stream", file.data!!).apply {
+                file.fileName?.let { parameters.put("FILENAME", it) }
             },
         )
     }

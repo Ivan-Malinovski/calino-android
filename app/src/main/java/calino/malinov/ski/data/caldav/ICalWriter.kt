@@ -130,7 +130,7 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         vevent.writeCategories(event.categories)
         vevent.writeReminders(event.reminders, event.title)
         vevent.writeAppleTravelTimeMinutes(event.travelTimeMinutes)
-        if (event.attachmentsEdited) vevent.writeAttachmentLinks(event.attachments)
+        if (event.attachmentsEdited) vevent.writeAttachments(event.attachments)
 
         vevent.removeProperties(RecurrenceId::class.java)
         event.recurrenceDate?.let { date ->

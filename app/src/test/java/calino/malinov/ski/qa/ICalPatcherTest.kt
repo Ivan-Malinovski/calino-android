@@ -615,17 +615,15 @@ class ICalPatcherTest {
     }
 
     @Test
-    fun `an attachment edit removes and adds links but never touches inline data`() {
+    fun `an attachment edit removes and adds links and keeps a listed inline file`() {
         val event = eventFrom(attachResource, "ours")
         val edited = event.copy(
             attachmentsEdited = true,
             attachments = event.attachments.drop(1) +
                 calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/new.pdf"),
         )
-        // Dropping the inline one from the list must not remove it.
-        val withoutInline = edited.copy(attachments = edited.attachments.filter { it.uri != null })
 
-        val patched = patcher.patchEvents(attachResource, listOf(withoutInline), now)!!
+        val patched = patcher.patchEvents(attachResource, listOf(edited), now)!!
         val lines = patched.replace("\r\n ", "").lines().filter { it.startsWith("ATTACH") }
 
         assertFalse(patched.contains("cloud.example.org/f/4711"))
@@ -633,6 +631,45 @@ class ICalPatcherTest {
         assertTrue(lines.any { it.endsWith(":https://example.org/new.pdf") })
         assertTrue(lines.any { it.endsWith(":aGVsbG8gY2FsaW5v") })
         assertEquals(3, lines.size)
+    }
+
+    @Test
+    fun `removing an inline file drops only that ATTACH`() {
+        val event = eventFrom(attachResource, "ours")
+        val edited = event.copy(attachmentsEdited = true, attachments = event.attachments.filter { it.uri != null })
+
+        val patched = patcher.patchEvents(attachResource, listOf(edited), now)!!
+        val lines = patched.replace("\r\n ", "").lines().filter { it.startsWith("ATTACH") }
+
+        assertFalse(patched.contains("aGVsbG8gY2FsaW5v"))
+        assertTrue(lines.any { it.contains("X-NC-FILE-ID") })
+        assertEquals(2, lines.size)
+    }
+
+    @Test
+    fun `a picked file is embedded as base64 with its name and type`() {
+        val event = eventFrom(attachResource, "ours")
+        val picked = calino.malinov.ski.data.model.EventAttachment(
+            fileName = "plan.txt",
+            mimeType = "text/plain",
+            sizeBytes = 4,
+            data = "plan".toByteArray(),
+        )
+        val edited = event.copy(attachmentsEdited = true, attachments = event.attachments + picked)
+
+        val patched = patcher.patchEvents(attachResource, listOf(edited), now)!!
+        val reread = eventFrom(patched, "ours")
+
+        assertEquals(4, reread.attachments.size)
+        val added = reread.attachments.last()
+        assertEquals("plan.txt", added.fileName)
+        assertEquals("text/plain", added.mimeType)
+        assertEquals(
+            "plan",
+            String(calino.malinov.ski.data.caldav.readInlineAttachment(patched, "ours", added)!!),
+        )
+        // The file that was already there is untouched.
+        assertTrue(patched.replace("\r\n ", "").contains(":aGVsbG8gY2FsaW5v"))
     }
 
     @Test

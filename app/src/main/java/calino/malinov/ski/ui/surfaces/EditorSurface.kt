@@ -1,6 +1,7 @@
 package calino.malinov.ski.ui.surfaces
 
 import calino.malinov.ski.data.caldav.uriFileName
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
@@ -1315,17 +1316,48 @@ private fun EditorDraft.rematchedFrom(previous: EditorDraft, rules: List<AutoCat
     if (title == previous.title) this else withAutoCategories(rules)
 
 /**
- * Links written as `ATTACH`. Inline files another client attached stay on the
- * event and are listed but cannot be removed here: Calino does not author
- * inline data, and dropping one would be an unrecoverable loss.
+ * Links and files written as `ATTACH`. A picked file is embedded in the event
+ * (`VALUE=BINARY`), so every sync of the event carries it -- Calino web's
+ * limits apply: a note above [AttachmentWarnBytes], refused above
+ * [AttachmentMaxBytes]. Every attachment, including an inline file another
+ * client added, is a chip the person can remove.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit) {
     var input by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+    var note by remember { mutableStateOf<String?>(null) }
     val attachments = draft.attachments.orEmpty()
     val link = input.trim()
     val valid = attachmentLinkValid(link) && attachments.none { it.uri == link }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // The launcher's callback outlives this composition's draft; read the latest.
+    val latestDraft by androidx.compose.runtime.rememberUpdatedState(draft)
+    val latestOnDraft by androidx.compose.runtime.rememberUpdatedState(onDraft)
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val picked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { readPickedFile(context.contentResolver, uri) }.getOrNull()
+            }
+            note = when (picked) {
+                null -> "That file could not be read."
+                is PickedFile.TooLarge -> "${picked.name} is over ${AttachmentMaxBytes / MiB} MB, too large to keep with the event."
+                is PickedFile.Read -> {
+                    val current = latestDraft
+                    latestOnDraft(current.copy(attachments = current.attachments.orEmpty() + picked.attachment))
+                    if (picked.attachment.data!!.size > AttachmentWarnBytes) {
+                        "${picked.attachment.fileName} is large; every sync of this event carries it."
+                    } else {
+                        null
+                    }
+                }
+            }
+        }
+    }
     EditorLabel("Attachments")
     Row(
         Modifier.fillMaxWidth(),
@@ -1347,28 +1379,88 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
             },
         ) { Text("Add") }
     }
-    val links = attachments.filter { it.uri != null }
-    if (links.isNotEmpty()) {
+    TextButton(
+        onClick = { note = null; picker.launch(arrayOf("*/*")) },
+        modifier = Modifier.heightIn(min = 44.dp),
+    ) { Text("Attach a file") }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = note != null,
+        enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + androidx.compose.animation.expandVertically(tween(CalinoMotion.ContentEnterMillis)),
+        exit = fadeOut(tween(CalinoMotion.ContentExitMillis)) + androidx.compose.animation.shrinkVertically(tween(CalinoMotion.ContentExitMillis)),
+    ) {
+        // Keep the last text while the row fades out.
+        var shown by remember { mutableStateOf("") }
+        note?.let { shown = it }
+        Text(shown, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+    }
+    if (attachments.isNotEmpty()) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            links.forEach { attachment ->
+            attachments.forEach { attachment ->
                 val name = attachmentLabel(attachment)
                 CalinoChip(
                     text = name,
                     selected = true,
                     description = "Remove attachment $name",
-                    onClick = { onDraft(draft.copy(attachments = attachments - attachment)) },
+                    onClick = {
+                        note = null
+                        onDraft(draft.copy(attachments = attachments.filterNot { it === attachment }))
+                    },
                 )
             }
         }
     }
-    val files = attachments.filter { it.uri == null }
-    if (files.isNotEmpty()) {
-        Text(
-            "Kept with the event: " + files.joinToString { attachmentLabel(it) },
-            style = CalinoTypography.bodySmall,
-            color = CalinoColors.Ink3,
-        )
+}
+
+private const val MiB = 1024 * 1024
+
+/** Above this a picked file still attaches, with a note about sync weight. */
+internal const val AttachmentWarnBytes = 1 * MiB
+
+/** Calino web's hard limit: larger files are refused. */
+internal const val AttachmentMaxBytes = 5 * MiB
+
+internal sealed interface PickedFile {
+    data class Read(val attachment: EventAttachment) : PickedFile
+    data class TooLarge(val name: String) : PickedFile
+}
+
+/**
+ * Reads a picked document, stopping one byte past [AttachmentMaxBytes] so a huge
+ * file is refused without being loaded whole.
+ */
+private fun readPickedFile(resolver: android.content.ContentResolver, uri: android.net.Uri): PickedFile {
+    var name: String? = null
+    var declaredSize: Long? = null
+    resolver.query(uri, null, null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }
+                ?.let { name = cursor.getString(it) }
+            cursor.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 && !cursor.isNull(it) }
+                ?.let { declaredSize = cursor.getLong(it) }
+        }
     }
+    val fileName = name?.takeIf(String::isNotBlank) ?: "attachment"
+    if ((declaredSize ?: 0) > AttachmentMaxBytes) return PickedFile.TooLarge(fileName)
+    val bytes = resolver.openInputStream(uri)?.use { stream ->
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        while (out.size() <= AttachmentMaxBytes) {
+            val read = stream.read(buffer)
+            if (read < 0) break
+            out.write(buffer, 0, read)
+        }
+        out.toByteArray()
+    }
+        ?: error("No stream for $uri")
+    if (bytes.size > AttachmentMaxBytes) return PickedFile.TooLarge(fileName)
+    return PickedFile.Read(
+        EventAttachment(
+            fileName = fileName,
+            mimeType = resolver.getType(uri),
+            sizeBytes = bytes.size,
+            data = bytes,
+        ),
+    )
 }
 
 /** Only web links: a `file:` or `content:` URI would mean nothing on another device. */

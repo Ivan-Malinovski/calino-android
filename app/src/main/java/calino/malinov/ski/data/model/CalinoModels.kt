@@ -34,6 +34,11 @@ data class EventAttachment(
     /** Position of an inline attachment among the component's `ATTACH`es; null for a link. */
     val inlineIndex: Int? = null,
     val sizeBytes: Int? = null,
+    /**
+     * Bytes of a file picked in the editor and not yet saved. Once written, the
+     * raw resource holds them and a re-read event names them by [inlineIndex].
+     */
+    val data: ByteArray? = null,
 )
 
 /** Scope used when an edit or delete targets one occurrence of a series. */
