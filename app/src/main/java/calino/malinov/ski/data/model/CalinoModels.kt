@@ -55,6 +55,8 @@ data class CalEvent(
     val relatedTo: List<String> = emptyList(),
     /** Local contact reminder marker, or another local relation URI. */
     val url: String? = null,
+    /** RFC 7986 `CONFERENCE` URI, or a meeting-service `URL`; read-only. */
+    val conferenceUrl: String? = null,
     /** iCalendar UID. Null for records created locally. */
     val uid: String? = null,
     /** Absolute CalDAV resource URL. Null for records created locally. */

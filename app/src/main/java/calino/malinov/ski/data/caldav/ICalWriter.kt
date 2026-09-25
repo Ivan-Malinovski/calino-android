@@ -1,6 +1,9 @@
 package calino.malinov.ski.data.caldav
 
 import biweekly.Biweekly
+import biweekly.ICalDataType
+import biweekly.ICalVersion
+import biweekly.io.scribe.property.ConferenceScribe
 import biweekly.ICalendar
 import biweekly.component.ICalComponent
 import biweekly.component.VEvent
@@ -8,6 +11,7 @@ import biweekly.component.VJournal
 import biweekly.component.VTodo
 import biweekly.property.Categories
 import biweekly.property.Completed
+import biweekly.property.Conference
 import biweekly.property.Created
 import biweekly.property.DateDue
 import biweekly.property.DateEnd
@@ -401,7 +405,8 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
             Biweekly.parse(probe).first()?.events?.firstOrNull()?.recurrenceRule
         }.getOrNull()
 
-        internal fun write(calendar: ICalendar): String = Biweekly.write(calendar).go()
+        internal fun write(calendar: ICalendar): String =
+            Biweekly.write(calendar).register(ExplicitUriConferenceScribe()).go()
     }
 }
 
@@ -439,4 +444,16 @@ private fun ICalComponent.setUidValue(value: String) {
 private fun ICalComponent.setSummaryValue(value: String) {
     removeProperties(Summary::class.java)
     addProperty(Summary(value))
+}
+
+/**
+ * RFC 7986 requires `VALUE=URI` on `CONFERENCE`, but biweekly treats URI as
+ * the property's default type and omits it. Declaring no default makes the
+ * parameter explicit, so a foreign client's conference line survives a patch.
+ */
+private class ExplicitUriConferenceScribe : ConferenceScribe() {
+    override fun _defaultDataType(version: ICalVersion?): ICalDataType? = null
+
+    override fun _dataType(property: Conference?, version: ICalVersion?): ICalDataType =
+        if (property?.uri != null) ICalDataType.URI else ICalDataType.TEXT
 }

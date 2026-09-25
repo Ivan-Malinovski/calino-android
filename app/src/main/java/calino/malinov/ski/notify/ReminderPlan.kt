@@ -8,6 +8,7 @@ import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.placementDate
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.repository.reminderCalendarIds
+import calino.malinov.ski.util.meetingLink
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -51,6 +52,8 @@ data class ReminderFiring(
     val subtitle: String,
     /** Event LOCATION, retained so a receiver can offer directions after process death. */
     val location: String? = null,
+    /** Meeting link, retained so the notification can offer Join after process death. */
+    val meetingUrl: String? = null,
     val minutesBefore: Int,
     val anchor: Instant,
 ) {
@@ -204,6 +207,7 @@ object ReminderPlanner {
                     title = title,
                     subtitle = eventSubtitle(start, zone),
                     location = location?.trim()?.takeIf { it.isNotEmpty() },
+                    meetingUrl = meetingLink(this@firings)?.url,
                     minutesBefore = reminder.minutesBefore,
                     anchor = anchor,
                 )

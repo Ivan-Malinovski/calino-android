@@ -269,6 +269,32 @@ class ICalMapperTest {
         }
     }
 
+    @Test
+    fun `a CONFERENCE URI becomes the event's conference link, ahead of URL`() {
+        val event = mapper.parse(
+            "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:conf-1\n" +
+                "DTSTART:20260907T080000Z\nSUMMARY:Standup\n" +
+                "URL:https://meet.google.com/aaa-bbbb-ccc\n" +
+                "CONFERENCE;VALUE=URI;FEATURE=VIDEO:https://video.example.org/room/42\n" +
+                "END:VEVENT\nEND:VCALENDAR",
+            "cal", 1L, "conf-1.ics",
+        ).events.single()
+
+        assertEquals("https://video.example.org/room/42", event.conferenceUrl)
+    }
+
+    @Test
+    fun `a URL counts as a conference link only for a known meeting service`() {
+        fun parse(url: String) = mapper.parse(
+            "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:u\n" +
+                "DTSTART:20260907T080000Z\nURL:$url\nEND:VEVENT\nEND:VCALENDAR",
+            "cal", 1L, "u.ics",
+        ).events.single().conferenceUrl
+
+        assertEquals("https://example.zoom.us/j/123456", parse("https://example.zoom.us/j/123456"))
+        assertNull(parse("https://example.org/agenda"))
+    }
+
     // --- the day-bucketing regression ----------------------------------------
 
     @Test

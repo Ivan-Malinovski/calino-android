@@ -1,5 +1,9 @@
 package calino.malinov.ski.ui.surfaces
 
+import calino.malinov.ski.util.meetingLink
+import calino.malinov.ski.util.MeetingLink
+import android.net.Uri
+import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -1094,6 +1098,21 @@ private fun EventDetailContent(
             // scroll content: the rows run to the card's edge under it.
             contentPadding = PaddingValues(bottom = EventPreviewPillClearance),
         ) {
+            item(key = "meeting") {
+                val meeting = meetingLink(event.conferenceUrl, draft.location, draft.description)
+                AnimatedVisibility(
+                    visible = meeting != null,
+                    enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) +
+                        expandVertically(tween(CalinoMotion.ContentEnterMillis)),
+                    exit = fadeOut(tween(CalinoMotion.ContentExitMillis)) +
+                        shrinkVertically(tween(CalinoMotion.ContentExitMillis)),
+                ) {
+                    // Keep the last link while the row animates out.
+                    var shown by remember { mutableStateOf(meeting) }
+                    if (meeting != null) shown = meeting
+                    shown?.let { PreviewMeetingRow(it) }
+                }
+            }
             item {
                 PreviewEditRow(
                     CalinoIcon.Pin,
@@ -1387,6 +1406,33 @@ private fun PreviewRecurrenceRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * The event's meeting link, opened with a plain VIEW so the meeting app or
+ * the browser handles it. Calino only reads the link; it never writes one.
+ */
+@Composable
+private fun PreviewMeetingRow(meeting: MeetingLink) {
+    val context = LocalContext.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+        CalinoIcon(CalinoIcon.Users, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+            label("Meeting")
+            Text(meeting.service, style = CalinoTypography.bodyLarge)
+        }
+        CalinoChip(
+            text = "Join",
+            selected = true,
+            description = meeting.service,
+            onClick = {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(meeting.url)))
+                }
+            },
+            modifier = Modifier.padding(end = PreviewTrailingInset - 18.dp).heightIn(min = 44.dp),
+        )
     }
 }
 

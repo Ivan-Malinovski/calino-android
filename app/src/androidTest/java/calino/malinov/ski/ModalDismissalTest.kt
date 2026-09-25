@@ -96,6 +96,21 @@ class ModalDismissalTest : CalinoUiTest() {
             .assertWidthIsAtLeast(44.dp)
     }
 
+    @Test fun aConferenceLinkOffersATouchSizedJoinAction() {
+        compose.onNodeWithContentDescription("Code Review Session, 2:00 PM").performClick()
+        awaitDescribed("Join, Google Meet")
+
+        compose.onNodeWithContentDescription("Join, Google Meet")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(44.dp)
+    }
+
+    @Test fun anEventWithoutAMeetingLinkHasNoJoinAction() {
+        compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
+        awaitDescribed("Open event location in maps")
+        assertFalse(compose.hasDescribedNode("Join, Google Meet"))
+    }
+
     @Test fun scrollingBackThroughEventDetailsDoesNotDismissTheModal() {
         compose.onNodeWithContentDescription("Design review, 10:00 AM, Studio").performClick()
         awaitDescribed("Close event preview")

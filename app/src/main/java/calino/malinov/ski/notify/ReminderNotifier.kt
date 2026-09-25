@@ -46,6 +46,10 @@ class ReminderNotifier(private val context: Context) {
             .setContentIntent(openIntent(firing))
             .addAction(0, "Snooze 5 min", actionIntent(firing, ReminderActions.Snooze))
 
+        joinIntent(firing)?.let { intent ->
+            builder.addAction(0, "Join", intent)
+        }
+
         directionsIntent(firing)?.let { intent ->
             builder.addAction(0, "Directions", intent)
         }
@@ -137,6 +141,21 @@ class ReminderNotifier(private val context: Context) {
         )
     }
 
+    /** A plain VIEW, so the meeting app or the browser handles the link. */
+    private fun joinIntent(firing: ReminderFiring): PendingIntent? {
+        if (firing.kind != ReminderKind.Event) return null
+        val url = firing.meetingUrl ?: return null
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        return PendingIntent.getActivity(
+            context,
+            (firing.notificationId + JoinRequestKey.hashCode()) and 0x7fffffff,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
     private fun directionsIntent(firing: ReminderFiring): PendingIntent? {
         if (firing.kind != ReminderKind.Event) return null
         val mapIntent = eventLocationIntent(firing.location) ?: return null
@@ -154,5 +173,6 @@ class ReminderNotifier(private val context: Context) {
     private companion object {
         const val ConfirmationTimeoutMillis = 8_000L
         const val DirectionsRequestKey = "directions"
+        const val JoinRequestKey = "join"
     }
 }

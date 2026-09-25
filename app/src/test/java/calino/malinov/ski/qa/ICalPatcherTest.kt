@@ -532,6 +532,28 @@ class ICalPatcherTest {
         assertTrue(rebased.contains("X-CUSTOM-THING;X-PARAM=7:remote-only update"))
     }
 
+    @Test
+    fun `an edit preserves a foreign CONFERENCE line with its required VALUE=URI`() {
+        val conference = "CONFERENCE;VALUE=URI;FEATURE=AUDIO,VIDEO;LABEL=Room 4:https://meet.jit.si/calino-room"
+        val base = foreignResource.replace(
+            "X-CUSTOM-THING;X-PARAM=7:preserve this",
+            "$conference\r\nX-CUSTOM-THING;X-PARAM=7:preserve this",
+        )
+        val event = eventFrom(base, "ours")
+        assertEquals("https://meet.jit.si/calino-room", event.conferenceUrl)
+
+        val patched = patcher.patchEvents(base, listOf(event.copy(title = "Renamed")), now)!!
+
+        assertTrue(patched.contains("SUMMARY:Renamed"))
+        // The patcher re-serializes, so parameter order may change; every
+        // parameter, including RFC 7986's mandatory VALUE=URI, must survive.
+        val line = patched.replace("\r\n ", "").lines().single { it.startsWith("CONFERENCE") }
+        listOf("VALUE=URI", "FEATURE=AUDIO,VIDEO", "LABEL=Room 4").forEach { param ->
+            assertTrue(line, line.contains(";$param"))
+        }
+        assertTrue(line, line.endsWith(":https://meet.jit.si/calino-room"))
+    }
+
     // --- VALARM ---------------------------------------------------------------
 
     /**

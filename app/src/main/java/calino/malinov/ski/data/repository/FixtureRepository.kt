@@ -625,7 +625,10 @@ Open the [design brief](https://example.com/calino-design-brief) before the meet
             endDate = april(25), recurrence = "FREQ=WEEKLY;BYDAY=FR;UNTIL=20260630T235959Z",
         ),
         timed("evt-st-patricks-lunch", "St. Patrick's Lunch", may(17), Amber, LocalTime.of(12, 0), 90, location = "The Green Room"),
-        timed("evt-code-review", "Code Review Session", FixtureRepository.FixtureDate, Rose, LocalTime.of(14, 0), 60, calendarId = "work"),
+        // A CONFERENCE link only: it adds a Join action without changing any
+        // text the calendar surfaces show.
+        timed("evt-code-review", "Code Review Session", FixtureRepository.FixtureDate, Rose, LocalTime.of(14, 0), 60, calendarId = "work")
+            .copy(conferenceUrl = "https://meet.google.com/cal-inoc-rev"),
         allDay("evt-national-day", "National Day · No Work", may(20), Amber, "work"),
         timed("evt-project-review", "Project Review", may(21), Rose, LocalTime.of(14, 0), 60, location = "Conference Room C", calendarId = "work"),
         timed("evt-client-05-21", "Client Call · Acme Corp", may(21), Rose, LocalTime.of(11, 0), 30, location = "Google Meet", calendarId = "work"),

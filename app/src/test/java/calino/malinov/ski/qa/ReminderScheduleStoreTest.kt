@@ -59,6 +59,7 @@ class ReminderScheduleStoreTest {
         title = "Design review",
         subtitle = "10:00 · Studio",
         location = "Studio, Copenhagen",
+        meetingUrl = "https://meet.jit.si/design-review",
         minutesBefore = 10,
         anchor = at.plusSeconds(600),
     )
@@ -86,6 +87,18 @@ class ReminderScheduleStoreTest {
         val decoded = ReminderScheduleJson.decode(legacy)
         assertEquals(1, decoded?.firings?.size)
         assertNull(decoded?.firings?.single()?.location)
+    }
+
+    @Test
+    fun `a schedule written before meeting links were stored still decodes`() {
+        val legacy = ReminderScheduleJson.encode(
+            ReminderSchedule(now, zone.id, listOf(firing("a", now.plusSeconds(3600)))),
+        ).replace(Regex(""""meetingUrl":"[^"]*","""), "")
+        check(!legacy.contains("meetingUrl"))
+
+        val decoded = ReminderScheduleJson.decode(legacy)
+        assertEquals("Studio, Copenhagen", decoded?.firings?.single()?.location)
+        assertNull(decoded?.firings?.single()?.meetingUrl)
     }
 
     @Test

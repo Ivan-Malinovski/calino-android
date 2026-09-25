@@ -243,6 +243,7 @@ internal object ReminderScheduleJson {
         .put("title", firing.title)
         .put("subtitle", firing.subtitle)
         .putNullable("location", firing.location)
+        .putNullable("meetingUrl", firing.meetingUrl)
         .put("minutesBefore", firing.minutesBefore)
         .put("anchor", firing.anchor.toString())
 
@@ -257,6 +258,7 @@ internal object ReminderScheduleJson {
             title = json.getString("title"),
             subtitle = json.optString("subtitle", ""),
             location = json.optionalString("location"),
+            meetingUrl = json.optionalString("meetingUrl"),
             minutesBefore = json.getInt("minutesBefore"),
             anchor = Instant.parse(json.getString("anchor")),
         )
