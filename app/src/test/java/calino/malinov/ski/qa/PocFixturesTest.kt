@@ -1,7 +1,6 @@
 package calino.malinov.ski.qa
 
 import calino.malinov.ski.data.repository.FixtureRepository
-import calino.malinov.ski.ui.home.monthEventDropDate
 import calino.malinov.ski.data.repository.moveEventToDateTime
 import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.data.model.Availability
@@ -11,8 +10,6 @@ import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.occursOn
 import java.time.LocalTime
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import calino.malinov.ski.util.formatCalinoDate
 import calino.malinov.ski.util.formatCalinoTime
 import calino.malinov.ski.util.formatRecurrenceSummary
@@ -220,50 +217,6 @@ class PocFixturesTest {
         assertEquals(LocalDateTime.of(2026, 5, 18, 11, 15), moved.start)
         assertEquals(original.durationMinutes, moved.durationMinutes)
         assertEquals(original.title, moved.title)
-    }
-
-    @Test
-    fun monthEventDropDate_usesGridGeometry_andRejectsOutsideDrops() {
-        val gridStart = LocalDate.of(2026, 4, 26)
-        val source = LocalDate.of(2026, 5, 18)
-
-        assertEquals(
-            LocalDate.of(2026, 5, 26),
-            monthEventDropDate(
-                sourceDate = source,
-                dragOffset = Offset(100f, 80f),
-                gridStart = gridStart,
-                gridCellCount = 42,
-                cellWidthPx = 100f,
-                rowHeightPx = 80f,
-                detailed = true,
-            ),
-        )
-        assertNull(
-            monthEventDropDate(
-                sourceDate = source,
-                dragOffset = Offset(-3000f, 0f),
-                gridStart = gridStart,
-                gridCellCount = 42,
-                cellWidthPx = 100f,
-                rowHeightPx = 80f,
-                detailed = true,
-            ),
-        )
-        assertNull(
-            monthEventDropDate(
-                sourceDate = source,
-                dragOffset = Offset(0f, 500f),
-                gridStart = gridStart,
-                gridCellCount = 42,
-                cellWidthPx = 100f,
-                rowHeightPx = 300f,
-                detailed = true,
-                finalPointer = Offset(50f, 550f),
-                gridBounds = Rect(0f, 0f, 500f, 500f),
-                visibleGridHeightPx = 500f,
-            ),
-        )
     }
 
     @Test

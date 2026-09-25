@@ -371,11 +371,6 @@ private data class WeekPreviewSuppression(
  */
 data class PillSwipeDays(val from: LocalDate, val to: LocalDate)
 
-private data class MonthEventDragVisual(
-    val eventId: String,
-    val offset: Offset,
-)
-
 /**
  * Where a pager is, as one continuous number: page index plus the fraction it
  * is offset by. The two halves are not written in the same frame -- around the
@@ -1979,7 +1974,6 @@ fun HomeScreen(
                         },
                         onEventClick = onEventClick,
                         onEventAction = onEventAction,
-                        onEventDrop = onEventDrop,
                     )
                 }
                 // The handle stays attached to the shared surface, so it
@@ -2284,7 +2278,6 @@ private fun SplitHomeLayout(
                     onDay = { date -> if (interactionEnabled) onDay(date) },
                     onEventClick = onEventClick,
                     onEventAction = onEventAction,
-                    onEventDrop = onEventDrop,
                 )
             }
         }
@@ -2962,7 +2955,6 @@ private fun MonthPager(
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)? = null,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
-    onEventDrop: ((CalEvent, LocalDate) -> Unit)? = null,
 ) {
     val compactPreviewVisible by remember(zoomState) {
         derivedStateOf { zoomState.value < .999f }
@@ -3054,7 +3046,6 @@ private fun MonthPager(
                         onDay = onDay,
                         onEventClick = onEventClick,
                         onEventAction = onEventAction,
-                        onEventDrop = null,
                     )
                 }
             }
@@ -3369,11 +3360,7 @@ private fun MonthGridHitTargets(
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)? = null,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
-    onEventDrop: ((CalEvent, LocalDate) -> Unit)? = null,
-    eventCellWidthPx: Float? = null,
-    eventDetailedRowHeightPx: Float? = null,
     weekGutter: Dp = 0.dp,
-    onDragVisualChanged: ((CalEvent, Offset?) -> Unit)? = null,
 ) {
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
@@ -3407,7 +3394,6 @@ private fun MonthGridHitTargets(
         start,
         rows,
         interactionEnabled,
-        onEventDrop,
         onEventClick,
         onEventAction,
         zoom,
@@ -3417,7 +3403,7 @@ private fun MonthGridHitTargets(
         if (
             !interactionEnabled ||
             !monthEventsOwnInput(zoom) ||
-            (onEventDrop == null && onEventClick == null && onEventAction == null)
+            (onEventClick == null && onEventAction == null)
         ) {
             emptyList()
         } else {
@@ -3427,7 +3413,7 @@ private fun MonthGridHitTargets(
                     // At the compact endpoint the canvas only exposes the
                     // selected week row. Keeping hidden rows out of the
                     // target list prevents an invisible event from owning a
-                    // drag that began on a neighboring surface.
+                    // gesture that began on a neighboring surface.
                     if (zoom <= 1f && row != compactWeekRow) continue
                     val date = start.plusDays(index.toLong())
                     events[date].orEmpty().take(eventCapacity).forEach { event -> if (event != null) add(date to event) }
@@ -3466,21 +3452,13 @@ private fun MonthGridHitTargets(
                 }
             }
             eventEntries.forEachIndexed { eventIndex, (date, event) ->
-                MonthEventDragTarget(
+                MonthEventTarget(
                     event = event,
                     sourceDate = date,
                     onDay = onDay,
                     onEventClick = onEventClick,
                     onEventAction = onEventAction,
-                    onEventDrop = onEventDrop,
-                    onDragVisualChanged = onDragVisualChanged,
-                    gridStart = start,
-                    gridCellCount = rows * 7,
                     eventIndex = eventIndex,
-                    cellWidthPx = eventCellWidthPx ?: 1f,
-                    rowHeightPx = eventDetailedRowHeightPx ?: 1f,
-                    zoom = zoom,
-                    visibleGridHeightPx = { with(density) { visibleGridHeight().toPx() } },
                 )
             }
         },
@@ -3604,90 +3582,35 @@ private fun MonthGridHitTargets(
 
 /**
  * Month events are painted in the shared canvas, so each visible event also
- * gets a transparent semantic/input lane. The lane owns the held drag while
- * the canvas is told to translate the matching event, keeping the thing under
- * the finger visible even as it crosses day cells.
+ * gets a transparent semantic/input lane for tap and the long-press menu.
+ * Month cards do not move by drag; rescheduling by drag belongs to the Range
+ * views.
  */
 @Composable
-private fun MonthEventDragTarget(
+private fun MonthEventTarget(
     event: CalEvent,
     sourceDate: LocalDate,
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)?,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)?,
-    onEventDrop: ((CalEvent, LocalDate) -> Unit)?,
-    onDragVisualChanged: ((CalEvent, Offset?) -> Unit)?,
-    gridStart: LocalDate,
-    gridCellCount: Int,
     eventIndex: Int,
-    cellWidthPx: Float,
-    rowHeightPx: Float,
-    zoom: Float,
-    visibleGridHeightPx: () -> Float,
 ) {
     var menuOpen by remember(event.id) { mutableStateOf(false) }
-    var dragOffset by remember(event.id) { mutableStateOf(Offset.Zero) }
-    var dragStartPosition by remember(event.id) { mutableStateOf(Offset.Zero) }
-    var targetBounds by remember(event.id) { mutableStateOf<Rect?>(null) }
-    var gridBounds by remember(event.id) { mutableStateOf<Rect?>(null) }
     val timeFormat = LocalTimeFormat
     val click = {
         onEventClick?.invoke(event) ?: onDay(sourceDate)
     }
-    val dragInteraction = onEventDrop?.let { callback ->
-        Modifier.calinoLongPressDrag(
-            onClick = click,
-            onLongPress = onEventAction?.let { { menuOpen = true } },
-            onDragArmed = {
-                dragOffset = Offset.Zero
-                onDragVisualChanged?.invoke(event, Offset.Zero)
-            },
-            onDragStart = { menuOpen = false },
-            onDragStartPosition = { position -> dragStartPosition = position },
-            onDrag = { offset ->
-                dragOffset = dragOffset + offset
-                onDragVisualChanged?.invoke(event, dragOffset)
-            },
-            onDragEnd = { offset ->
-                val finalPointer = targetBounds?.topLeft?.plus(dragStartPosition + offset)
-                monthEventDropDate(
-                    sourceDate = sourceDate,
-                    dragOffset = offset,
-                    gridStart = gridStart,
-                    gridCellCount = gridCellCount,
-                    cellWidthPx = cellWidthPx,
-                    rowHeightPx = rowHeightPx,
-                    detailed = zoom >= 1f,
-                    finalPointer = finalPointer,
-                    gridBounds = gridBounds,
-                    visibleGridHeightPx = visibleGridHeightPx(),
-                )?.let { targetDate -> callback(event, targetDate) }
-                dragOffset = Offset.Zero
-                onDragVisualChanged?.invoke(event, null)
-            },
-            onDragCancel = {
-                dragOffset = Offset.Zero
-                onDragVisualChanged?.invoke(event, null)
-            },
-        )
-    } ?: Modifier.combinedClickable(
-        onClick = click,
-        onLongClick = onEventAction?.let { { menuOpen = true } },
-    )
     Box(
         Modifier
             .fillMaxSize()
-            .onGloballyPositioned { coordinates: LayoutCoordinates ->
-                val nextTargetBounds = coordinates.boundsInRoot()
-                val nextGridBounds = coordinates.parentLayoutCoordinates?.boundsInRoot()
-                if (targetBounds != nextTargetBounds) targetBounds = nextTargetBounds
-                if (gridBounds != nextGridBounds) gridBounds = nextGridBounds
-            }
-            .then(dragInteraction)
+            .combinedClickable(
+                onClick = click,
+                onLongClick = onEventAction?.let { { menuOpen = true } },
+            )
             .zIndex(eventIndex.toFloat())
             .semantics(mergeDescendants = true) {
                 contentDescription = eventDescription(event, timeFormat)
-                if (onEventClick != null || onEventDrop != null) {
+                if (onEventClick != null) {
                     onClick {
                         click()
                         true
@@ -3733,7 +3656,6 @@ private fun StaticMonthGrid(
     onDay: (LocalDate) -> Unit,
     onEventClick: ((CalEvent) -> Unit)? = null,
     onEventAction: ((EventMenuAction, CalEvent) -> Unit)? = null,
-    onEventDrop: ((CalEvent, LocalDate) -> Unit)? = null,
 ) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
@@ -3756,7 +3678,6 @@ private fun StaticMonthGrid(
     val eventStyle = remember {
         ComposeTextStyle(fontSize = 10.5.sp, lineHeight = 12.sp)
     }
-    var draggedEvent by remember { mutableStateOf<MonthEventDragVisual?>(null) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val horizontalPadding = CompactWeekMetrics.HorizontalPadding
         val headerHeight = 22.dp
@@ -4414,8 +4335,6 @@ private fun StaticMonthGrid(
                         val markerHeight = baseMarkerHeight * markerEntrance
                         val markerX = markerLeft + (baseMarkerWidth - markerWidth) / 2f
                         val markerTop = eventAreaTop + (eventAreaHeightPx - markerHeight) / 2f
-                        val isBeingDragged = draggedEvent?.eventId == event.id
-                        if (!isBeingDragged) {
                         if (eventIndex < shownCount) {
                             val morph = if (hasMarker) detailProgress else 1f
                             val chipFade = if (hasMarker) 1f else detailProgress
@@ -4504,7 +4423,6 @@ private fun StaticMonthGrid(
                                 size = Size(markerWidth, markerHeight),
                                 cornerRadius = CornerRadius(2.dp.toPx()),
                             )
-                        }
                         }
                         if (hasMarker) markerLeft += baseMarkerWidth + eventMarkerGapPx
                     }
@@ -4706,56 +4624,6 @@ private fun StaticMonthGrid(
                     }
                 }
             }
-            // A translated draw inside a cell's clip would vanish as soon as
-            // it crossed into a neighboring cell. Draw the lifted card once,
-            // above all cell clips, while its original chip is hidden for the
-            // duration of the drag.
-            draggedEvent?.let { visual ->
-                val sourceIndex = cellEvents.indexOfFirst { dayEvents ->
-                    dayEvents.any { event -> event?.id == visual.eventId }
-                }
-                if (sourceIndex >= 0) {
-                    val sourceEvents = cellEvents[sourceIndex]
-                    val draggedIndex = sourceEvents.indexOfFirst { it?.id == visual.eventId }
-                    val shownCount = shownCounts[sourceIndex]
-                    if (draggedIndex in 0 until shownCount) {
-                        val row = sourceIndex / 7
-                        val column = sourceIndex % 7
-                        val dateSizePx = compactDateSizePx +
-                            (detailedDateSizePx - compactDateSizePx) * detailProgress
-                        val ghostTop = dateTopFor(row, column) + dateSizePx + dateGapPx +
-                            chipPitchPx * draggedIndex + visual.offset.y
-                        val ghostLeft = gridLeftPx + cellWidthPx * column +
-                            chipHorizontalPaddingPx + visual.offset.x
-                        val dragged = sourceEvents[draggedIndex] ?: return@let
-                        val ghostColor = colors.forEvent(Color(dragged.color))
-                        val ghostWidth = (cellWidthPx - chipHorizontalPaddingPx * 2f).coerceAtLeast(1f)
-                        drawRoundRect(
-                            color = colors.tint(ghostColor, .16f, colors.Panel),
-                            topLeft = Offset(ghostLeft, ghostTop),
-                            size = Size(ghostWidth, chipHeightPx),
-                            cornerRadius = CornerRadius(chipCornerPx),
-                        )
-                        drawRoundRect(
-                            color = ghostColor.copy(alpha = .28f),
-                            topLeft = Offset(ghostLeft + chipBorderPx / 2f, ghostTop + chipBorderPx / 2f),
-                            size = Size(ghostWidth - chipBorderPx, chipHeightPx - chipBorderPx),
-                            cornerRadius = CornerRadius(chipCornerPx),
-                            style = Stroke(width = chipBorderPx),
-                        )
-                        eventLayouts[dragged.id]?.let { layout ->
-                            drawText(
-                                layout,
-                                topLeft = Offset(
-                                    ghostLeft + chipTextStartPx,
-                                    ghostTop + (chipHeightPx - layout.size.height) / 2f,
-                                ),
-                                color = colors.Ink,
-                            )
-                        }
-                    }
-                }
-            }
                 contentFade = 1f
                 drawWeekNumbers()
                 if (sharedCompactRow) {
@@ -4789,13 +4657,7 @@ private fun StaticMonthGrid(
                 onDay = onDay,
                 onEventClick = onEventClick,
                 onEventAction = onEventAction,
-                onEventDrop = onEventDrop,
-                eventCellWidthPx = cellWidthPx,
-                eventDetailedRowHeightPx = detailedRowHeightPx,
                 weekGutter = weekGutter,
-                onDragVisualChanged = { event, offset ->
-                    draggedEvent = offset?.let { MonthEventDragVisual(event.id, it) }
-                },
             )
         }
     }
@@ -5151,50 +5013,6 @@ internal fun monthCellOverflowChipCapacity(
     chipGapPx,
     densityCap,
 )
-
-/**
- * Converts a held month-card drag into a grid date, or null when the finger
- * finished outside the rendered grid. The null result is intentional: an
- * invalid drop must spring back and leave the event in its original place.
- */
-internal fun monthEventDropDate(
-    sourceDate: LocalDate,
-    dragOffset: Offset,
-    gridStart: LocalDate,
-    gridCellCount: Int,
-    cellWidthPx: Float,
-    rowHeightPx: Float,
-    detailed: Boolean,
-    finalPointer: Offset? = null,
-    gridBounds: Rect? = null,
-    visibleGridHeightPx: Float? = null,
-): LocalDate? {
-    if (gridCellCount <= 0 || cellWidthPx <= 1f) return null
-    if (finalPointer != null && gridBounds != null) {
-        val visibleBottom = visibleGridHeightPx?.let { height ->
-            minOf(gridBounds.bottom, gridBounds.top + height)
-        } ?: gridBounds.bottom
-        val insideVisibleGrid = finalPointer.x >= gridBounds.left &&
-            finalPointer.x < gridBounds.right &&
-            finalPointer.y >= gridBounds.top &&
-            finalPointer.y < visibleBottom
-        if (!insideVisibleGrid) return null
-    }
-    val sourceIndex = (sourceDate.toEpochDay() - gridStart.toEpochDay()).toInt()
-    if (sourceIndex !in 0 until gridCellCount) return null
-    val horizontalDays = (dragOffset.x / cellWidthPx).roundToInt()
-    val verticalRows = if (detailed && rowHeightPx > 1f) {
-        (dragOffset.y / rowHeightPx).roundToInt()
-    } else {
-        0
-    }
-    val targetIndex = sourceIndex + horizontalDays + verticalRows * 7
-    return if (targetIndex in 0 until gridCellCount) {
-        gridStart.plusDays(targetIndex.toLong())
-    } else {
-        null
-    }
-}
 
 internal fun monthEventIndex(
     events: List<CalEvent>,
