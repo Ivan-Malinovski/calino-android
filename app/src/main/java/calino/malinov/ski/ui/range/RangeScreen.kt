@@ -794,6 +794,13 @@ private fun Modifier.rangePinch(
 @Composable
 private fun RangeHourGutter(timelineScale: Float) {
     val timeFormat = LocalTimeFormat
+    val secondary = calino.malinov.ski.state.LocalCalinoPreferences.current.secondaryZoneId
+        ?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() }
+        ?.takeIf { 62 * timelineScale >= 30f }
+    val device = androidx.compose.runtime.remember { java.time.ZoneId.systemDefault() }
+    // One label per hour serves the whole range; the offset between two zones
+    // only moves on a DST night, and today's is the one most likely in view.
+    val today = androidx.compose.runtime.remember { java.time.LocalDate.now() }
     Box(Modifier.width(CalinoSpacing.RailGutter).height((62 * timelineScale * 24).dp)) {
         (0..23).forEach { hour ->
             Text(
@@ -803,6 +810,15 @@ private fun RangeHourGutter(timelineScale: Float) {
                 color = CalinoColors.Ink3,
                 maxLines = 1,
             )
+            if (secondary != null) {
+                Text(
+                    calino.malinov.ski.util.CalinoZones.secondaryHour(today, hour, device, secondary, timeFormat),
+                    Modifier.padding(start = 8.dp, top = (hour * 62 * timelineScale + 12).dp),
+                    fontSize = 9.sp,
+                    color = CalinoColors.Ink3.copy(alpha = .6f),
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

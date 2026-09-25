@@ -740,7 +740,7 @@ private fun EventZoneSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit)
 }
 
 @Composable
-private fun ZonePicker(selected: ZoneId, at: Instant, onPick: (ZoneId) -> Unit) {
+internal fun ZonePicker(selected: ZoneId, at: Instant, onPick: (ZoneId) -> Unit) {
     var query by remember { mutableStateOf("") }
     val device = remember { ZoneId.systemDefault() }
     val results = remember(query) {

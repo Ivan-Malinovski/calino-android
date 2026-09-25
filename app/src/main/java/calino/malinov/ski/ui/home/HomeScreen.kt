@@ -6362,6 +6362,9 @@ internal fun CompactLaneScrim(
     )
 }
 
+/** The hour height below which the secondary zone's labels are left out. */
+private val SecondaryHourMinHeight = 30.dp
+
 @Composable
 internal fun HourRailContent(
     day: LocalDate,
@@ -6394,6 +6397,11 @@ internal fun HourRailContent(
             }
         }
         if (showHourLabels) {
+            val secondary = LocalCalinoPreferences.current.secondaryZoneId
+                ?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() }
+                // Two labels need room; at the tightest zoom only the device's fits.
+                ?.takeIf { hourHeight >= SecondaryHourMinHeight }
+            val device = remember { java.time.ZoneId.systemDefault() }
             (0..23).forEach { hour ->
                 Text(
                     timeFormat.formatHour(hour),
@@ -6401,6 +6409,14 @@ internal fun HourRailContent(
                     fontSize = 10.sp,
                     color = colors.Ink3,
                 )
+                if (secondary != null) {
+                    Text(
+                        calino.malinov.ski.util.CalinoZones.secondaryHour(day, hour, device, secondary, timeFormat),
+                        Modifier.offset(x = 8.dp, y = (hour * hourHeight.value + 5f).dp),
+                        fontSize = 9.sp,
+                        color = colors.Ink3.copy(alpha = .6f),
+                    )
+                }
             }
         }
         // Overlapping events share the rail's width instead of being stacked

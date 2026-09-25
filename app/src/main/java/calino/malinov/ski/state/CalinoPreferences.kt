@@ -89,6 +89,9 @@ data class CalinoPreferences(
     val setEventDensity: (CalinoEventDensity) -> Unit = {},
     val showWeekNumbers: Boolean = true,
     val setShowWeekNumbers: (Boolean) -> Unit = {},
+    /** IANA id of a second zone labelled beside the hour rail, or null for none. */
+    val secondaryZoneId: String? = null,
+    val setSecondaryZoneId: (String?) -> Unit = {},
     val defaultView: CalinoDefaultView = CalinoDefaultView.Default,
     val setDefaultView: (CalinoDefaultView) -> Unit = {},
     val rangeMode: CalinoRangeMode = CalinoRangeMode.Default,
@@ -163,6 +166,8 @@ interface CalinoPreferenceStore {
     fun saveEventDensity(density: CalinoEventDensity)
     fun loadShowWeekNumbers(): Boolean
     fun saveShowWeekNumbers(show: Boolean)
+    fun loadSecondaryZone(): String? = null
+    fun saveSecondaryZone(zoneId: String?) {}
     fun loadDefaultView(): CalinoDefaultView
     fun saveDefaultView(view: CalinoDefaultView)
     fun loadRangeMode(profile: CalinoRangeProfile): CalinoRangeMode
@@ -271,6 +276,9 @@ interface CalinoPreferenceStore {
         override fun saveEventDensity(density: CalinoEventDensity) { this.density = density }
         override fun loadShowWeekNumbers() = weekNumbers
         override fun saveShowWeekNumbers(show: Boolean) { weekNumbers = show }
+        private var secondaryZone: String? = null
+        override fun loadSecondaryZone() = secondaryZone
+        override fun saveSecondaryZone(zoneId: String?) { secondaryZone = zoneId }
         override fun loadDefaultView() = defaultView
         override fun saveDefaultView(view: CalinoDefaultView) { defaultView = view }
         override fun loadRangeMode(profile: CalinoRangeProfile) = rangeModes[profile] ?: CalinoRangeMode.Default
@@ -363,6 +371,12 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun loadShowWeekNumbers(): Boolean = prefs.getBoolean(ShowWeekNumbersKey, true)
     override fun saveShowWeekNumbers(show: Boolean) = putBoolean(ShowWeekNumbersKey, show)
 
+    override fun loadSecondaryZone(): String? = name(SecondaryZoneKey)
+        ?.takeIf { runCatching { java.time.ZoneId.of(it) }.isSuccess }
+    override fun saveSecondaryZone(zoneId: String?) {
+        if (zoneId == null) prefs.edit().remove(SecondaryZoneKey).apply() else putString(SecondaryZoneKey, zoneId)
+    }
+
     override fun loadDefaultView(): CalinoDefaultView = CalinoDefaultView.fromName(name(DefaultViewKey))
     override fun saveDefaultView(view: CalinoDefaultView) = putString(DefaultViewKey, view.name)
     override fun loadRangeMode(profile: CalinoRangeProfile): CalinoRangeMode =
@@ -441,6 +455,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val WeekStartKey = "week_start"
         const val EventDensityKey = "event_density"
         const val ShowWeekNumbersKey = "show_week_numbers"
+        const val SecondaryZoneKey = "secondary_zone"
         const val DefaultViewKey = "default_view"
         const val RangeModeKey = "range_mode"
         const val DefaultDurationKey = "default_duration"
@@ -485,6 +500,7 @@ fun rememberCalinoPreferences(
     var weekStartChoice by remember(store) { mutableStateOf(store.loadWeekStart()) }
     var eventDensity by remember(store) { mutableStateOf(store.loadEventDensity()) }
     var showWeekNumbers by remember(store) { mutableStateOf(store.loadShowWeekNumbers()) }
+    var secondaryZoneId by remember(store) { mutableStateOf(store.loadSecondaryZone()) }
     var defaultView by remember(store) { mutableStateOf(store.loadDefaultView()) }
     val rangeProfile = rangeProfileFor(deviceDefaults)
     var rangeMode by remember(store, rangeProfile) { mutableStateOf(store.loadRangeMode(rangeProfile)) }
@@ -520,6 +536,8 @@ fun rememberCalinoPreferences(
         setEventDensity = { value -> eventDensity = value; store.saveEventDensity(value) },
         showWeekNumbers = showWeekNumbers,
         setShowWeekNumbers = { value -> showWeekNumbers = value; store.saveShowWeekNumbers(value) },
+        secondaryZoneId = secondaryZoneId,
+        setSecondaryZoneId = { value -> secondaryZoneId = value; store.saveSecondaryZone(value) },
         defaultView = defaultView,
         setDefaultView = { value -> defaultView = value; store.saveDefaultView(value) },
         rangeMode = rangeMode,

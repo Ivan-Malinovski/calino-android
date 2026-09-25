@@ -722,6 +722,7 @@ private fun CalendarSettings() {
                 preferences.showWeekNumbers,
                 preferences.setShowWeekNumbers,
             )
+            SecondaryZoneSetting(preferences.secondaryZoneId, preferences.setSecondaryZoneId)
             SettingToggleRow(
                 "Show pull bar",
                 "The zoom bar between the calendar and the day",
@@ -1373,3 +1374,32 @@ private fun formatBackgroundSyncTime(
 ): String = formatter.withZone(zone).format(Instant.ofEpochMilli(epochMillis))
 
 private fun Modifier.alphaIfDisabled(enabled: Boolean): Modifier = if (enabled) this else alpha(.45f)
+
+/**
+ * A second zone labelled beside the hour rail, as the web app has. Turning it
+ * on opens the picker; nothing is saved until a zone is chosen.
+ */
+@Composable
+private fun SecondaryZoneSetting(zoneId: String?, onChange: (String?) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    val zone = zoneId?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() }
+    SettingToggleRow(
+        "Second time zone",
+        zone?.let { "Hour labels also show ${calino.malinov.ski.util.CalinoZones.label(it)}" }
+            ?: "Label the day and week hours in another zone too",
+        zone != null || picking,
+    ) { on ->
+        if (on) picking = true else { picking = false; onChange(null) }
+    }
+    calino.malinov.ski.ui.components.EditorReveal(picking) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = SettingsRowHorizontalPadding, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ZonePicker(zone ?: java.time.ZoneId.systemDefault(), java.time.Instant.now()) { picked ->
+                onChange(picked.id)
+                picking = false
+            }
+        }
+    }
+}

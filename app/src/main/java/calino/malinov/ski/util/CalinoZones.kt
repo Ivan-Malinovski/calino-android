@@ -74,4 +74,20 @@ object CalinoZones {
             words.all { it in haystack }
         }.sortedByDescending { city(it).lowercase(Locale.ROOT).startsWith(words.first()) }
     }
+
+    /**
+     * What [zone]'s clock reads at [hour]:00 on [day] in [device] time, for
+     * the secondary hour rail: "3 AM", or "3:30 AM" where the offsets differ
+     * by a fraction of an hour.
+     */
+    fun secondaryHour(
+        day: java.time.LocalDate,
+        hour: Int,
+        device: ZoneId,
+        zone: ZoneId,
+        format: calino.malinov.ski.util.CalinoTimeFormat,
+    ): String {
+        val local = day.atTime(hour, 0).atZone(device).withZoneSameInstant(zone).toLocalTime()
+        return if (local.minute == 0) format.formatHour(local.hour) else format.format(local)
+    }
 }
