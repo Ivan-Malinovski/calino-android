@@ -138,6 +138,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.data.model.Attendee
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.model.upcomingOccurrences
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.data.model.occursOn
@@ -1142,6 +1143,20 @@ private fun EventDetailContent(
                     shown?.let { PreviewMeetingRow(it) }
                 }
             }
+            item(key = "attachments") {
+                AnimatedVisibility(
+                    visible = event.attachments.isNotEmpty(),
+                    enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) +
+                        expandVertically(tween(CalinoMotion.ContentEnterMillis)),
+                    exit = fadeOut(tween(CalinoMotion.ContentExitMillis)) +
+                        shrinkVertically(tween(CalinoMotion.ContentExitMillis)),
+                ) {
+                    // Keep the last list while the block animates out.
+                    var shown by remember { mutableStateOf(event.attachments) }
+                    if (event.attachments.isNotEmpty()) shown = event.attachments
+                    Column { shown.forEach { PreviewAttachmentRow(event, it) } }
+                }
+            }
             item {
                 PreviewEditRow(
                     CalinoIcon.Pin,
@@ -1462,6 +1477,32 @@ private fun PreviewMeetingRow(meeting: MeetingLink) {
             },
             modifier = Modifier.padding(end = PreviewTrailingInset - 18.dp).heightIn(min = 44.dp),
         )
+    }
+}
+
+/**
+ * One `ATTACH`. The whole row is the target: a link opens with VIEW, inline
+ * data is written to a cached file and handed over through the FileProvider.
+ */
+@Composable
+private fun PreviewAttachmentRow(event: CalEvent, attachment: EventAttachment) {
+    val open = calino.malinov.ski.state.LocalAttachmentOpener.current
+    val name = attachmentLabel(attachment)
+    val detail = attachmentDetail(attachment)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clickable(onClickLabel = "Open") { open(event, attachment) }
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CalinoIcon(CalinoIcon.Paperclip, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+            label("Attachment")
+            Text(name, style = CalinoTypography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            detail?.let { Text(it, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
     }
 }
 

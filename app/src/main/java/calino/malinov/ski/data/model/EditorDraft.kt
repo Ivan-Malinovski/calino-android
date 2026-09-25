@@ -39,6 +39,8 @@ data class EditorDraft(
     val description: String? = null,
     val reminders: List<Reminder> = emptyList(),
     val travelTimeMinutes: Int? = null,
+    /** The event's attachments; null for a new record, so a save writes none. */
+    val attachments: List<EventAttachment>? = null,
     val relatedTo: List<String> = emptyList(),
     /** Immediate parent when this draft creates or edits a subtask. */
     val parentTaskId: String? = null,
@@ -174,6 +176,7 @@ data class EditorDraft(
         categories = categories,
         reminders = reminders,
         travelTimeMinutes = travelTimeMinutes,
+        attachments = attachments,
         zoneId = zoneId,
         endZoneId = endZoneId,
         relatedTo = relatedTo,
@@ -324,6 +327,7 @@ private fun editorDraftInDevice(event: CalEvent, anchor: LocalDate): EditorDraft
         description = event.notes,
         reminders = event.reminders,
         travelTimeMinutes = event.travelTimeMinutes,
+        attachments = event.attachments,
         zoneId = event.zoneId,
         endZoneId = event.endZoneId,
         relatedTo = event.relatedTo,

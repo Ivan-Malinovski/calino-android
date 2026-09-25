@@ -1,6 +1,8 @@
 package calino.malinov.ski.data.repository
 
 import calino.malinov.ski.data.caldav.CachedCalendar
+import calino.malinov.ski.data.caldav.readInlineAttachment
+import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.caldav.CachedAddressBook
 import calino.malinov.ski.data.caldav.CardDavFetcher
 import calino.malinov.ski.data.caldav.CardDavWriter
@@ -1108,7 +1110,7 @@ class CalDavRepository(
             if (source != null && (requestedSource == null || requestedSource.calendar.url == source.calendar.url)) {
                 writableRejection(source, "VEVENT")?.let { return it }
                 val uid = current.uid ?: current.id
-                val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).copy(
+                val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).keepingAttachments(input, current).copy(
                     id = current.id,
                     uid = uid,
                     href = null,
@@ -1143,7 +1145,7 @@ class CalDavRepository(
             val source = sourceForRecord(current.calendarId, current.href)
             writableRejection(source, "VEVENT")?.let { return it }
             source ?: return WriteResult.Rejected("That event's calendar is no longer connected.")
-            val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).copy(
+            val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).keepingAttachments(input, current).copy(
                 id = current.id,
                 uid = current.uid ?: current.id,
                 href = current.href,
@@ -1188,7 +1190,7 @@ class CalDavRepository(
         writableRejection(source, "VEVENT")?.let { return it }
         source ?: return WriteResult.Rejected("That event's calendar is no longer connected.")
 
-        val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).copy(
+        val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).keepingAttachments(input, current).copy(
             id = current.id,
             uid = current.uid ?: current.id,
             href = current.href,
@@ -1767,6 +1769,13 @@ class CalDavRepository(
             }
             is WriteResult.Rejected -> result
         }
+    }
+
+    override fun inlineAttachment(event: CalEvent, attachment: EventAttachment): ByteArray? {
+        val source = sourceForRecord(event.calendarId, event.href) ?: return null
+        val href = event.href ?: return null
+        val ics = cache.loadResource(source.calendar.url, href)?.ics ?: return null
+        return readInlineAttachment(ics, event.uid ?: return null, attachment)
     }
 
     override fun addLocalEvent(input: NewEvent): CalEvent =
@@ -4167,3 +4176,7 @@ class CalDavRepository(
         const val DefaultWindowMonths = 24L
     }
 }
+
+/** An edit that did not supply attachments shows the ones the event already had. */
+private fun CalEvent.keepingAttachments(input: NewEvent, current: CalEvent): CalEvent =
+    if (input.attachments == null) copy(attachments = current.attachments) else this

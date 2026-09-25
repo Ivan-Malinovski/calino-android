@@ -226,3 +226,6 @@ fun nestWithinList(
  * did before there was a lookup to miss.
  */
 val LocalTaskLookup = staticCompositionLocalOf<(String) -> CalTask?> { { null } }
+
+/** Opens an event's attachment: a link in its app, inline data through a cached file. */
+val LocalAttachmentOpener = staticCompositionLocalOf<(calino.malinov.ski.data.model.CalEvent, calino.malinov.ski.data.model.EventAttachment) -> Unit> { { _, _ -> } }

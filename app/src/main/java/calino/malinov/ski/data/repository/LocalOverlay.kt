@@ -105,6 +105,7 @@ internal class LocalOverlay {
             // Server identity survives a local edit so a later write path can
             // still address the resource it came from.
             .copy(uid = current.uid, href = current.href, etag = current.etag)
+            .let { if (input.attachments == null) it.copy(attachments = current.attachments) else it }
             .also(::putEvent)
     }
 
@@ -276,6 +277,8 @@ internal class LocalOverlay {
         categories = input.categories,
         reminders = input.reminders,
         travelTimeMinutes = input.travelTimeMinutes,
+        attachments = input.attachments.orEmpty(),
+        attachmentsEdited = input.attachments != null,
         zoneId = input.zoneId,
         endZoneId = input.endZoneId,
         relatedTo = input.relatedTo,

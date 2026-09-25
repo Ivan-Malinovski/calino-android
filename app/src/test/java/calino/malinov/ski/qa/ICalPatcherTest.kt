@@ -554,6 +554,121 @@ class ICalPatcherTest {
         assertTrue(line, line.endsWith(":https://meet.jit.si/calino-room"))
     }
 
+    @Test
+    fun `an edit preserves URI and inline ATTACH lines with every parameter`() {
+        val nextcloud = "ATTACH;FMTTYPE=application/pdf;FILENAME=/Calendar/Agenda.pdf;X-NC-FILE-ID=4711;X-NC-HAS-PREVIEW=false:https://cloud.example.org/f/4711"
+        val plain = "ATTACH:https://example.org/brief.html"
+        val inline = "ATTACH;FMTTYPE=text/plain;ENCODING=BASE64;VALUE=BINARY;X-FILENAME=note.txt:aGVsbG8gY2FsaW5v"
+        val base = foreignResource.replace(
+            "X-CUSTOM-THING;X-PARAM=7:preserve this",
+            "$nextcloud\r\n$plain\r\n$inline\r\nX-CUSTOM-THING;X-PARAM=7:preserve this",
+        )
+        val event = eventFrom(base, "ours")
+
+        val patched = patcher.patchEvents(base, listOf(event.copy(title = "Renamed")), now)!!
+
+        assertTrue(patched.contains("SUMMARY:Renamed"))
+        val lines = patched.replace("\r\n ", "").lines().filter { it.startsWith("ATTACH") }
+        assertEquals(3, lines.size)
+        listOf(nextcloud, plain, inline).forEach { original ->
+            val value = original.substringAfter(":")
+            val params = original.substringBefore(":").split(";").drop(1)
+            val line = lines.single { it.endsWith(":$value") }
+            params.forEach { param -> assertTrue(line, line.contains(";$param")) }
+        }
+    }
+
+    private val attachResource = foreignResource.replace(
+        "X-CUSTOM-THING;X-PARAM=7:preserve this",
+        "ATTACH;FMTTYPE=application/pdf;FILENAME=/Talk/Agenda.pdf;X-NC-FILE-ID=4711:https://cloud.example.org/f/4711\r\n" +
+            "ATTACH:https://example.org/docs/brief%20v2.html\r\n" +
+            "ATTACH;FMTTYPE=text/plain;ENCODING=BASE64;VALUE=BINARY;X-FILENAME=note.txt:aGVsbG8gY2FsaW5v\r\n" +
+            "X-CUSTOM-THING;X-PARAM=7:preserve this",
+    )
+
+    @Test
+    fun `attachments map links and inline data with Nextcloud and X- file names`() {
+        val event = eventFrom(attachResource, "ours")
+
+        assertEquals(3, event.attachments.size)
+        val (nextcloud, plain, inline) = event.attachments
+        assertEquals("https://cloud.example.org/f/4711", nextcloud.uri)
+        assertEquals("Agenda.pdf", nextcloud.fileName)
+        assertEquals("application/pdf", nextcloud.mimeType)
+        assertEquals("brief v2.html", plain.fileName)
+        assertNull(inline.uri)
+        assertEquals("note.txt", inline.fileName)
+        assertEquals(12, inline.sizeBytes)
+        assertEquals(
+            "hello calino",
+            String(calino.malinov.ski.data.caldav.readInlineAttachment(attachResource, "ours", inline)!!),
+        )
+    }
+
+    @Test
+    fun `an unedited attachment list leaves every ATTACH alone even when the model has none`() {
+        val event = eventFrom(attachResource, "ours").copy(attachments = emptyList(), title = "Renamed")
+
+        val patched = patcher.patchEvents(attachResource, listOf(event), now)!!
+
+        assertEquals(3, patched.lines().count { it.startsWith("ATTACH") })
+    }
+
+    @Test
+    fun `an attachment edit removes and adds links but never touches inline data`() {
+        val event = eventFrom(attachResource, "ours")
+        val edited = event.copy(
+            attachmentsEdited = true,
+            attachments = event.attachments.drop(1) +
+                calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/new.pdf"),
+        )
+        // Dropping the inline one from the list must not remove it.
+        val withoutInline = edited.copy(attachments = edited.attachments.filter { it.uri != null })
+
+        val patched = patcher.patchEvents(attachResource, listOf(withoutInline), now)!!
+        val lines = patched.replace("\r\n ", "").lines().filter { it.startsWith("ATTACH") }
+
+        assertFalse(patched.contains("cloud.example.org/f/4711"))
+        assertTrue(lines.any { it.endsWith(":https://example.org/docs/brief%20v2.html") })
+        assertTrue(lines.any { it.endsWith(":https://example.org/new.pdf") })
+        assertTrue(lines.any { it.endsWith(":aGVsbG8gY2FsaW5v") })
+        assertEquals(3, lines.size)
+    }
+
+    @Test
+    fun `a rebase keeps a link the server added while applying the local add and remove`() {
+        val base = attachResource
+        val event = eventFrom(base, "ours")
+        val local = patcher.patchEvents(
+            base,
+            listOf(
+                event.copy(
+                    attachmentsEdited = true,
+                    attachments = event.attachments.drop(1) +
+                        calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/local.pdf"),
+                ),
+            ),
+            now,
+        )!!
+        val current = base.replace(
+            "X-CUSTOM-THING;X-PARAM=7:preserve this",
+            "ATTACH:https://example.org/remote.pdf\r\nX-CUSTOM-THING;X-PARAM=7:preserve this",
+        )
+
+        val rebased = patcher.rebaseResource(current, local, base, "VEVENT", setOf("ours"))!!
+        val uris = eventFrom(rebased, "ours").attachments.mapNotNull { it.uri }.toSet()
+
+        assertEquals(
+            setOf(
+                "https://example.org/docs/brief%20v2.html",
+                "https://example.org/remote.pdf",
+                "https://example.org/local.pdf",
+            ),
+            uris,
+        )
+        assertTrue(rebased.contains("aGVsbG8gY2FsaW5v"))
+    }
+
     // --- VALARM ---------------------------------------------------------------
 
     /**

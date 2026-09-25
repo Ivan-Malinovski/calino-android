@@ -414,6 +414,9 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                 // them by their actual names below so changing Apple travel
                 // time cannot overwrite an unrelated remote X-property.
                 if (propertyClass == RawProperty::class.java) return@forEach
+                // Attachments merge as a set, so a link added on the server
+                // survives a local edit that added a different one.
+                if (propertyClass == biweekly.property.Attachment::class.java) return@forEach
                 val baseValues = baseProperties[propertyClass].orEmpty()
                 val localValues = localProperties[propertyClass].orEmpty()
                 if (baseValues != localValues) {
@@ -423,9 +426,27 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                     localValues.forEach { merged.addProperty(it.copy()) }
                 }
             }
+            mergeAttachments(base, local, merged)
             mergeRawProperties(base, local, merged)
             mergeAlarms(base, local, merged)
             return merged
+        }
+
+        /** Applies the local edit's added and removed `ATTACH`es to the server's current set. */
+        fun mergeAttachments(base: ICalComponent, local: ICalComponent, merged: ICalComponent) {
+            fun biweekly.property.Attachment.key(): String =
+                uri?.trim() ?: ("data:" + data?.contentHashCode() + ":" + parameters.first("FILENAME"))
+            val baseByKey = base.getProperties(biweekly.property.Attachment::class.java).associateBy { it.key() }
+            val localByKey = local.getProperties(biweekly.property.Attachment::class.java).associateBy { it.key() }
+            val removed = baseByKey.keys - localByKey.keys
+            merged.getProperties(biweekly.property.Attachment::class.java)
+                .filter { it.key() in removed }
+                .toList()
+                .forEach(merged::removeProperty)
+            val present = merged.getProperties(biweekly.property.Attachment::class.java).map { it.key() }.toSet()
+            (localByKey.keys - baseByKey.keys - present).forEach { key ->
+                merged.addProperty(localByKey.getValue(key).copy())
+            }
         }
 
         fun mergeRawProperties(base: ICalComponent, local: ICalComponent, merged: ICalComponent) {

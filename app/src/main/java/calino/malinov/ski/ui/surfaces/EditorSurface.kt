@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.model.Attendee
 import calino.malinov.ski.data.model.Availability
 import calino.malinov.ski.data.model.EditorDraft
+import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.model.EditorField
 import calino.malinov.ski.data.model.RecurrenceFreq
 import calino.malinov.ski.data.model.RecurrenceEditScope
@@ -1229,6 +1230,7 @@ private fun MoreSection(
                         )
                     }
                 }
+                AttachmentLinksSection(draft, onDraft)
                 CalinoColorSwatchRow(Color(draft.color)) { picked ->
                     onDraft(draft.copy(color = picked.toArgb().toLong() and 0xffffffffL))
                 }
@@ -1310,3 +1312,66 @@ private fun formatReminder(minutes: Int): String = when {
 /** Re-runs the keyword rules only when this edit changed the title. */
 private fun EditorDraft.rematchedFrom(previous: EditorDraft, rules: List<AutoCategoryRule>): EditorDraft =
     if (title == previous.title) this else withAutoCategories(rules)
+
+/**
+ * Links written as `ATTACH`. Inline files another client attached stay on the
+ * event and are listed but cannot be removed here: Calino does not author
+ * inline data, and dropping one would be an unrecoverable loss.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit) {
+    var input by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+    val attachments = draft.attachments.orEmpty()
+    val link = input.trim()
+    val valid = attachmentLinkValid(link) && attachments.none { it.uri == link }
+    EditorLabel("Attachments")
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CalinoTextField(
+            value = input,
+            onValueChange = { input = it },
+            label = "Attachment link",
+            placeholder = "Add a link…",
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            enabled = valid,
+            onClick = {
+                onDraft(draft.copy(attachments = attachments + EventAttachment(uri = link)))
+                input = ""
+            },
+        ) { Text("Add") }
+    }
+    val links = attachments.filter { it.uri != null }
+    if (links.isNotEmpty()) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            links.forEach { attachment ->
+                val name = attachmentLabel(attachment)
+                CalinoChip(
+                    text = name,
+                    selected = true,
+                    description = "Remove attachment $name",
+                    onClick = { onDraft(draft.copy(attachments = attachments - attachment)) },
+                )
+            }
+        }
+    }
+    val files = attachments.filter { it.uri == null }
+    if (files.isNotEmpty()) {
+        Text(
+            "Kept with the event: " + files.joinToString { attachmentLabel(it) },
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink3,
+        )
+    }
+}
+
+/** Only web links: a `file:` or `content:` URI would mean nothing on another device. */
+internal fun attachmentLinkValid(link: String): Boolean =
+    runCatching { java.net.URI(link) }.getOrNull()?.let { uri ->
+        uri.scheme?.lowercase() in setOf("https", "http") && !uri.host.isNullOrBlank()
+    } == true

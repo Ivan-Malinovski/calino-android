@@ -563,7 +563,7 @@ fun SwipeDownDismiss(
 enum class EventChipVariant { Rail, Tint, Task }
 enum class AgendaRowVariant { Card, Flat }
 
-enum class CalinoIcon { Back, Forward, Down, Plus, Search, Calendar, Repeat, Check, Pin, Note, Users, Edit, Trash, Bell, Filter, Clock, More, Globe }
+enum class CalinoIcon { Back, Forward, Down, Plus, Search, Calendar, Repeat, Check, Pin, Note, Users, Edit, Trash, Bell, Filter, Clock, More, Globe, Paperclip }
 
 /**
  * A transient feedback toast shared by writes and undoable actions.
@@ -3950,6 +3950,7 @@ fun CalinoIcon(icon: CalinoIcon, tint: Color = LocalContentColor.current, modifi
             CalinoIcon.Clock -> CalinoIcons.Clock
             CalinoIcon.More -> CalinoIcons.More
             CalinoIcon.Globe -> CalinoIcons.Globe
+            CalinoIcon.Paperclip -> CalinoIcons.Paperclip
         },
         contentDescription = contentDescription,
         tint = tint,

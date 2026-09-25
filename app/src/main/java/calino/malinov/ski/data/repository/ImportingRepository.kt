@@ -1,6 +1,7 @@
 package calino.malinov.ski.data.repository
 
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.Contact
 import calino.malinov.ski.data.model.JournalEntry
@@ -190,6 +191,8 @@ class ImportingRepository(
     }
 
     override fun addLocalEvent(input: NewEvent): CalEvent = primary.addLocalEvent(input)
+    override fun inlineAttachment(event: CalEvent, attachment: EventAttachment): ByteArray? =
+        primary.inlineAttachment(event, attachment)
 
     // Tasks, journals and contacts have no provider counterpart, so there is
     // nothing to intercept -- they pass straight through.

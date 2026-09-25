@@ -272,6 +272,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collect
 
 private val DateLabel = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
@@ -1620,6 +1622,33 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
     }
 
+    fun openAttachment(event: CalEvent, attachment: calino.malinov.ski.data.model.EventAttachment) {
+        attachment.uri?.let { link ->
+            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link))) }
+                .onFailure { writeError = "No app here can open that attachment." }
+            return
+        }
+        writeScope.launch {
+            val opened = runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    val bytes = repository.inlineAttachment(event, attachment) ?: return@withContext null
+                    // One file per name, replaced each time: the cache holds
+                    // what is open now, never a second copy of the calendar.
+                    val directory = java.io.File(activity.cacheDir, "attachments").also { it.mkdirs() }
+                    val name = (attachment.fileName ?: "attachment").replace(Regex("[^A-Za-z0-9._-]"), "-").take(64)
+                    java.io.File(directory, name).also { it.writeBytes(bytes) }
+                } ?: return@runCatching false
+                val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", file)
+                activity.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, attachment.mimeType ?: activity.contentResolver.getType(uri) ?: "application/octet-stream")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
+                true
+            }.getOrDefault(false)
+            if (!opened) writeError = "That attachment could not be opened."
+        }
+    }
+
     fun handleEventAction(action: EventMenuAction, event: CalEvent) {
         when (action) {
             EventMenuAction.Edit -> openEditor(event, when (route) {
@@ -1917,6 +1946,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     CompositionLocalProvider(
         LocalCalinoSync provides syncStatus,
         LocalTaskLookup provides taskLookup,
+        calino.malinov.ski.state.LocalAttachmentOpener provides ::openAttachment,
     ) {
     // Keep the blur on the calendar/content sibling only. AI surfaces are
     // drawn after this block and must stay crisp above the blurred context.

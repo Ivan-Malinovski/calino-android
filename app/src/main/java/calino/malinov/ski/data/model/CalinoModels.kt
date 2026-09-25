@@ -23,6 +23,19 @@ data class Reminder(
 /** Free/busy transparency. The POC keeps it to the two states a person picks. */
 enum class Availability { Busy, Free }
 
+/**
+ * One `ATTACH` on an event: a link ([uri]) or inline data kept in the cached
+ * resource, found again by [inlineIndex].
+ */
+data class EventAttachment(
+    val uri: String? = null,
+    val fileName: String? = null,
+    val mimeType: String? = null,
+    /** Position of an inline attachment among the component's `ATTACH`es; null for a link. */
+    val inlineIndex: Int? = null,
+    val sizeBytes: Int? = null,
+)
+
 /** Scope used when an edit or delete targets one occurrence of a series. */
 enum class RecurrenceEditScope { This, Future, All }
 
@@ -57,6 +70,13 @@ data class CalEvent(
     val url: String? = null,
     /** RFC 7986 `CONFERENCE` URI, or a meeting-service `URL`; read-only. */
     val conferenceUrl: String? = null,
+    /** `ATTACH` properties. Links are editable; inline data is read-only. */
+    val attachments: List<EventAttachment> = emptyList(),
+    /**
+     * True when [attachments] came from an edit and the writer should make the
+     * resource's links match it. False leaves every `ATTACH` as it is.
+     */
+    val attachmentsEdited: Boolean = false,
     /** iCalendar UID. Null for records created locally. */
     val uid: String? = null,
     /** Absolute CalDAV resource URL. Null for records created locally. */
@@ -229,6 +249,8 @@ data class NewEvent(
     val travelTimeMinutes: Int? = null,
     val relatedTo: List<String> = emptyList(),
     val url: String? = null,
+    /** Links to write as `ATTACH`; null leaves the resource's attachments alone. */
+    val attachments: List<EventAttachment>? = null,
     /** Existing server identity, used by recurrence-aware updates. */
     val uid: String? = null,
     val href: String? = null,

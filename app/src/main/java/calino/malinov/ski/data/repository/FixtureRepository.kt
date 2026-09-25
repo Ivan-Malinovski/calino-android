@@ -1,6 +1,7 @@
 package calino.malinov.ski.data.repository
 
 import androidx.compose.runtime.mutableStateOf
+import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.model.Attendee
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.CalTask
@@ -173,6 +174,8 @@ interface CalinoRepository {
     suspend fun deleteContact(id: String): WriteResult<Unit>
     /** Contact-derived reminder events intentionally remain local-only in v1. */
     fun addLocalEvent(input: NewEvent): CalEvent
+    /** Bytes of an inline `ATTACH`, decoded from the stored resource; null when there are none. */
+    fun inlineAttachment(event: CalEvent, attachment: EventAttachment): ByteArray? = null
     suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange>
     suspend fun rescheduleTask(id: String, due: LocalDate?): WriteResult<UndoableChange>
     suspend fun undo(change: UndoableChange): WriteResult<Unit>
@@ -237,8 +240,9 @@ class FixtureRepository : CalinoRepository {
     }
 
     override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
-        snapshot().events.firstOrNull { it.id == id } ?: error("Unknown fixture event: $id")
+        val existing = snapshot().events.firstOrNull { it.id == id } ?: error("Unknown fixture event: $id")
         val event = eventFromInput(id, input)
+            .let { if (input.attachments == null) it.copy(attachments = existing.attachments) else it }
         update { current ->
             current.copy(events = current.events.map { if (it.id == id) event else it })
         }
@@ -288,6 +292,8 @@ class FixtureRepository : CalinoRepository {
             categories = input.categories,
             reminders = input.reminders,
             travelTimeMinutes = input.travelTimeMinutes,
+            attachments = input.attachments.orEmpty(),
+            attachmentsEdited = input.attachments != null,
             zoneId = input.zoneId,
             endZoneId = input.endZoneId,
             relatedTo = input.relatedTo,
@@ -388,6 +394,9 @@ class FixtureRepository : CalinoRepository {
         }
         return WriteResult.Applied(Unit)
     }
+
+    override fun inlineAttachment(event: CalEvent, attachment: EventAttachment): ByteArray? =
+        FixtureReviewNotes.takeIf { event.id == "evt-code-review" && attachment.fileName == "review-notes.txt" }
 
     override fun addLocalEvent(input: NewEvent): CalEvent {
         val event = eventFromInput("local-event-${nextEventId++}", input)
@@ -630,7 +639,14 @@ Open the [design brief](https://example.com/calino-design-brief) before the meet
         // A CONFERENCE link only: it adds a Join action without changing any
         // text the calendar surfaces show.
         timed("evt-code-review", "Code Review Session", FixtureRepository.FixtureDate, Rose, LocalTime.of(14, 0), 60, calendarId = "work")
-            .copy(conferenceUrl = "https://meet.google.com/cal-inoc-rev"),
+            .copy(
+                conferenceUrl = "https://meet.google.com/cal-inoc-rev",
+                // One link and one inline file: the detail card's two ways to open.
+                attachments = listOf(
+                    EventAttachment(uri = "https://example.org/review/checklist.pdf", fileName = "checklist.pdf", mimeType = "application/pdf"),
+                    EventAttachment(fileName = "review-notes.txt", mimeType = "text/plain", inlineIndex = 1, sizeBytes = FixtureReviewNotes.size),
+                ),
+            ),
         // Written for New York's clock: 09:00 there, wherever the device is.
         // Shows the detail card's "in New York" line and the editor's zone.
         LocalDate.of(2026, 5, 19).atTime(9, 0).atZone(java.time.ZoneId.of("America/New_York"))
@@ -801,3 +817,5 @@ private fun CalEvent.endedBefore(occurrenceDate: LocalDate?): CalEvent? {
 private val FixtureExceptionDate: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd", Locale.US)
 private val FixtureExceptionDateTime: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss", Locale.US)
+
+private val FixtureReviewNotes: ByteArray = "Check the pager epoch before merging.\n".toByteArray()

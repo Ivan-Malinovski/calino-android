@@ -1,6 +1,7 @@
 package calino.malinov.ski.ui.surfaces
 
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.util.CalinoZones
@@ -92,4 +93,27 @@ fun foreignZoneCaption(
     } else {
         "${format(localStart)} ${CalinoZones.city(startZone)} → ${format(localEnd)} ${CalinoZones.city(endZone)}"
     }
+}
+
+/** A name for an attachment row: its file name, else the link's host, else "Attachment". */
+fun attachmentLabel(attachment: EventAttachment): String =
+    attachment.fileName
+        ?: attachment.uri?.let { runCatching { java.net.URI(it).host }.getOrNull() }?.removePrefix("www.")
+        ?: "Attachment"
+
+/** The line under an attachment's name: the link's host, or the file's type and size. */
+fun attachmentDetail(attachment: EventAttachment): String? {
+    attachment.uri?.let { uri ->
+        val host = runCatching { java.net.URI(uri).host }.getOrNull()?.removePrefix("www.")
+        return host?.takeIf { it != attachmentLabel(attachment) } ?: host?.let { "Link" }
+    }
+    val size = attachment.sizeBytes?.let { bytes ->
+        when {
+            bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
+            bytes >= 1_000 -> "${bytes / 1_000} kB"
+            else -> "$bytes B"
+        }
+    }
+    val type = attachment.mimeType?.substringAfter('/')?.uppercase()
+    return listOfNotNull(type, size).joinToString(" · ").ifEmpty { null }
 }
