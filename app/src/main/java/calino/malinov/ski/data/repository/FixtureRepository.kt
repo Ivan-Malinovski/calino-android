@@ -631,6 +631,13 @@ Open the [design brief](https://example.com/calino-design-brief) before the meet
         // text the calendar surfaces show.
         timed("evt-code-review", "Code Review Session", FixtureRepository.FixtureDate, Rose, LocalTime.of(14, 0), 60, calendarId = "work")
             .copy(conferenceUrl = "https://meet.google.com/cal-inoc-rev"),
+        // Written for New York's clock: 09:00 there, wherever the device is.
+        // Shows the detail card's "in New York" line and the editor's zone.
+        LocalDate.of(2026, 5, 19).atTime(9, 0).atZone(java.time.ZoneId.of("America/New_York"))
+            .withZoneSameInstant(java.time.ZoneId.systemDefault()).toLocalDateTime().let { start ->
+                timed("evt-ny-sync", "New York office sync", start.toLocalDate(), Blue, start.toLocalTime(), 45, calendarId = "work")
+                    .copy(zoneId = "America/New_York")
+            },
         allDay("evt-national-day", "National Day · No Work", may(20), Amber, "work"),
         timed("evt-project-review", "Project Review", may(21), Rose, LocalTime.of(14, 0), 60, location = "Conference Room C", calendarId = "work"),
         timed("evt-client-05-21", "Client Call · Acme Corp", may(21), Rose, LocalTime.of(11, 0), 30, location = "Google Meet", calendarId = "work"),
