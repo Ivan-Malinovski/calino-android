@@ -64,6 +64,9 @@ data class EditorDraft(
     val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,
     /** CalendarContract recurrence without borrowing CalDAV identity fields. */
     val providerRecurring: Boolean = false,
+    /** Event zone; see [CalEvent.zoneId]. Null keeps a floating/UTC original. */
+    val zoneId: String? = null,
+    val endZoneId: String? = null,
     /** Hidden VTODO DTSTART fields retained while the editor changes DUE. */
     val taskStartDate: LocalDate? = null,
     val taskStartTime: LocalTime? = null,
@@ -114,6 +117,8 @@ data class EditorDraft(
         categories = categories,
         reminders = reminders,
         travelTimeMinutes = travelTimeMinutes,
+        zoneId = zoneId,
+        endZoneId = endZoneId,
         relatedTo = relatedTo,
         uid = uid,
         href = href,
@@ -253,6 +258,8 @@ fun editorDraftFor(event: CalEvent): EditorDraft {
         description = event.notes,
         reminders = event.reminders,
         travelTimeMinutes = event.travelTimeMinutes,
+        zoneId = event.zoneId,
+        endZoneId = event.endZoneId,
         relatedTo = event.relatedTo,
         attendees = event.attendees,
         color = event.color,

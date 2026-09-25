@@ -1,5 +1,6 @@
 package calino.malinov.ski.platform
 
+import calino.malinov.ski.data.caldav.ICalTimezones
 import calino.malinov.ski.data.model.Availability
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.CalEvent
@@ -219,7 +220,9 @@ object ProviderIdentity {
             startMillis = startMillis,
             endMillis = endMillis,
             allDay = allDay,
-            timeZone = if (allDay) "UTC" else zone.id,
+            // The event's own zone, so DST-crossing series and other readers
+            // see the same wall time as the CalDAV original.
+            timeZone = if (allDay) "UTC" else event.zoneId?.takeIf { ICalTimezones.resolve(it) != null } ?: zone.id,
             free = event.availability == Availability.Free,
             // Sorted and de-duplicated so two equivalent reminder lists hash
             // alike; a reorder upstream must not rewrite the row.

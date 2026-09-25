@@ -1,6 +1,5 @@
 package calino.malinov.ski.data.caldav
 
-import biweekly.Biweekly
 import biweekly.ICalendar
 import biweekly.component.ICalComponent
 import biweekly.component.VAlarm
@@ -371,7 +370,7 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
     private fun parseSingle(originalIcs: String): ICalendar? {
         val cleaned = originalIcs.removePrefix("\uFEFF").trim()
         if (cleaned.isEmpty()) return null
-        val calendars = runCatching { Biweekly.parse(cleaned).all() }.getOrNull() ?: return null
+        val calendars = runCatching { ICalTimezones.parse(cleaned) }.getOrNull() ?: return null
         return calendars.singleOrNull()
     }
 

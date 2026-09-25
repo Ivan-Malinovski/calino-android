@@ -46,6 +46,8 @@ fun EventPreviewDraft.toNewEvent(event: CalEvent, scope: RecurrenceEditScope): N
     categories = event.categories,
     reminders = event.reminders,
     travelTimeMinutes = event.travelTimeMinutes,
+    zoneId = event.zoneId,
+    endZoneId = event.endZoneId,
     relatedTo = event.relatedTo,
     url = event.url,
     uid = event.uid,

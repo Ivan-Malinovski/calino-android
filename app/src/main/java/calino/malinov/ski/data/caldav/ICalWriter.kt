@@ -15,6 +15,7 @@ import biweekly.property.Conference
 import biweekly.property.Created
 import biweekly.property.DateDue
 import biweekly.property.DateEnd
+import biweekly.property.DateOrDateTimeProperty
 import biweekly.property.DateStart
 import biweekly.property.DateTimeStamp
 import biweekly.property.Description
@@ -97,20 +98,27 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
             val start = event.start?.atZone(zone)?.toInstant() ?: now
             val minutes = (event.durationMinutes ?: DefaultDurationMinutes).coerceAtLeast(0)
             val end = start.plusSeconds(minutes * 60L)
-            // Keep the original value frame when the instant is unchanged.
-            // This preserves an existing TZID or floating DTSTART on unrelated
-            // edits; recurrence edits also restore the series frame in
-            // RecurrenceEdit when the start itself changes.
+            val startZone = ICalTimezones.resolve(event.zoneId)
+            val endZone = ICalTimezones.resolve(event.endZoneId) ?: startZone
+            // Keep the original property -- and with it the server's own TZID
+            // and VTIMEZONE binding -- when neither the instant nor the zone
+            // changed. A replaced value is written in the event's zone (RFC
+            // 5545 3.3.5 form 3), stays floating if it was floating, and is
+            // otherwise UTC.
             val originalStart = original?.dateStart?.takeIf { property ->
-                property.value?.hasTime() == true &&
-                    runCatching { property.value.toInstant() == start }.getOrDefault(false)
+                property.keeps(start, startZone)
             }
             val originalEnd = original?.dateEnd?.takeIf { property ->
-                property.value?.hasTime() == true &&
-                    runCatching { property.value.toInstant() == end }.getOrDefault(false)
+                property.keeps(end, endZone)
             }
-            if (originalStart == null) vevent.replace(DateStart(start.toDateTime()))
-            if (originalEnd == null) vevent.replace(DateEnd(end.toDateTime()))
+            val floating = startZone == null && ICalTimezones.isFloating(original?.dateStart)
+            if (originalStart == null) {
+                vevent.replace(DateStart(start.toDateTime(startZone, floating)).inFrame(startZone, floating))
+            }
+            if (originalEnd == null) {
+                val endFloating = endZone == null && ICalTimezones.isFloating(original?.dateEnd ?: original?.dateStart)
+                vevent.replace(DateEnd(end.toDateTime(endZone, endFloating)).inFrame(endZone, endFloating))
+            }
         }
 
         vevent.replaceOrRemove(event.location?.trim()?.takeIf(String::isNotEmpty)) { Location(it) }
@@ -379,6 +387,39 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
     private fun Instant.toDateTime() = ICalDate(Date.from(this), true)
 
     /**
+     * A date-time for [this] instant: in [zone] with a `TZID` parameter that
+     * [ICalTimezones.prepareForWrite] binds to a VTIMEZONE; floating in the
+     * device zone; or UTC.
+     */
+    private fun Instant.toDateTime(zone: ZoneId?, floating: Boolean): ICalDate {
+        val frame = zone ?: if (floating) this@ICalWriter.zone else return toDateTime()
+        val local = atZone(frame).toLocalDateTime()
+        return ICalDate(
+            Date.from(this),
+            DateTimeComponents(local.year, local.monthValue, local.dayOfMonth, local.hour, local.minute, local.second, false),
+            true,
+        )
+    }
+
+    /** Marks a replaced property's frame; [ICalTimezones.prepareForWrite] binds it. */
+    private fun <T : DateOrDateTimeProperty> T.inFrame(zone: ZoneId?, floating: Boolean): T = also {
+        if (zone != null) it.setParameter("TZID", zone.id)
+        else if (floating) it.setParameter(ICalTimezones.FloatingMarker, "TRUE")
+    }
+
+    /** True when this original property already says [instant] in [zone]'s frame. */
+    private fun DateOrDateTimeProperty.keeps(instant: Instant, zone: ZoneId?): Boolean {
+        val value = value ?: return false
+        if (!value.hasTime()) return false
+        if (runCatching { value.toInstant() != instant }.getOrDefault(true)) return false
+        val originalZone = getParameter("TZID")
+        // A zone Calino cannot name (a custom VTIMEZONE) maps to a null
+        // zoneId; the original is still the only faithful form of it.
+        return if (zone == null) originalZone == null || ICalTimezones.resolve(originalZone) == null
+        else ICalTimezones.resolve(originalZone) == zone
+    }
+
+    /**
      * A `VALUE=DATE` value built from the written digits.
      *
      * Constructed from [DateTimeComponents] rather than from a [Date] because a
@@ -405,8 +446,10 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
             Biweekly.parse(probe).first()?.events?.firstOrNull()?.recurrenceRule
         }.getOrNull()
 
-        internal fun write(calendar: ICalendar): String =
-            Biweekly.write(calendar).register(ExplicitUriConferenceScribe()).go()
+        internal fun write(calendar: ICalendar): String {
+            ICalTimezones.prepareForWrite(calendar)
+            return Biweekly.write(calendar).register(ExplicitUriConferenceScribe()).go()
+        }
     }
 }
 

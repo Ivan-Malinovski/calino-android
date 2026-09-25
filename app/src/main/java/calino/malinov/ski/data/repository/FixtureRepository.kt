@@ -288,6 +288,8 @@ class FixtureRepository : CalinoRepository {
             categories = input.categories,
             reminders = input.reminders,
             travelTimeMinutes = input.travelTimeMinutes,
+            zoneId = input.zoneId,
+            endZoneId = input.endZoneId,
             relatedTo = input.relatedTo,
             url = input.url,
             uid = input.uid,

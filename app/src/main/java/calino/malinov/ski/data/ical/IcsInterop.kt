@@ -1,8 +1,8 @@
 package calino.malinov.ski.data.ical
 
-import biweekly.Biweekly
 import biweekly.ICalendar
 import calino.malinov.ski.data.caldav.ICalMapper
+import calino.malinov.ski.data.caldav.ICalTimezones
 import calino.malinov.ski.data.caldav.ICalWriter
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.NewEvent
@@ -39,7 +39,7 @@ object IcsInterop {
 
     fun parseEvents(text: String, zone: ZoneId = ZoneId.systemDefault()): IcsImportBatch {
         require(text.toByteArray().size <= MaxBytes) { "That calendar file is larger than 5 MB." }
-        val calendars = runCatching { Biweekly.parse(text).all() }.getOrNull()
+        val calendars = runCatching { ICalTimezones.parse(text) }.getOrNull()
             ?.takeIf { it.isNotEmpty() } ?: error("That file is not valid iCalendar data.")
         val unsupported = calendars.sumOf { it.todos.size + it.journals.size }
         // UID is required by RFC 5545, but several calendar exporters omit it
@@ -50,7 +50,7 @@ object IcsInterop {
         calendars.flatMap(ICalendar::getEvents)
             .filter { it.uid?.value.isNullOrBlank() }
             .forEach { it.setUid(UUID.randomUUID().toString()) }
-        val normalizedText = calendars.joinToString("\r\n") { Biweekly.write(it).go() }
+        val normalizedText = calendars.joinToString("\r\n") { ICalWriter.write(it) }
         val mapper = ICalMapper(zone)
         val parsed = mapper.parse(
             normalizedText,
@@ -89,7 +89,7 @@ object IcsInterop {
             recurrence = event.recurrence, location = event.location, notes = event.notes,
             attendees = event.attendees, calendarId = calendarId, availability = event.availability,
             categories = event.categories, reminders = event.reminders, uid = event.uid,
-            sequence = event.sequence,
+            sequence = event.sequence, zoneId = event.zoneId, endZoneId = event.endZoneId,
         )
     }
 }

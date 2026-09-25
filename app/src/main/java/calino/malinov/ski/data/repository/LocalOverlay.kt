@@ -276,6 +276,8 @@ internal class LocalOverlay {
         categories = input.categories,
         reminders = input.reminders,
         travelTimeMinutes = input.travelTimeMinutes,
+        zoneId = input.zoneId,
+        endZoneId = input.endZoneId,
         relatedTo = input.relatedTo,
         uid = input.uid,
         url = input.url,

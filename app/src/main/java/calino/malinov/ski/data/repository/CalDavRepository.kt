@@ -7,6 +7,7 @@ import calino.malinov.ski.data.caldav.CardDavWriter
 import calino.malinov.ski.data.caldav.CardResource
 import calino.malinov.ski.data.caldav.CalDavFetcher
 import calino.malinov.ski.data.caldav.CalDavWriter
+import calino.malinov.ski.data.caldav.ICalTimezones
 import calino.malinov.ski.data.caldav.CalendarCache
 import calino.malinov.ski.data.caldav.CalendarResource
 import calino.malinov.ski.data.caldav.CollectionCursor
@@ -37,7 +38,6 @@ import calino.malinov.ski.data.model.NewContact
 import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
-import biweekly.Biweekly
 import biweekly.component.ICalComponent
 import biweekly.component.VEvent
 import java.io.Closeable
@@ -980,7 +980,7 @@ class CalDavRepository(
         change.uid?.takeIf(String::isNotBlank)?.let(uids::add)
         change.eventId.takeIf(String::isNotBlank)?.let(uids::add)
         val data = change.data ?: return uids
-        runCatching { Biweekly.parse(data).all() }.getOrNull().orEmpty().forEach { calendar ->
+        runCatching { ICalTimezones.parse(data) }.getOrNull().orEmpty().forEach { calendar ->
             when (change.component.uppercase()) {
                 "VEVENT" -> calendar.events.mapNotNull { it.uid?.value }.forEach(uids::add)
                 "VTODO" -> calendar.todos.mapNotNull { it.uid?.value }.forEach(uids::add)
@@ -1910,7 +1910,7 @@ class CalDavRepository(
             ?: return WriteResult.Rejected(
                 "The recurring event is not available in the raw cache. Refresh and try again.",
             )
-        val calendar = runCatching { Biweekly.parse(cached.ics).all().singleOrNull() }.getOrNull()
+        val calendar = runCatching { ICalTimezones.parse(cached.ics).singleOrNull() }.getOrNull()
             ?: return WriteResult.Rejected("The recurring event could not be read safely.")
         // A few servers store a detached override as its own resource. There
         // is no master rule from which FUTURE can be reconstructed, but THIS
@@ -1957,7 +1957,7 @@ class CalDavRepository(
                         "The recurring event has no current server version. Refresh and try again.",
                         status = 412,
                     )
-                val currentCalendar = runCatching { Biweekly.parse(currentResource.ics).all().singleOrNull() }.getOrNull()
+                val currentCalendar = runCatching { ICalTimezones.parse(currentResource.ics).singleOrNull() }.getOrNull()
                     ?: throw CalDavException(
                         CalDavErrorCode.NotCalDav,
                         "The recurring event could not be read safely.",
@@ -2018,7 +2018,7 @@ class CalDavRepository(
                         "The recurring event has no current server version. Refresh and try again.",
                         status = 412,
                     )
-                val calendar = runCatching { Biweekly.parse(currentResource.ics).all().singleOrNull() }.getOrNull()
+                val calendar = runCatching { ICalTimezones.parse(currentResource.ics).singleOrNull() }.getOrNull()
                     ?: throw CalDavException(
                         CalDavErrorCode.NotCalDav,
                         "The recurring event could not be read safely.",
@@ -2991,7 +2991,7 @@ class CalDavRepository(
         fallback: CalEvent,
     ) {
         val uids = runCatching {
-            Biweekly.parse(ics).all().flatMap { parsed ->
+            ICalTimezones.parse(ics).flatMap { parsed ->
                 parsed.events.mapNotNull { it.uid?.value }
             }.toSet()
         }.getOrDefault(emptySet())
@@ -3896,7 +3896,7 @@ class CalDavRepository(
         scope: RecurrenceEditScope,
         recurrenceChanged: Boolean,
     ): String? {
-        val calendar = runCatching { Biweekly.parse(originalIcs).all().singleOrNull() }.getOrNull()
+        val calendar = runCatching { ICalTimezones.parse(originalIcs).singleOrNull() }.getOrNull()
             ?: return null
         // A move operates on the complete resource. Refuse a shared resource
         // containing another UID or component rather than copying/deleting an

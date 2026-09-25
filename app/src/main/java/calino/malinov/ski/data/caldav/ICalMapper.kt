@@ -1,6 +1,5 @@
 package calino.malinov.ski.data.caldav
 
-import biweekly.Biweekly
 import biweekly.ICalendar
 import biweekly.component.VEvent
 import biweekly.component.VJournal
@@ -147,7 +146,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
     private fun parseCalendars(icalText: String): List<ICalendar>? {
         val cleaned = icalText.removePrefix("\uFEFF").trim()
         if (cleaned.isEmpty()) return null
-        return runCatching { Biweekly.parse(cleaned).all() }.getOrNull()?.takeIf { it.isNotEmpty() }
+        return runCatching { ICalTimezones.parse(cleaned) }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 
     // --- VEVENT ---------------------------------------------------------------
@@ -193,14 +192,14 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 // statement of intent.
                 overrides.forEach { override ->
                     if (override.isCancelledEvent()) return@forEach
-                    mapEvent(override, calendarId, color, href, etag)
+                    mapEvent(override, calendar, calendarId, color, href, etag)
                         ?.takeIf { it.withinWindow(windowStart, windowEnd) }
                         ?.let(out::add)
                 }
 
                 if (master == null) return@forEach
                 if (master.recurrenceRule == null && master.recurrenceDates.isEmpty()) {
-                    mapEvent(master, calendarId, color, href, etag)?.let(out::add)
+                    mapEvent(master, calendar, calendarId, color, href, etag)?.let(out::add)
                     return@forEach
                 }
                 out += expandSeries(
@@ -222,7 +221,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         windowStart: LocalDate,
         windowEnd: LocalDate,
     ): List<CalEvent> {
-        val base = mapEvent(master, calendarId, color, href, etag) ?: return emptyList()
+        val base = mapEvent(master, calendar, calendarId, color, href, etag) ?: return emptyList()
         val timeZone = timeZoneFor(calendar, master.dateStart)
         val iterationZone = timeZone.toZoneId()
 
@@ -230,7 +229,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             val recurrenceId = component.recurrenceId
                 ?.takeIf { it.getParameter("RANGE")?.equals("THISANDFUTURE", ignoreCase = true) == true }
                 ?: return@mapNotNull null
-            val mapped = mapEvent(component, calendarId, color, href, etag) ?: return@mapNotNull null
+            val mapped = mapEvent(component, calendar, calendarId, color, href, etag) ?: return@mapNotNull null
             EventRangeOverride(
                 component = component,
                 event = mapped,
@@ -431,11 +430,11 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
      * which is what the rest of the mapper reads times in.
      */
     private fun timeZoneFor(calendar: ICalendar, property: ICalProperty?): TimeZone =
-        property?.let { calendar.timezoneInfo.getTimezone(it)?.timeZone }
-            ?: TimeZone.getTimeZone(zone)
+        ICalTimezones.timeZoneOf(calendar, property) ?: TimeZone.getTimeZone(zone)
 
     private fun mapEvent(
         vevent: VEvent,
+        calendar: ICalendar,
         calendarId: String,
         color: Long,
         href: String,
@@ -497,6 +496,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             )
         } else {
             val startLocal = toLocalDateTime(start.value.toInstant())
+            val startZone = ICalTimezones.zoneIdOf(calendar, start)
             val endInstant = vevent.dateEnd?.value?.toInstant()
             val duration = when {
                 endInstant != null -> Duration.between(start.value.toInstant(), endInstant).toMinutes().toInt()
@@ -530,6 +530,8 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 recurrenceId = recurrenceInstant,
                 recurrenceDate = recurrenceDate,
                 sequence = vevent.sequence?.value,
+                zoneId = startZone,
+                endZoneId = ICalTimezones.zoneIdOf(calendar, vevent.dateEnd)?.takeIf { it != startZone },
             )
         }
     }

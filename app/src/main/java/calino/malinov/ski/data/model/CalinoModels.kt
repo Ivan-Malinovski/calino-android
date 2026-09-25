@@ -71,6 +71,13 @@ data class CalEvent(
     val sequence: Int? = null,
     /** Recurrence marker for CalendarContract instances; not CalDAV identity. */
     val providerRecurring: Boolean = false,
+    /**
+     * IANA zone the event's own DTSTART is written in. Null for floating, UTC
+     * and all-day times. Metadata only: [start] stays in the device zone.
+     */
+    val zoneId: String? = null,
+    /** DTEND's zone when it differs from [zoneId] (a flight); null otherwise. */
+    val endZoneId: String? = null,
 )
 
 /** Date-aware event matching shared by calendar and day-modal renderers. */
@@ -234,6 +241,9 @@ data class NewEvent(
     /** True when the editor explicitly changed or cleared the recurrence rule. */
     val recurrenceChanged: Boolean = false,
     val recurrenceScope: RecurrenceEditScope = RecurrenceEditScope.All,
+    /** See [CalEvent.zoneId]. [startTime] is still a device-zone wall time. */
+    val zoneId: String? = null,
+    val endZoneId: String? = null,
 )
 
 data class NewTask(

@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.CalendarContract
 import calino.malinov.ski.data.model.Availability
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.caldav.ICalTimezones
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.repository.WriteResult
@@ -354,8 +355,13 @@ class AndroidCalendarWriter(private val context: Context) {
         val placementUnchanged = originalBegin != null && inputStart == originalBegin && input.allDay == originalAllDay
         put(
             CalendarContract.Events.EVENT_TIMEZONE,
-            if (placementUnchanged && !preservedTimeZone.isNullOrBlank()) preservedTimeZone
-            else if (input.allDay) "UTC" else ZoneId.systemDefault().id,
+            when {
+                input.allDay -> if (placementUnchanged && !preservedTimeZone.isNullOrBlank()) preservedTimeZone else "UTC"
+                // A zone the person picked in the editor wins over the row's.
+                ICalTimezones.resolve(input.zoneId) != null -> ICalTimezones.resolve(input.zoneId)!!.id
+                placementUnchanged && !preservedTimeZone.isNullOrBlank() -> preservedTimeZone
+                else -> ZoneId.systemDefault().id
+            },
         )
     }
 

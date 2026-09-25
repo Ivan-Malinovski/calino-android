@@ -347,7 +347,12 @@ object RecurrenceEdit {
      */
     private fun preserveTemporalForm(group: Group, event: VEvent) {
         val startTemplate = requireNotNull(group.master.dateStart)
-        event.dateStart?.let { original ->
+        // A TZID parameter on a timed replacement is the writer's deliberate
+        // choice of zone (the person picked one), not a lost frame: keep it.
+        // RECURRENCE-ID still follows the master's frame (RFC 5545 3.8.4.4).
+        fun chosenZone(property: DateOrDateTimeProperty?): Boolean =
+            !isAllDay(group) && property?.value?.hasTime() == true && property.getParameter("TZID") != null
+        event.dateStart?.takeUnless(::chosenZone)?.let { original ->
             val value = normalizedValue(group, original.value)
             val property = DateStart(value)
             property.setParameters(parametersForDate(group, startTemplate))
@@ -355,7 +360,7 @@ object RecurrenceEdit {
             event.addProperty(property)
         }
 
-        event.dateEnd?.let { original ->
+        event.dateEnd?.takeUnless(::chosenZone)?.let { original ->
             val template = group.master.dateEnd ?: startTemplate
             val value = normalizedValue(group, original.value)
             val property = DateEnd(value)
@@ -662,13 +667,7 @@ object RecurrenceEdit {
 
     private fun seriesTimeZone(group: Group): TimeZone {
         val property = group.master.dateStart!!
-        val explicit = property.getParameter("TZID")
-        if (!explicit.isNullOrBlank()) return TimeZone.getTimeZone(explicit)
-
-        val assignment = group.calendar?.let {
-            runCatching { it.timezoneInfo.getTimezone(property) }.getOrNull()
-        }
-        if (assignment != null) return assignment.timeZone
+        ICalTimezones.timeZoneOf(group.calendar, property)?.let { return it }
         return if (property.value.rawComponents?.isUtc == true) {
             TimeZone.getTimeZone("UTC")
         } else {
@@ -678,12 +677,8 @@ object RecurrenceEdit {
 
     private fun seriesTimezoneId(group: Group): String? {
         val property = group.master.dateStart!!
-        property.getParameter("TZID")?.takeIf(String::isNotBlank)?.let { return it }
         if (property.value.rawComponents?.isUtc == true) return null
-        val calendar = group.calendar ?: return null
-        val assignment = runCatching { calendar.timezoneInfo.getTimezone(property) }.getOrNull()
-        if (assignment == null || calendar.timezoneInfo.isFloating(property)) return null
-        return assignment.timeZone.id
+        return ICalTimezones.tzidOf(group.calendar, property)?.takeIf(String::isNotBlank)
     }
 
     private fun result(requested: Scope, effective: Scope, group: Group): Result =
