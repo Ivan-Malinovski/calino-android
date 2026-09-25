@@ -98,7 +98,10 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
             val start = event.start?.atZone(zone)?.toInstant() ?: now
             val minutes = (event.durationMinutes ?: DefaultDurationMinutes).coerceAtLeast(0)
             val end = start.plusSeconds(minutes * 60L)
-            val startZone = ICalTimezones.resolve(event.zoneId)
+            // A new event without a stated zone is in the device's, which is
+            // what the person meant and what keeps a series on its wall time
+            // across DST. An existing one without a zone was floating or UTC.
+            val startZone = ICalTimezones.resolve(event.zoneId) ?: if (original == null) zone else null
             val endZone = ICalTimezones.resolve(event.endZoneId) ?: startZone
             // Keep the original property -- and with it the server's own TZID
             // and VTIMEZONE binding -- when neither the instant nor the zone

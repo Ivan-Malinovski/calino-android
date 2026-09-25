@@ -41,6 +41,8 @@ object CalinoIcons {
 
     val Refresh: ImageVector by lazy { icon("refresh") { pathWithoutFill { moveTo(23f, 4f); verticalLineTo(10f); horizontalLineTo(17f); moveTo(20.5f, 9f); curveTo(19.1f, 5.5f, 15.8f, 3f, 12f, 3f); curveTo(7f, 3f, 3f, 7f, 3f, 12f); moveTo(1f, 20f); verticalLineTo(14f); horizontalLineTo(7f); moveTo(3.5f, 15f); curveTo(4.9f, 18.5f, 8.2f, 21f, 12f, 21f); curveTo(17f, 21f, 21f, 17f, 21f, 12f) } } }
 
+    val Globe: ImageVector by lazy { icon("globe") { circle(12f, 12f, 10f); moveTo(2f, 12f); horizontalLineTo(22f); moveTo(12f, 2f); curveTo(14.5f, 4.7f, 16f, 8.3f, 16f, 12f); curveTo(16f, 15.7f, 14.5f, 19.3f, 12f, 22f); curveTo(9.5f, 19.3f, 8f, 15.7f, 8f, 12f); curveTo(8f, 8.3f, 9.5f, 4.7f, 12f, 2f); close() } }
+
     val Menu: ImageVector by lazy { icon("menu") { moveTo(3f, 6f); horizontalLineTo(21f); moveTo(3f, 12f); horizontalLineTo(21f); moveTo(3f, 18f); horizontalLineTo(21f) } }
 
     private fun icon(name: String, block: PathBuilder.() -> Unit): ImageVector = Builder(name, 24.dp, 24.dp, 24f, 24f).apply {

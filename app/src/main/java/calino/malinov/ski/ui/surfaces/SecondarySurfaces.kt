@@ -202,6 +202,7 @@ import calino.malinov.ski.util.formatRecurrenceSummary
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.time.format.DateTimeFormatter
@@ -1088,6 +1089,34 @@ private fun EventDetailContent(
                 onEndTime = pickEndTime,
                 onAllDay = toggleAllDay,
             )
+            val timeFormat = LocalTimeFormat
+            val zoneCaption = remember(draft.date, draft.startTime, finish, event.zoneId, event.endZoneId, timeFormat) {
+                foreignZoneCaption(
+                    start = draft.startTime?.let(draft.date::atTime),
+                    end = finish,
+                    zoneId = event.zoneId,
+                    endZoneId = event.endZoneId,
+                    device = ZoneId.systemDefault(),
+                    format = timeFormat::format,
+                )
+            }
+            // The event was written for another place's clock; say what that
+            // clock reads, quietly, under the device-time numerals.
+            AnimatedVisibility(
+                visible = zoneCaption != null,
+                enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + expandVertically(tween(CalinoMotion.ContentEnterMillis)),
+                exit = fadeOut(tween(CalinoMotion.FadeThroughMillis)) + shrinkVertically(tween(CalinoMotion.ContentExitMillis)),
+            ) {
+                // Held (not state) so the caption keeps its words while it fades out.
+                val shown = remember { arrayOf("") }
+                zoneCaption?.let { shown[0] = it }
+                Text(
+                    shown[0],
+                    style = CalinoTypography.labelSmall,
+                    color = CalinoColors.Ink3,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                )
+            }
         }
         HorizontalDivider(color = eventColor(event).copy(alpha = .30f))
         LazyColumn(

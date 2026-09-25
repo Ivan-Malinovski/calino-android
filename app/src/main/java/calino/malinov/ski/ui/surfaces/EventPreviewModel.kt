@@ -3,8 +3,11 @@ package calino.malinov.ski.ui.surfaces
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.RecurrenceEditScope
+import calino.malinov.ski.util.CalinoZones
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 
 data class EventPreviewDraft(
     val title: String,
@@ -59,3 +62,34 @@ fun EventPreviewDraft.toNewEvent(event: CalEvent, scope: RecurrenceEditScope): N
     recurrenceChanged = false,
     recurrenceScope = scope,
 )
+
+/**
+ * "09:00 – 09:30 in New York" under a detail card whose times are in the
+ * device zone, or "10:00 Copenhagen → 12:00 New York" for an event whose end
+ * has its own zone. Null when every end already reads the same on the device's
+ * clock -- Berlin and Paris are different ids and the same numbers.
+ */
+fun foreignZoneCaption(
+    start: LocalDateTime?,
+    end: LocalDateTime?,
+    zoneId: String?,
+    endZoneId: String?,
+    device: ZoneId,
+    format: (LocalTime) -> String,
+): String? {
+    start ?: return null
+    val startZone = zoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: return null
+    val endZone = endZoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: startZone
+    val startAt = start.atZone(device)
+    val endAt = (end ?: start).atZone(device)
+    if (CalinoZones.sameOffset(startZone, device, startAt.toInstant()) &&
+        CalinoZones.sameOffset(endZone, device, endAt.toInstant())
+    ) return null
+    val localStart = startAt.withZoneSameInstant(startZone).toLocalTime()
+    val localEnd = endAt.withZoneSameInstant(endZone).toLocalTime()
+    return if (endZone == startZone) {
+        "${format(localStart)} – ${format(localEnd)} in ${CalinoZones.city(startZone)}"
+    } else {
+        "${format(localStart)} ${CalinoZones.city(startZone)} → ${format(localEnd)} ${CalinoZones.city(endZone)}"
+    }
+}

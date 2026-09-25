@@ -76,11 +76,13 @@ fun WhenHero(
     onEndDate: (() -> Unit)? = null,
     onEndTime: (() -> Unit)? = null,
     onAllDay: (() -> Unit)? = null,
+    /** The length when the ends are in different zones and their wall times cannot be subtracted. */
+    spanMinutes: Int? = null,
 ) {
     if (allDay) {
         AllDayHero(startDate, endDate, accent, modifier, onStartDate, onAllDay)
     } else {
-        TimedHero(startDate, startTime, endDate, endTime, accent, modifier, onStartDate, onStartTime, onEndDate, onEndTime, onAllDay)
+        TimedHero(startDate, startTime, endDate, endTime, accent, modifier, onStartDate, onStartTime, onEndDate, onEndTime, onAllDay, spanMinutes)
     }
 }
 
@@ -97,6 +99,7 @@ private fun TimedHero(
     onEndDate: (() -> Unit)?,
     onEndTime: (() -> Unit)?,
     onAllDay: (() -> Unit)?,
+    span: Int?,
 ) {
     val finish = endDate ?: startDate
     // Both faces are hung from the top rather than centred, so a day line that
@@ -114,7 +117,7 @@ private fun TimedHero(
         )
         SpanRule(
             label = startTime?.let { from ->
-                endTime?.let { formatCalinoDuration(spanMinutes(startDate, from, finish, it)) }
+                endTime?.let { formatCalinoDuration(span ?: spanMinutes(startDate, from, finish, it)) }
             } ?: "—",
             accent = accent,
             onAllDay = onAllDay,

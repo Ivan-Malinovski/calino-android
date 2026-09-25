@@ -5,7 +5,9 @@ import calino.malinov.ski.data.parser.parseQuickAdd
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -76,17 +78,57 @@ data class EditorDraft(
 ) {
     val isEditing: Boolean get() = editingId != null
 
+    /**
+     * The zone [date] and [startTime] are wall times in: the event's own, or
+     * the device's for an event without one. The editor shows and edits times
+     * in the event's zone, the way other calendars do; [toNewEvent] converts.
+     */
+    fun frameZone(device: ZoneId = ZoneId.systemDefault()): ZoneId = zoneOrNull(zoneId) ?: device
+
+    /** The zone the end is shown in; differs from [frameZone] only for a flight-style event. */
+    fun endFrameZone(device: ZoneId = ZoneId.systemDefault()): ZoneId = zoneOrNull(endZoneId) ?: frameZone(device)
+
+    /** Start plus duration, re-read in the end's zone when it has its own. */
+    private val zonedEnd: LocalDateTime?
+        get() = startTime?.let { start ->
+            date.atTime(start).atZone(frameZone()).plusMinutes((durationMinutes ?: DefaultDurationMinutes).toLong())
+                .withZoneSameInstant(endFrameZone()).toLocalDateTime()
+        }
+
     /** End of a timed event, derived from start plus duration. */
     val endTime: LocalTime?
-        get() = startTime?.plusMinutes((durationMinutes ?: DefaultDurationMinutes).toLong())
+        get() = if (endZoneId != null) zonedEnd?.toLocalTime()
+        else startTime?.plusMinutes((durationMinutes ?: DefaultDurationMinutes).toLong())
 
     /** The end can spill past midnight, so it carries its own date. */
     val endDate: LocalDate
         get() {
             val start = startTime ?: return date
+            if (endZoneId != null) return zonedEnd?.toLocalDate() ?: date
             val minutes = start.toSecondOfDay() / 60 + (durationMinutes ?: DefaultDurationMinutes)
             return date.plusDays((minutes / MinutesPerDay).toLong())
         }
+
+    /** Moves the event to [zone], keeping the wall times the person sees. */
+    fun withZone(zone: ZoneId): EditorDraft {
+        val end = endDate to endTime
+        val moved = copy(zoneId = zone.id, endZoneId = endZoneId?.takeIf { it != zone.id })
+        // A separate end zone keeps its own wall time too.
+        return if (endZoneId != null && end.second != null) moved.withEnd(end.first, end.second!!) else moved
+    }
+
+    /** Gives the end its own zone (null: the start's), keeping the end's wall time. */
+    fun withEndZone(zone: ZoneId?): EditorDraft {
+        val endDay = endDate
+        val endAt = endTime ?: return copy(endZoneId = zone?.id)
+        val frame = frameZone()
+        return copy(
+            // Pinning the start's zone explicitly keeps the two frames apart
+            // even for an event that had none.
+            zoneId = zoneId ?: frame.id,
+            endZoneId = zone?.id?.takeIf { it != frame.id },
+        ).withEnd(endDay, endAt)
+    }
 
     fun canSave(): Boolean = title.isNotBlank() &&
         (kind != PocQuickAddKind.Event || allDay || startTime == null || (durationMinutes ?: DefaultDurationMinutes) > 0) &&
@@ -97,11 +139,22 @@ data class EditorDraft(
     /** Moves the end, expressed as a duration so the rest of the app stays unchanged. */
     fun withEnd(endDate: LocalDate, endTime: LocalTime): EditorDraft {
         val start = startTime ?: return this
-        val minutes = Duration.between(date.atTime(start), endDate.atTime(endTime)).toMinutes().toInt()
+        val minutes = if (endZoneId != null) {
+            Duration.between(date.atTime(start).atZone(frameZone()), endDate.atTime(endTime).atZone(endFrameZone()))
+        } else {
+            Duration.between(date.atTime(start), endDate.atTime(endTime))
+        }.toMinutes().toInt()
         return copy(durationMinutes = minutes, touched = touched + EditorField.Duration)
     }
 
-    fun toNewEvent(): NewEvent = NewEvent(
+    /** The saved record; times go back to the device zone the rest of the app uses. */
+    fun toNewEvent(device: ZoneId = ZoneId.systemDefault()): NewEvent {
+        val deviceStart = startTime?.takeUnless { allDay }
+            ?.let { date.atTime(it).atZone(frameZone(device)).withZoneSameInstant(device).toLocalDateTime() }
+        return toNewEventIn(deviceStart?.toLocalDate() ?: date, deviceStart?.toLocalTime())
+    }
+
+    private fun toNewEventIn(date: LocalDate, startTime: LocalTime?): NewEvent = NewEvent(
         title = title.trim(),
         date = date,
         startTime = if (allDay) null else startTime,
@@ -239,8 +292,17 @@ fun blankEditorDraft(
 ).applyInput(title, date, defaultDurationMinutes)
 
 /** Seeds the editor from a saved event so editing cannot silently drop a field. */
-fun editorDraftFor(event: CalEvent): EditorDraft {
+fun editorDraftFor(event: CalEvent, device: ZoneId = ZoneId.systemDefault()): EditorDraft {
     val anchor = event.placementDate() ?: error("Event ${event.id} has no date")
+    return editorDraftInDevice(event, anchor).let { draft ->
+        // Shown in the event's own zone; the draft converts back on save.
+        val start = event.start?.takeUnless { event.allDay } ?: return@let draft
+        val local = start.atZone(device).withZoneSameInstant(draft.frameZone(device)).toLocalDateTime()
+        draft.copy(date = local.toLocalDate(), startTime = local.toLocalTime())
+    }
+}
+
+private fun editorDraftInDevice(event: CalEvent, anchor: LocalDate): EditorDraft {
     return EditorDraft(
         kind = PocQuickAddKind.Event,
         editingId = event.id,
@@ -368,3 +430,5 @@ fun dayCode(day: DayOfWeek): String = when (day) {
 
 private fun dayForCode(code: String): DayOfWeek? =
     DayOfWeek.entries.firstOrNull { dayCode(it) == code.trim() }
+
+private fun zoneOrNull(id: String?): ZoneId? = id?.let { runCatching { ZoneId.of(it) }.getOrNull() }

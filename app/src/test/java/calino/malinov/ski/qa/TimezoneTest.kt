@@ -214,10 +214,10 @@ class TimezoneTest {
     }
 
     @Test
-    fun `an event without a zone is written in UTC`() {
+    fun `a new event without a zone is written in the device zone`() {
         val text = writer.buildCalendar(listOf(writer.writeEvent(event(LocalDateTime.of(2026, 3, 2, 10, 0), null), now = now)))
-        assertEquals("DTSTART:20260302T090000Z", line(text, "DTSTART"))
-        assertFalse(text.contains("VTIMEZONE"))
+        assertEquals("DTSTART;TZID=Europe/Berlin:20260302T100000", line(text, "DTSTART;"))
+        assertValidZones(text)
     }
 
     @Test

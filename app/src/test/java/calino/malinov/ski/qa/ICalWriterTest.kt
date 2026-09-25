@@ -209,7 +209,8 @@ class ICalWriterTest {
             recurrence = "FREQ=MONTHLY;BYDAY=-1FR;INTERVAL=2", calendarId = "cal", uid = "uid-6",
         )
         val ics = serialize(writer.writeEvent(event, now = now))
-        val rrule = ics.lineSequence().first { it.startsWith("RRULE:") }
+        // The event's own rule, not the one in its VTIMEZONE observances.
+        val rrule = ics.substringAfter("BEGIN:VEVENT").lineSequence().first { it.startsWith("RRULE:") }
         assertTrue(rrule, rrule.contains("FREQ=MONTHLY"))
         assertTrue(rrule, rrule.contains("BYDAY=-1FR"))
         assertTrue(rrule, rrule.contains("INTERVAL=2"))

@@ -77,6 +77,10 @@ import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.BottomDetailCard
 import calino.malinov.ski.ui.components.CalinoChip
 import calino.malinov.ski.ui.components.CalinoColorSwatchRow
+import calino.malinov.ski.ui.components.CalinoSearchField
+import calino.malinov.ski.ui.components.CalinoToggleRow
+import calino.malinov.ski.util.CalinoZones
+import java.time.Instant
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.CalinoMarkdownEditor
@@ -464,6 +468,8 @@ private fun EventEditorFields(
     EditorSwitchRow(CalinoIcon.Clock, "All day", draft.allDay) { onDraft(draft.copy(allDay = it)) }
     EditorDivider()
     EventDateTimeSection(draft, pickStartDate, pickStartTime, pickEndDate, pickEndTime)
+    // A zone is a property of a time; an all-day event has none to carry.
+    EditorReveal(!draft.allDay) { EventZoneSection(draft, onDraft) }
     EditorDivider()
     EditorTextRow(
         icon = CalinoIcon.Pin,
@@ -665,7 +671,136 @@ private fun EventDateTimeSection(
         // An end has nothing to hang off until the start is set.
         onEndDate = if (!draft.allDay && draft.startTime != null) pickEndDate else null,
         onEndTime = if (!draft.allDay && draft.startTime != null) pickEndTime else null,
+        // Across two zones the wall clocks no longer subtract to the length.
+        spanMinutes = draft.durationMinutes.takeIf { draft.endZoneId != null },
     )
+}
+
+private enum class ZoneTarget { Start, End }
+
+/** Results shown per query; a typed word narrows 400-odd zones to a handful. */
+private const val ZoneResultLimit = 24
+
+/**
+ * The event's time zone, and optionally a separate one for its end.
+ *
+ * The times above are wall times in these zones, so changing one keeps the
+ * numbers and moves the moment -- what a person fixing "this call is 09:00
+ * New York time" means.
+ */
+@Composable
+private fun EventZoneSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit) {
+    var target by remember(draft.editingId) { mutableStateOf<ZoneTarget?>(null) }
+    var endSeparate by remember(draft.editingId) { mutableStateOf(draft.endZoneId != null) }
+    val startAt = draft.startTime?.let { draft.date.atTime(it).atZone(draft.frameZone()).toInstant() } ?: Instant.now()
+    val endAt = draft.endTime?.let { draft.endDate.atTime(it).atZone(draft.endFrameZone()).toInstant() } ?: startAt
+    Column(Modifier.fillMaxWidth()) {
+        EditorDivider()
+        EditorValueRow(
+            icon = CalinoIcon.Globe,
+            label = if (endSeparate) "Start time zone" else "Time zone",
+            value = CalinoZones.label(draft.frameZone(), startAt),
+            onClick = { target = if (target == ZoneTarget.Start) null else ZoneTarget.Start },
+        )
+        EditorReveal(target == ZoneTarget.Start) {
+            EditorChoiceBlock {
+                ZonePicker(draft.frameZone(), startAt) { zone ->
+                    onDraft(draft.withZone(zone))
+                    target = null
+                }
+                CalinoToggleRow("Separate end time zone", endSeparate) { on ->
+                    endSeparate = on
+                    if (on) {
+                        target = ZoneTarget.End
+                    } else {
+                        onDraft(draft.withEndZone(null))
+                    }
+                }
+            }
+        }
+        EditorReveal(endSeparate) {
+            Column(Modifier.fillMaxWidth()) {
+                EditorValueRow(
+                    icon = CalinoIcon.Globe,
+                    label = "End time zone",
+                    value = CalinoZones.label(draft.endFrameZone(), endAt),
+                    onClick = { target = if (target == ZoneTarget.End) null else ZoneTarget.End },
+                )
+                EditorReveal(target == ZoneTarget.End) {
+                    EditorChoiceBlock {
+                        ZonePicker(draft.endFrameZone(), endAt) { zone ->
+                            onDraft(draft.withEndZone(zone))
+                            target = null
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZonePicker(selected: ZoneId, at: Instant, onPick: (ZoneId) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    val device = remember { ZoneId.systemDefault() }
+    val results = remember(query) {
+        if (query.isBlank()) listOf(device, selected).distinct() else CalinoZones.search(query, at).take(ZoneResultLimit)
+    }
+    CalinoSearchField(
+        query = query,
+        onQueryChanged = { query = it },
+        placeholder = "Search city or zone",
+        contentDescription = "Search time zones",
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Column(Modifier.fillMaxWidth()) {
+        results.forEach { zone ->
+            ZoneOption(zone, at, selected = zone == selected, device = zone == device) { onPick(zone) }
+        }
+        if (results.isEmpty()) {
+            Text(
+                "No matching time zone",
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+                modifier = Modifier.heightIn(min = 44.dp).padding(vertical = 12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ZoneOption(zone: ZoneId, at: Instant, selected: Boolean, device: Boolean, onClick: () -> Unit) {
+    val city = CalinoZones.city(zone)
+    val offset = CalinoZones.offsetLabel(zone, at)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = listOfNotNull(city, CalinoZones.longName(zone, at), offset, "device zone".takeIf { device })
+                    .joinToString(", ")
+                stateDescription = if (selected) "Selected" else "Not selected"
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(city, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink, maxLines = 1)
+            Text(
+                listOfNotNull(zone.id.substringBefore('/').takeIf { zone.id.contains('/') }, "This device".takeIf { device })
+                    .joinToString(" · ").ifEmpty { "Coordinated Universal Time" },
+                style = CalinoTypography.labelSmall,
+                color = CalinoColors.Ink3,
+                maxLines = 1,
+            )
+        }
+        Text(offset, style = CalinoTypography.labelSmall, color = CalinoColors.Ink2, maxLines = 1)
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.CenterEnd) {
+            if (selected) {
+                CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Accent, modifier = Modifier.size(16.dp), contentDescription = null)
+            }
+        }
+    }
 }
 
 @Composable
