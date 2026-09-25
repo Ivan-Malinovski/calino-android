@@ -1773,9 +1773,12 @@ class CalDavRepository(
 
     override fun inlineAttachment(event: CalEvent, attachment: EventAttachment): ByteArray? {
         val source = sourceForRecord(event.calendarId, event.href) ?: return null
-        val href = event.href ?: return null
+        val uid = event.uid ?: event.id
+        // The same resolution the write path uses: the cache keys resources by
+        // absolute href, and a mapped event may carry a relative one.
+        val href = resourceHref(source.calendar.url, event.href, uid)
         val ics = cache.loadResource(source.calendar.url, href)?.ics ?: return null
-        return readInlineAttachment(ics, event.uid ?: return null, attachment)
+        return readInlineAttachment(ics, uid, attachment)
     }
 
     override fun addLocalEvent(input: NewEvent): CalEvent =

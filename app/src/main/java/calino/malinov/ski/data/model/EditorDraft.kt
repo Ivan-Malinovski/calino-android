@@ -41,6 +41,8 @@ data class EditorDraft(
     val travelTimeMinutes: Int? = null,
     /** The event's attachments; null for a new record, so a save writes none. */
     val attachments: List<EventAttachment>? = null,
+    /** The attachments the event had when the editor opened; removals are computed against them. */
+    val originalAttachments: List<EventAttachment> = emptyList(),
     val relatedTo: List<String> = emptyList(),
     /** Immediate parent when this draft creates or edits a subtask. */
     val parentTaskId: String? = null,
@@ -177,6 +179,8 @@ data class EditorDraft(
         reminders = reminders,
         travelTimeMinutes = travelTimeMinutes,
         attachments = attachments,
+        removedAttachments = attachments?.let { kept -> originalAttachments.filter { it !in kept } }.orEmpty(),
+        addedAttachments = attachments?.filter { it !in originalAttachments }.orEmpty(),
         zoneId = zoneId,
         endZoneId = endZoneId,
         relatedTo = relatedTo,
@@ -328,6 +332,7 @@ private fun editorDraftInDevice(event: CalEvent, anchor: LocalDate): EditorDraft
         reminders = event.reminders,
         travelTimeMinutes = event.travelTimeMinutes,
         attachments = event.attachments,
+        originalAttachments = event.attachments,
         zoneId = event.zoneId,
         endZoneId = event.endZoneId,
         relatedTo = event.relatedTo,

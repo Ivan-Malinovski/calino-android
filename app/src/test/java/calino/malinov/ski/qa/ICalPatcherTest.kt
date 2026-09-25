@@ -1,5 +1,6 @@
 package calino.malinov.ski.qa
 
+import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.caldav.ICalMapper
 import calino.malinov.ski.data.caldav.ICalPatcher
 import calino.malinov.ski.data.caldav.ICalWriter
@@ -614,17 +615,28 @@ class ICalPatcherTest {
         assertEquals(3, patched.lines().count { it.startsWith("ATTACH") })
     }
 
+    private fun CalEvent.withAttachmentEdit(
+        added: List<calino.malinov.ski.data.model.EventAttachment> = emptyList(),
+        removed: List<calino.malinov.ski.data.model.EventAttachment> = emptyList(),
+    ) = copy(
+        attachmentsEdited = true,
+        attachments = attachments.filterNot { it in removed } + added,
+        attachmentsAdded = added,
+        attachmentsRemoved = removed,
+    )
+
+    private fun attachLines(ics: String) = ics.replace("\r\n ", "").lines().filter { it.startsWith("ATTACH") }
+
     @Test
-    fun `an attachment edit removes and adds links and keeps a listed inline file`() {
+    fun `an attachment edit removes and adds links and keeps the rest`() {
         val event = eventFrom(attachResource, "ours")
-        val edited = event.copy(
-            attachmentsEdited = true,
-            attachments = event.attachments.drop(1) +
-                calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/new.pdf"),
+        val edited = event.withAttachmentEdit(
+            added = listOf(calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/new.pdf")),
+            removed = listOf(event.attachments.first()),
         )
 
         val patched = patcher.patchEvents(attachResource, listOf(edited), now)!!
-        val lines = patched.replace("\r\n ", "").lines().filter { it.startsWith("ATTACH") }
+        val lines = attachLines(patched)
 
         assertFalse(patched.contains("cloud.example.org/f/4711"))
         assertTrue(lines.any { it.endsWith(":https://example.org/docs/brief%20v2.html") })
@@ -636,10 +648,10 @@ class ICalPatcherTest {
     @Test
     fun `removing an inline file drops only that ATTACH`() {
         val event = eventFrom(attachResource, "ours")
-        val edited = event.copy(attachmentsEdited = true, attachments = event.attachments.filter { it.uri != null })
+        val edited = event.withAttachmentEdit(removed = event.attachments.filter { it.uri == null })
 
         val patched = patcher.patchEvents(attachResource, listOf(edited), now)!!
-        val lines = patched.replace("\r\n ", "").lines().filter { it.startsWith("ATTACH") }
+        val lines = attachLines(patched)
 
         assertFalse(patched.contains("aGVsbG8gY2FsaW5v"))
         assertTrue(lines.any { it.contains("X-NC-FILE-ID") })
@@ -655,9 +667,8 @@ class ICalPatcherTest {
             sizeBytes = 4,
             data = "plan".toByteArray(),
         )
-        val edited = event.copy(attachmentsEdited = true, attachments = event.attachments + picked)
 
-        val patched = patcher.patchEvents(attachResource, listOf(edited), now)!!
+        val patched = patcher.patchEvents(attachResource, listOf(event.withAttachmentEdit(added = listOf(picked))), now)!!
         val reread = eventFrom(patched, "ours")
 
         assertEquals(4, reread.attachments.size)
@@ -668,8 +679,43 @@ class ICalPatcherTest {
             "plan",
             String(calino.malinov.ski.data.caldav.readInlineAttachment(patched, "ours", added)!!),
         )
-        // The file that was already there is untouched.
         assertTrue(patched.replace("\r\n ", "").contains(":aGVsbG8gY2FsaW5v"))
+    }
+
+    /**
+     * What a direct save does after a 412: the same edit, patched onto the
+     * refreshed server bytes. Found live against Radicale, where the edit used
+     * to be applied as a whole set and deleted the server's new link.
+     */
+    @Test
+    fun `an edit patched onto newer server bytes keeps what the server changed`() {
+        val event = eventFrom(attachResource, "ours")
+        val edited = event.withAttachmentEdit(
+            added = listOf(calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/local.pdf")),
+            removed = event.attachments.filter { it.uri == null },
+        )
+        // Meanwhile another client added a link and an inline file before ours,
+        // and removed the plain link.
+        val current = attachResource
+            .replace("ATTACH:https://example.org/docs/brief%20v2.html\r\n", "")
+            .replace(
+                "ATTACH;FMTTYPE=application/pdf",
+                "ATTACH;VALUE=BINARY;ENCODING=BASE64;FILENAME=theirs.txt:dGhlaXJz\r\n" +
+                    "ATTACH:https://example.org/remote.pdf\r\nATTACH;FMTTYPE=application/pdf",
+            )
+
+        val patched = patcher.patchEvents(current, listOf(edited), now)!!
+        val lines = attachLines(patched)
+
+        assertTrue(lines.any { it.endsWith(":https://example.org/remote.pdf") })
+        assertTrue(lines.any { it.endsWith(":dGhlaXJz") })
+        assertTrue(lines.any { it.endsWith(":https://example.org/local.pdf") })
+        assertTrue(lines.any { it.contains("X-NC-FILE-ID") })
+        // Ours is removed by content, not by its old position.
+        assertFalse(patched.contains("aGVsbG8gY2FsaW5v"))
+        // An unchanged link the server dropped is not resurrected.
+        assertFalse(patched.contains("brief%20v2.html"))
+        assertEquals(4, lines.size)
     }
 
     @Test
@@ -679,10 +725,9 @@ class ICalPatcherTest {
         val local = patcher.patchEvents(
             base,
             listOf(
-                event.copy(
-                    attachmentsEdited = true,
-                    attachments = event.attachments.drop(1) +
-                        calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/local.pdf"),
+                event.withAttachmentEdit(
+                    added = listOf(calino.malinov.ski.data.model.EventAttachment(uri = "https://example.org/local.pdf")),
+                    removed = listOf(event.attachments.first()),
                 ),
             ),
             now,

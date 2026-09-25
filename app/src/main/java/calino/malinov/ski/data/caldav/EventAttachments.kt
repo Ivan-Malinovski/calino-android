@@ -67,36 +67,36 @@ internal fun uriFileName(uri: String): String? =
         ?.let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrDefault(it) }
 
 /**
- * Makes the component's `ATTACH`es match [attachments]. A link or inline file
- * that left the list is removed; a new link is added, and a file picked in the
- * editor ([EventAttachment.data]) is embedded as `VALUE=BINARY`. Everything kept
- * stays byte-identical with every foreign parameter (Nextcloud's
- * `X-NC-FILE-ID`, say). Kept inline files are matched by
- * [EventAttachment.inlineIndex], which indexes the component as read, so the
- * removals are decided before anything changes.
+ * Applies an attachment edit as a delta: every attachment in [removed] is taken
+ * off the component, and each link or picked file ([EventAttachment.data]) in
+ * [added] is added unless the link is already there. Anything else -- including
+ * an `ATTACH` another client added after the editor opened, which a patch onto
+ * refreshed server bytes will meet -- is left byte-identical with its foreign
+ * parameters (Nextcloud's `X-NC-FILE-ID`, say).
+ *
+ * A removed link matches by URI; a removed inline file by name and decoded
+ * size, never by position, since the server's list may have shifted.
  */
-internal fun VEvent.writeAttachments(attachments: List<EventAttachment>) {
-    val wantedLinks = attachments.mapNotNull { it.uri?.trim()?.takeIf(String::isNotEmpty) }.toSet()
-    val keptInline = attachments.mapNotNull { it.inlineIndex }.toSet()
-    val existing = this.attachments.toList()
-    existing.forEachIndexed { index, attach ->
-        val uri = attach.uri?.trim()
-        val drop = when {
-            uri != null -> uri !in wantedLinks
-            attach.data != null -> index !in keptInline
-            else -> false
-        }
-        if (drop) removeProperty(attach)
+internal fun VEvent.writeAttachments(added: List<EventAttachment>, removed: List<EventAttachment>) {
+    removed.forEach { gone ->
+        val uri = gone.uri?.trim()
+        this.attachments.firstOrNull { attach ->
+            if (uri != null) {
+                attach.uri?.trim() == uri
+            } else {
+                attach.data != null && attach.fileName() == gone.fileName && attach.data.size == gone.sizeBytes
+            }
+        }?.let(::removeProperty)
     }
-    val present = existing.mapNotNull { it.uri?.trim() }.toSet()
-    attachments.filter { it.uri != null && it.uri.trim() !in present }.distinctBy { it.uri!!.trim() }.forEach { link ->
+    val present = this.attachments.mapNotNull { it.uri?.trim() }.toSet()
+    added.filter { it.uri != null && it.uri.trim() !in present }.distinctBy { it.uri!!.trim() }.forEach { link ->
         addProperty(
             Attachment(link.mimeType, link.uri!!.trim()).apply {
                 link.fileName?.let { parameters.put("FILENAME", it) }
             },
         )
     }
-    attachments.filter { it.uri == null && it.inlineIndex == null && it.data != null }.forEach { file ->
+    added.filter { it.uri == null && it.inlineIndex == null && it.data != null }.forEach { file ->
         addProperty(
             Attachment(file.mimeType ?: "application/octet-stream", file.data!!).apply {
                 file.fileName?.let { parameters.put("FILENAME", it) }

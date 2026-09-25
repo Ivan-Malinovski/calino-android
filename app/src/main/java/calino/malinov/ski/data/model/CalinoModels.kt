@@ -78,10 +78,16 @@ data class CalEvent(
     /** `ATTACH` properties. Links are editable; inline data is read-only. */
     val attachments: List<EventAttachment> = emptyList(),
     /**
-     * True when [attachments] came from an edit and the writer should make the
-     * resource's links match it. False leaves every `ATTACH` as it is.
+     * True when [attachments] came from an edit: the writer adds
+     * [attachmentsAdded] and removes [attachmentsRemoved]. False leaves every `ATTACH`
+     * as it is. An edit is a delta, not a set, so an attachment another client
+     * added meanwhile survives a patch onto newer server bytes.
      */
     val attachmentsEdited: Boolean = false,
+    /** Attachments the edit removed; matched against the resource by content. */
+    val attachmentsRemoved: List<EventAttachment> = emptyList(),
+    /** Links and picked files the edit added. */
+    val attachmentsAdded: List<EventAttachment> = emptyList(),
     /** iCalendar UID. Null for records created locally. */
     val uid: String? = null,
     /** Absolute CalDAV resource URL. Null for records created locally. */
@@ -256,6 +262,10 @@ data class NewEvent(
     val url: String? = null,
     /** Links to write as `ATTACH`; null leaves the resource's attachments alone. */
     val attachments: List<EventAttachment>? = null,
+    /** Attachments the edit removed; only read when [attachments] is non-null. */
+    val removedAttachments: List<EventAttachment> = emptyList(),
+    /** Attachments the edit added; only read when [attachments] is non-null. */
+    val addedAttachments: List<EventAttachment> = emptyList(),
     /** Existing server identity, used by recurrence-aware updates. */
     val uid: String? = null,
     val href: String? = null,

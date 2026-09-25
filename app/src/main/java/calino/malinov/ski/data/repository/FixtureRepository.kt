@@ -295,6 +295,8 @@ class FixtureRepository : CalinoRepository {
             travelTimeMinutes = input.travelTimeMinutes,
             attachments = input.attachments.orEmpty(),
             attachmentsEdited = input.attachments != null,
+            attachmentsRemoved = if (input.attachments != null) input.removedAttachments else emptyList(),
+            attachmentsAdded = if (input.attachments != null) input.addedAttachments else emptyList(),
             zoneId = input.zoneId,
             endZoneId = input.endZoneId,
             relatedTo = input.relatedTo,
