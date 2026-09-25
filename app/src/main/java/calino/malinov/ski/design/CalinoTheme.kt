@@ -337,6 +337,8 @@ object CalinoShapes {
     val Fab = 16.dp
     val Card = 22.dp
     val Sheet = 26.dp
+    /** Text fields, single- and multi-line; a pill would pinch a tall field. */
+    val Field = 16.dp
     val Pill = 999.dp
 }
 

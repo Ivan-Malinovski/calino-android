@@ -178,7 +178,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry("Default duration", SettingsSection.EventsTasks, "New event defaults"),
     SettingsSearchEntry("Show end times", SettingsSection.EventsTasks, "Display"),
     SettingsSearchEntry("Show locations", SettingsSection.EventsTasks, "Display"),
-    SettingsSearchEntry("Categories", SettingsSection.EventsTasks, "Labels used by your records", "labels"),
+    SettingsSearchEntry("Categories", SettingsSection.EventsTasks, "Categories", "labels tags"),
     SettingsSearchEntry("Keyword rules", SettingsSection.EventsTasks, "Keyword rules", "auto categorize categories labels"),
     SettingsSearchEntry("Default reminder", SettingsSection.Reminders, "New event reminder"),
     SettingsSearchEntry("Event reminders", SettingsSection.Reminders, "Events"),
@@ -823,7 +823,13 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
     var newKeywords by rememberSaveable { mutableStateOf("") }
     var newRuleCategory by rememberSaveable { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
-        SettingsGroup("Labels used by your records") {
+        SettingsGroup("Categories") {
+            SettingNote(
+                "Tags like Work or Health that you can put on events and tasks. " +
+                    "They sync with your calendar. Categories added here are offered in the editor " +
+                    "alongside the ones your records already use.",
+            )
+            SettingDivider()
             AnimatedSettingRows(userCategories, keyOf = { it }) { category ->
                 val count = catalog.records.count { (_, categories) -> category in categories }
                 SettingActionRow(

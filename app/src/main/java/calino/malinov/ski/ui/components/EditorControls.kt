@@ -12,6 +12,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,12 +73,13 @@ private val FieldColors: @Composable () -> androidx.compose.material3.TextFieldC
     TextFieldDefaults.colors(
         focusedContainerColor = CalinoColors.Canvas,
         unfocusedContainerColor = CalinoColors.Canvas,
-        focusedIndicatorColor = CalinoColors.Accent,
-        unfocusedIndicatorColor = CalinoColors.Ink.copy(.09f),
+        // The rounded border drawn by CalinoTextField replaces Material's underline.
+        focusedIndicatorColor = Color.Transparent,
+        unfocusedIndicatorColor = Color.Transparent,
         // Material's default error container is off-palette lavender. Keep the
         // field on the Calino canvas and let the indicator carry the error.
         errorContainerColor = CalinoColors.Canvas,
-        errorIndicatorColor = CalinoColors.Rose,
+        errorIndicatorColor = Color.Transparent,
         errorLabelColor = CalinoColors.Rose,
         errorSupportingTextColor = CalinoColors.Rose,
         errorCursorColor = CalinoColors.Rose,
@@ -100,10 +103,26 @@ fun CalinoTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailingIcon: (@Composable () -> Unit)? = null,
 ) {
+    // Rounded and outlined like CalinoSearchField, rather than Material's
+    // underlined slab; the edge warms to the accent while typing.
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val edge by animateColorAsState(
+        when {
+            errorText != null -> CalinoColors.Rose.copy(.6f)
+            focused -> CalinoColors.Accent.copy(.45f)
+            else -> CalinoColors.Line
+        },
+        tween(CalinoMotion.ContentEnterMillis),
+        label = "field edge",
+    )
+    val shape = RoundedCornerShape(CalinoShapes.Field)
     TextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.fillMaxWidth().semantics {
+        interactionSource = interaction,
+        shape = shape,
+        modifier = modifier.fillMaxWidth().border(1.dp, edge, shape).semantics {
             contentDescription = errorText?.let { "$description, $it" } ?: description
         },
         textStyle = textStyle,
