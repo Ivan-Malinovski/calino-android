@@ -355,6 +355,8 @@ private fun PockRoute.rootOrder(): Int = when (this) {
     PockRoute.QuickAdd -> 8
 }
 
+data class CalendarViewRequest(val date: LocalDate? = null, val eventId: String? = null)
+
 class MainActivity : ComponentActivity() {
     var incomingImage by mutableStateOf<Uri?>(null)
         private set
@@ -399,6 +401,9 @@ class MainActivity : ComponentActivity() {
     var pendingAgendaDate by mutableStateOf<LocalDate?>(null)
         private set
 
+    var pendingCalendarView by mutableStateOf<CalendarViewRequest?>(null)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ReminderChannels.ensure(this)
@@ -406,6 +411,7 @@ class MainActivity : ComponentActivity() {
         consumeAiIntent(intent)
         consumeReminderIntent(intent)
         consumeInteropIntent(intent)
+        consumeCalendarViewIntent(intent)
         enableEdgeToEdge()
         setContent { CalinoApp() }
     }
@@ -417,6 +423,7 @@ class MainActivity : ComponentActivity() {
         consumeAiIntent(intent)
         consumeReminderIntent(intent)
         consumeInteropIntent(intent)
+        consumeCalendarViewIntent(intent)
     }
 
     fun consumeIncomingImage() { incomingImage = null }
@@ -428,6 +435,67 @@ class MainActivity : ComponentActivity() {
     fun consumeReminderLink() { pendingReminderLink = null }
 
     fun consumeAgendaDate() { pendingAgendaDate = null }
+
+    fun consumeCalendarView() { pendingCalendarView = null }
+
+    private fun consumeCalendarViewIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data
+        when {
+            uri == null && intent.type == null -> pendingCalendarView = CalendarViewRequest()
+            uri?.scheme == "content" && uri.authority == CalendarContract.AUTHORITY &&
+                uri.pathSegments.firstOrNull() == "time" -> {
+                val millis = uri.lastPathSegment?.toLongOrNull() ?: return
+                pendingCalendarView = CalendarViewRequest(
+                    date = java.time.Instant.ofEpochMilli(millis)
+                        .atZone(java.time.ZoneId.systemDefault()).toLocalDate(),
+                )
+            }
+            uri?.scheme == "content" && uri.authority == CalendarContract.AUTHORITY &&
+                uri.pathSegments.firstOrNull() == "events" -> {
+                val rowId = uri.lastPathSegment?.toLongOrNull() ?: return
+                val occurrenceStart = intent.getLongExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, -1L)
+                var date = occurrenceStart.takeIf { it >= 0 }?.let {
+                    java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                }
+                var eventId: String? = null
+                if (checkSelfPermission(android.Manifest.permission.READ_CALENDAR) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    try {
+                        contentResolver.query(
+                            uri,
+                            arrayOf(CalendarContract.Events._SYNC_ID, CalendarContract.Events.DTSTART,
+                                CalendarContract.Events.ALL_DAY, CalendarContract.Events.CALENDAR_ID),
+                            null, null, null,
+                        )?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val start = occurrenceStart.takeIf { it >= 0 } ?: cursor.getLong(1)
+                                val zone = if (cursor.getInt(2) != 0) java.time.ZoneOffset.UTC
+                                    else java.time.ZoneId.systemDefault()
+                                date = java.time.Instant.ofEpochMilli(start).atZone(zone).toLocalDate()
+                                val calendarUri = android.content.ContentUris.withAppendedId(
+                                    CalendarContract.Calendars.CONTENT_URI, cursor.getLong(3),
+                                )
+                                contentResolver.query(calendarUri,
+                                    arrayOf(CalendarContract.Calendars.ACCOUNT_TYPE), null, null, null,
+                                )?.use { calendar ->
+                                    if (calendar.moveToFirst()) {
+                                        eventId = if (calendar.getString(0) == getString(R.string.calino_account_type))
+                                            cursor.getString(0)
+                                        else calino.malinov.ski.platform.AndroidCalendarId.event(rowId, start)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: SecurityException) {
+                        // A revoked provider permission still leaves the calendar route usable.
+                    }
+                }
+                pendingCalendarView = CalendarViewRequest(date, eventId)
+            }
+        }
+    }
 
     fun consumeSearchShortcut() { searchShortcutPending = false }
 
@@ -1501,6 +1569,25 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         selectCalendarDate(date)
         route = PockRoute.Day
         activity.consumeAgendaDate()
+    }
+
+    LaunchedEffect(activity.pendingCalendarView, snapshot.revision) {
+        val request = activity.pendingCalendarView ?: return@LaunchedEffect
+        val event = request.eventId?.let { id -> snapshot.events.firstOrNull { it.id == id } }
+        if (event != null) {
+            val date = request.date ?: event.placementDate() ?: selectedDate
+            selectCalendarDate(date)
+            selectedEventId = event.id
+            selectedEventOccurrenceDay = date.toEpochDay()
+            detailOrigin = PocReturnTarget.Calendar
+            route = PockRoute.Detail
+        } else if (request.date != null) {
+            selectCalendarDate(request.date)
+            route = PockRoute.Day
+        } else {
+            route = PockRoute.Day
+        }
+        activity.consumeCalendarView()
     }
 
     fun handleTaskAction(action: TaskMenuAction, task: CalTask) {
