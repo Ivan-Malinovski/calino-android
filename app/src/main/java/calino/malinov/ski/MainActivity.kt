@@ -253,6 +253,7 @@ import calino.malinov.ski.ui.surfaces.QuickAddSheetState
 import calino.malinov.ski.ui.surfaces.toParserKind
 import calino.malinov.ski.ui.surfaces.JournalSurface
 import calino.malinov.ski.ui.surfaces.ContactsSurface
+import calino.malinov.ski.ui.surfaces.CategoryCatalog
 import calino.malinov.ski.ui.surfaces.SettingsSurface
 import calino.malinov.ski.ui.surfaces.CalinoSearchSheet
 import calino.malinov.ski.ui.surfaces.Tasks
@@ -2185,6 +2186,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         backgroundSyncCadence = pocViewModel.backgroundSyncCadence,
                         backgroundSyncStatus = pocViewModel.backgroundSyncStatus,
                         onBackgroundSyncCadenceChanged = pocViewModel::updateBackgroundSyncCadence,
+                        categoryCatalog = remember(snapshot.categories, snapshot.events, snapshot.tasks) {
+                            CategoryCatalog(
+                                knownCategories = snapshot.categories,
+                                // One entry per series, not per expanded occurrence.
+                                records = snapshot.events.distinctBy { it.uid ?: it.id }.map { it.title to it.categories } +
+                                    snapshot.tasks.map { it.title to listOfNotNull(it.category) },
+                            )
+                        },
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,
@@ -2574,7 +2583,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             snapshot.calendars.filterNot { AndroidCalendarId.isImported(it.id) }
                         }
                     },
-                    categories = snapshot.categories,
+                    // Every category a rule can add is offered up front, so a
+                    // match as the title is typed selects a chip that is already
+                    // there instead of making one appear.
+                    categories = LocalCalinoPreferences.current.let { prefs ->
+                        remember(snapshot.categories, prefs.userCategories, prefs.autoCategoryRules) {
+                            (snapshot.categories + prefs.userCategories + prefs.autoCategoryRules.map { it.category })
+                                .distinct()
+                        }
+                    },
                     relatedCandidates = remember(snapshot.tasks) {
                         snapshot.tasks.filterNot { it.done }.map { it.id to it.title }
                     },

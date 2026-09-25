@@ -1,6 +1,7 @@
 package calino.malinov.ski.ui.surfaces
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -59,8 +60,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import calino.malinov.ski.platform.assistant.AssistantAccess
 import calino.malinov.ski.platform.search.PhoneSearchAccess
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,8 +92,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calino.malinov.ski.data.model.AutoCategoryRule
 import calino.malinov.ski.data.model.CalDavAccount
-import calino.malinov.ski.data.repository.FixtureCategories
+import calino.malinov.ski.data.model.autoCategoriesFor
 import androidx.compose.foundation.isSystemInDarkTheme
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoPalette
@@ -99,8 +104,11 @@ import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
+import calino.malinov.ski.design.CalinoMotion
+import calino.malinov.ski.ui.components.CalinoChip
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.CalinoSearchField
+import calino.malinov.ski.ui.components.CalinoTextField
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -126,6 +134,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.UUID
 
 enum class SettingsSection(val title: String, val shortTitle: String) {
     Display("Display", "Display"),
@@ -170,6 +179,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry("Show end times", SettingsSection.EventsTasks, "Display"),
     SettingsSearchEntry("Show locations", SettingsSection.EventsTasks, "Display"),
     SettingsSearchEntry("Categories", SettingsSection.EventsTasks, "Labels used by your records", "labels"),
+    SettingsSearchEntry("Keyword rules", SettingsSection.EventsTasks, "Keyword rules", "auto categorize categories labels"),
     SettingsSearchEntry("Default reminder", SettingsSection.Reminders, "New event reminder"),
     SettingsSearchEntry("Event reminders", SettingsSection.Reminders, "Events"),
     SettingsSearchEntry("Tasks due", SettingsSection.Reminders, "Tasks"),
@@ -212,6 +222,7 @@ fun SettingsSurface(
     backgroundSyncCadence: BackgroundSyncCadence = BackgroundSyncCadence.Hourly,
     backgroundSyncStatus: BackgroundSyncStatus = BackgroundSyncStatus(),
     onBackgroundSyncCadenceChanged: (BackgroundSyncCadence) -> Unit = {},
+    categoryCatalog: CategoryCatalog = CategoryCatalog(),
 ) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -338,6 +349,7 @@ fun SettingsSurface(
                         backgroundSyncStatus,
                         onBackgroundSyncCadenceChanged,
                         onOpenSubscribe = { subscribeOpen = true },
+                        categoryCatalog = categoryCatalog,
                     )
                 }
             }
@@ -571,6 +583,7 @@ private fun SettingsSectionContent(
     backgroundSyncStatus: BackgroundSyncStatus,
     onBackgroundSyncCadenceChanged: (BackgroundSyncCadence) -> Unit,
     onOpenSubscribe: () -> Unit,
+    categoryCatalog: CategoryCatalog,
 ) {
     when (section) {
         SettingsSection.Display -> SettingsPage {
@@ -580,7 +593,7 @@ private fun SettingsSectionContent(
         }
         SettingsSection.EventsTasks -> SettingsPage {
             EventSettings()
-            CategoriesSettings()
+            CategoriesSettings(categoryCatalog)
         }
         SettingsSection.Reminders -> SettingsPage { NotificationSettings(onOpenNotifications) }
         SettingsSection.CalendarsSync -> SettingsPage {
@@ -786,53 +799,175 @@ private fun EventSettings() {
     }
 }
 
+/**
+ * What the Categories page needs from the loaded records: the names already in
+ * use, and each record's title and categories for the live counts. Titles stay
+ * in memory on this page; nothing here is written anywhere.
+ */
+@Immutable
+data class CategoryCatalog(
+    val knownCategories: List<String> = emptyList(),
+    val records: List<Pair<String, List<String>>> = emptyList(),
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CategoriesSettings() {
-    // The editor offers the same list, so both read one fixture.
-    var categories by remember { mutableStateOf(FixtureCategories) }
-    var adding by rememberSaveable { mutableStateOf(false) }
-    val colors = listOf(CalinoColors.Blue, CalinoColors.Rose, CalinoColors.Amber, CalinoColors.Plum, CalinoColors.Green)
+private fun CategoriesSettings(catalog: CategoryCatalog) {
+    val preferences = LocalCalinoPreferences.current
+    val userCategories = preferences.userCategories
+    val rules = preferences.autoCategoryRules
+    val offered = remember(userCategories, catalog.knownCategories) {
+        (userCategories + catalog.knownCategories).distinct()
+    }
+    var newCategory by rememberSaveable { mutableStateOf("") }
+    var newKeywords by rememberSaveable { mutableStateOf("") }
+    var newRuleCategory by rememberSaveable { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         SettingsGroup("Labels used by your records") {
-            val existingCategories = if (adding) categories.dropLast(1) else categories
-            existingCategories.forEachIndexed { index, category ->
-                CategoryRow(category, index, colors)
-                if (index < existingCategories.lastIndex) SettingDivider()
+            AnimatedSettingRows(userCategories, keyOf = { it }) { category ->
+                val count = catalog.records.count { (_, categories) -> category in categories }
+                SettingActionRow(
+                    title = category,
+                    description = if (count == 1) "1 record" else "$count records",
+                    action = "Remove",
+                    danger = true,
+                    enabled = true,
+                    actionContentDescription = "Remove category $category",
+                    onClick = { preferences.setUserCategories(userCategories - category) },
+                )
             }
-            AnimatedVisibility(
-                visible = adding && categories.isNotEmpty(),
-                enter = expandVertically(tween(240)) + fadeIn(tween(180)),
-                exit = shrinkVertically(tween(200)) + fadeOut(tween(140)),
+            if (userCategories.isNotEmpty()) SettingDivider()
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = SettingsRowHorizontalPadding, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Column {
-                    SettingDivider()
-                    CategoryRow(categories.last(), categories.lastIndex, colors)
-                }
+                val name = newCategory.trim()
+                val canAdd = name.isNotEmpty() && offered.none { it.equals(name, ignoreCase = true) }
+                CalinoTextField(
+                    value = newCategory,
+                    onValueChange = { newCategory = it },
+                    label = "New category",
+                    modifier = Modifier.weight(1f),
+                )
+                SettingActionButton(
+                    "Add",
+                    danger = false,
+                    enabled = canAdd,
+                    actionContentDescription = "Add category",
+                    onClick = {
+                        preferences.setUserCategories(userCategories + name)
+                        newCategory = ""
+                    },
+                )
             }
+        }
+        SettingsGroup("Keyword rules") {
+            SettingNote(
+                "When a title you type contains a keyword, its category is selected in the editor. " +
+                    "You can take it off before saving. Saved records are not changed.",
+            )
             SettingDivider()
-            TextButton(
-                onClick = {
-                    if (!adding) {
-                        categories = categories + "New category"
-                        adding = true
+            AnimatedSettingRows(rules, keyOf = { it.id }) { rule ->
+                val matches = catalog.records.count { (title, _) -> autoCategoriesFor(title, listOf(rule)).isNotEmpty() }
+                SettingActionRow(
+                    title = "${rule.keywords.joinToString(", ")} → ${rule.category}",
+                    description = when (matches) {
+                        0 -> "No loaded titles match"
+                        1 -> "1 loaded title matches"
+                        else -> "$matches loaded titles match"
+                    },
+                    action = "Remove",
+                    danger = true,
+                    enabled = true,
+                    actionContentDescription = "Remove rule for ${rule.category}",
+                    onClick = { preferences.setAutoCategoryRules(rules.filterNot { it.id == rule.id }) },
+                )
+            }
+            if (rules.isNotEmpty()) SettingDivider()
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = SettingsRowHorizontalPadding, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                CalinoTextField(
+                    value = newKeywords,
+                    onValueChange = { newKeywords = it },
+                    label = "Keywords",
+                    placeholder = "standup, sync",
+                    description = "Keywords, separated by commas",
+                )
+                if (offered.isEmpty()) {
+                    Text("Add a category first.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        offered.forEach { category ->
+                            CalinoChip(
+                                text = category,
+                                selected = category == newRuleCategory,
+                                description = "Category for this rule",
+                                semanticsRole = Role.RadioButton,
+                                onClick = { newRuleCategory = category.takeUnless { it == newRuleCategory } },
+                            )
+                        }
                     }
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
-            ) { Text("+  Add category", color = CalinoColors.Accent) }
+                }
+                val keywords = newKeywords.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                val chosen = newRuleCategory?.takeIf { it in offered }
+                SettingActionButton(
+                    "Add rule",
+                    danger = false,
+                    enabled = keywords.isNotEmpty() && chosen != null,
+                    actionContentDescription = "Add keyword rule",
+                    onClick = {
+                        if (chosen != null) {
+                            preferences.setAutoCategoryRules(
+                                rules + AutoCategoryRule(UUID.randomUUID().toString(), keywords, chosen),
+                            )
+                            newKeywords = ""
+                            newRuleCategory = null
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                )
+            }
         }
     }
 }
 
+/**
+ * Rows that expand in and collapse out as [items] change, rather than popping.
+ * A removed row is kept in its old place until its exit has finished; rows
+ * present when the page first composes appear without animating.
+ */
 @Composable
-private fun CategoryRow(category: String, index: Int, colors: List<Color>) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(14.dp).clip(RoundedCornerShape(4.dp)).background(colors[index % colors.size]))
-        Text(category, Modifier.weight(1f).padding(start = 13.dp), style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-        Text("${(index + 1) * 2} records", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+private fun <T> AnimatedSettingRows(items: List<T>, keyOf: (T) -> String, row: @Composable (T) -> Unit) {
+    val firstKeys = remember { items.map(keyOf).toSet() }
+    val states = remember { mutableMapOf<String, MutableTransitionState<Boolean>>() }
+    var shown by remember { mutableStateOf(items) }
+    val currentKeys = items.map(keyOf).toSet()
+    val merged = items.toMutableList()
+    shown.forEachIndexed { index, item ->
+        val state = states[keyOf(item)]
+        val leaving = keyOf(item) !in currentKeys && state != null && !(state.isIdle && !state.currentState)
+        if (leaving) merged.add(minOf(index, merged.size), item)
+    }
+    SideEffect { shown = merged.toList() }
+    merged.forEachIndexed { index, item ->
+        val itemKey = keyOf(item)
+        val state = states.getOrPut(itemKey) { MutableTransitionState(itemKey in firstKeys) }
+        state.targetState = itemKey in currentKeys
+        key(itemKey) {
+            AnimatedVisibility(
+                visibleState = state,
+                enter = expandVertically(CalinoMotion.standardSpatial()) + fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+                exit = shrinkVertically(CalinoMotion.standardSpatial()) + fadeOut(tween(CalinoMotion.ContentExitMillis)),
+            ) {
+                Column {
+                    if (index > 0) SettingDivider()
+                    row(item)
+                }
+            }
+        }
     }
 }
 

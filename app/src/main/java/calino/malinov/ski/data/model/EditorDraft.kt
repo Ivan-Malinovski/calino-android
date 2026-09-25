@@ -75,6 +75,10 @@ data class EditorDraft(
     /** An imported task with no DUE stays undated until its date/time is picked. */
     val taskDueAbsent: Boolean = false,
     val taskDueChanged: Boolean = false,
+    /** Categories keyword rules put on this draft; see [withAutoCategories]. */
+    val autoCategories: Set<String> = emptySet(),
+    /** Rule categories the person took off; the rules do not add them back. */
+    val dismissedAutoCategories: Set<String> = emptySet(),
 ) {
     val isEditing: Boolean get() = editingId != null
 

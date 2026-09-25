@@ -3,6 +3,7 @@ package calino.malinov.ski.ui.components
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -133,16 +134,24 @@ fun CalinoChip(
     modifier: Modifier = Modifier,
     semanticsRole: Role = Role.Button,
 ) {
+    // Selection can change without a tap -- keyword rules select a category
+    // as the title is typed -- so it fades rather than snapping.
+    val fade = tween<Color>(CalinoMotion.ContentEnterMillis)
+    val fill by animateColorAsState(
+        if (selected) CalinoColors.Accent.copy(.12f) else CalinoColors.Ink.copy(.05f), fade, label = "chip fill",
+    )
+    val edge by animateColorAsState(
+        if (selected) CalinoColors.Accent.copy(.2f) else CalinoColors.Accent.copy(0f), fade, label = "chip edge",
+    )
+    val ink by animateColorAsState(
+        if (selected) CalinoColors.Ink else CalinoColors.Ink2, fade, label = "chip ink",
+    )
     Box(
         modifier
             .heightIn(min = 36.dp)
             .clip(RoundedCornerShape(CalinoShapes.Pill))
-            .background(if (selected) CalinoColors.Accent.copy(.12f) else CalinoColors.Ink.copy(.05f))
-            .border(
-                1.dp,
-                if (selected) CalinoColors.Accent.copy(.2f) else Color.Transparent,
-                RoundedCornerShape(CalinoShapes.Pill),
-            )
+            .background(fill)
+            .border(1.dp, edge, RoundedCornerShape(CalinoShapes.Pill))
             .calinoPressable(role = semanticsRole, onClick = onClick)
             .semantics {
                 contentDescription = "$text, $description"
@@ -151,7 +160,7 @@ fun CalinoChip(
             .padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, fontSize = 13.sp, color = if (selected) CalinoColors.Ink else CalinoColors.Ink2)
+        Text(text, fontSize = 13.sp, color = ink)
     }
 }
 

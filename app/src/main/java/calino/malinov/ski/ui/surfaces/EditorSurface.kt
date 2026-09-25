@@ -64,10 +64,13 @@ import calino.malinov.ski.data.model.EditorField
 import calino.malinov.ski.data.model.RecurrenceFreq
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.model.Reminder
+import calino.malinov.ski.data.model.AutoCategoryRule
 import calino.malinov.ski.data.model.applyInput
 import calino.malinov.ski.data.model.recurrenceDaysOf
 import calino.malinov.ski.data.model.recurrenceFreqOf
 import calino.malinov.ski.data.model.recurrenceRule
+import calino.malinov.ski.data.model.withAutoCategories
+import calino.malinov.ski.data.model.withCategoryToggled
 import calino.malinov.ski.data.parser.PocQuickAddKind
 import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.design.CalinoColors
@@ -144,7 +147,12 @@ fun EditorSurface(
     // The length a line with no stated end falls back to, which the parser
     // re-applies on every keystroke.
     val defaultDurationMinutes = LocalCalinoPreferences.current.defaultDuration.minutes
-    var draft by remember(initial.editingId, initial.kind) { mutableStateOf(initial) }
+    val autoCategoryRules = LocalCalinoPreferences.current.autoCategoryRules
+    // A new draft is matched once as it opens (a quick-add line or AI import
+    // arrives with a title); a saved record is matched only if its title is edited.
+    var draft by remember(initial.editingId, initial.kind) {
+        mutableStateOf(if (initial.isEditing) initial else initial.withAutoCategories(autoCategoryRules))
+    }
     var shown by remember { mutableStateOf(true) }
     var closing by remember { mutableStateOf(false) }
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -235,7 +243,7 @@ fun EditorSurface(
             EditorHeader(
                 draft = draft,
                 onInput = { input ->
-                    draft = draft.applyInput(input, baseDate, defaultDurationMinutes)
+                    draft = draft.applyInput(input, baseDate, defaultDurationMinutes).rematchedFrom(draft, autoCategoryRules)
                 },
                 onDismiss = dismiss,
                 onPhoto = onPhoto,
@@ -252,6 +260,7 @@ fun EditorSurface(
                     if (!draft.isEditing) {
                         KindSelector(draft.kind) { entry ->
                             draft = draft.copy(kind = entry).applyInput(draft.rawInput, baseDate, defaultDurationMinutes)
+                                .withAutoCategories(autoCategoryRules)
                         }
                     }
 
@@ -277,7 +286,7 @@ fun EditorSurface(
                         kind == PocQuickAddKind.Event -> EventEditorFields(
                             draft = draft,
                             calendars = calendars,
-                            categories = categories,
+                            categories = (categories + draft.categories).distinct(),
                             descriptionOpen = descriptionOpen,
                             remindersOpen = remindersOpen,
                             recurrenceOpen = recurrenceOpen,
@@ -298,7 +307,7 @@ fun EditorSurface(
                         )
                         kind == PocQuickAddKind.Task -> TaskEditorFields(
                             draft = draft,
-                            categories = categories,
+                            categories = (categories + draft.categories).distinct(),
                             descriptionOpen = descriptionOpen,
                             remindersOpen = remindersOpen,
                             recurrenceOpen = recurrenceOpen,
@@ -1117,14 +1126,7 @@ private fun CategoriesSection(
                     selected = on,
                     description = if (single) "Choose category" else "Toggle category",
                     semanticsRole = if (single) Role.RadioButton else Role.Checkbox,
-                    onClick = {
-                        val next = when {
-                            single -> if (on) emptyList() else listOf(category)
-                            on -> draft.categories - category
-                            else -> draft.categories + category
-                        }
-                        onDraft(draft.copy(categories = next))
-                    },
+                    onClick = { onDraft(draft.withCategoryToggled(category, single)) },
                 )
             }
         }
@@ -1304,3 +1306,7 @@ private fun formatReminder(minutes: Int): String = when {
     minutes >= 24 * 60 -> "1 day before"
     else -> "${formatEditorDuration(minutes)} before"
 }
+
+/** Re-runs the keyword rules only when this edit changed the title. */
+private fun EditorDraft.rematchedFrom(previous: EditorDraft, rules: List<AutoCategoryRule>): EditorDraft =
+    if (title == previous.title) this else withAutoCategories(rules)

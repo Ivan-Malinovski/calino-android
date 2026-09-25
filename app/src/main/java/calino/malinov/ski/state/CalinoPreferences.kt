@@ -8,6 +8,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import calino.malinov.ski.data.model.AutoCategoryRule
+import calino.malinov.ski.data.model.decodeAutoCategoryRules
+import calino.malinov.ski.data.model.decodeCategoryNames
+import calino.malinov.ski.data.model.encodeAutoCategoryRules
+import calino.malinov.ski.data.model.encodeCategoryNames
 import calino.malinov.ski.util.CalinoDefaultDuration
 import calino.malinov.ski.util.CalinoDefaultReminder
 import calino.malinov.ski.util.CalinoDefaultView
@@ -137,6 +142,12 @@ data class CalinoPreferences(
      */
     val dayTasksExpanded: Boolean = true,
     val setDayTasksExpanded: (Boolean) -> Unit = {},
+    /** Category names the person defined in Settings, offered in the editor. */
+    val userCategories: List<String> = emptyList(),
+    val setUserCategories: (List<String>) -> Unit = {},
+    /** Keyword rules that add a category from a title on Save. Empty by default. */
+    val autoCategoryRules: List<AutoCategoryRule> = emptyList(),
+    val setAutoCategoryRules: (List<AutoCategoryRule>) -> Unit = {},
 )
 
 val LocalCalinoPreferences = staticCompositionLocalOf { CalinoPreferences() }
@@ -230,6 +241,10 @@ interface CalinoPreferenceStore {
     fun saveSidebarCalendarExpanded(expanded: Boolean)
     fun loadDayTasksExpanded(): Boolean
     fun saveDayTasksExpanded(expanded: Boolean)
+    fun loadUserCategories(): List<String> = emptyList()
+    fun saveUserCategories(names: List<String>) {}
+    fun loadAutoCategoryRules(): List<AutoCategoryRule> = emptyList()
+    fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) {}
     /**
      * Whether the notification permission has already been asked for once.
      *
@@ -332,6 +347,12 @@ interface CalinoPreferenceStore {
         override fun saveSidebarCalendarExpanded(expanded: Boolean) { sidebarCalendarExpanded = expanded }
         override fun loadDayTasksExpanded() = dayTasksExpanded
         override fun saveDayTasksExpanded(expanded: Boolean) { dayTasksExpanded = expanded }
+        private var userCategories = emptyList<String>()
+        private var autoCategoryRules = emptyList<AutoCategoryRule>()
+        override fun loadUserCategories() = userCategories
+        override fun saveUserCategories(names: List<String>) { userCategories = names }
+        override fun loadAutoCategoryRules() = autoCategoryRules
+        override fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) { autoCategoryRules = rules }
         override fun loadNotificationPromptShown() = notificationPrompt
         override fun saveNotificationPromptShown(shown: Boolean) { notificationPrompt = shown }
     }
@@ -443,6 +464,12 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveSidebarCalendarExpanded(expanded: Boolean) = putBoolean(SidebarCalendarExpandedKey, expanded)
     override fun loadDayTasksExpanded(): Boolean = prefs.getBoolean(DayTasksExpandedKey, true)
     override fun saveDayTasksExpanded(expanded: Boolean) = putBoolean(DayTasksExpandedKey, expanded)
+    override fun loadUserCategories(): List<String> = decodeCategoryNames(name(UserCategoriesKey))
+    override fun saveUserCategories(names: List<String>) = putString(UserCategoriesKey, encodeCategoryNames(names))
+    override fun loadAutoCategoryRules(): List<AutoCategoryRule> =
+        decodeAutoCategoryRules(name(AutoCategoryRulesKey))
+    override fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) =
+        putString(AutoCategoryRulesKey, encodeAutoCategoryRules(rules))
     override fun loadNotificationPromptShown(): Boolean = prefs.getBoolean(NotificationPromptKey, false)
     override fun saveNotificationPromptShown(shown: Boolean) = putBoolean(NotificationPromptKey, shown)
 
@@ -476,6 +503,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val SidebarCalendarExpandedKey = "sidebar_calendar_expanded"
         const val DayTasksExpandedKey = "day_tasks_expanded"
         const val NotificationPromptKey = "notification_prompt_shown"
+        const val UserCategoriesKey = "user_categories"
+        const val AutoCategoryRulesKey = "auto_category_rules"
     }
 }
 
@@ -517,6 +546,8 @@ fun rememberCalinoPreferences(
     var providerRemindersEnabled by remember(store) { mutableStateOf(store.loadProviderRemindersEnabled()) }
     var sidebarCalendarExpanded by remember(store) { mutableStateOf(store.loadSidebarCalendarExpanded()) }
     var dayTasksExpanded by remember(store) { mutableStateOf(store.loadDayTasksExpanded()) }
+    var userCategories by remember(store) { mutableStateOf(store.loadUserCategories()) }
+    var autoCategoryRules by remember(store) { mutableStateOf(store.loadAutoCategoryRules()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
         setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
@@ -594,5 +625,9 @@ fun rememberCalinoPreferences(
             dayTasksExpanded = value
             store.saveDayTasksExpanded(value)
         },
+        userCategories = userCategories,
+        setUserCategories = { value -> userCategories = value; store.saveUserCategories(value) },
+        autoCategoryRules = autoCategoryRules,
+        setAutoCategoryRules = { value -> autoCategoryRules = value; store.saveAutoCategoryRules(value) },
     )
 }
