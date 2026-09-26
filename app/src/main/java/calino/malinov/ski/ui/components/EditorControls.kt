@@ -62,6 +62,8 @@ import calino.malinov.ski.design.CalinoTypography
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.Locale
+import calino.malinov.ski.state.LocalTimeFormat
+import calino.malinov.ski.util.CalinoTimeFormat
 
 /**
  * The editor's shared controls. They exist so the long editor form reuses one
@@ -370,6 +372,7 @@ fun rememberTimePicker(initial: () -> LocalTime?, onPicked: (LocalTime) -> Unit)
     val context = LocalContext.current
     val currentInitial by rememberUpdatedState(initial)
     val currentOnPicked by rememberUpdatedState(onPicked)
+    val is24Hour = LocalTimeFormat == CalinoTimeFormat.TwentyFourHour
     DisposableEffect(context, open) {
         if (!open) return@DisposableEffect onDispose { }
         val seed = currentInitial()
@@ -381,7 +384,7 @@ fun rememberTimePicker(initial: () -> LocalTime?, onPicked: (LocalTime) -> Unit)
             },
             seed?.hour ?: 12,
             seed?.minute ?: 0,
-            false,
+            is24Hour,
         )
         dialog.setOnDismissListener { open = false }
         dialog.show()
