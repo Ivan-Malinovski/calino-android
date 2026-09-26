@@ -1086,6 +1086,28 @@ private fun EventDetailContent(
                 onEndDate = pickDate,
                 onEndTime = pickEndTime,
                 onAllDay = toggleAllDay,
+                // The same slide and typing the editor offers, straight on the card.
+                onStartTimeTyped = { picked ->
+                    edit { it.copy(startTime = picked, durationMinutes = it.durationMinutes ?: DefaultEventMinutes) }
+                },
+                onStartDateTyped = { picked -> edit { it.copy(date = picked) } },
+                onEndTimeTyped = { picked ->
+                    val start = draft.startTime
+                    if (start != null) {
+                        val span = java.time.Duration.between(start, picked).toMinutes()
+                        val minutes = if (span <= 0) span + java.time.Duration.ofDays(1).toMinutes() else span
+                        edit { it.copy(durationMinutes = minutes.toInt()) }
+                    }
+                },
+                onSlide = { startBy, endBy ->
+                    edit { current ->
+                        val start = current.startTime ?: return@edit current
+                        val moved = current.date.atTime(start).plusMinutes(startBy.toLong())
+                        val length = (current.durationMinutes ?: DefaultEventMinutes) + endBy - startBy
+                        if (length <= 0) current
+                        else current.copy(date = moved.toLocalDate(), startTime = moved.toLocalTime(), durationMinutes = length)
+                    }
+                },
             )
             val timeFormat = LocalTimeFormat
             val zoneCaption = remember(draft.date, draft.startTime, finish, event.zoneId, event.endZoneId, timeFormat) {

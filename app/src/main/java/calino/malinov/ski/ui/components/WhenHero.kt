@@ -107,6 +107,11 @@ fun WhenHero(
     onStartDateTyped: ((LocalDate) -> Unit)? = null,
     onEndTimeTyped: ((LocalTime) -> Unit)? = null,
     onEndDateTyped: ((LocalDate) -> Unit)? = null,
+    /**
+     * Sliding sideways by quarter hours: minutes to move the start and the end.
+     * A clock slides alone; the rule between them slides both.
+     */
+    onSlide: ((startMinutes: Int, endMinutes: Int) -> Unit)? = null,
     /** The length when the ends are in different zones and their wall times cannot be subtracted. */
     spanMinutes: Int? = null,
 ) {
@@ -114,7 +119,7 @@ fun WhenHero(
         AllDayHero(startDate, endDate, accent, modifier, onStartDate, onAllDay)
     } else {
         TimedHero(startDate, startTime, endDate, endTime, accent, modifier, onStartDate, onStartTime, onEndDate, onEndTime, onAllDay, spanMinutes,
-            onStartTimeTyped, onStartDateTyped, onEndTimeTyped, onEndDateTyped)
+            onStartTimeTyped, onStartDateTyped, onEndTimeTyped, onEndDateTyped, onSlide)
     }
 }
 
@@ -136,6 +141,7 @@ private fun TimedHero(
     onStartDateTyped: ((LocalDate) -> Unit)?,
     onEndTimeTyped: ((LocalTime) -> Unit)?,
     onEndDateTyped: ((LocalDate) -> Unit)?,
+    onSlide: ((Int, Int) -> Unit)?,
 ) {
     val finish = endDate ?: startDate
     // Both faces are hung from the top rather than centred, so a day line that
@@ -151,6 +157,7 @@ private fun TimedHero(
             onDate = onStartDate,
             onTimeTyped = onStartTimeTyped,
             onDateTyped = onStartDateTyped,
+            onSlide = onSlide?.let { slide -> { minutes -> slide(minutes, 0) } },
             modifier = Modifier.weight(1f),
         )
         SpanRule(
@@ -159,6 +166,7 @@ private fun TimedHero(
             } ?: "—",
             accent = accent,
             onAllDay = onAllDay,
+            modifier = Modifier.quarterSwipe(startTime, onSlide?.takeIf { endTime != null }?.let { slide -> { minutes -> slide(minutes, minutes) } }),
         )
         HeroClock(
             time = endTime,
@@ -169,6 +177,7 @@ private fun TimedHero(
             onDate = onEndDate,
             onTimeTyped = onEndTimeTyped.takeIf { onEndTime != null },
             onDateTyped = onEndDateTyped.takeIf { onEndDate != null },
+            onSlide = onSlide?.takeIf { onEndTime != null }?.let { slide -> { minutes -> slide(0, minutes) } },
             modifier = Modifier.weight(1f),
         )
     }
@@ -195,6 +204,7 @@ private fun RowScope.HeroClock(
     placeholder: String = "—",
     onTimeTyped: ((LocalTime) -> Unit)? = null,
     onDateTyped: ((LocalDate) -> Unit)? = null,
+    onSlide: ((Int) -> Unit)? = null,
 ) {
     var typingTime by remember { mutableStateOf(false) }
     var typingDate by remember { mutableStateOf(false) }
@@ -222,7 +232,7 @@ private fun RowScope.HeroClock(
             Row(
                 Modifier
                     .heightIn(min = 40.dp)
-                    .quarterSwipe(time, onTimeTyped)
+                    .quarterSwipe(time, onSlide)
                     .pressable(onTime, onTimeTyped?.let { { typingTime = true } })
                     .semantics { contentDescription = "$label time, $text" },
                 verticalAlignment = Alignment.Bottom,
@@ -520,26 +530,30 @@ private fun InlineEntry(
 private val QuarterStep = 22.dp
 
 /**
- * Sliding a clock sideways moves it by quarter hours, live under the finger:
+ * Sliding sideways moves [time] by quarter hours, live under the finger:
  * right is later, left earlier. The first step lands on the next quarter, so
- * 14:07 goes to 14:15 rather than 14:22.
+ * 14:07 goes to 14:15 rather than 14:22. [onMove] gets the minutes moved.
  */
 @Composable
-private fun Modifier.quarterSwipe(time: LocalTime?, onTime: ((LocalTime) -> Unit)?): Modifier {
-    if (time == null || onTime == null) return this
+private fun Modifier.quarterSwipe(time: LocalTime?, onMove: ((Int) -> Unit)?): Modifier {
+    if (time == null || onMove == null) return this
     val haptics = LocalHapticFeedback.current
     val current by rememberUpdatedState(time)
-    val set by rememberUpdatedState(onTime)
+    val move by rememberUpdatedState(onMove)
     return pointerInput(Unit) {
         val stepPx = QuarterStep.toPx()
         var travel = 0f
-        detectHorizontalDragGestures(onDragStart = { travel = 0f }) { change, dx ->
+        var at = current
+        detectHorizontalDragGestures(onDragStart = { travel = 0f; at = current }) { change, dx ->
+            // Consumed from the first pixel, so a card or page swipe behind never takes it.
             change.consume()
             travel += dx
             while (kotlin.math.abs(travel) >= stepPx) {
                 val later = travel > 0
                 travel -= if (later) stepPx else -stepPx
-                set(stepQuarter(current, later))
+                val next = stepQuarter(at, later)
+                move(quarterDelta(at, next))
+                at = next
                 haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
             }
         }
@@ -550,4 +564,10 @@ internal fun stepQuarter(time: LocalTime, later: Boolean): LocalTime {
     val minutes = time.hour * 60 + time.minute
     val next = if (later) minutes / 15 * 15 + 15 else (minutes + 14) / 15 * 15 - 15
     return LocalTime.of(Math.floorMod(next, 24 * 60) / 60, Math.floorMod(next, 24 * 60) % 60)
+}
+
+/** Signed minutes from [from] to [to], the short way round midnight. */
+private fun quarterDelta(from: LocalTime, to: LocalTime): Int {
+    val raw = Math.floorMod(to.toSecondOfDay() / 60 - from.toSecondOfDay() / 60, 24 * 60)
+    return if (raw > 12 * 60) raw - 24 * 60 else raw
 }

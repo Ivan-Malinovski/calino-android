@@ -155,6 +155,23 @@ data class EditorDraft(
         return copy(durationMinutes = minutes, touched = touched + EditorField.Duration)
     }
 
+    /**
+     * Moves the start by [startBy] minutes and the end by [endBy], across
+     * midnight if need be. Null when that would leave no length at all.
+     */
+    fun slid(startBy: Int, endBy: Int): EditorDraft? {
+        val start = startTime ?: return null
+        val moved = date.atTime(start).plusMinutes(startBy.toLong())
+        val length = (durationMinutes ?: DefaultDurationMinutes) + endBy - startBy
+        if (length <= 0) return null
+        return copy(
+            date = moved.toLocalDate(),
+            startTime = moved.toLocalTime(),
+            durationMinutes = length,
+            touched = touched + EditorField.Time + EditorField.Duration,
+        )
+    }
+
     /** The saved record; times go back to the device zone the rest of the app uses. */
     fun toNewEvent(device: ZoneId = ZoneId.systemDefault()): NewEvent {
         val deviceStart = startTime?.takeUnless { allDay }

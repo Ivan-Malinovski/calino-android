@@ -691,6 +691,7 @@ private fun EventDateTimeSection(
         onStartDateTyped = { onDraft(draft.copy(date = it, touched = draft.touched + EditorField.Date)) },
         onEndTimeTyped = { onDraft(draft.withEnd(draft.endDate, it)) },
         onEndDateTyped = { picked -> draft.endTime?.let { onDraft(draft.withEnd(picked, it)) } },
+        onSlide = { startBy, endBy -> draft.slid(startBy, endBy)?.let(onDraft) },
     )
 }
 
