@@ -545,6 +545,7 @@ private fun timed(
     notes: String? = null,
     attendees: List<Attendee> = emptyList(),
     calendarId: String = "personal",
+    travelTimeMinutes: Int? = null,
 ) = CalEvent(
     id = id,
     title = title,
@@ -556,6 +557,7 @@ private fun timed(
     notes = notes,
     attendees = attendees,
     calendarId = calendarId,
+    travelTimeMinutes = travelTimeMinutes,
 )
 
 private fun allDay(
@@ -605,6 +607,7 @@ Open the [design brief](https://example.com/calino-design-brief) before the meet
             location = "Café Lumen",
             notes = "**Booking:** [View the reservation](https://example.com/reservation)",
             calendarId = "personal",
+            travelTimeMinutes = 30,
         ),
         allDay("evt-flight", "Flight to Berlin", may(24), Amber, "travel"),
 

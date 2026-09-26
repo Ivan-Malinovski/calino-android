@@ -6557,6 +6557,43 @@ internal fun HourRailContent(
                         onDispose { onCardGone?.invoke(cardKey) }
                     }
                 }
+                // Travel time sits on the rail as a faint band ending where
+                // the event starts, as Calino Web draws it. It steps aside
+                // while its card is carried, since the band belongs to the
+                // committed start, not the one under the finger.
+                val travelMinutes = event.travelTimeMinutes?.takeIf { it > 0 && !event.allDay }
+                if (travelMinutes != null) {
+                    val travelTop = (hourHeight.value * ((slot.startMinute - travelMinutes) / 60f))
+                        .coerceAtLeast(0f).dp
+                    val travelHeight = top - travelTop
+                    val travelAlpha by animateFloatAsState(
+                        targetValue = if (
+                            directDragActive || pendingDirectDrop != null || draggingCardKey == cardKey
+                        ) 0f else 1f,
+                        animationSpec = tween(CalinoMotion.FadeThroughMillis),
+                        label = "travel band alpha",
+                    )
+                    if (travelHeight > 0.dp) {
+                        // Runs on under the card's rounded top so the band
+                        // reads as tucked beneath the event, not butted to it.
+                        val tuck = if (compactRangeCards) 6.dp else 11.dp
+                        TravelTimeBand(
+                            modifier = Modifier.offset(x = cardX, y = travelTop)
+                                .width(laneWidth)
+                                .height(travelHeight + tuck)
+                                .zIndex(if (compactRangeCards) slot.column.toFloat() else 0f)
+                                .graphicsLayer { alpha = travelAlpha }
+                                .then(
+                                    if (onEvent != null) Modifier.clickable { onEvent(event) } else Modifier,
+                                )
+                                .clearAndSetSemantics { },
+                            minutes = travelMinutes,
+                            color = Color(event.color),
+                            colors = colors,
+                            compact = compactRangeCards,
+                        )
+                    }
+                }
                 TimelineEventCard(
                     modifier = Modifier.offset(x = cardX, y = top)
                         .width(laneWidth)
@@ -6943,6 +6980,54 @@ internal fun compactChipDetail(height: Dp, width: Dp, hasLocation: Boolean): Com
         height >= CompactCardVerticalPadding + CompactTitleLine + CompactMetaLine * 2 ->
         CompactChipDetail.TimeAndPlace
     else -> CompactChipDetail.Time
+}
+
+/**
+ * Travel time before a timed event: a faint wash in the event's colour whose
+ * bottom edge meets the card, labelled when there is room for it.
+ */
+@Composable
+private fun TravelTimeBand(
+    modifier: Modifier,
+    minutes: Int,
+    color: Color,
+    colors: calino.malinov.ski.design.CalinoPalette,
+    compact: Boolean,
+) {
+    val corner = if (compact) 6.dp else 11.dp
+    // The bottom [corner] is hidden under the card; centre the label above it.
+    BoxWithConstraints(
+        modifier
+            .clip(RoundedCornerShape(topStart = corner, topEnd = corner))
+            .background(color.copy(alpha = .08f))
+            .drawBehind {
+                // A dashed spine marks it as time spent getting there, not a
+                // second, lighter event.
+                val x = if (compact) 1.5.dp.toPx() else 3.dp.toPx()
+                drawLine(
+                    color.copy(alpha = .45f),
+                    Offset(x, 0f),
+                    Offset(x, size.height),
+                    strokeWidth = 1.5.dp.toPx(),
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                        floatArrayOf(3.dp.toPx(), 3.dp.toPx()),
+                    ),
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (maxHeight - corner >= 13.dp && maxWidth >= 36.dp) {
+            Text(
+                if (maxWidth >= 88.dp) "${formatCalinoDuration(minutes)} travel" else formatCalinoDuration(minutes),
+                Modifier.padding(start = 4.dp, end = 4.dp, bottom = corner),
+                fontSize = 10.sp,
+                lineHeight = 11.sp,
+                color = colors.Ink3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 @Composable
