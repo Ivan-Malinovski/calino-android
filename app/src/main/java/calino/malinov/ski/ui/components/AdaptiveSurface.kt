@@ -714,9 +714,12 @@ fun SwipeEndDismiss(
     resetKey: Any? = null,
     canStartDismiss: (Offset) -> Boolean = { true },
     allowDownwardDismiss: Boolean = false,
+    /** Read at pointer-down: false while the body can still scroll up, so a downward drag scrolls it instead. */
+    canStartDownwardDismiss: () -> Boolean = { true },
     content: @Composable (Modifier) -> Unit,
 ) {
     val hostDrag = LocalCalinoSurfaceDismissDrag.current
+    val currentCanStartDownwardDismiss by rememberUpdatedState(canStartDownwardDismiss)
     var dragDistance by remember { mutableFloatStateOf(0f) }
     var dragDownDistance by remember { mutableFloatStateOf(0f) }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
@@ -802,7 +805,7 @@ fun SwipeEndDismiss(
                 var axisDecided = false
                 var completed = false
                 val allowedAtDown = currentCanStartDismiss(steady(down.position))
-                val downwardAllowedAtDown = allowDownwardDismiss
+                val downwardAllowedAtDown = allowDownwardDismiss && currentCanStartDownwardDismiss()
                 val startDistance = dragDistance
                 val startDownDistance = dragDownDistance
                 animationJob?.cancel()

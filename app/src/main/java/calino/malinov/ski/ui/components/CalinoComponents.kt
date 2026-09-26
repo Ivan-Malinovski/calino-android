@@ -95,6 +95,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -2259,13 +2262,15 @@ fun AddPill(
                     val velocity = VelocityTracker()
                     var dragging = false
                     val start = menuProgress()
+                    // A menu that can still scroll up spends the drag on that, as a sheet would.
+                    val canFold = menuMetrics.scroll?.canScrollBackward != true
                     while (true) {
                         val change = awaitPointerEvent(PointerEventPass.Initial).changes
                             .firstOrNull { it.id == down.id } ?: break
                         val at = toRoot(change.position) ?: break
                         velocity.addPosition(change.uptimeMillis, at)
                         val dy = at.y - downRoot.y
-                        if (!dragging && dy > slop && dy > abs(at.x - downRoot.x)) dragging = true
+                        if (!dragging && canFold && dy > slop && dy > abs(at.x - downRoot.x)) dragging = true
                         if (dragging) {
                             change.consume()
                             val travel = (menuMetrics.menuHeight - menuMetrics.restHeight).coerceAtLeast(1f)
@@ -2483,6 +2488,7 @@ fun AddPill(
                             PillViewMenu(
                                 routes = routes,
                                 hot = scrubHot,
+                                metrics = menuMetrics,
                                 onBounds = { key, bounds -> menuItemBounds[key] = bounds },
                                 onPick = ::pickMenuItem,
                             )
@@ -2780,6 +2786,8 @@ private val PillMenuCorner = 28.dp
 private class PillMenuMetrics {
     var restHeight = 0f
     var menuHeight = 0f
+    /** The open menu's scroll; a short window (a phone in landscape) cannot show every row. */
+    var scroll: ScrollState? = null
 }
 
 /**
@@ -2911,13 +2919,21 @@ private fun PillViewButton(
 private fun PillViewMenu(
     routes: List<PillRoute>,
     hot: Int?,
+    metrics: PillMenuMetrics,
     onBounds: (Int, Rect) -> Unit,
     onPick: (Int) -> Unit,
 ) {
+    // Opens at the end, so the nearest views stay under the thumb when it overflows.
+    val scroll = rememberScrollState(Int.MAX_VALUE)
+    DisposableEffect(scroll) {
+        metrics.scroll = scroll
+        onDispose { if (metrics.scroll === scroll) metrics.scroll = null }
+    }
     Column(
         Modifier
             .width(IntrinsicSize.Max)
             .widthIn(min = 220.dp)
+            .verticalScroll(scroll)
             .padding(6.dp)
             .semantics { paneTitle = "Views" },
     ) {

@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalUriHandler
@@ -362,11 +364,11 @@ private fun CalinoMarkdownBlockView(
         )
         is CalinoMarkdownBlock.Heading -> CalinoMarkdownInlineText(
             block.content,
+            // Scaled to the 14.5sp body it sits in, not to screen titles.
             style = when (block.level) {
-                1 -> CalinoTypography.headlineSmall
-                2 -> CalinoTypography.titleLarge
-                3 -> CalinoTypography.titleMedium
-                else -> CalinoTypography.titleSmall
+                1 -> CalinoTypography.titleSmall
+                2 -> CalinoTypography.titleSmall.copy(fontSize = 16.5.sp, lineHeight = 21.sp)
+                else -> CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
             },
             modifier = Modifier.padding(top = if (isFirst) 0.dp else 5.dp),
         )
@@ -396,7 +398,7 @@ private fun MarkdownListView(
     block: CalinoMarkdownBlock.ListBlock,
     onTaskCheckedChange: ((taskIndex: Int, checked: Boolean) -> Unit)?,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(if (block.tight) 3.dp else 7.dp)) {
         block.items.forEachIndexed { index, item ->
             Row(
                 Modifier.fillMaxWidth(),
@@ -429,7 +431,11 @@ private fun MarkdownListView(
                                 disabledUncheckedColor = CalinoColors.Ink3,
                                 disabledIndeterminateColor = CalinoColors.Accent,
                             ),
-                            modifier = Modifier.size(44.dp).padding(end = 8.dp).semantics {
+                            modifier = Modifier
+                                .checklistTouchLane()
+                                .size(44.dp)
+                                .padding(end = 8.dp)
+                                .semantics {
                                 contentDescription = if (item.checked) "Mark checklist item open" else "Mark checklist item done"
                             },
                         )
@@ -598,6 +604,17 @@ fun toggleCalinoMarkdownTask(markdown: String, taskIndex: Int, checked: Boolean)
     val match = MarkdownTaskMarker.findAll(markdown).elementAtOrNull(taskIndex) ?: return markdown
     val marker = if (checked) "[x]" else "[ ]"
     return markdown.replaceRange(match.groups[2]!!.range.first - 1, match.groups[2]!!.range.last + 2, marker)
+}
+
+/**
+ * The checkbox keeps its 44dp touch lane but lays out at its visible height,
+ * so a checklist reads at the text's line spacing. The lane overhangs the row
+ * above and below; hit testing is not clipped to the parent.
+ */
+private fun Modifier.checklistTouchLane(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+    val height = minOf(placeable.height, 28.dp.roundToPx())
+    layout(placeable.width, height) { placeable.place(0, (height - placeable.height) / 2) }
 }
 
 private fun Modifier.clipAndBorder(borderColor: Color, backgroundColor: Color): Modifier =

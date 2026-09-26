@@ -127,6 +127,7 @@ fun AdaptiveDetailCard(
                 resetKey = resetKey,
                 canStartDismiss = { position -> position.y <= headerLanePx },
                 allowDownwardDismiss = allowDownwardDismissInEndPanel,
+                canStartDownwardDismiss = canStartDismiss,
             ) { dragModifier ->
                 DetailCardSurface(dragModifier, handleColor = handleColor, content = content)
             }
