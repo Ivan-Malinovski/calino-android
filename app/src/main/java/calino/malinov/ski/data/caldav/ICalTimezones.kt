@@ -13,6 +13,8 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.util.Date
+import java.util.Calendar
+import java.util.GregorianCalendar
 import java.util.TimeZone
 
 /**
@@ -37,6 +39,35 @@ import java.util.TimeZone
  *    writes `TZID=X:...Z`. A server's own definitions are never replaced.
  */
 object ICalTimezones {
+
+    /** Use Java's named rules where available and the parsed VTIMEZONE for custom IDs. */
+    fun localDate(timeZone: TimeZone, instant: Instant): java.time.LocalDate {
+        javaZone(timeZone)?.let { return instant.atZone(it).toLocalDate() }
+        return GregorianCalendar(timeZone).apply { timeInMillis = instant.toEpochMilli() }.let {
+            java.time.LocalDate.of(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH))
+        }
+    }
+
+    fun localDateTime(timeZone: TimeZone, instant: Instant): LocalDateTime {
+        javaZone(timeZone)?.let { return instant.atZone(it).toLocalDateTime() }
+        return GregorianCalendar(timeZone).apply { timeInMillis = instant.toEpochMilli() }.let {
+            LocalDateTime.of(
+                it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH),
+                it.get(Calendar.HOUR_OF_DAY), it.get(Calendar.MINUTE), it.get(Calendar.SECOND),
+            )
+        }
+    }
+
+    fun startOfDay(timeZone: TimeZone, date: java.time.LocalDate): Instant {
+        javaZone(timeZone)?.let { return date.atStartOfDay(it).toInstant() }
+        return GregorianCalendar(timeZone).apply {
+            clear()
+            set(date.year, date.monthValue - 1, date.dayOfMonth)
+        }.time.toInstant()
+    }
+
+    private fun javaZone(timeZone: TimeZone): ZoneId? =
+        runCatching { timeZone.toZoneId() }.getOrNull() ?: resolve(timeZone.id)
 
     /** Private parameter marking a floating (zone-less) local time between parse and write. */
     const val FloatingMarker = "X-CALINO-FLOATING"

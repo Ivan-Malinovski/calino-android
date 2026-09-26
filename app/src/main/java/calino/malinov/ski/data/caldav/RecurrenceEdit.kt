@@ -440,7 +440,7 @@ object RecurrenceEdit {
             if (!iterator.hasNext()) return null
             val generated = iterator.next()
             val comparison = if (isAllDay(group)) {
-                generated.toInstant().atZone(seriesTimeZone(group).toZoneId()).toLocalDate()
+                ICalTimezones.localDate(seriesTimeZone(group), generated.toInstant())
                     .compareTo(localDateOf(group, target.value))
             } else {
                 generated.time.compareTo(target.value.time)
@@ -482,7 +482,7 @@ object RecurrenceEdit {
             if (!iterator.hasNext()) return null
             val generated = iterator.next()
             val generatedValue = if (isAllDay(group)) {
-                generated.toInstant().atZone(seriesTimeZone(group).toZoneId()).toLocalDate().toDateOnly()
+                ICalTimezones.localDate(seriesTimeZone(group), generated.toInstant()).toDateOnly()
             } else {
                 ICalDate(generated, true)
             }
@@ -511,7 +511,7 @@ object RecurrenceEdit {
         }
         val date = generated ?: return null
         return if (isAllDay(group)) {
-            date.toInstant().atZone(seriesTimeZone(group).toZoneId()).toLocalDate().toDateOnly()
+            ICalTimezones.localDate(seriesTimeZone(group), date.toInstant()).toDateOnly()
         } else {
             valueInMasterFrame(group, ICalDate(date, true))
         }
@@ -634,9 +634,7 @@ object RecurrenceEdit {
         if (raw != null && !raw.isUtc && template.rawComponents?.isUtc != true) {
             return LocalDate.of(raw.year, raw.month, raw.date)
         }
-        return Instant.ofEpochMilli(value.time)
-            .atZone(seriesTimeZone(group).toZoneId())
-            .toLocalDate()
+        return ICalTimezones.localDate(seriesTimeZone(group), Instant.ofEpochMilli(value.time))
     }
 
     /** Converts an absolute target to the master's local/TZID/UTC value frame. */
@@ -645,8 +643,7 @@ object RecurrenceEdit {
         if (!template.hasTime()) return localDateOf(group, value).toDateOnly()
 
         val instant = Instant.ofEpochMilli(value.time)
-        val timezone = seriesTimeZone(group).toZoneId()
-        val local = instant.atZone(timezone).toLocalDateTime()
+        val local = ICalTimezones.localDateTime(seriesTimeZone(group), instant)
         return ICalDate(
             Date.from(instant),
             DateTimeComponents(

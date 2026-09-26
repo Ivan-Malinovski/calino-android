@@ -20,6 +20,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
@@ -32,6 +33,177 @@ class ICalMapperTest {
 
     private val zone = ZoneId.of("Europe/Copenhagen")
     private val mapper = ICalMapper(zone)
+
+    @Test
+    fun `feed parser keeps a valid UID when another series cannot expand`() {
+        val feed = """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:broken-series
+            DTSTART:20260928T090000Z
+            DTEND:20260928T100000Z
+            RRULE:FREQ=WEEKLY
+            SUMMARY:Broken
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:valid-event
+            DTSTART:20260928T120000Z
+            DTEND:20260928T130000Z
+            SUMMARY:Valid
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+
+        // The extreme upper bound makes recurrence expansion overflow, while
+        // the independent event remains mappable.
+        val events = mapper.parseFeedEvents(
+            feed, "feed", 1L, LocalDate.of(2026, 9, 1), LocalDate.MAX,
+        )
+        assertEquals(listOf("valid-event"), events.map { it.uid })
+        assertThrows(IllegalArgumentException::class.java) {
+            mapper.parseFeedEvents(
+                feed.substringBefore("BEGIN:VEVENT\nUID:valid-event") + "END:VCALENDAR",
+                "feed", 1L, LocalDate.of(2026, 9, 1), LocalDate.MAX,
+            )
+        }
+    }
+
+    @Test
+    fun `feed parser distinguishes an empty calendar from unusable events`() {
+        val empty = "BEGIN:VCALENDAR\nVERSION:2.0\nEND:VCALENDAR"
+        assertTrue(mapper.parseFeedEvents(
+            empty, "feed", 1L, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+        ).isEmpty())
+
+        val unusable = """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:missing-start
+            SUMMARY:Cannot map
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+        assertThrows(IllegalArgumentException::class.java) {
+            mapper.parseFeedEvents(
+                unusable, "feed", 1L, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+            )
+        }
+    }
+
+    @Test
+    fun `Exchange Windows VTIMEZONE expands recurring events and tasks`() {
+        val result = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            PRODID:Microsoft Exchange Server 2010
+            BEGIN:VTIMEZONE
+            TZID:South Africa Standard Time
+            BEGIN:STANDARD
+            DTSTART:16010101T000000
+            TZOFFSETFROM:+0200
+            TZOFFSETTO:+0200
+            END:STANDARD
+            END:VTIMEZONE
+            BEGIN:VEVENT
+            UID:exchange-event
+            DTSTART;TZID=South Africa Standard Time:20260928T090000
+            DTEND;TZID=South Africa Standard Time:20260928T100000
+            RRULE:FREQ=WEEKLY;COUNT=4
+            SUMMARY:Event
+            END:VEVENT
+            BEGIN:VTODO
+            UID:exchange-task
+            DTSTART;TZID=South Africa Standard Time:20260928T090000
+            DUE;TZID=South Africa Standard Time:20260928T100000
+            RRULE:FREQ=WEEKLY;COUNT=4
+            SUMMARY:Task
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "exchange.ics",
+            windowStart = LocalDate.of(2026, 9, 1), windowEnd = LocalDate.of(2026, 11, 1),
+        )
+
+        assertEquals(4, result.events.size)
+        assertEquals(4, result.tasks.size)
+        assertEquals(LocalDateTime.of(2026, 9, 28, 9, 0), result.events.first().start)
+    }
+
+    @Test
+    fun `Windows VTIMEZONE recurrence follows daylight transition`() {
+        val events = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTIMEZONE
+            TZID:Pacific Standard Time
+            BEGIN:DAYLIGHT
+            DTSTART:20260308T020000
+            TZOFFSETFROM:-0800
+            TZOFFSETTO:-0700
+            RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU
+            END:DAYLIGHT
+            BEGIN:STANDARD
+            DTSTART:20261101T020000
+            TZOFFSETFROM:-0700
+            TZOFFSETTO:-0800
+            RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU
+            END:STANDARD
+            END:VTIMEZONE
+            BEGIN:VEVENT
+            UID:pacific
+            DTSTART;TZID=Pacific Standard Time:20260301T090000
+            DTEND;TZID=Pacific Standard Time:20260301T100000
+            RRULE:FREQ=WEEKLY;COUNT=3
+            SUMMARY:Meeting
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "pacific.ics",
+            windowStart = LocalDate.of(2026, 3, 1), windowEnd = LocalDate.of(2026, 3, 20),
+        ).events.sortedBy { it.start }
+
+        assertEquals(
+            listOf(
+                LocalDateTime.of(2026, 3, 1, 18, 0),
+                LocalDateTime.of(2026, 3, 8, 17, 0),
+                LocalDateTime.of(2026, 3, 15, 17, 0),
+            ),
+            events.map { it.start },
+        )
+    }
+
+    @Test
+    fun `timed task in a custom zone is found on its displayed day`() {
+        val tasks = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTIMEZONE
+            TZID:Custom Work Zone
+            BEGIN:STANDARD
+            DTSTART:16010101T000000
+            TZOFFSETFROM:+1400
+            TZOFFSETTO:+1400
+            END:STANDARD
+            END:VTIMEZONE
+            BEGIN:VTODO
+            UID:custom-task
+            DTSTART;TZID=Custom Work Zone:20260928T003000
+            DUE;TZID=Custom Work Zone:20260928T013000
+            RRULE:FREQ=WEEKLY;COUNT=2
+            SUMMARY:Deadline
+            END:VTODO
+            END:VCALENDAR
+            """.trimIndent(), "cal", 1L, "custom.ics",
+            windowStart = LocalDate.of(2026, 9, 27), windowEnd = LocalDate.of(2026, 9, 27),
+        ).tasks
+
+        assertEquals(1, tasks.size)
+        assertEquals(LocalDate.of(2026, 9, 27), tasks.single().due)
+        assertEquals(LocalDate.of(2026, 9, 27), tasks.single().startDate)
+    }
 
     @Test
     fun `recurring VTODO expands and detached completion replaces its occurrence`() {

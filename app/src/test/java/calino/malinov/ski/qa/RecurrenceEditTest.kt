@@ -17,6 +17,41 @@ import org.junit.Test
 class RecurrenceEditTest {
 
     @Test
+    fun `Exchange Windows VTIMEZONE permits editing a generated occurrence`() {
+        val calendar = parsedCalendar(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VTIMEZONE
+            TZID:South Africa Standard Time
+            BEGIN:STANDARD
+            DTSTART:16010101T000000
+            TZOFFSETFROM:+0200
+            TZOFFSETTO:+0200
+            END:STANDARD
+            END:VTIMEZONE
+            BEGIN:VEVENT
+            UID:exchange-series
+            DTSTART;TZID=South Africa Standard Time:20260928T090000
+            DTEND;TZID=South Africa Standard Time:20260928T100000
+            RRULE:FREQ=WEEKLY;COUNT=4
+            SUMMARY:Work
+            END:VEVENT
+            END:VCALENDAR
+            """,
+        )
+        val group = RecurrenceEdit.Group.from(calendar, "exchange-series")
+        val result = RecurrenceEdit.delete(
+            group = group,
+            target = RecurrenceEdit.Target.timed(Instant.parse("2026-10-05T07:00:00Z")),
+            scope = RecurrenceEdit.Scope.THIS,
+        )
+
+        assertEquals(1, result.groups.size)
+        assertEquals(1, result.groups.single().master.getProperties(ExceptionDates::class.java).size)
+    }
+
+    @Test
     fun `THIS edit replaces a detached override and removes a legacy same-day EXDATE`() {
         val group = timedGroup()
         val target = requireNotNull(RecurrenceEdit.Target.from(group.overrides.first()))

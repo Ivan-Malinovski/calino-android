@@ -136,6 +136,41 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         return Parsed(events, tasks, journals)
     }
 
+    /** Feed-only recovery: one bad UID must not hide unrelated events. */
+    fun parseFeedEvents(
+        icalText: String,
+        calendarId: String,
+        color: Long,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): List<CalEvent> {
+        // Biweekly accepts an unterminated VCALENDAR as an empty object.
+        // A failed download must not replace a previous successful cache.
+        val lines = icalText.lineSequence().map { it.trim() }.toList()
+        val beginnings = lines.count { it.equals("BEGIN:VCALENDAR", ignoreCase = true) }
+        val endings = lines.count { it.equals("END:VCALENDAR", ignoreCase = true) }
+        require(beginnings > 0 && endings == beginnings) { "Incomplete iCalendar feed" }
+        val calendars = parseCalendars(icalText) ?: throw IllegalArgumentException("Invalid iCalendar feed")
+        require(calendars.size == beginnings) { "Could not parse every calendar in the feed" }
+        val groupCount = calendars.sumOf { calendar ->
+            calendar.events.filter { it.uid?.value != null && it.dateStart != null }
+                .map { it.uid.value }.distinct().size
+        }
+        if (groupCount == 0 && calendars.any { it.events.isNotEmpty() }) {
+            throw IllegalArgumentException("No event in the feed has a usable UID and start")
+        }
+        var failedGroups = 0
+        val events = calendars.flatMap { calendar ->
+            mapEvents(calendar, calendarId, color, calendarId, null, windowStart, windowEnd) {
+                failedGroups++
+            }
+        }
+        if (groupCount > 0 && failedGroups == groupCount) {
+            throw IllegalArgumentException("No event series in the feed could be mapped")
+        }
+        return events
+    }
+
     /**
      * Parses possibly-concatenated VCALENDAR blocks.
      *
@@ -172,41 +207,64 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         etag: String?,
         windowStart: LocalDate,
         windowEnd: LocalDate,
+        onGroupError: ((Throwable) -> Unit)? = null,
     ): List<CalEvent> {
-        val out = mutableListOf<CalEvent>()
-        calendar.events
+        return calendar.events
             .filter { it.uid?.value != null && it.dateStart != null }
             .groupBy { it.uid.value }
-            .forEach { (_, group) ->
-                val master = group.firstOrNull { it.recurrenceId == null }
-                val overrides = group.filter { it.recurrenceId != null }
-
-                // A cancelled master cancels the series. A cancelled detached
-                // instance remains in [overrides] so it suppresses that one
-                // generated occurrence, but it is never shown as an event.
-                if (master?.isCancelledEvent() == true) return@forEach
-
-                // An override wins over everything, including an EXDATE naming
-                // the same instant (RFC 5545 3.8.5.1): moving an occurrence and
-                // cancelling it are different acts, and the move is the later
-                // statement of intent.
-                overrides.forEach { override ->
-                    if (override.isCancelledEvent()) return@forEach
-                    mapEvent(override, calendar, calendarId, color, href, etag)
-                        ?.takeIf { it.withinWindow(windowStart, windowEnd) }
-                        ?.let(out::add)
+            .values.flatMap { group ->
+                if (onGroupError == null) {
+                    mapEventGroup(calendar, group, calendarId, color, href, etag, windowStart, windowEnd)
+                } else {
+                    runCatching {
+                        mapEventGroup(calendar, group, calendarId, color, href, etag, windowStart, windowEnd)
+                    }.getOrElse { error ->
+                        onGroupError(error)
+                        emptyList()
+                    }
                 }
-
-                if (master == null) return@forEach
-                if (master.recurrenceRule == null && master.recurrenceDates.isEmpty()) {
-                    mapEvent(master, calendar, calendarId, color, href, etag)?.let(out::add)
-                    return@forEach
-                }
-                out += expandSeries(
-                    calendar, master, overrides, calendarId, color, href, etag,
-                    windowStart, windowEnd,
-                )
             }
+    }
+
+    private fun mapEventGroup(
+        calendar: ICalendar,
+        group: List<VEvent>,
+        calendarId: String,
+        color: Long,
+        href: String,
+        etag: String?,
+        windowStart: LocalDate,
+        windowEnd: LocalDate,
+    ): List<CalEvent> {
+        val out = mutableListOf<CalEvent>()
+        val master = group.firstOrNull { it.recurrenceId == null }
+        val overrides = group.filter { it.recurrenceId != null }
+
+        // A cancelled master cancels the series. A cancelled detached
+        // instance remains in [overrides] so it suppresses that one
+        // generated occurrence, but it is never shown as an event.
+        if (master?.isCancelledEvent() == true) return emptyList()
+
+        // An override wins over everything, including an EXDATE naming
+        // the same instant (RFC 5545 3.8.5.1): moving an occurrence and
+        // cancelling it are different acts, and the move is the later
+        // statement of intent.
+        overrides.forEach { override ->
+            if (override.isCancelledEvent()) return@forEach
+            mapEvent(override, calendar, calendarId, color, href, etag)
+                ?.takeIf { it.withinWindow(windowStart, windowEnd) }
+                ?.let(out::add)
+        }
+
+        if (master == null) return out
+        if (master.recurrenceRule == null && master.recurrenceDates.isEmpty()) {
+            mapEvent(master, calendar, calendarId, color, href, etag)?.let(out::add)
+            return out
+        }
+        out += expandSeries(
+            calendar, master, overrides, calendarId, color, href, etag,
+            windowStart, windowEnd,
+        )
         return out
     }
 
@@ -223,7 +281,6 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
     ): List<CalEvent> {
         val base = mapEvent(master, calendar, calendarId, color, href, etag) ?: return emptyList()
         val timeZone = timeZoneFor(calendar, master.dateStart)
-        val iterationZone = timeZone.toZoneId()
 
         val rangeOverrides = overrides.mapNotNull { component ->
             val recurrenceId = component.recurrenceId
@@ -259,9 +316,10 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         // DATE instances in their zone-free date space, but use the display
         // zone for timed instances so a foreign TZID cannot move an occurrence
         // across the window boundary unnoticed.
-        val displayZone = if (base.allDay) iterationZone else zone
-        val displayFrom = windowStart.atStartOfDay(displayZone).toInstant()
-        val displayUntil = windowEnd.plusDays(1).atStartOfDay(displayZone).toInstant()
+        val displayFrom = if (base.allDay) ICalTimezones.startOfDay(timeZone, windowStart)
+            else windowStart.atStartOfDay(zone).toInstant()
+        val displayUntil = if (base.allDay) ICalTimezones.startOfDay(timeZone, windowEnd.plusDays(1))
+            else windowEnd.plusDays(1).atStartOfDay(zone).toInstant()
         // A range override can move a later recurrence into the requested
         // window (or move an in-window recurrence out). Search far enough on
         // both sides to apply its fixed RFC 5545 time shift before filtering.
@@ -287,15 +345,15 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             override.recurrenceId?.value?.takeUnless { it.hasTime() }?.toLocalDateOnly()
         }.toSet()
 
-        return applyExceptions(instants, exceptions, iterationZone, from, until)
+        return applyExceptions(instants, exceptions, timeZone, from, until)
             .asSequence()
             .filterNot { instant ->
-                if (base.allDay) instant.atZone(iterationZone).toLocalDate() in overrideDates
+                if (base.allDay) ICalTimezones.localDate(timeZone, instant) in overrideDates
                 else instant in overrideInstants
             }
             .mapNotNull { instant ->
-                val occurrence = base.occurrenceAt(instant, iterationZone)
-                val occurrenceDate = instant.atZone(iterationZone).toLocalDate()
+                val occurrence = base.occurrenceAt(instant, timeZone)
+                val occurrenceDate = ICalTimezones.localDate(timeZone, instant)
                 val range = rangeOverrides.lastOrNull { it.appliesTo(instant, occurrenceDate, base.allDay) }
                 if (range?.component?.isCancelledEvent() == true) {
                     null
@@ -322,7 +380,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
     private fun applyExceptions(
         instants: List<Instant>,
         exceptions: List<Instant>,
-        iterationZone: ZoneId,
+        timeZone: TimeZone,
         from: Instant,
         until: Instant,
     ): List<Instant> {
@@ -334,23 +392,23 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             // matched nothing here for the trivial reason that nothing was
             // generated there.
             .filter { it !in generated && it >= from && it < until }
-            .map { it.atZone(iterationZone).toLocalDate() }
+            .map { ICalTimezones.localDate(timeZone, it) }
             .toSet()
         return instants.filterNot {
-            it in exact || it.atZone(iterationZone).toLocalDate() in unmatchedDays
+            it in exact || ICalTimezones.localDate(timeZone, it) in unmatchedDays
         }
     }
 
     /** The occurrence of a series that starts at [instant]. */
     private fun CalEvent.occurrenceAt(
         instant: Instant,
-        iterationZone: ZoneId,
+        timeZone: TimeZone,
     ): CalEvent {
         val id = occurrenceId(uid ?: id, instant)
         return if (allDay) {
             // The iterator yields each occurrence's start; a multi-day all-day
             // event keeps its length by carrying the same span forward.
-            val day = instant.atZone(iterationZone).toLocalDate()
+            val day = ICalTimezones.localDate(timeZone, instant)
             val span = date?.let { start -> endDate?.let { java.time.temporal.ChronoUnit.DAYS.between(start, it) } }
             copy(
                 id = id,
@@ -581,7 +639,6 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val base = mapTask(master, calendarId, color, href, etag) ?: return@flatMap detached
         val carrier = master.dateStart ?: master.dateDue ?: return@flatMap detached
         val tz = timeZoneFor(calendar, carrier)
-        val iterationZone = tz.toZoneId()
         // Public parse callers historically use MIN/MAX for an unbounded
         // single-resource read. Those sentinels cannot be converted to an
         // Instant (MAX.plusDays(1) overflows), so anchor such reads at the
@@ -589,12 +646,14 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
         val anchorDay = if (carrier.isDateOnly()) {
             carrier.toLocalDateOnly() ?: return@flatMap detached
         } else {
-            carrier.value.toInstant().atZone(iterationZone).toLocalDate()
+            carrier.value.toInstant().atZone(zone).toLocalDate()
         }
         val effectiveStart = if (windowStart == LocalDate.MIN) anchorDay else windowStart
         val effectiveEnd = if (windowEnd == LocalDate.MAX) effectiveStart.plusYears(10) else windowEnd
-        val from = effectiveStart.atStartOfDay(iterationZone).toInstant()
-        val until = effectiveEnd.plusDays(1).atStartOfDay(iterationZone).toInstant()
+        val from = if (carrier.isDateOnly()) ICalTimezones.startOfDay(tz, effectiveStart)
+            else effectiveStart.atStartOfDay(zone).toInstant()
+        val until = if (carrier.isDateOnly()) ICalTimezones.startOfDay(tz, effectiveEnd.plusDays(1))
+            else effectiveEnd.plusDays(1).atStartOfDay(zone).toInstant()
         val dueOffset = if (
             !carrier.isDateOnly() && master.dateStart?.value?.hasTime() == true && master.dateDue?.value?.hasTime() == true
         ) {
@@ -612,16 +671,18 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             val occurrence = iterator.next()
             val instant = occurrence.toInstant()
             if (instant >= until) break
-            val key = if (carrier.isDateOnly()) instant.atZone(iterationZone).toLocalDate().toString() else instant.toString()
+            val key = if (carrier.isDateOnly()) ICalTimezones.localDate(tz, instant).toString() else instant.toString()
             if (key in overrideKeys || key in exceptionKeys) continue
-            val day = instant.atZone(iterationZone).toLocalDate()
+            val day = ICalTimezones.localDate(tz, instant)
             val time = if (carrier.isDateOnly()) null else instant.atZone(zone).toLocalTime()
             val dueLocal = if (carrier.isDateOnly()) null else toLocalDateTime(instant.plus(dueOffset))
             generated += base.copy(
                 id = taskOccurrenceId(base.uid ?: base.id, if (carrier.isDateOnly()) day else null, instant),
                 due = dueLocal?.toLocalDate() ?: day,
                 dueTime = dueLocal?.toLocalTime(),
-                startDate = master.dateStart?.let { day },
+                startDate = master.dateStart?.let {
+                    if (carrier.isDateOnly()) day else instant.atZone(zone).toLocalDate()
+                },
                 startTime = master.dateStart?.takeUnless { carrier.isDateOnly() }?.let { time },
                 recurrenceDate = if (carrier.isDateOnly()) day else null,
                 recurrenceId = if (carrier.isDateOnly()) null else instant,

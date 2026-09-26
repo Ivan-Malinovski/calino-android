@@ -48,6 +48,9 @@ class WebcalManager(
         val url = WebcalUrl.requireHttpUrl(form.url).toString()
         val name = form.name.trim().ifBlank { WebcalUrl.hostOf(url) }
         val ics = fetcher.fetchIcs(url)
+        // Validate before storing a subscription so a wholly unreadable feed
+        // cannot be accepted and then displayed as an empty calendar.
+        parseEvents("feed-preview", form.color, ics)
         val subscription = store.add(
             name = name,
             url = url,
@@ -55,9 +58,10 @@ class WebcalManager(
             refreshIntervalMinutes = form.refreshIntervalMinutes,
             notifyReminders = form.notifyReminders,
         )
+        val events = parseEvents(subscription.calendarId, subscription.color, ics)
         cache.save(subscription.id, ics)
         store.markFetched(subscription.id)
-        putParsed(subscription, ics)
+        putParsed(subscription, events)
         return subscription
     }
 
@@ -71,9 +75,10 @@ class WebcalManager(
     suspend fun sync(id: String) {
         val subscription = store.subscriptions().firstOrNull { it.id == id } ?: return
         val ics = fetcher.fetchIcs(subscription.url)
+        val events = parseEvents(subscription.calendarId, subscription.color, ics)
         cache.save(subscription.id, ics)
         store.markFetched(subscription.id)
-        putParsed(subscription, ics)
+        putParsed(subscription, events)
     }
 
     suspend fun syncDue() {
@@ -119,8 +124,8 @@ class WebcalManager(
         return Instant.now().isAfter(last.plusSeconds(interval * 60L))
     }
 
-    private fun putParsed(subscription: WebcalSubscription, ics: String) {
-        parsedById = parsedById + (subscription.id to parseEvents(subscription, ics))
+    private fun putParsed(subscription: WebcalSubscription, events: List<CalEvent>) {
+        parsedById = parsedById + (subscription.id to events)
         publishMetadata()
     }
 
@@ -128,25 +133,18 @@ class WebcalManager(
         val parsed = mutableMapOf<String, List<CalEvent>>()
         store.subscriptions().forEach { subscription ->
             val ics = cache.load(subscription.id) ?: return@forEach
-            parsed[subscription.id] = parseEvents(subscription, ics)
+            parsed[subscription.id] = runCatching {
+                parseEvents(subscription.calendarId, subscription.color, ics)
+            }.getOrNull() ?: parsedById[subscription.id].orEmpty()
         }
         parsedById = parsed
         publishMetadata()
     }
 
-    private fun parseEvents(subscription: WebcalSubscription, ics: String): List<CalEvent> {
+    private fun parseEvents(calendarId: String, color: Long, ics: String): List<CalEvent> {
         val windowStart = today().minusMonths(windowMonths)
         val windowEnd = today().plusMonths(windowMonths)
-        return runCatching {
-            mapper.parse(
-                icalText = ics,
-                calendarId = subscription.calendarId,
-                color = subscription.color,
-                href = subscription.calendarId,
-                windowStart = windowStart,
-                windowEnd = windowEnd,
-            ).events
-        }.getOrDefault(emptyList())
+        return mapper.parseFeedEvents(ics, calendarId, color, windowStart, windowEnd)
     }
 
     private fun publishMetadata() {

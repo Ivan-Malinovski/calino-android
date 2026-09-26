@@ -396,6 +396,28 @@ class TimezoneTest {
     }
 
     @Test
+    fun `custom VTIMEZONE uses its own offset for date calculations`() {
+        val calendar = ICalTimezones.parse(ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0",
+            "BEGIN:VTIMEZONE", "TZID:Custom Work Zone",
+            "BEGIN:STANDARD", "DTSTART:16010101T000000",
+            "TZOFFSETFROM:+1400", "TZOFFSETTO:+1400", "END:STANDARD",
+            "END:VTIMEZONE",
+            "BEGIN:VEVENT", "UID:custom", "DTSTART;TZID=Custom Work Zone:20260928T003000",
+            "DTEND;TZID=Custom Work Zone:20260928T013000", "SUMMARY:Custom",
+            "END:VEVENT", "END:VCALENDAR",
+        )).single()
+        val start = calendar.events.single().dateStart!!
+        val timezone = requireNotNull(ICalTimezones.timeZoneOf(calendar, start))
+        val instant = start.value.toInstant()
+
+        assertEquals("Custom Work Zone", timezone.id)
+        assertEquals(LocalDate.of(2026, 9, 28), ICalTimezones.localDate(timezone, instant))
+        assertEquals(instant.minusSeconds(30 * 60),
+            ICalTimezones.startOfDay(timezone, LocalDate.of(2026, 9, 28)))
+    }
+
+    @Test
     fun `an undefined Windows TZID is read in its zone and written with a definition`() {
         val outlook = ics(
             "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:Microsoft Exchange Server 2010",
