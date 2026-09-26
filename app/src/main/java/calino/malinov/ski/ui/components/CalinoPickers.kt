@@ -1,6 +1,11 @@
 package calino.malinov.ski.ui.components
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
@@ -195,6 +200,8 @@ private fun PickerCard(
     onCancel: () -> Unit,
     onDone: () -> Unit,
     titleAside: String? = null,
+    onTitleClick: (() -> Unit)? = null,
+    titleOpen: Boolean = false,
     headerEnd: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
@@ -211,7 +218,15 @@ private fun PickerCard(
             .padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
+            Row(Modifier.weight(1f)) {
+            Row(
+                Modifier
+                    .heightIn(min = 44.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Row))
+                    .then(if (onTitleClick != null) Modifier.calinoPressable(onClick = onTitleClick) else Modifier)
+                    .semantics { if (onTitleClick != null) stateDescription = if (titleOpen) "Choosing month" else "Showing days" },
+                verticalAlignment = Alignment.Bottom,
+            ) {
                 Text(title, style = CalinoTypography.titleLarge, color = CalinoColors.Ink)
                 // Quieter, beside the title, as the calendar's own month heading has it.
                 if (titleAside != null) {
@@ -222,6 +237,16 @@ private fun PickerCard(
                         modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
                     )
                 }
+                if (onTitleClick != null) {
+                    val turn by animateFloatAsState(if (titleOpen) 180f else 0f, CalinoMotion.standardSpatial(), label = "title chevron")
+                    androidx.compose.material3.Icon(
+                        CalinoIcons.ChevronDown,
+                        contentDescription = null,
+                        tint = CalinoColors.Ink3,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 6.dp).size(18.dp).graphicsLayer { rotationZ = turn },
+                    )
+                }
+            }
             }
             headerEnd()
         }
@@ -311,6 +336,7 @@ private fun TimeWheel(
     description: String,
     onSelected: (Int) -> Unit,
     loops: Boolean = true,
+    width: Dp = if (count == 2) 64.dp else 76.dp,
 ) {
     val total = if (loops) count * WheelLaps else count
     val startIndex = if (loops) count * (WheelLaps / 2) + selected else selected
@@ -344,7 +370,7 @@ private fun TimeWheel(
         contentPadding = PaddingValues(vertical = WheelRow * (WheelVisibleRows / 2)),
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .width(if (count == 2) 64.dp else 76.dp)
+            .width(width)
             .height(WheelRow * WheelVisibleRows)
             .semantics {
                 contentDescription = description
@@ -413,30 +439,58 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
     // The title follows the swipe: whichever month is more than half on screen.
     val shown = monthAt(pager.currentPage)
     val today = LocalDate.now()
+    var choosingMonth by remember { mutableStateOf(false) }
 
     PickerCard(
         title = shown.format(MonthTitleFormat),
         titleAside = shown.year.toString(),
+        onTitleClick = { choosingMonth = !choosingMonth },
+        titleOpen = choosingMonth,
         onCancel = onCancel,
-        onDone = { onDone(picked) },
+        // With the wheels up no day has been chosen in the new month yet, so
+        // Done first lands on that month's days.
+        onDone = { if (choosingMonth) choosingMonth = false else onDone(picked) },
         headerEnd = {
-            MonthStep(CalinoIcons.ChevronLeft, "Previous month") {
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronLeft, "Previous month") {
                 scope.launch { pager.animateScrollToPage(pager.currentPage - 1, animationSpec = CalinoMotion.standardSpatial()) }
             }
-            MonthStep(CalinoIcons.ChevronRight, "Next month") {
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronRight, "Next month") {
                 scope.launch { pager.animateScrollToPage(pager.currentPage + 1, animationSpec = CalinoMotion.standardSpatial()) }
             }
         },
     ) {
-        Row(Modifier.fillMaxWidth()) {
-            weekdayLetters(weekStart).forEach {
-                Box(Modifier.weight(1f).height(28.dp), contentAlignment = Alignment.Center) {
-                    Text(it, style = CalinoTypography.labelMedium, color = CalinoColors.Ink3)
+        // Both faces keep the grid's height, so the card never jumps between them.
+        AnimatedContent(
+            targetState = choosingMonth,
+            transitionSpec = {
+                (fadeIn(tween(CalinoMotion.ContentEnterMillis, delayMillis = CalinoMotion.FadeThroughMillis / 2)) +
+                    scaleIn(tween(CalinoMotion.ContentEnterMillis), initialScale = .96f)) togetherWith
+                    fadeOut(tween(CalinoMotion.FadeThroughMillis))
+            },
+            label = "date picker face",
+        ) { months ->
+            if (months) {
+                MonthYearWheels(
+                    month = shown,
+                    onMonth = { target ->
+                        val page = DatePagerMonths + (target.year - seedMonth.year) * 12 + (target.monthValue - seedMonth.monthValue)
+                        scope.launch { pager.scrollToPage(page.coerceIn(0, pager.pageCount - 1)) }
+                    },
+                )
+            } else {
+                Column {
+                    Row(Modifier.fillMaxWidth()) {
+                        weekdayLetters(weekStart).forEach {
+                            Box(Modifier.weight(1f).height(28.dp), contentAlignment = Alignment.Center) {
+                                Text(it, style = CalinoTypography.labelMedium, color = CalinoColors.Ink3)
+                            }
+                        }
+                    }
+                    HorizontalPager(state = pager, beyondViewportPageCount = 1, pageSpacing = 28.dp, verticalAlignment = Alignment.Top) { page ->
+                        MonthGrid(monthAt(page), weekStart, picked, today) { picked = it }
+                    }
                 }
             }
-        }
-        HorizontalPager(state = pager, beyondViewportPageCount = 1, pageSpacing = 28.dp, verticalAlignment = Alignment.Top) { page ->
-            MonthGrid(monthAt(page), weekStart, picked, today) { picked = it }
         }
     }
 }
@@ -520,5 +574,48 @@ private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick:
             style = CalinoTypography.bodyLarge.copy(fontFeatureSettings = "tnum"),
             color = ink,
         )
+    }
+}
+
+private val MonthNames = List(12) { java.time.Month.of(it + 1).getDisplayName(java.time.format.TextStyle.FULL, Locale.US) }
+private const val FirstYear = 1900
+private const val LastYear = 2200
+
+/**
+ * Month and year as wheels, standing in for the grid at the grid's height.
+ * The pager follows every tick, so the heading reads the month as it spins.
+ */
+@Composable
+private fun MonthYearWheels(month: YearMonth, onMonth: (YearMonth) -> Unit) {
+    val currentOnMonth by rememberUpdatedState(onMonth)
+    var chosen by remember { mutableStateOf(month) }
+    Box(Modifier.fillMaxWidth().height(28.dp + DayCell * 6), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(WheelRow)
+                .clip(RoundedCornerShape(CalinoShapes.Row))
+                .background(CalinoColors.Ink.copy(alpha = .05f)),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TimeWheel(
+                count = 12,
+                selected = chosen.monthValue - 1,
+                label = { MonthNames[it] },
+                description = "Month",
+                width = 180.dp,
+                onSelected = { chosen = chosen.withMonth(it + 1); currentOnMonth(chosen) },
+            )
+            Spacer(Modifier.width(8.dp))
+            TimeWheel(
+                count = LastYear - FirstYear + 1,
+                selected = chosen.year - FirstYear,
+                label = { (FirstYear + it).toString() },
+                description = "Year",
+                loops = false,
+                width = 100.dp,
+                onSelected = { chosen = chosen.withYear(FirstYear + it); currentOnMonth(chosen) },
+            )
+        }
     }
 }
