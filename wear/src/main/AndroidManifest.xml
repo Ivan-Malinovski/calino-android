@@ -3,7 +3,8 @@
     <application
         android:theme="@style/Theme.CalinoWear"
         android:label="@string/app_name"
-        android:icon="@drawable/ic_calino_wear"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:supportsRtl="true">
         <meta-data android:name="com.google.android.wearable.standalone" android:value="false" />
