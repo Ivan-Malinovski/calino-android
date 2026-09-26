@@ -1,5 +1,6 @@
 package calino.malinov.ski.ui.components
 
+import calino.malinov.ski.util.isoWeekNumber
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.scaleIn
@@ -449,12 +450,14 @@ private fun LazyListState.rowDistance(index: Int, rowPx: Float): Float =
 /** Months either side of the seed a person can swipe to. */
 private const val DatePagerMonths = 1_200
 private val DayCell = 44.dp
+private val WeekGutter = 24.dp
 private val DayDateFormat = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.US)
 private val MonthTitleFormat = DateTimeFormatter.ofPattern("MMMM", Locale.US)
 
 @Composable
 private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (LocalDate) -> Unit) {
     val weekStart = LocalCalinoPreferences.current.weekStart
+    val weekNumbers = LocalCalinoPreferences.current.showWeekNumbers
     var picked by remember { mutableStateOf(seed) }
     val seedMonth = remember { YearMonth.from(seed) }
     val pager = rememberPagerState(initialPage = DatePagerMonths) { DatePagerMonths * 2 }
@@ -504,6 +507,7 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
             } else {
                 Column {
                     Row(Modifier.fillMaxWidth()) {
+                        if (weekNumbers) Spacer(Modifier.width(WeekGutter))
                         weekdayLetters(weekStart).forEach {
                             Box(Modifier.weight(1f).height(28.dp), contentAlignment = Alignment.Center) {
                                 Text(it, style = CalinoTypography.labelMedium, color = CalinoColors.Ink3)
@@ -511,7 +515,7 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
                         }
                     }
                     HorizontalPager(state = pager, beyondViewportPageCount = 1, pageSpacing = 28.dp, verticalAlignment = Alignment.Top) { page ->
-                        MonthGrid(monthAt(page), weekStart, picked, today) { picked = it }
+                        MonthGrid(monthAt(page), weekStart, weekNumbers, picked, today) { picked = it }
                     }
                 }
             }
@@ -538,6 +542,7 @@ private fun MonthStep(icon: androidx.compose.ui.graphics.vector.ImageVector, des
 private fun MonthGrid(
     month: YearMonth,
     weekStart: CalinoWeekStart,
+    weekNumbers: Boolean,
     picked: LocalDate,
     today: LocalDate,
     onPick: (LocalDate) -> Unit,
@@ -545,7 +550,16 @@ private fun MonthGrid(
     val cells = sidebarMonthCells(month, weekStart).let { it + List(42 - it.size) { null } }
     Column(Modifier.fillMaxWidth()) {
         cells.chunked(7).forEach { week ->
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (weekNumbers) {
+                    val rowStart = week.withIndex().firstOrNull { it.value != null }
+                        ?.let { (i, d) -> d!!.minusDays(i.toLong()) }
+                    Box(Modifier.width(WeekGutter), contentAlignment = Alignment.Center) {
+                        if (rowStart != null) {
+                            Text(isoWeekNumber(rowStart).toString(), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                        }
+                    }
+                }
                 week.forEach { date ->
                     Box(Modifier.weight(1f).height(DayCell), contentAlignment = Alignment.Center) {
                         if (date != null) DayCell(date, selected = date == picked, today = date == today) { onPick(date) }
