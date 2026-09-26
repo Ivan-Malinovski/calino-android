@@ -3,6 +3,26 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.6.2 — 2026-09-26
+
+Calino 0.6.2 improves event attachments and time zones, and restores due-time and reminder editing in the task detail screen.
+
+### Added
+
+- **Event attachments.** Open inline files from connected calendars, edit attachment links, and attach files to events. Attachment edits preserve files or links added by another client during a concurrent change.
+- **Event time zones.** View an event's own clock, edit its time zone, and label hours in a second time zone. A New York time-zone example was added to the fixtures.
+- **Android calendar links.** Standard calendar VIEW links now open Calino on the relevant day or an already visible event.
+
+### Changed
+
+- Categories in Settings list the categories in your calendars instead of sample names. Text fields and light and dark colors have been refined.
+
+### Fixed
+
+- **Task editing (#9, #10).** The task detail screen now shows and edits due time and reminders, including on tasks downloaded from CalDAV. The earlier fix handled reading and writing these fields, but this screen still hid the controls.
+- Feed recurrence uses the supplied time-zone rules, and a failed feed refresh keeps the last valid subscription data.
+- Event attachment changes rebase as individual additions and removals, preserving unrelated server changes.
+
 ## 0.6.1 — 2026-09-24
 
 Calino 0.6.1 adds Agenda as an opening view, a search box in Settings and device-only reminders for read-only events, and fixes a round of CalDAV, task and month-view issues.
