@@ -1,7 +1,28 @@
 package calino.malinov.ski.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle as ComposeTextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.parseTypedDate
+import calino.malinov.ski.util.parseTypedTime
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,13 +97,19 @@ fun WhenHero(
     onEndDate: (() -> Unit)? = null,
     onEndTime: (() -> Unit)? = null,
     onAllDay: (() -> Unit)? = null,
+    /** Typed by hand after a long press on the start clock or day; null keeps them tap-only. */
+    onStartTimeTyped: ((LocalTime) -> Unit)? = null,
+    onStartDateTyped: ((LocalDate) -> Unit)? = null,
+    onEndTimeTyped: ((LocalTime) -> Unit)? = null,
+    onEndDateTyped: ((LocalDate) -> Unit)? = null,
     /** The length when the ends are in different zones and their wall times cannot be subtracted. */
     spanMinutes: Int? = null,
 ) {
     if (allDay) {
         AllDayHero(startDate, endDate, accent, modifier, onStartDate, onAllDay)
     } else {
-        TimedHero(startDate, startTime, endDate, endTime, accent, modifier, onStartDate, onStartTime, onEndDate, onEndTime, onAllDay, spanMinutes)
+        TimedHero(startDate, startTime, endDate, endTime, accent, modifier, onStartDate, onStartTime, onEndDate, onEndTime, onAllDay, spanMinutes,
+            onStartTimeTyped, onStartDateTyped, onEndTimeTyped, onEndDateTyped)
     }
 }
 
@@ -100,6 +127,10 @@ private fun TimedHero(
     onEndTime: (() -> Unit)?,
     onAllDay: (() -> Unit)?,
     span: Int?,
+    onStartTimeTyped: ((LocalTime) -> Unit)?,
+    onStartDateTyped: ((LocalDate) -> Unit)?,
+    onEndTimeTyped: ((LocalTime) -> Unit)?,
+    onEndDateTyped: ((LocalDate) -> Unit)?,
 ) {
     val finish = endDate ?: startDate
     // Both faces are hung from the top rather than centred, so a day line that
@@ -113,6 +144,8 @@ private fun TimedHero(
             placeholder = "Add time",
             onTime = onStartTime,
             onDate = onStartDate,
+            onTimeTyped = onStartTimeTyped,
+            onDateTyped = onStartDateTyped,
             modifier = Modifier.weight(1f),
         )
         SpanRule(
@@ -129,6 +162,8 @@ private fun TimedHero(
             label = "End",
             onTime = onEndTime,
             onDate = onEndDate,
+            onTimeTyped = onEndTimeTyped.takeIf { onEndTime != null },
+            onDateTyped = onEndDateTyped.takeIf { onEndDate != null },
             modifier = Modifier.weight(1f),
         )
     }
@@ -153,7 +188,11 @@ private fun RowScope.HeroClock(
     onDate: (() -> Unit)?,
     modifier: Modifier,
     placeholder: String = "—",
+    onTimeTyped: ((LocalTime) -> Unit)? = null,
+    onDateTyped: ((LocalDate) -> Unit)? = null,
 ) {
+    var typingTime by remember { mutableStateOf(false) }
+    var typingDate by remember { mutableStateOf(false) }
     val format = LocalTimeFormat
     // The 12-hour clock's meridiem is not part of the numeral: at display size
     // it doubles the column's width and pulls the two faces out of alignment.
@@ -161,37 +200,62 @@ private fun RowScope.HeroClock(
     val split = if (time == null) -1 else text.lastIndexOf(' ')
     val numerals = if (split > 0) text.take(split) else text
     val meridiem = if (split > 0) text.drop(split + 1) else null
+    val clockStyle = CalinoTypography.displayLarge.copy(fontSize = 32.sp, lineHeight = 40.sp)
     Column(modifier, horizontalAlignment = align) {
-        Row(
-            Modifier
-                .heightIn(min = 40.dp)
-                .then(if (onTime != null) Modifier.clickable(role = Role.Button, onClick = onTime) else Modifier)
-                .semantics { contentDescription = "$label time, $text" },
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Text(
-                numerals,
-                style = if (time == null) {
-                    CalinoTypography.displayMedium.copy(fontSize = 22.sp, lineHeight = 40.sp)
-                } else {
-                    CalinoTypography.displayLarge.copy(fontSize = 32.sp, lineHeight = 40.sp)
-                },
-                color = if (time == null) CalinoColors.Ink3 else CalinoColors.Ink,
-                maxLines = 1,
-                softWrap = false,
+        if (typingTime && onTimeTyped != null) {
+            InlineEntry(
+                style = clockStyle,
+                placeholder = time?.let { format.format(it) } ?: if (format == CalinoTimeFormat.TwentyFourHour) "14:00" else "2:00 PM",
+                keyboardType = if (format == CalinoTimeFormat.TwentyFourHour) KeyboardType.Number else KeyboardType.Ascii,
+                align = align,
+                label = "$label time",
+                minHeight = 40.dp,
+                commit = { typed -> parseTypedTime(typed)?.also(onTimeTyped) != null },
+                onClose = { typingTime = false },
             )
-            meridiem?.let {
+        } else {
+            Row(
+                Modifier
+                    .heightIn(min = 40.dp)
+                    .pressable(onTime, onTimeTyped?.let { { typingTime = true } })
+                    .semantics { contentDescription = "$label time, $text" },
+                verticalAlignment = Alignment.Bottom,
+            ) {
                 Text(
-                    it,
-                    style = CalinoTypography.labelSmall,
-                    color = CalinoColors.Ink2,
+                    numerals,
+                    style = if (time == null) {
+                        CalinoTypography.displayMedium.copy(fontSize = 22.sp, lineHeight = 40.sp)
+                    } else {
+                        CalinoTypography.displayLarge.copy(fontSize = 32.sp, lineHeight = 40.sp)
+                    },
+                    color = if (time == null) CalinoColors.Ink3 else CalinoColors.Ink,
                     maxLines = 1,
                     softWrap = false,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
                 )
+                meridiem?.let {
+                    Text(
+                        it,
+                        style = CalinoTypography.labelSmall,
+                        color = CalinoColors.Ink2,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+                    )
+                }
             }
         }
-        date?.let {
+        if (typingDate && onDateTyped != null && date != null) {
+            InlineEntry(
+                style = CalinoTypography.labelSmall,
+                placeholder = date.format(HeroDayFormat).uppercase(Locale.US),
+                keyboardType = KeyboardType.Ascii,
+                align = align,
+                label = "$label date",
+                minHeight = 28.dp,
+                commit = { typed -> parseTypedDate(typed, date)?.also(onDateTyped) != null },
+                onClose = { typingDate = false },
+            )
+        } else date?.let {
             Text(
                 it.format(HeroDayFormat).uppercase(Locale.US),
                 style = CalinoTypography.labelSmall,
@@ -199,7 +263,7 @@ private fun RowScope.HeroClock(
                 textAlign = if (align == Alignment.End) TextAlign.End else TextAlign.Start,
                 modifier = Modifier
                     .heightIn(min = 28.dp)
-                    .then(if (onDate != null) Modifier.clickable(role = Role.Button, onClick = onDate) else Modifier)
+                    .pressable(onDate, onDateTyped?.let { { typingDate = true } })
                     .padding(top = 2.dp)
                     .semantics { contentDescription = "$label date, ${it.format(HeroDayFormat)}" },
             )
@@ -383,4 +447,65 @@ fun HeroMasthead(
             .padding(horizontal = 56.dp)
             .padding(top = 4.dp, bottom = 8.dp),
     ) { content() }
+}
+
+/** A tap opens the picker; a long press, where typing is offered, types in place. */
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.pressable(onClick: (() -> Unit)?, onLongClick: (() -> Unit)?): Modifier = when {
+    onClick == null -> this
+    onLongClick == null -> clickable(role = Role.Button, onClick = onClick)
+    else -> combinedClickable(role = Role.Button, onLongClickLabel = "Type", onLongClick = onLongClick, onClick = onClick)
+}
+
+/**
+ * The clock or day, typed over in place and in the same type it is shown in.
+ * Done or leaving the field keeps what reads as a time or date; anything else
+ * quietly puts the old value back.
+ */
+@Composable
+private fun InlineEntry(
+    style: ComposeTextStyle,
+    placeholder: String,
+    keyboardType: KeyboardType,
+    align: Alignment.Horizontal,
+    label: String,
+    minHeight: Dp,
+    commit: (String) -> Boolean,
+    onClose: () -> Unit,
+) {
+    var value by remember { mutableStateOf("") }
+    var focused by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val finish = {
+        if (value.isNotBlank()) commit(value)
+        onClose()
+    }
+    val textAlign = if (align == Alignment.End) TextAlign.End else TextAlign.Start
+    BasicTextField(
+        value = value,
+        onValueChange = { value = it },
+        singleLine = true,
+        textStyle = style.copy(color = CalinoColors.Ink, textAlign = textAlign),
+        cursorBrush = SolidColor(CalinoColors.Accent),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { finish() }),
+        modifier = Modifier
+            .widthIn(min = 64.dp, max = 160.dp)
+            .heightIn(min = minHeight)
+            .focusRequester(focus)
+            .onFocusChanged {
+                if (focused && !it.isFocused) finish()
+                focused = it.isFocused
+            }
+            .semantics { contentDescription = label },
+        decorationBox = { inner ->
+            Box(contentAlignment = if (align == Alignment.End) Alignment.BottomEnd else Alignment.BottomStart) {
+                if (value.isEmpty()) {
+                    Text(placeholder, style = style.copy(textAlign = textAlign), color = CalinoColors.Ink3.copy(alpha = .45f), maxLines = 1, softWrap = false)
+                }
+                inner()
+            }
+        },
+    )
 }

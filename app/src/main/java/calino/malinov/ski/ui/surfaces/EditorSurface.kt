@@ -479,7 +479,7 @@ private fun EventEditorFields(
 ) {
     EditorSwitchRow(CalinoIcon.Clock, "All day", draft.allDay) { onDraft(draft.copy(allDay = it)) }
     EditorDivider()
-    EventDateTimeSection(draft, pickStartDate, pickStartTime, pickEndDate, pickEndTime)
+    EventDateTimeSection(draft, onDraft, pickStartDate, pickStartTime, pickEndDate, pickEndTime)
     // A zone is a property of a time; an all-day event has none to carry.
     EditorReveal(!draft.allDay) { EventZoneSection(draft, onDraft) }
     EditorDivider()
@@ -656,6 +656,7 @@ private fun JournalEditorFields(draft: EditorDraft, onBody: (String) -> Unit) {
 @Composable
 private fun EventDateTimeSection(
     draft: EditorDraft,
+    onDraft: (EditorDraft) -> Unit,
     pickStartDate: () -> Unit,
     pickStartTime: () -> Unit,
     pickEndDate: () -> Unit,
@@ -685,6 +686,11 @@ private fun EventDateTimeSection(
         onEndTime = if (!draft.allDay && draft.startTime != null) pickEndTime else null,
         // Across two zones the wall clocks no longer subtract to the length.
         spanMinutes = draft.durationMinutes.takeIf { draft.endZoneId != null },
+        // A long press types the same values the pickers would set.
+        onStartTimeTyped = { onDraft(draft.copy(startTime = it, touched = draft.touched + EditorField.Time)) },
+        onStartDateTyped = { onDraft(draft.copy(date = it, touched = draft.touched + EditorField.Date)) },
+        onEndTimeTyped = { onDraft(draft.withEnd(draft.endDate, it)) },
+        onEndDateTyped = { picked -> draft.endTime?.let { onDraft(draft.withEnd(picked, it)) } },
     )
 }
 
