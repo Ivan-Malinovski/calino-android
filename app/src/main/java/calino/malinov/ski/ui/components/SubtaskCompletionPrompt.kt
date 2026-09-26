@@ -234,7 +234,7 @@ private fun TaskRing(color: Color, checked: Boolean, size: Dp) {
 private fun Modifier.matchParentSize(): Modifier = this.then(Modifier.fillMaxWidth().height(androidx.compose.ui.unit.Dp.Unspecified))
 
 @Composable
-private fun PromptButton(label: String, filled: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PromptButton(label: String, filled: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier
             .heightIn(min = 48.dp)

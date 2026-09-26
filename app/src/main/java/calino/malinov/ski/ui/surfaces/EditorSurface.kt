@@ -188,14 +188,14 @@ fun EditorSurface(
         draft = draft.copy(date = it, taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
             touched = draft.touched + EditorField.Date)
     }
-    val pickStartTime = rememberTimePicker({ draft.startTime }) {
+    val pickStartTime = rememberTimePicker({ draft.startTime }, title = if (draft.kind == PocQuickAddKind.Task) "Due" else "Starts") {
         draft = draft.copy(startTime = it, taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
             touched = draft.touched + EditorField.Time)
     }
     val pickEndDate = rememberDatePicker({ draft.endDate }) { picked ->
         draft.endTime?.let { draft = draft.withEnd(picked, it) }
     }
-    val pickEndTime = rememberTimePicker({ draft.endTime }) { picked ->
+    val pickEndTime = rememberTimePicker({ draft.endTime }, title = "Ends") { picked ->
         draft = draft.withEnd(draft.endDate, picked)
     }
     val pickUntil = rememberDatePicker({ draft.date.plusMonths(3) }) { picked ->

@@ -986,12 +986,12 @@ private fun EventDetailContent(
         onDeleteEvent(event, if (isRecurringEvent(event)) RecurrenceEditScope.This else deleteScope)
     }
     val pickDate = rememberDatePicker({ draft.date }) { edit { draft -> draft.copy(date = it) } }
-    val pickStartTime = rememberTimePicker({ draft.startTime }) { picked ->
+    val pickStartTime = rememberTimePicker({ draft.startTime }, title = "Starts") { picked ->
         // Keep the span the person already agreed to rather than snapping the
         // end back to an hour: moving a meeting is not re-planning its length.
         edit { it.copy(startTime = picked, durationMinutes = it.durationMinutes ?: DefaultEventMinutes) }
     }
-    val pickEndTime = rememberTimePicker({ draft.startTime?.plusMinutes(draft.durationMinutes?.toLong() ?: 0L) }) { picked ->
+    val pickEndTime = rememberTimePicker({ draft.startTime?.plusMinutes(draft.durationMinutes?.toLong() ?: 0L) }, title = "Ends") { picked ->
         val start = draft.startTime ?: return@rememberTimePicker
         val span = java.time.Duration.between(start, picked).toMinutes()
         val minutes = if (span <= 0) span + java.time.Duration.ofDays(1).toMinutes() else span
@@ -1712,7 +1712,7 @@ fun TaskDetailSurface(
     val detailScrollState = rememberScrollState()
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
     val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
-    val pickDueTime = rememberTimePicker({ dueTime }) { picked ->
+    val pickDueTime = rememberTimePicker({ dueTime }, title = "Due") { picked ->
         if (due == null) due = today
         dueTime = picked
     }
