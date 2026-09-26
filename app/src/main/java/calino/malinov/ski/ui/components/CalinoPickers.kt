@@ -1,6 +1,23 @@
 package calino.malinov.ski.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import calino.malinov.ski.state.LocalCalinoPreferences
+import calino.malinov.ski.util.CalinoWeekStart
+import calino.malinov.ski.util.weekdayLetters
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -73,6 +90,7 @@ import calino.malinov.ski.util.CalinoTimeFormat
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalTime
 import kotlin.math.abs
 
@@ -91,44 +109,62 @@ fun rememberTimePicker(
     initial: () -> LocalTime?,
     title: String = "Time",
     onPicked: (LocalTime) -> Unit,
+): () -> Unit = rememberPickerDialog(
+    initial = { initial() ?: LocalTime.of(LocalTime.now().hour, 0).plusHours(1) },
+    onPicked = onPicked,
+) { seed, cancel, done -> TimePickerCard(title, seed, cancel, done) }
+
+/**
+ * Opens Calino's date picker -- a swipeable month in the same card as the
+ * time wheel -- and returns the action that shows it.
+ */
+@Composable
+fun rememberDatePicker(initial: () -> LocalDate, onPicked: (LocalDate) -> Unit): () -> Unit =
+    rememberPickerDialog(initial, onPicked) { seed, cancel, done -> DatePickerCard(seed, cancel, done) }
+
+/**
+ * The lifecycle both pickers share: a dialog window that stays mounted until
+ * its card has finished leaving, seeded fresh each time it opens.
+ */
+@Composable
+private fun <T : Any> rememberPickerDialog(
+    initial: () -> T,
+    onPicked: (T) -> Unit,
+    card: @Composable (seed: T, cancel: () -> Unit, done: (T) -> Unit) -> Unit,
 ): () -> Unit {
     // Seeded when opened; null while closed.
-    var seed by remember { mutableStateOf<LocalTime?>(null) }
+    var seed by remember { mutableStateOf<T?>(null) }
     val visible = remember { MutableTransitionState(false) }
     val currentInitial by rememberUpdatedState(initial)
     val currentOnPicked by rememberUpdatedState(onPicked)
 
-    // The dialog window stays until the card has finished leaving.
-    val mounted = seed != null && (visible.targetState || !visible.isIdle || visible.currentState)
-    if (mounted) {
-        TimePickerDialog(
-            title = title,
-            seed = seed!!,
-            visible = visible,
-            onClose = { picked ->
-                picked?.let(currentOnPicked)
-                visible.targetState = false
-            },
-        )
+    val current = seed
+    if (current != null && (visible.targetState || !visible.isIdle || visible.currentState)) {
+        PickerDialog(visible, onDismiss = { visible.targetState = false }) {
+            card(
+                current,
+                { visible.targetState = false },
+                { picked -> currentOnPicked(picked); visible.targetState = false },
+            )
+        }
     }
     LaunchedEffect(visible.isIdle, visible.currentState) {
         if (visible.isIdle && !visible.currentState && !visible.targetState) seed = null
     }
     return {
-        seed = currentInitial() ?: LocalTime.of(LocalTime.now().hour, 0).plusHours(1)
+        seed = currentInitial()
         visible.targetState = true
     }
 }
 
 @Composable
-private fun TimePickerDialog(
-    title: String,
-    seed: LocalTime,
+private fun PickerDialog(
     visible: MutableTransitionState<Boolean>,
-    onClose: (LocalTime?) -> Unit,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
 ) {
     Dialog(
-        onDismissRequest = { onClose(null) },
+        onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         // The window's own dim cannot fade with the card; Calino's scrim can.
@@ -136,7 +172,7 @@ private fun TimePickerDialog(
         LaunchedEffect(window) { window?.setDimAmount(0f) }
 
         Box(Modifier.fillMaxSize()) {
-            CalinoScrim(visible = visible.targetState, modifier = Modifier.fillMaxSize(), onDismiss = { onClose(null) })
+            CalinoScrim(visible = visible.targetState, modifier = Modifier.fillMaxSize(), onDismiss = onDismiss)
             AnimatedVisibility(
                 visibleState = visible,
                 enter = slideInVertically(spring(dampingRatio = .86f, stiffness = 420f)) { it / 3 } +
@@ -147,9 +183,42 @@ private fun TimePickerDialog(
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-            ) {
-                TimePickerCard(title, seed, onCancel = { onClose(null) }, onDone = { onClose(it) })
-            }
+            ) { content() }
+        }
+    }
+}
+
+/** The card both pickers sit in, titled, with Cancel and Done beneath. */
+@Composable
+private fun PickerCard(
+    title: String,
+    onCancel: () -> Unit,
+    onDone: () -> Unit,
+    headerEnd: @Composable () -> Unit = {},
+    content: @Composable () -> Unit,
+) {
+    Column(
+        Modifier
+            .widthIn(max = 460.dp)
+            .fillMaxWidth()
+            .shadow(24.dp, RoundedCornerShape(CalinoShapes.Sheet), clip = false)
+            .clip(RoundedCornerShape(CalinoShapes.Sheet))
+            .background(CalinoColors.Panel)
+            // A tap on the card's own padding must not reach the scrim behind it.
+            .pointerInput(Unit) { detectTapGestures { } }
+            .semantics { paneTitle = title }
+            .padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = CalinoTypography.titleLarge, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
+            headerEnd()
+        }
+        Spacer(Modifier.height(12.dp))
+        content()
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            PromptButton("Cancel", filled = false, enabled = true, onClick = onCancel, modifier = Modifier.weight(1f))
+            PromptButton("Done", filled = true, enabled = true, onClick = onDone, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -160,18 +229,7 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
     var hour by remember { mutableIntStateOf(seed.hour) }
     var minute by remember { mutableIntStateOf(seed.minute) }
 
-    Column(
-        Modifier
-            .widthIn(max = 460.dp)
-            .fillMaxWidth()
-            .shadow(24.dp, RoundedCornerShape(CalinoShapes.Sheet), clip = false)
-            .clip(RoundedCornerShape(CalinoShapes.Sheet))
-            .background(CalinoColors.Panel)
-            .semantics { paneTitle = title }
-            .padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 14.dp),
-    ) {
-        Text(title, style = CalinoTypography.titleLarge, color = CalinoColors.Ink)
-        Spacer(Modifier.height(12.dp))
+    PickerCard(title, onCancel, onDone = { onDone(LocalTime.of(hour, minute)) }) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             // The band the chosen row settles into, shared by every wheel.
             Box(
@@ -224,11 +282,6 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                     )
                 }
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PromptButton("Cancel", filled = false, enabled = true, onClick = onCancel, modifier = Modifier.weight(1f))
-            PromptButton("Done", filled = true, enabled = true, onClick = { onDone(LocalTime.of(hour, minute)) }, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -330,3 +383,129 @@ private fun LazyListState.centredIndex(rowPx: Float): Int =
 /** How many rows [index] sits from the centre band, fractional mid-scroll. */
 private fun LazyListState.rowDistance(index: Int, rowPx: Float): Float =
     index - firstVisibleItemIndex - firstVisibleItemScrollOffset / rowPx
+
+/** Months either side of the seed a person can swipe to. */
+private const val DatePagerMonths = 1_200
+private val DayCell = 44.dp
+private val DayDateFormat = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.US)
+private val MonthTitleFormat = DateTimeFormatter.ofPattern("MMMM", Locale.US)
+
+@Composable
+private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (LocalDate) -> Unit) {
+    val weekStart = LocalCalinoPreferences.current.weekStart
+    var picked by remember { mutableStateOf(seed) }
+    val seedMonth = remember { YearMonth.from(seed) }
+    val pager = rememberPagerState(initialPage = DatePagerMonths) { DatePagerMonths * 2 }
+    val scope = rememberCoroutineScope()
+    val monthAt = { page: Int -> seedMonth.plusMonths((page - DatePagerMonths).toLong()) }
+    // The title follows the swipe: whichever month is more than half on screen.
+    val shown = monthAt(pager.currentPage)
+    val today = LocalDate.now()
+
+    PickerCard(
+        title = shown.format(MonthTitleFormat) + if (shown.year != today.year) " ${shown.year}" else "",
+        onCancel = onCancel,
+        onDone = { onDone(picked) },
+        headerEnd = {
+            MonthStep(CalinoIcons.ChevronLeft, "Previous month") {
+                scope.launch { pager.animateScrollToPage(pager.currentPage - 1, animationSpec = CalinoMotion.standardSpatial()) }
+            }
+            MonthStep(CalinoIcons.ChevronRight, "Next month") {
+                scope.launch { pager.animateScrollToPage(pager.currentPage + 1, animationSpec = CalinoMotion.standardSpatial()) }
+            }
+        },
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            weekdayLetters(weekStart).forEach {
+                Box(Modifier.weight(1f).height(28.dp), contentAlignment = Alignment.Center) {
+                    Text(it, style = CalinoTypography.labelMedium, color = CalinoColors.Ink3)
+                }
+            }
+        }
+        HorizontalPager(state = pager, beyondViewportPageCount = 1, pageSpacing = 28.dp, verticalAlignment = Alignment.Top) { page ->
+            MonthGrid(monthAt(page), weekStart, picked, today) { picked = it }
+        }
+    }
+}
+
+@Composable
+private fun MonthStep(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .calinoPressable(onClick = onClick)
+            .semantics { contentDescription = description; role = Role.Button },
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.material3.Icon(icon, contentDescription = null, tint = CalinoColors.Ink2, modifier = Modifier.size(20.dp))
+    }
+}
+
+/** Six rows always, so the card keeps its height from month to month. */
+@Composable
+private fun MonthGrid(
+    month: YearMonth,
+    weekStart: CalinoWeekStart,
+    picked: LocalDate,
+    today: LocalDate,
+    onPick: (LocalDate) -> Unit,
+) {
+    val cells = sidebarMonthCells(month, weekStart).let { it + List(42 - it.size) { null } }
+    Column(Modifier.fillMaxWidth()) {
+        cells.chunked(7).forEach { week ->
+            Row(Modifier.fillMaxWidth()) {
+                week.forEach { date ->
+                    Box(Modifier.weight(1f).height(DayCell), contentAlignment = Alignment.Center) {
+                        if (date != null) DayCell(date, selected = date == picked, today = date == today) { onPick(date) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick: () -> Unit) {
+    val fill by animateFloatAsState(
+        if (selected) 1f else 0f,
+        spring(dampingRatio = .7f, stiffness = 600f),
+        label = "picked day fill",
+    )
+    val ink by animateColorAsState(
+        when {
+            selected -> CalinoColors.OnFloat
+            today -> CalinoColors.Accent
+            else -> CalinoColors.Ink
+        },
+        tween(CalinoMotion.FadeThroughMillis),
+        label = "day ink",
+    )
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .calinoPressable(onClick = onClick)
+            .semantics {
+                contentDescription = date.format(DayDateFormat)
+                this.selected = selected
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (today && !selected) {
+            Box(Modifier.matchParentSize().padding(2.dp).border(1.dp, CalinoColors.Accent.copy(alpha = .5f), CircleShape))
+        }
+        Box(
+            Modifier
+                .matchParentSize()
+                .graphicsLayer { scaleX = fill; scaleY = fill; alpha = fill.coerceIn(0f, 1f) }
+                .clip(CircleShape)
+                .background(CalinoColors.FloatFill),
+        )
+        Text(
+            date.dayOfMonth.toString(),
+            style = CalinoTypography.bodyLarge.copy(fontFeatureSettings = "tnum"),
+            color = ink,
+        )
+    }
+}

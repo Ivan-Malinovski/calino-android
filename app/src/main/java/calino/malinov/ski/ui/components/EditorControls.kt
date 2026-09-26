@@ -1,6 +1,5 @@
 package calino.malinov.ski.ui.components
 
-import android.app.DatePickerDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -32,7 +31,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,7 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -58,7 +55,6 @@ import calino.malinov.ski.design.CalinoThemes
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
-import java.time.LocalDate
 import java.time.LocalTime
 import java.util.Locale
 
@@ -327,39 +323,5 @@ fun EditorReveal(visible: Boolean, content: @Composable () -> Unit) {
         enter = expandVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeIn(tween(CalinoMotion.FadeThroughMillis)),
         exit = shrinkVertically(tween(CalinoMotion.ContentExitMillis)) + fadeOut(tween(CalinoMotion.FadeThroughMillis)),
     ) { content() }
-}
-
-/**
- * The platform date picker, opened by the returned lambda. Keeping it here means
- * the editor opens four of them without restating the dialog lifecycle, and the
- * DisposableEffect still dismisses a dialog that outlives its surface.
- */
-@Composable
-fun rememberDatePicker(initial: () -> LocalDate, onPicked: (LocalDate) -> Unit): () -> Unit {
-    var open by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val currentInitial by rememberUpdatedState(initial)
-    val currentOnPicked by rememberUpdatedState(onPicked)
-    DisposableEffect(context, open) {
-        if (!open) return@DisposableEffect onDispose { }
-        val seed = currentInitial()
-        val dialog = DatePickerDialog(
-            context,
-            { _, year, month, day ->
-                currentOnPicked(LocalDate.of(year, month + 1, day))
-                open = false
-            },
-            seed.year,
-            seed.monthValue - 1,
-            seed.dayOfMonth,
-        )
-        dialog.setOnDismissListener { open = false }
-        dialog.show()
-        onDispose {
-            dialog.setOnDismissListener(null)
-            if (dialog.isShowing) dialog.dismiss()
-        }
-    }
-    return { open = true }
 }
 
