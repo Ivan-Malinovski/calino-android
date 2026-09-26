@@ -4,6 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -217,6 +222,7 @@ private fun RowScope.HeroClock(
             Row(
                 Modifier
                     .heightIn(min = 40.dp)
+                    .quarterSwipe(time, onTimeTyped)
                     .pressable(onTime, onTimeTyped?.let { { typingTime = true } })
                     .semantics { contentDescription = "$label time, $text" },
                 verticalAlignment = Alignment.Bottom,
@@ -508,4 +514,40 @@ private fun InlineEntry(
             }
         },
     )
+}
+
+/** Drag distance per quarter hour when sliding a clock sideways. */
+private val QuarterStep = 22.dp
+
+/**
+ * Sliding a clock sideways moves it by quarter hours, live under the finger:
+ * right is later, left earlier. The first step lands on the next quarter, so
+ * 14:07 goes to 14:15 rather than 14:22.
+ */
+@Composable
+private fun Modifier.quarterSwipe(time: LocalTime?, onTime: ((LocalTime) -> Unit)?): Modifier {
+    if (time == null || onTime == null) return this
+    val haptics = LocalHapticFeedback.current
+    val current by rememberUpdatedState(time)
+    val set by rememberUpdatedState(onTime)
+    return pointerInput(Unit) {
+        val stepPx = QuarterStep.toPx()
+        var travel = 0f
+        detectHorizontalDragGestures(onDragStart = { travel = 0f }) { change, dx ->
+            change.consume()
+            travel += dx
+            while (kotlin.math.abs(travel) >= stepPx) {
+                val later = travel > 0
+                travel -= if (later) stepPx else -stepPx
+                set(stepQuarter(current, later))
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+            }
+        }
+    }
+}
+
+internal fun stepQuarter(time: LocalTime, later: Boolean): LocalTime {
+    val minutes = time.hour * 60 + time.minute
+    val next = if (later) minutes / 15 * 15 + 15 else (minutes + 14) / 15 * 15 - 15
+    return LocalTime.of(Math.floorMod(next, 24 * 60) / 60, Math.floorMod(next, 24 * 60) % 60)
 }
