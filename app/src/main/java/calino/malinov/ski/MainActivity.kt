@@ -166,6 +166,8 @@ import calino.malinov.ski.notify.ReminderKind
 import calino.malinov.ski.notify.rememberNotificationPermission
 import calino.malinov.ski.data.repository.FixtureRepository
 import calino.malinov.ski.data.repository.UndoableChange
+import calino.malinov.ski.ui.components.SubtaskCompletionPrompt
+import calino.malinov.ski.ui.components.SubtaskCompletionRequest
 import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.data.repository.PendingChange
 import calino.malinov.ski.data.repository.reparentTask
@@ -1240,6 +1242,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // asks for a scope instead of defaulting to the whole series.
     var pendingEventDelete by remember { mutableStateOf<CalEvent?>(null) }
     var pendingTaskDelete by remember { mutableStateOf<CalTask?>(null) }
+    // A parent just completed with subtasks still open: the question of
+    // whether to finish those too. The parent itself is already done.
+    var pendingSubtaskCompletion by remember { mutableStateOf<SubtaskCompletionRequest?>(null) }
+    var parentCompletionUndo by remember { mutableStateOf<UndoableChange?>(null) }
     val writeScope = androidx.compose.runtime.rememberCoroutineScope()
     // The lane the add pill lives in, so a deliberate save can be reported on
     // the pill that started it.
@@ -1593,6 +1599,44 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         activity.consumeCalendarView()
     }
 
+    fun openSubtasksOf(task: CalTask): List<CalTask> {
+        val tasks = snapshot.tasks
+        val open = mutableListOf<CalTask>()
+        val pending = ArrayDeque(listOf(task.id))
+        val visited = mutableSetOf(task.id)
+        while (pending.isNotEmpty()) {
+            val parentId = pending.removeFirst()
+            tasks.filter { it.parentTaskId == parentId && visited.add(it.id) }.forEach { child ->
+                if (!child.done) open += child
+                pending += child.id
+            }
+        }
+        return open
+    }
+
+    /**
+     * Every completion goes through here, so completing a parent from any
+     * surface asks about its open subtasks. The parent is written at once
+     * either way; surfaces such as the task list commit it at release.
+     */
+    fun setTaskDone(task: CalTask, done: Boolean, undoable: Boolean = true) {
+        val open = if (done) openSubtasksOf(task) else emptyList()
+        if (open.isNotEmpty()) {
+            // The parent's undo waits for the answer: offered on the pill
+            // under the prompt, the tap that answers it would dismiss it.
+            parentCompletionUndo = null
+            pendingSubtaskCompletion = SubtaskCompletionRequest(task, open)
+        }
+        launchWrite({ repository.setTaskDone(task.id, done) }) { change ->
+            when {
+                !undoable -> Unit
+                open.isEmpty() -> showUndo(change)
+                pendingSubtaskCompletion?.parent?.id == task.id -> parentCompletionUndo = change
+                else -> showUndo(change)
+            }
+        }
+    }
+
     fun handleTaskAction(action: TaskMenuAction, task: CalTask) {
         when (action) {
             TaskMenuAction.Edit -> openTaskDetail(task, when (route) {
@@ -1610,12 +1654,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 },
                 morphFromAddPill = true,
                 parentTaskId = task.id,
+                date = task.due,
             )
             TaskMenuAction.Promote -> launchWrite({ repository.reparentTask(task, null) })
             TaskMenuAction.Today -> launchWrite({ repository.rescheduleTask(task.id, now.today) }) { showUndo(it) }
             TaskMenuAction.Tomorrow -> launchWrite({ repository.rescheduleTask(task.id, now.today.plusDays(1)) }) { showUndo(it) }
             TaskMenuAction.NextWeek -> launchWrite({ repository.rescheduleTask(task.id, now.today.plusDays(7)) }) { showUndo(it) }
-            TaskMenuAction.ToggleDone -> launchWrite({ repository.setTaskDone(task.id, !task.done) }) { showUndo(it) }
+            TaskMenuAction.ToggleDone -> setTaskDone(task, !task.done)
             TaskMenuAction.Duplicate -> launchWrite({ repository.duplicateTask(task) })
             TaskMenuAction.ConvertToEvent -> launchWrite({ repository.convertTaskToEvent(task) })
             TaskMenuAction.Delete -> pendingTaskDelete = task
@@ -2020,7 +2065,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
                         },
                         onTaskDone = { task, done ->
-                            launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
+                            setTaskDone(task, done)
                         },
                         onTaskClick = { task ->
                             openTaskDetail(task, PocReturnTarget.Calendar)
@@ -2057,7 +2102,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onTaskClick = { task -> openTaskDetail(task, PocReturnTarget.Range) },
                         onTaskAction = ::handleTaskAction,
                         onTaskDone = { task, done ->
-                            launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
+                            setTaskDone(task, done)
                         },
                     )
                     PockRoute.Agenda -> AgendaScreen(
@@ -2091,7 +2136,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         },
                         onTaskAction = ::handleTaskAction,
                         onTaskDone = { task, done ->
-                            launchWrite({ repository.setTaskDone(task.id, done) }) { showUndo(it) }
+                            setTaskDone(task, done)
                         },
                         onAddOn = { date ->
                             selectCalendarDate(date)
@@ -2100,7 +2145,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     )
                     PockRoute.Tasks -> Tasks(
                         tasks = snapshot.tasks,
-                        onComplete = { task -> launchWrite({ repository.setTaskDone(task.id, true) }) },
+                        onComplete = { task -> setTaskDone(task, true) },
                         onReschedule = { task ->
                             launchWrite({ repository.rescheduleTask(task.id, fallbackRescheduleDate(task.due, selectedDate, now.today)) }) {
                                 showUndo(it)
@@ -2112,7 +2157,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onTaskClick = { task ->
                             openTaskDetail(task, PocReturnTarget.Tasks)
                         },
-                        onUndoComplete = { task -> launchWrite({ repository.setTaskDone(task.id, false) }) },
                         onOpenMenu = { sidebarVisible = true },
                         onTaskAction = ::handleTaskAction,
                         onTaskDrop = { task, target ->
@@ -2533,7 +2577,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         }
                     },
                     onAddSubtask = {
-                        openQuickAdd(QuickAddKind.Task, PocReturnTarget.TaskDetail, morphFromAddPill = true, parentTaskId = task.id)
+                        openQuickAdd(QuickAddKind.Task, PocReturnTarget.TaskDetail, morphFromAddPill = true, parentTaskId = task.id, date = task.due)
                     },
                 )
             }
@@ -2573,6 +2617,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.QuickAdd -> {
                 val editing = editEventId?.let { id -> snapshot.events.firstOrNull { it.id == id } }
                 val quickAddDate = quickAddDateEpoch?.let(LocalDate::ofEpochDay) ?: selectedDate
+                val quickAddParent = quickAddParentTaskId?.let { id -> snapshot.tasks.firstOrNull { it.id == id } }
                 QuickAddSheet(
                     state = QuickAddSheetState(
                         visible = true,
@@ -2601,7 +2646,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                     } else {
                                         emptySet()
                                     },
-                                )
+                                ).let { draft ->
+                                    // A subtask starts in its parent's list, categories and colour.
+                                    quickAddParent?.let {
+                                        draft.copy(calendarId = it.calendarId, categories = listOfNotNull(it.category), color = it.color)
+                                    } ?: draft
+                                }
                             },
                     ),
                     calendars = remember(snapshot.calendars, editEventId) {
@@ -3036,7 +3086,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 sidebarVisible = false
                 openTaskDetail(task, PocReturnTarget.Tasks)
             },
-            onTaskComplete = { task, done -> launchWrite({ repository.setTaskDone(task.id, done) }) },
+            onTaskComplete = { task, done -> setTaskDone(task, done, undoable = false) },
             onTaskAction = { action, task ->
                 if (action == TaskMenuAction.Edit || action == TaskMenuAction.AddSubtask || action == TaskMenuAction.Delete) {
                     sidebarVisible = false
@@ -3149,6 +3199,45 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 )
             }
         }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        SubtaskCompletionPrompt(
+            request = pendingSubtaskCompletion,
+            onLeaveOpen = {
+                pendingSubtaskCompletion = null
+                parentCompletionUndo?.let(::showUndo)
+                parentCompletionUndo = null
+            },
+            onMarkDone = { open ->
+                val parentChange = parentCompletionUndo
+                pendingSubtaskCompletion = null
+                parentCompletionUndo = null
+                launchWrite({
+                    val changes = mutableListOf<UndoableChange>()
+                    for (child in open) {
+                        when (val result = repository.setTaskDone(child.id, true)) {
+                            is WriteResult.Rejected -> return@launchWrite result
+                            is WriteResult.Applied -> changes += result.record
+                            is WriteResult.Queued -> changes += result.record
+                        }
+                    }
+                    WriteResult.Applied(changes.toList())
+                }) { changes ->
+                    // One undo reopens the whole family, newest first.
+                    val all = (listOfNotNull(parentChange) + changes).asReversed()
+                    savePillLane.showUndo("Completed ${all.size} tasks", writeScope) {
+                        launchWrite({
+                            for (change in all) {
+                                val result = repository.undo(change)
+                                if (result is WriteResult.Rejected) return@launchWrite result
+                            }
+                            WriteResult.Applied(Unit)
+                        })
+                    }
+                }
+            },
+        )
     }
 
     importBatch?.let { batch ->

@@ -361,10 +361,7 @@ fun EventActionMenu(
     }
 }
 
-private data class CompletionUndo(val task: CalTask)
-
 private const val CompletionVisualSettleMillis = 400L
-private const val CompletionUndoWindowMillis = 5_000L
 
 /**
  * The fixture anchor, for sample records and preview defaults only.
@@ -2152,7 +2149,6 @@ fun TasksSurface(
     onReschedule: (CalTask) -> Unit = {},
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { task, _ -> onReschedule(task) },
     onTaskClick: (CalTask) -> Unit = {},
-    onUndoComplete: (CalTask) -> Unit = {},
     onOpenMenu: (() -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     onTaskDrop: (CalTask, CalTask?) -> Unit = { _, _ -> },
@@ -2160,11 +2156,9 @@ fun TasksSurface(
     val today = LocalCalinoNow.current.today
     var filter by remember { mutableStateOf(TaskFilter.All) }
     var pendingCompletionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var completionUndo by remember { mutableStateOf<List<CompletionUndo>>(emptyList()) }
     var reschedulingTaskId by remember { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
     val taskScope = rememberCoroutineScope()
-    var completionJobs by remember { mutableStateOf<Map<String, Job>>(emptyMap()) }
     var previousDoneById by remember { mutableStateOf(tasks.associate { it.id to it.done }) }
     var collapsedTaskIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     val taskTree = remember(tasks) { TaskTree(tasks) }
@@ -2213,25 +2207,18 @@ fun TasksSurface(
     }
 
     fun complete(task: CalTask) {
-        if (task.done || task.id in pendingCompletionIds || completionUndo.any { it.task.id == task.id }) return
+        if (task.done || task.id in pendingCompletionIds) return
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         // Commit synchronously at release. The visual settle below is
         // independent of the composition, so navigating away cannot cancel
         // the actual repository mutation.
         onComplete(task)
-        completionUndo = completionUndo + CompletionUndo(task)
         pendingCompletionIds = pendingCompletionIds + task.id
 
         taskScope.launch {
             delay(CompletionVisualSettleMillis)
             pendingCompletionIds = pendingCompletionIds - task.id
         }
-        val expiryJob = taskScope.launch {
-            delay(CompletionUndoWindowMillis)
-            completionUndo = completionUndo.filterNot { it.task.id == task.id }
-            completionJobs = completionJobs - task.id
-        }
-        completionJobs = completionJobs + (task.id to expiryJob)
     }
 
     val openTasks = tasks.filter { task -> !task.done || task.id in pendingCompletionIds }
@@ -2486,59 +2473,6 @@ fun TasksSurface(
                     if (activeVisible.isEmpty()) {
                         item(key = "tasks-empty:${activeFilter.name}") {
                             TaskEmptyState(activeFilter)
-                        }
-                    }
-                }
-            }
-
-            // The undo banner is the only bottom-aligned action left; keep it
-            // clear of the floating add pill the shell draws over this list.
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(bottom = CalinoSpacing.PillClearance),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = completionUndo.isNotEmpty(),
-                    enter = slideInVertically(tween(220), initialOffsetY = { it / 2 }) +
-                        expandVertically(tween(220), expandFrom = Alignment.Bottom) +
-                        fadeIn(tween(180)),
-                    exit = slideOutVertically(tween(180), targetOffsetY = { it / 2 }) +
-                        shrinkVertically(tween(180), shrinkTowards = Alignment.Bottom) +
-                        fadeOut(tween(140)),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    val completed = completionUndo
-                    if (completed.isNotEmpty()) {
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(CalinoColors.Ink).padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                if (completed.size == 1) "Completed" else "${completed.size} tasks completed",
-                                color = CalinoColors.OnInk,
-                                style = CalinoTypography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(
-                                onClick = {
-                                    completed.forEach { item -> onUndoComplete(item.task) }
-                                    val completedIds = completed.map { it.task.id }.toSet()
-                                    pendingCompletionIds = pendingCompletionIds - completedIds
-                                    completedIds.forEach { completionJobs[it]?.cancel() }
-                                    completionJobs = completionJobs - completedIds
-                                    completionUndo = emptyList()
-                                },
-                                modifier = Modifier.semantics {
-                                    contentDescription = if (completed.size == 1) {
-                                        "Undo completing ${completed.first().task.title}"
-                                    } else {
-                                        "Undo completing ${completed.size} tasks"
-                                    }
-                                },
-                            ) { Text(if (completed.size == 1) "Undo" else "Undo all", color = CalinoColors.AccentSoft) }
                         }
                     }
                 }
@@ -3072,11 +3006,10 @@ fun Tasks(
     onReschedule: (CalTask) -> Unit = {},
     onRescheduleTo: (CalTask, LocalDate) -> Unit = { task, _ -> onReschedule(task) },
     onTaskClick: (CalTask) -> Unit = {},
-    onUndoComplete: (CalTask) -> Unit = {},
     onOpenMenu: (() -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     onTaskDrop: (CalTask, CalTask?) -> Unit = { _, _ -> },
-) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onUndoComplete, onOpenMenu, onTaskAction, onTaskDrop)
+) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onOpenMenu, onTaskAction, onTaskDrop)
 
 /** Shared animated Event/Task/Journal editor sheet. */
 @Composable

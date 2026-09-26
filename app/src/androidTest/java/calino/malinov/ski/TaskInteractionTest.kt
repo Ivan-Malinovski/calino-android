@@ -21,7 +21,7 @@ import org.junit.runner.RunWith
  * The undo windows are real five-second `delay`s on the main dispatcher, not
  * animation-clock time, so they are not affected by Compose's frame clock and
  * a normal assertion has the whole window to run in. Only
- * [undoBannerExpiresOnItsOwn] actually waits one out.
+ * [pillUndoExpiresOnItsOwn] actually waits one out.
  */
 @RunWith(AndroidJUnit4::class)
 class TaskInteractionTest : CalinoUiTest() {
@@ -47,28 +47,17 @@ class TaskInteractionTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Complete $Task").performClick()
         compose.waitForIdle()
 
-        compose.onNodeWithContentDescription("Undo completing $Task").assertIsDisplayed()
+        awaitPillUndo()
+        compose.onNodeWithContentDescription("Undo: Completed $Task").assertIsDisplayed()
     }
 
     @Test fun undoReopensTheTask() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Complete $Task").performClick()
-        compose.waitForIdle()
+        awaitPillUndo()
 
-        compose.onNodeWithContentDescription("Undo completing $Task").performClick()
-        compose.waitForIdle()
-
-        compose.onNodeWithContentDescription("Complete $Task").assertIsDisplayed()
-        assertFalse(compose.hasDescribedNode("$Task, completed"))
-    }
-
-    /** Completion feedback may still be settling when Undo reverses the state. */
-    @Test fun completionCanBeReversedImmediately() {
-        compose.openRoute("Tasks")
-        compose.waitForIdle()
-        compose.onNodeWithContentDescription("Complete $Task").performClick()
-        compose.onNodeWithContentDescription("Undo completing $Task").performClick()
+        compose.onNodeWithContentDescription("Undo: Completed $Task").performClick()
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Complete $Task").assertIsDisplayed()
@@ -77,18 +66,18 @@ class TaskInteractionTest : CalinoUiTest() {
 
     /**
      * The window closes on its own after five seconds. Waited out rather than
-     * asserted away, because "the banner eventually leaves" is the behaviour
+     * asserted away, because "the pill eventually drops its undo" is the behaviour
      * that keeps a stale undo from being offered indefinitely.
      */
-    @Test fun undoBannerExpiresOnItsOwn() {
+    @Test fun pillUndoExpiresOnItsOwn() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Complete $Task").performClick()
-        compose.waitForIdle()
-        assertTrue(compose.hasDescribedNode("Undo completing $Task"))
+        awaitPillUndo()
+        assertTrue(compose.hasDescribedNode("Undo: Completed $Task"))
 
         compose.waitUntil(UndoExpiryTimeoutMillis) {
-            !compose.hasDescribedNode("Undo completing $Task")
+            !compose.hasDescribedNode("Undo: Completed $Task")
         }
     }
 
@@ -187,5 +176,10 @@ class TaskInteractionTest : CalinoUiTest() {
         const val DatedTask = "Review calendar notes"
         const val DoneTask = "Book accommodation"
         const val UndoExpiryTimeoutMillis = 9_000L
+    }
+
+    /** The pill names the change once its "Saved" beat has passed. */
+    private fun awaitPillUndo() {
+        compose.waitUntil(UndoExpiryTimeoutMillis) { compose.hasDescribedNode("Undo: Completed $Task") }
     }
 }
