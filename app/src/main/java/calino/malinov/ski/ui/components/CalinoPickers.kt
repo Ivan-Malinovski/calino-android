@@ -194,6 +194,7 @@ private fun PickerCard(
     title: String,
     onCancel: () -> Unit,
     onDone: () -> Unit,
+    titleAside: String? = null,
     headerEnd: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
@@ -210,7 +211,18 @@ private fun PickerCard(
             .padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, style = CalinoTypography.titleLarge, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
+                Text(title, style = CalinoTypography.titleLarge, color = CalinoColors.Ink)
+                // Quieter, beside the title, as the calendar's own month heading has it.
+                if (titleAside != null) {
+                    Text(
+                        titleAside,
+                        style = CalinoTypography.titleSmall,
+                        color = CalinoColors.Ink3,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
+                    )
+                }
+            }
             headerEnd()
         }
         Spacer(Modifier.height(12.dp))
@@ -403,7 +415,8 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
     val today = LocalDate.now()
 
     PickerCard(
-        title = shown.format(MonthTitleFormat) + if (shown.year != today.year) " ${shown.year}" else "",
+        title = shown.format(MonthTitleFormat),
+        titleAside = shown.year.toString(),
         onCancel = onCancel,
         onDone = { onDone(picked) },
         headerEnd = {
