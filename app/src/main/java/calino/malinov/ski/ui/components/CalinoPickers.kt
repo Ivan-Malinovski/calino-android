@@ -68,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
@@ -276,13 +277,17 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                     .clip(RoundedCornerShape(CalinoShapes.Row))
                     .background(CalinoColors.Ink.copy(alpha = .05f)),
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            // Each wheel owns its whole side of the card, so a swipe anywhere
+            // on the left turns the hours and anywhere on the right the minutes.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (twentyFour) {
                     TimeWheel(
                         count = 24,
                         selected = hour,
                         label = { "%02d".format(it) },
                         description = "Hour",
+                        modifier = Modifier.weight(1f),
+                        hug = Alignment.End,
                         onSelected = { hour = it },
                     )
                 } else {
@@ -291,6 +296,8 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                         selected = (hour + 11) % 12,
                         label = { (it + 1).toString() },
                         description = "Hour",
+                        modifier = Modifier.weight(1f),
+                        hug = Alignment.End,
                         onSelected = { hour = (it + 1) % 12 + if (hour >= 12) 12 else 0 },
                     )
                 }
@@ -305,15 +312,18 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                     selected = minute,
                     label = { "%02d".format(it) },
                     description = "Minute",
+                    modifier = Modifier.weight(if (twentyFour) 1f else .4f),
+                    hug = Alignment.Start,
                     onSelected = { minute = it },
                 )
                 if (!twentyFour) {
-                    Spacer(Modifier.width(8.dp))
                     TimeWheel(
                         count = 2,
                         selected = if (hour >= 12) 1 else 0,
                         label = { if (it == 0) "AM" else "PM" },
                         description = "AM or PM",
+                        modifier = Modifier.weight(.6f),
+                        hug = Alignment.Start,
                         loops = false,
                         onSelected = { hour = hour % 12 + it * 12 },
                     )
@@ -335,9 +345,16 @@ private fun TimeWheel(
     label: (Int) -> String,
     description: String,
     onSelected: (Int) -> Unit,
+    modifier: Modifier,
     loops: Boolean = true,
-    width: Dp = if (count == 2) 64.dp else 76.dp,
+    /** Which edge of its lane the values hug: the one facing its neighbour. */
+    hug: Alignment.Horizontal = Alignment.CenterHorizontally,
 ) {
+    val originX = when (hug) {
+        Alignment.Start -> 0f
+        Alignment.End -> 1f
+        else -> .5f
+    }
     val total = if (loops) count * WheelLaps else count
     val startIndex = if (loops) count * (WheelLaps / 2) + selected else selected
     val state = rememberLazyListState(initialFirstVisibleItemIndex = startIndex)
@@ -368,9 +385,9 @@ private fun TimeWheel(
         state = state,
         flingBehavior = rememberSnapFlingBehavior(state, SnapPosition.Center),
         contentPadding = PaddingValues(vertical = WheelRow * (WheelVisibleRows / 2)),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = hug,
         modifier = Modifier
-            .width(width)
+            .then(modifier)
             .height(WheelRow * WheelVisibleRows)
             .semantics {
                 contentDescription = description
@@ -394,6 +411,8 @@ private fun TimeWheel(
                         scaleX = lerp(1f, .78f, t)
                         scaleY = scaleX
                         rotationX = (distance * -18f).coerceIn(-60f, 60f)
+                        // Shrink toward the hugged edge, so values stay beside their neighbour.
+                        transformOrigin = TransformOrigin(originX, .5f)
                         cameraDistance = 12f * density
                     }
                     .clickable(
@@ -401,10 +420,15 @@ private fun TimeWheel(
                         indication = null,
                         role = Role.Button,
                     ) { scope.launch { state.animateScrollToItem(index) } },
-                contentAlignment = Alignment.Center,
+                contentAlignment = when (hug) {
+                    Alignment.Start -> Alignment.CenterStart
+                    Alignment.End -> Alignment.CenterEnd
+                    else -> Alignment.Center
+                },
             ) {
                 Text(
                     label(value),
+                    modifier = Modifier.padding(horizontal = 10.dp),
                     style = CalinoTypography.headlineMedium.copy(fontFeatureSettings = "tnum"),
                     color = CalinoColors.Ink,
                     textAlign = TextAlign.Center,
@@ -597,23 +621,24 @@ private fun MonthYearWheels(month: YearMonth, onMonth: (YearMonth) -> Unit) {
                 .clip(RoundedCornerShape(CalinoShapes.Row))
                 .background(CalinoColors.Ink.copy(alpha = .05f)),
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TimeWheel(
                 count = 12,
                 selected = chosen.monthValue - 1,
                 label = { MonthNames[it] },
                 description = "Month",
-                width = 180.dp,
+                modifier = Modifier.weight(1f),
+                hug = Alignment.End,
                 onSelected = { chosen = chosen.withMonth(it + 1); currentOnMonth(chosen) },
             )
-            Spacer(Modifier.width(8.dp))
             TimeWheel(
                 count = LastYear - FirstYear + 1,
                 selected = chosen.year - FirstYear,
                 label = { (FirstYear + it).toString() },
                 description = "Year",
                 loops = false,
-                width = 100.dp,
+                modifier = Modifier.weight(1f),
+                hug = Alignment.Start,
                 onSelected = { chosen = chosen.withYear(FirstYear + it); currentOnMonth(chosen) },
             )
         }
