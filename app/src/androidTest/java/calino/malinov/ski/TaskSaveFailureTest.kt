@@ -5,15 +5,21 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import calino.malinov.ski.data.model.CalTask
+import calino.malinov.ski.data.model.NewTask
+import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.design.CalinoTheme
 import calino.malinov.ski.ui.surfaces.TaskDetailSurface
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import java.time.LocalDate
+import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -25,6 +31,29 @@ class TaskSaveFailureTest {
 
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun taskDetailEditsServerTaskReminderAndPreservesDueTime() {
+        val saved = AtomicReference<NewTask?>()
+        compose.setContent {
+            CalinoTheme {
+                TaskDetailSurface(
+                    task = CalTask(
+                        id = "server-task", title = "Server task", color = 0L,
+                        due = LocalDate.of(2026, 5, 20), dueTime = LocalTime.of(14, 30),
+                        reminder = Reminder(30),
+                    ),
+                    onSave = { input, _ -> saved.set(input); true },
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Change due time").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Change task reminder").performScrollTo().performClick()
+        compose.onNodeWithText("At time").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Save task").performClick()
+        compose.waitUntil(5_000L) { saved.get() != null }
+        assertEquals(LocalTime.of(14, 30), saved.get()?.dueTime)
+        assertEquals(Reminder(0), saved.get()?.reminder)
+    }
 
     @Test fun rejectedTaskSaveRestoresTheEditorAndKeepsItDismissible() {
         val writes = AtomicInteger()

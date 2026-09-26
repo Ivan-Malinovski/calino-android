@@ -1698,6 +1698,9 @@ fun TaskDetailSurface(
     var notes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var savedNotes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var due by remember(task.id) { mutableStateOf(task.due) }
+    var dueTime by remember(task.id) { mutableStateOf(task.dueTime) }
+    var reminder by remember(task.id) { mutableStateOf(task.reminder) }
+    var reminderOpen by remember(task.id) { mutableStateOf(false) }
     var done by remember(task.id) { mutableStateOf(task.done) }
     var priority by remember(task.id) { mutableIntStateOf(task.priority) }
     var percentComplete by remember(task.id) { mutableIntStateOf(task.percentComplete) }
@@ -1712,6 +1715,10 @@ fun TaskDetailSurface(
     val detailScrollState = rememberScrollState()
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
     val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
+    val pickDueTime = rememberTimePicker({ dueTime }) { picked ->
+        if (due == null) due = today
+        dueTime = picked
+    }
 
     LaunchedEffect(shown) {
         if (!shown) {
@@ -1736,11 +1743,11 @@ fun TaskDetailSurface(
                         due = due,
                         color = task.color,
                         category = category.trim().ifEmpty { null },
-                        dueTime = task.dueTime,
+                        dueTime = dueTime,
                         startDate = task.startDate,
                         startTime = task.startTime,
                         notes = notes.trim().ifEmpty { null },
-                        reminder = task.reminder,
+                        reminder = reminder,
                         priority = priority,
                         percentComplete = if (savedDone) 100 else percentComplete.coerceAtMost(99),
                         status = if (savedDone) "COMPLETED" else if (percentComplete > 0) "IN-PROCESS" else "NEEDS-ACTION",
@@ -1788,6 +1795,8 @@ fun TaskDetailSurface(
                 category != task.category.orEmpty() ||
                 notes != savedNotes ||
                 due != task.due ||
+                dueTime != task.dueTime ||
+                reminder != task.reminder ||
                 priority != task.priority ||
                 percentComplete != task.percentComplete
             ModalActionPill(
@@ -1974,7 +1983,7 @@ fun TaskDetailSurface(
                             Text("Choose date…", color = CalinoColors.Accent)
                         }
                         TextButton(
-                            onClick = { due = null },
+                            onClick = { due = null; dueTime = null },
                             modifier = Modifier
                                 .weight(1f)
                                 .heightIn(min = 44.dp)
@@ -1994,6 +2003,36 @@ fun TaskDetailSurface(
                             fontSize = 12.sp,
                             modifier = Modifier.padding(start = 3.dp),
                         )
+                    }
+                }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CalinoIcon(CalinoIcon.Clock, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                    label("Due time", Modifier.weight(1f).padding(start = 16.dp))
+                    TextButton(onClick = pickDueTime, modifier = Modifier.heightIn(min = 44.dp)
+                        .semantics { contentDescription = "Change due time" }) {
+                        Text(dueTime?.let { LocalTimeFormat.format(it) } ?: "Add time", color = CalinoColors.Accent)
+                    }
+                    if (dueTime != null) {
+                        TextButton(onClick = { dueTime = null }, modifier = Modifier.heightIn(min = 44.dp)
+                            .semantics { contentDescription = "Remove due time" }) { Text("Clear") }
+                    }
+                }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                Column {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CalinoIcon(CalinoIcon.Bell, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                        label("Reminder", Modifier.weight(1f).padding(start = 16.dp))
+                        TextButton(onClick = { reminderOpen = !reminderOpen }, modifier = Modifier.heightIn(min = 44.dp)
+                            .semantics { contentDescription = "Change task reminder" }) {
+                            Text(taskReminderSummary(reminder), color = CalinoColors.Accent)
+                        }
+                    }
+                    EditorReveal(reminderOpen) {
+                        TaskReminderChips(reminder) { reminder = it }
                     }
                 }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))

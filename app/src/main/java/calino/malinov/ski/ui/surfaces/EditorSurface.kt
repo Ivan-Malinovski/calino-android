@@ -1248,6 +1248,12 @@ internal fun EventReminderChips(reminders: List<Reminder>, onChange: (List<Remin
 
 internal fun eventReminderSummary(reminders: List<Reminder>): String = reminderSummary(reminders)
 
+@Composable
+internal fun TaskReminderChips(reminder: Reminder?, onChange: (Reminder?) -> Unit) =
+    ReminderChips(listOfNotNull(reminder), single = true) { onChange(it.firstOrNull()) }
+
+internal fun taskReminderSummary(reminder: Reminder?): String = reminderSummary(listOfNotNull(reminder))
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: (List<Reminder>) -> Unit) {
