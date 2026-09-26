@@ -146,6 +146,22 @@ class CalinoComplicationService : ComplicationDataSourceService() {
                 CountDownTimeReference(Instant.ofEpochMilli(end)),
             ).setMinimumTimeUnit(TimeUnit.MINUTES).build()
         } ?: plain(WearFormatting.glanceTitle(glance.title))
+        // Edge (arc) slots draw only the text, so an upcoming row carries its name in it.
+        val rangedText: ComplicationText = when {
+            glance.running || glance.occurrenceId == null -> shortText
+            else -> {
+                val name = WearFormatting.glanceTitle(glance.title)
+                glance.countdownTo?.let { target ->
+                    TimeDifferenceComplicationText.Builder(
+                        TimeDifferenceStyle.SHORT_DUAL_UNIT,
+                        CountDownTimeReference(Instant.ofEpochMilli(target)),
+                    ).setMinimumTimeUnit(TimeUnit.MINUTES)
+                        // "^1" is the placeholder for the time difference.
+                        .setText("${name.replace("^", "")} · ^1")
+                        .build()
+                } ?: plain("$name · ${glance.short}")
+            }
+        }
         return when (type) {
             ComplicationType.LONG_TEXT -> LongTextComplicationData.Builder(plain(glance.title), description)
                 .setTitle(plain(glance.longTitle))
@@ -155,7 +171,7 @@ class CalinoComplicationService : ComplicationDataSourceService() {
             ComplicationType.RANGED_VALUE -> RangedValueComplicationData.Builder(
                 (glance.progress ?: 0f) * 100f, 0f, 100f, description,
             )
-                .setText(shortText)
+                .setText(rangedText)
                 .setTitle(label)
                 .setMonochromaticImage(icon)
                 .setTapAction(tap)
