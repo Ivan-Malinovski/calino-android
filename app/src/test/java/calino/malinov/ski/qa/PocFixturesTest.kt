@@ -5,6 +5,7 @@ import calino.malinov.ski.data.repository.moveEventToDateTime
 import calino.malinov.ski.data.repository.WriteResult
 import calino.malinov.ski.data.model.Availability
 import calino.malinov.ski.data.model.NewEvent
+import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
@@ -202,6 +203,33 @@ class PocFixturesTest {
         assertEquals(original.id, updated.id)
         assertEquals(1, repository.events().count { it.id == original.id })
         assertEquals("Lunch with Ivo", repository.events().first { it.id == original.id }.title)
+    }
+
+    @Test
+    fun editingOneRecurringFixtureTime_keepsOtherOccurrencesAtOriginalTime() = runBlocking {
+        val repository = FixtureRepository()
+        val original = repository.events().first { it.id == "evt-design" }
+        val occurrence = fixtureDate.plusWeeks(1)
+        val edited = repository.updateEvent(original.id, NewEvent(
+            title = original.title,
+            date = occurrence,
+            startTime = LocalTime.of(14, 0),
+            durationMinutes = original.durationMinutes,
+            color = original.color,
+            calendarId = original.calendarId,
+            recurrence = original.recurrence,
+            recurrenceDate = occurrence,
+            recurrenceScope = RecurrenceEditScope.This,
+        )).applied()
+
+        val series = repository.events().first { it.id == original.id }
+        assertEquals(LocalTime.of(10, 0), series.start?.toLocalTime())
+        assertTrue(series.occursOn(fixtureDate))
+        assertTrue(!series.occursOn(occurrence))
+        assertTrue(series.occursOn(occurrence.plusWeeks(1)))
+        assertEquals(LocalTime.of(14, 0), edited.start?.toLocalTime())
+        assertEquals(null, edited.recurrence)
+        assertTrue(edited.occursOn(occurrence))
     }
 
     @Test

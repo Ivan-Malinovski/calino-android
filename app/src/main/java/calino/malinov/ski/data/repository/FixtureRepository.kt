@@ -18,6 +18,7 @@ import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.model.placementDate
+import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.upcomingOccurrences
 import java.io.Closeable
 import java.time.LocalDate
@@ -241,6 +242,23 @@ class FixtureRepository : CalinoRepository {
 
     override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
         val existing = snapshot().events.firstOrNull { it.id == id } ?: error("Unknown fixture event: $id")
+        if (existing.recurrence != null && input.recurrenceScope == RecurrenceEditScope.This) {
+            val occurrence = input.recurrenceDate ?: input.date
+            if (!existing.occursOn(occurrence)) return WriteResult.Rejected("That occurrence is no longer in the series.")
+            val detached = eventFromInput("local-event-${nextEventId++}", input.copy(recurrence = null))
+                .copy(conferenceUrl = existing.conferenceUrl)
+                .let { if (input.attachments == null) it.copy(attachments = existing.attachments) else it }
+            val remaining = existing.withoutOccurrence(occurrence)
+            update { current ->
+                current.copy(events = current.events.mapNotNull { event ->
+                    if (event.id == id) remaining else event
+                } + detached)
+            }
+            return WriteResult.Applied(detached)
+        }
+        if (existing.recurrence != null && input.recurrenceScope == RecurrenceEditScope.Future) {
+            return WriteResult.Rejected("Editing future fixture occurrences is not supported yet.")
+        }
         val event = eventFromInput(id, input)
             .copy(conferenceUrl = existing.conferenceUrl)
             .let { if (input.attachments == null) it.copy(attachments = existing.attachments) else it }

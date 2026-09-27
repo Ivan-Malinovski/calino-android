@@ -2456,7 +2456,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         savePillLane.saveStarted(PillWriteKind.Save)
                         var landed = false
                         try {
-                            when (val result = repository.updateEvent(target.id, input.copy(recurrenceScope = scope))) {
+                            when (val result = repository.updateEvent(target.id, input.copy(
+                                recurrenceScope = scope,
+                                recurrenceDate = if (repository is FixtureRepository && scope == RecurrenceEditScope.This)
+                                    selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay) else input.recurrenceDate,
+                            ))) {
                                 is WriteResult.Applied -> true.also { landed = true }
                                 is WriteResult.Queued -> true.also { landed = true }
                                 is WriteResult.Rejected -> { writeError = result.reason; false }
@@ -2695,8 +2699,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         }
                     },
                     onSave = { draft ->
+                        val scopedDraft = if (repository is FixtureRepository &&
+                            draft.kind == PocQuickAddKind.Event && draft.editingId != null &&
+                            draft.recurrenceScope == RecurrenceEditScope.This
+                        ) {
+                            val occurrence = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay)
+                            val anchor = editing?.placementDate()
+                            if (occurrence != null && anchor != null) draft.copy(
+                                date = if (draft.date == anchor) occurrence else draft.date,
+                                recurrenceDate = occurrence,
+                            ) else draft
+                        } else draft
                         launchWrite(
-                            operation = { saveEditorDraft(repository, draft) },
+                            operation = { saveEditorDraft(repository, scopedDraft) },
                             indicate = PillWriteKind.Save,
                             indicatorAlreadyStarted = true,
                         ) {
