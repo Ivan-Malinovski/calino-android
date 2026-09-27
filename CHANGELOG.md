@@ -3,6 +3,30 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.8.0 — 2026-09-27
+
+Calino 0.8.0 grows event details out of the event you tap, lets you resize events in Range by dragging their end, and redesigns the long-press action menu.
+
+### Added
+
+- **Details grow from the event.** In 3- and 7-day Range and in month view, event details grow out of the tapped event and shrink back into it when closed. Lists and the single-day view keep the slide-up sheet. A new Advanced section in Settings can turn this off.
+- **Resize events in Range.** Drag an event's bottom edge to change its length on the quarter-hour grid, with a live end-time label and haptic ticks.
+- **Swipe to dismiss pickers.** Date and time pickers close with a downward swipe on their header.
+
+### Changed
+
+- **New long-press menu.** Edit, Duplicate and Share (or Edit, Done and Duplicate for tasks) appear as tiles above the remaining actions, with Delete last. The menu opens under your finger and can be swiped down to dismiss.
+- Narrow Range views show longer weekday labels.
+- Tap feedback is softer, and calendar controls no longer flash a rectangular highlight.
+- The selected day in month view uses the same shade as the week strip, so the selector no longer changes colour when you pull between them.
+- The event preview card sizes itself correctly when it has meeting or attachment rows.
+
+### Fixed
+
+- Editing the end of an event that spans several days no longer resets its dates, and the date picker opens on the right date.
+- The date picker's month heading stays beside its navigation arrows.
+- The Range header no longer replays its scrim animation.
+
 ## 0.7.0 — 2026-09-27
 
 Calino 0.7.0 replaces the system date and time dialogs with Calino's own pickers, lets you slide and type event times in place, shows travel time on the timeline, and asks before completing a task with open subtasks.
