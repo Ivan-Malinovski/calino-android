@@ -27,7 +27,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -150,14 +157,22 @@ fun RangeScreen(
         rememberPagerState(initialPage = RangePagerCenter) { RangePagerPageCount }
     }
     val base = LocalDate.ofEpochDay(pagerBaseEpoch)
+    // A date-bar swipe steps the window by single days, so a seven-day window
+    // stops snapping to the week start until Today, the month picker or a mode
+    // change puts it back.
+    var weekAligned by rememberSaveable(mode, weekStart) { mutableStateOf(true) }
+    // While the date bar holds the pager between pages, its settle position is
+    // not a range; the bar rebases the pager itself when it lets go.
+    var headerSliding by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialDate) { anchorEpoch = initialDate.toEpochDay() }
     LaunchedEffect(pager, mode) {
         snapshotFlow { pager.isScrollInProgress to pager.settledPage }
             .distinctUntilChanged()
             .collect { (scrolling, page) ->
-                if (!scrolling) {
-                    val next = rangeAnchorForPage(base, page, mode)
+                if (!scrolling && !headerSliding) {
+                    // Read the base fresh: a date-bar step rebases this same pager.
+                    val next = rangeAnchorForPage(LocalDate.ofEpochDay(pagerBaseEpoch), page, mode)
                     if (next.toEpochDay() != anchorEpoch) {
                         anchorEpoch = next.toEpochDay()
                         onDateChanged(next)
@@ -166,7 +181,7 @@ fun RangeScreen(
             }
     }
 
-    val visibleDays = rangeDays(anchor, mode, weekStart)
+    val visibleDays = rangeDays(anchor, mode, weekStart, weekAligned)
     val firstVisibleDay = visibleDays.first()
     LaunchedEffect(firstVisibleDay) { onFirstVisibleDayChanged(firstVisibleDay) }
     val subtitle = if (visibleDays.size == 1) {
@@ -179,6 +194,7 @@ fun RangeScreen(
         val next = month.atDay(current.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
         pagerBaseEpoch = next.toEpochDay()
         anchorEpoch = next.toEpochDay()
+        weekAligned = true
         onDateChanged(next)
         pagerGeneration += 1
     }
@@ -192,6 +208,7 @@ fun RangeScreen(
             onToday = {
                 pagerBaseEpoch = today.toEpochDay()
                 anchorEpoch = today.toEpochDay()
+                weekAligned = true
                 onDateChanged(today)
                 pagerGeneration += 1
             },
@@ -220,6 +237,14 @@ fun RangeScreen(
                 activeMode = activeMode,
                 base = base,
                 weekStart = weekStart,
+                weekAligned = weekAligned,
+                onHeaderSlidingChange = { headerSliding = it },
+                onRebase = { firstDay, page ->
+                    pagerBaseEpoch = firstDay.minusDays((page - RangePagerCenter).toLong() * activeMode.dayCount).toEpochDay()
+                    anchorEpoch = firstDay.toEpochDay()
+                    weekAligned = false
+                    onDateChanged(firstDay)
+                },
                 eventIndex = eventIndex,
                 tasks = tasks,
                 timelineScale = timelineScale,
@@ -245,6 +270,9 @@ private fun RangePagerSurface(
     activeMode: CalinoRangeMode,
     base: LocalDate,
     weekStart: calino.malinov.ski.util.CalinoWeekStart,
+    weekAligned: Boolean,
+    onHeaderSlidingChange: (Boolean) -> Unit,
+    onRebase: (firstDay: LocalDate, page: Int) -> Unit,
     eventIndex: EventDateIndex,
     tasks: List<CalTask>,
     timelineScale: Float,
@@ -273,12 +301,19 @@ private fun RangePagerSurface(
     var autoScrollDirection by remember { mutableIntStateOf(0) }
     var menuDismissalGeneration by remember { mutableIntStateOf(0) }
     var lastHapticMinute by remember { mutableStateOf<java.time.LocalTime?>(null) }
+    var headerHeight by remember { mutableStateOf(0.dp) }
+    // Each mounted page reports its own date bar; the hour column clears the
+    // one that is showing, not whichever neighbour measured last.
+    val stripHeights = remember { mutableStateMapOf<Int, androidx.compose.ui.unit.Dp>() }
+    val stripHeight = stripHeights[pager.currentPage] ?: 0.dp
+    val gutterLayer = rememberGraphicsLayer()
     val hourHeightPx = with(density) { (62 * timelineScale).dp.toPx() }
 
     val visibleDragDays = rangeDays(
         rangeAnchorForPage(base, pager.currentPage, activeMode),
         activeMode,
         weekStart,
+        weekAligned,
     )
     val dragTarget = drag?.takeUnless { it.resize }?.let { session ->
         val day = rangeDropDay(
@@ -369,7 +404,7 @@ private fun RangePagerSurface(
             .rangeTimelineLiftDrag(
                 hitTest = { point ->
                     val root = point + hostOrigin
-                    val visible = rangeDays(rangeAnchorForPage(base, pager.currentPage, activeMode), activeMode, weekStart)
+                    val visible = rangeDays(rangeAnchorForPage(base, pager.currentPage, activeMode), activeMode, weekStart, weekAligned)
                     cardBounds.values.firstOrNull { it.day in visible && it.rootRect.contains(root) }
                 },
                 onLift = { card, pointer ->
@@ -425,46 +460,104 @@ private fun RangePagerSurface(
                 },
             ),
     ) {
-        HorizontalPager(
-                state = pager,
-                beyondViewportPageCount = 1,
-                key = { page -> "${activeMode.name}:$page" },
-                // Tagged like month-pager/week-pager/day-pager, so a device
-                // test can scope a day query to this surface. Several grids are
-                // mounted at once during a route change and day descriptions
-                // are not unique across them.
-                modifier = Modifier.fillMaxSize().testTag(RangePagerTag),
-            ) { page ->
-                val pageAnchor = rangeAnchorForPage(base, page, activeMode)
-                val days = rangeDays(pageAnchor, activeMode, weekStart)
-                RangePage(
-                    days = days,
-                    eventIndex = eventIndex,
-                    tasks = tasks,
-                    timelineScale = timelineScale,
-                    timelineScroll = timelineScroll,
-                    onTimelineScaleChanged = onTimelineScaleChanged,
-                    onRangeModePinch = { scale ->
-                        val next = rangeModeAfterHorizontalPinch(activeMode, scale)
-                        if (next != activeMode) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            preferences.setRangeMode(next)
+        // One hour column for the whole surface, outside the pager, so a swipe
+        // moves only days. It shares the pages' scroll state and keeps the date
+        // bar's height clear at its top.
+        Row(Modifier.fillMaxSize()) {
+            // Dressed exactly like a page's leading edge: the hours scroll
+            // under the date bar's frosted scrim and its divider line.
+            Box(Modifier.width(CalinoSpacing.RailGutter).fillMaxHeight()) {
+                RangeHourGutter(
+                    timelineScale,
+                    Modifier
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        .drawWithContent {
+                            gutterLayer.record { this@drawWithContent.drawContent() }
+                            drawLayer(gutterLayer)
                         }
-                    },
-                    onEventClick = onEventClick,
-                    onEventAction = onEventAction,
-                    onEventDrop = onEventDrop,
-                    onEventTimeDrop = onEventTimeDrop,
-                    onCreateEventAt = onCreateEventAt,
-                    onTaskClick = onTaskClick,
-                    onTaskAction = onTaskAction,
-                    onTaskDone = onTaskDone,
-                    draggingCardKey = drag?.card?.key,
-                    menuDismissalGeneration = menuDismissalGeneration,
-                    onCardBounds = { cardBounds[it.key] = it },
-                    onCardGone = { cardBounds.remove(it) },
+                        .verticalScroll(timelineScroll)
+                        .padding(bottom = CalinoSpacing.PillClearance),
+                )
+                CompactLaneScrim(
+                    source = gutterLayer,
+                    blend = { 1f },
+                    modifier = Modifier.fillMaxWidth().height(stripHeight),
+                    dissolveEdge = false,
+                )
+                Spacer(
+                    Modifier.fillMaxWidth()
+                        .padding(top = (stripHeight - 1.dp).coerceAtLeast(0.dp))
+                        .height(1.dp)
+                        .background(CalinoColors.Line),
+                )
+                // Separates the hours from the days below the date bar.
+                Box(
+                    Modifier.align(Alignment.TopEnd)
+                        .padding(top = stripHeight)
+                        .width(0.5.dp)
+                        .fillMaxHeight()
+                        .background(CalinoColors.Line2),
                 )
             }
+            HorizontalPager(
+                    state = pager,
+                    beyondViewportPageCount = 1,
+                    key = { page -> "${activeMode.name}:$page" },
+                    // Tagged like month-pager/week-pager/day-pager, so a device
+                    // test can scope a day query to this surface. Several grids are
+                    // mounted at once during a route change and day descriptions
+                    // are not unique across them.
+                    modifier = Modifier.weight(1f).fillMaxHeight().testTag(RangePagerTag),
+                ) { page ->
+                    val pageAnchor = rangeAnchorForPage(base, page, activeMode)
+                    val days = rangeDays(pageAnchor, activeMode, weekStart, weekAligned)
+                    RangePage(
+                        days = days,
+                        eventIndex = eventIndex,
+                        tasks = tasks,
+                        timelineScale = timelineScale,
+                        timelineScroll = timelineScroll,
+                        onTimelineScaleChanged = onTimelineScaleChanged,
+                        onRangeModePinch = { scale ->
+                            val next = rangeModeAfterHorizontalPinch(activeMode, scale)
+                            if (next != activeMode) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                preferences.setRangeMode(next)
+                            }
+                        },
+                        onEventClick = onEventClick,
+                        onEventAction = onEventAction,
+                        onEventDrop = onEventDrop,
+                        onEventTimeDrop = onEventTimeDrop,
+                        onCreateEventAt = onCreateEventAt,
+                        onTaskClick = onTaskClick,
+                        onTaskAction = onTaskAction,
+                        onTaskDone = onTaskDone,
+                        draggingCardKey = drag?.card?.key,
+                        menuDismissalGeneration = menuDismissalGeneration,
+                        onCardBounds = { cardBounds[it.key] = it },
+                        onCardGone = { cardBounds.remove(it) },
+                        onHeaderHeight = { headerHeight = it },
+                        onStripHeight = { stripHeights[page] = it },
+                    )
+                }
+      }
+        if (activeMode.dayCount > 1 && drag == null) {
+            val gutterPx = with(density) { CalinoSpacing.RailGutter.toPx() }
+            val gapPx = with(density) { CalinoSpacing.RailColumnGap.toPx() }
+            val columnStep = (hostWidth - gutterPx - gapPx * activeMode.dayCount) / activeMode.dayCount + gapPx
+            RangeDateBarSwipe(
+                pager = pager,
+                dayCount = activeMode.dayCount,
+                columnStep = columnStep,
+                firstDayOf = { page ->
+                    rangeStart(rangeAnchorForPage(base, page, activeMode), activeMode, weekStart, weekAligned)
+                },
+                onSlidingChange = onHeaderSlidingChange,
+                onRebase = onRebase,
+                modifier = Modifier.fillMaxWidth().height(headerHeight),
+            )
+        }
         if (drag != null && dragTarget != null) {
             val session = drag!!
             val dayIndex = visibleDragDays.indexOf(dragTarget.toLocalDate())
@@ -569,6 +662,8 @@ private fun RangePage(
     menuDismissalGeneration: Int,
     onCardBounds: (TimelineCardBounds) -> Unit,
     onCardGone: (String) -> Unit,
+    onHeaderHeight: (androidx.compose.ui.unit.Dp) -> Unit,
+    onStripHeight: (androidx.compose.ui.unit.Dp) -> Unit,
 ) {
     val density = LocalDensity.current
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
@@ -591,7 +686,9 @@ private fun RangePage(
                 .verticalScroll(timelineScroll).padding(bottom = CalinoSpacing.PillClearance),
             horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
         ) {
-            RangeHourGutter(timelineScale)
+            // The hours live outside the pager (see RangePagerSurface); this
+            // keeps the leading gap so columns sit where they always have.
+            Spacer(Modifier.width(0.dp))
             days.forEach { day ->
                 val timed = remember(eventIndex, day) { eventIndex.eventsOn(day).filterNot { it.allDay } }
                 Box(
@@ -642,10 +739,13 @@ private fun RangePage(
         Column(
             Modifier.fillMaxWidth().onSizeChanged { size ->
                 stripHeight = with(density) { size.height.toDp() }
+                onStripHeight(stripHeight)
             },
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(start = CalinoSpacing.RailGutter + CalinoSpacing.RailColumnGap),
+                Modifier.fillMaxWidth()
+                    .onSizeChanged { onHeaderHeight(with(density) { it.height.toDp() }) }
+                    .padding(start = CalinoSpacing.RailColumnGap),
                 horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
             ) {
                 days.forEach { day ->
@@ -681,7 +781,7 @@ private fun RangePage(
                 days = days,
                 layout = bandLayout,
                 density = AllDayBandDensity.Narrow,
-                gutterWidth = CalinoSpacing.RailGutter + CalinoSpacing.RailColumnGap,
+                gutterWidth = CalinoSpacing.RailColumnGap,
                 columnGap = CalinoSpacing.RailColumnGap,
                 edgeWidth = 0.dp,
                 expanded = bandExpanded,
@@ -695,6 +795,96 @@ private fun RangePage(
             Spacer(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
         }
     }
+}
+
+/**
+ * The weekday/date bar as a finer page swipe: the pager follows the finger
+ * one-to-one, and on release it settles on the nearest whole day instead of
+ * the nearest page. The pager is then rebased so that day-aligned position is
+ * an ordinary resting page again.
+ *
+ * It sits over the pager rather than inside a page, so the finger's
+ * coordinates stay put while the content it drags moves underneath.
+ */
+@Composable
+private fun RangeDateBarSwipe(
+    pager: androidx.compose.foundation.pager.PagerState,
+    dayCount: Int,
+    columnStep: Float,
+    firstDayOf: (Int) -> LocalDate,
+    onSlidingChange: (Boolean) -> Unit,
+    onRebase: (LocalDate, Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    val currentFirstDayOf by rememberUpdatedState(firstDayOf)
+    val currentStep by rememberUpdatedState(columnStep)
+    val currentOnSlidingChange by rememberUpdatedState(onSlidingChange)
+    val currentOnRebase by rememberUpdatedState(onRebase)
+    var settling by remember { mutableStateOf(false) }
+
+    suspend fun settle(startPage: Int, scrolled: Float, steps: Int) {
+        settling = true
+        try {
+            withContext(NonCancellable) {
+                pager.animateScrollBy(steps * currentStep - scrolled, CalinoMotion.gestureReturn())
+                if (steps != 0) currentOnRebase(currentFirstDayOf(startPage).plusDays(steps.toLong()), startPage)
+                pager.scrollToPage(startPage)
+            }
+        } finally {
+            currentOnSlidingChange(false)
+            settling = false
+        }
+    }
+
+    fun stepBy(steps: Int) {
+        if (settling || pager.isScrollInProgress) return
+        val startPage = pager.currentPage
+        currentOnSlidingChange(true)
+        scope.launch { settle(startPage, 0f, steps) }
+    }
+
+    Box(
+        modifier
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("Previous day") { stepBy(-1); true },
+                    CustomAccessibilityAction("Next day") { stepBy(1); true },
+                )
+            }
+            .pointerInput(dayCount) {
+                var startPage = 0
+                var scrolled = 0f
+                val velocity = VelocityTracker()
+                detectHorizontalDragGestures(
+                    onDragStart = {
+                        startPage = pager.currentPage
+                        scrolled = 0f
+                        velocity.resetTracking()
+                        currentOnSlidingChange(true)
+                    },
+                    onHorizontalDrag = { change, dx ->
+                        change.consume()
+                        velocity.addPosition(change.uptimeMillis, change.position)
+                        // Never more than one window either way, matching the
+                        // cap on where a release can land.
+                        val limit = currentStep * dayCount
+                        val wanted = (scrolled - dx).coerceIn(-limit, limit) - scrolled
+                        scrolled += pager.dispatchRawDelta(wanted)
+                    },
+                    onDragEnd = {
+                        val steps = rangeHeaderDaySteps(scrolled, -velocity.calculateVelocity().x, currentStep, dayCount)
+                        val from = scrolled
+                        scope.launch { settle(startPage, from, steps) }
+                    },
+                    onDragCancel = {
+                        val steps = rangeHeaderDaySteps(scrolled, 0f, currentStep, dayCount)
+                        val from = scrolled
+                        scope.launch { settle(startPage, from, steps) }
+                    },
+                )
+            },
+    )
 }
 
 private data class RangeDragSession(
@@ -971,7 +1161,7 @@ private fun Modifier.rangePinch(
 }
 
 @Composable
-private fun RangeHourGutter(timelineScale: Float) {
+private fun RangeHourGutter(timelineScale: Float, modifier: Modifier = Modifier) {
     val timeFormat = LocalTimeFormat
     val secondary = calino.malinov.ski.state.LocalCalinoPreferences.current.secondaryZoneId
         ?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() }
@@ -980,7 +1170,7 @@ private fun RangeHourGutter(timelineScale: Float) {
     // One label per hour serves the whole range; the offset between two zones
     // only moves on a DST night, and today's is the one most likely in view.
     val today = androidx.compose.runtime.remember { java.time.LocalDate.now() }
-    Box(Modifier.width(CalinoSpacing.RailGutter).height((62 * timelineScale * 24).dp)) {
+    Box(modifier.width(CalinoSpacing.RailGutter).height((62 * timelineScale * 24).dp)) {
         (0..23).forEach { hour ->
             Text(
                 timeFormat.formatHour(hour),

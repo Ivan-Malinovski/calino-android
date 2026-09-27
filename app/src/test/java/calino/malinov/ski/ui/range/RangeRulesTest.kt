@@ -39,6 +39,23 @@ class RangeRulesTest {
         assertEquals(LocalDate.of(2026, 9, 19), days.last())
     }
 
+    @Test fun `an unaligned seven day range keeps its first day`() {
+        val days = rangeDays(wednesday, CalinoRangeMode.SevenDay, CalinoWeekStart.Monday, weekAligned = false)
+        assertEquals(wednesday, days.first())
+        assertEquals(wednesday.plusDays(6), days.last())
+    }
+
+    @Test fun `date bar swipe settles on the nearest whole day`() {
+        assertEquals(1, rangeHeaderDaySteps(scrolled = 60f, velocity = 0f, columnStep = 100f, dayCount = 3))
+        assertEquals(0, rangeHeaderDaySteps(scrolled = 40f, velocity = 0f, columnStep = 100f, dayCount = 3))
+        assertEquals(-2, rangeHeaderDaySteps(scrolled = -180f, velocity = 0f, columnStep = 100f, dayCount = 7))
+        // A flick carries a short drag on to the next day.
+        assertEquals(1, rangeHeaderDaySteps(scrolled = 30f, velocity = 500f, columnStep = 100f, dayCount = 3))
+        // Never past a whole window.
+        assertEquals(3, rangeHeaderDaySteps(scrolled = 300f, velocity = 9000f, columnStep = 100f, dayCount = 3))
+        assertEquals(0, rangeHeaderDaySteps(scrolled = 300f, velocity = 0f, columnStep = 0f, dayCount = 3))
+    }
+
     @Test fun `paging advances by active range width`() {
         assertEquals(wednesday.plusDays(1), rangeAnchorForPage(wednesday, RangePagerCenter + 1, CalinoRangeMode.OneDay))
         assertEquals(wednesday.plusDays(3), rangeAnchorForPage(wednesday, RangePagerCenter + 1, CalinoRangeMode.ThreeDay))

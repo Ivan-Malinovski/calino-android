@@ -11,16 +11,45 @@ import kotlin.math.roundToInt
 internal const val RangePagerCenter = 10_000
 internal const val RangePagerPageCount = RangePagerCenter * 2 + 1
 
-fun rangeStart(anchor: LocalDate, mode: CalinoRangeMode, weekStart: CalinoWeekStart): LocalDate =
-    if (mode == CalinoRangeMode.SevenDay) anchor.startOfWeek(weekStart) else anchor
+/**
+ * The first day shown for [anchor]. A seven-day window snaps to the week
+ * start unless [weekAligned] is off, which is how a window stepped a day at a
+ * time by the date bar keeps its new first day.
+ */
+fun rangeStart(
+    anchor: LocalDate,
+    mode: CalinoRangeMode,
+    weekStart: CalinoWeekStart,
+    weekAligned: Boolean = true,
+): LocalDate =
+    if (mode == CalinoRangeMode.SevenDay && weekAligned) anchor.startOfWeek(weekStart) else anchor
 
-fun rangeDays(anchor: LocalDate, mode: CalinoRangeMode, weekStart: CalinoWeekStart): List<LocalDate> {
-    val start = rangeStart(anchor, mode, weekStart)
+fun rangeDays(
+    anchor: LocalDate,
+    mode: CalinoRangeMode,
+    weekStart: CalinoWeekStart,
+    weekAligned: Boolean = true,
+): List<LocalDate> {
+    val start = rangeStart(anchor, mode, weekStart, weekAligned)
     return List(mode.dayCount) { start.plusDays(it.toLong()) }
 }
 
 fun rangeAnchorForPage(base: LocalDate, page: Int, mode: CalinoRangeMode): LocalDate =
     base.plusDays((page - RangePagerCenter).toLong() * mode.dayCount)
+
+/**
+ * Whole days a date-bar swipe moves the window: the distance scrolled plus a
+ * short projection of the release velocity, in columns of [columnStep] pixels.
+ * Positive is later. A swipe never moves more than a full window, so the bar
+ * is a finer control than the page swipe rather than a faster one.
+ */
+internal fun rangeHeaderDaySteps(scrolled: Float, velocity: Float, columnStep: Float, dayCount: Int): Int {
+    if (columnStep <= 0f) return 0
+    val projected = scrolled + velocity * RangeHeaderFlingSeconds
+    return (projected / columnStep).roundToInt().coerceIn(-dayCount, dayCount)
+}
+
+private const val RangeHeaderFlingSeconds = .12f
 
 /** Pinch inward reveals more days; spreading outward reveals fewer. */
 internal fun rangeModeAfterHorizontalPinch(mode: CalinoRangeMode, horizontalScale: Float): CalinoRangeMode {
