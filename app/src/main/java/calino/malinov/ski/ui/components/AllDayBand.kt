@@ -122,6 +122,7 @@ fun AllDayBand(
                                 placement = placement,
                                 event = item.event,
                                 density = density,
+                                growFromEvent = days.size > 1,
                                 timeFormat = timeFormat,
                                 onClick = { onEventClick(item.occurrenceStart, item.event) },
                                 onLongClick = { onEventAction(EventMenuAction.Edit, item.event) },
@@ -228,6 +229,7 @@ private fun AllDayEventChip(
     placement: AllDayPlacement,
     event: CalEvent,
     density: AllDayBandDensity,
+    growFromEvent: Boolean,
     timeFormat: CalinoTimeFormat,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -252,7 +254,7 @@ private fun AllDayEventChip(
     Row(
         Modifier
             .fillMaxSize()
-            .calinoSurfaceOrigin(event.id, chipRadius)
+            .calinoSurfaceOrigin(event.id, chipRadius, growFromEvent)
             .clip(shape)
             .background(eventTint(rawColor, .12f, CalinoColors.Panel), shape)
             .border(1.dp, edgeColor.copy(alpha = .16f), shape)

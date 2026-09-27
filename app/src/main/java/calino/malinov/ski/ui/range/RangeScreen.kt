@@ -627,6 +627,7 @@ private fun RangePage(
                         onCardGone = onCardGone,
                         showHourLabels = false,
                         compactRangeCards = true,
+                        growFromEvents = days.size > 1,
                         onEventDragEnd = null,
                     )
                 }

@@ -5572,7 +5572,6 @@ private fun EventChip(
     Column {
     Row(
         Modifier.fillMaxWidth().heightIn(min = maxOf(44.dp, minHeight))
-            .calinoSurfaceOrigin(event.id, if (agendaStyle) 10.dp else 6.dp)
             .clip(shape)
             .then(rowInteraction)
             .graphicsLayer { translationY = dragDistance }
@@ -6279,6 +6278,7 @@ private fun DayRailPage(
                 draggingCardKey = draggingCardKey,
                 onCardBounds = onCardBounds,
                 onCardGone = onCardGone,
+                growFromEvents = false,
             )
             // The add pill floats over this rail; keep the last hours
             // scrollable clear of it.
@@ -6410,6 +6410,8 @@ internal fun HourRailContent(
     showHourLabels: Boolean = true,
     onEventDragEnd: ((CalEvent, Offset) -> DirectTimelineDrop?)? = null,
     compactRangeCards: Boolean = false,
+    // Off in the single-day rail, whose full-width cards read like list rows.
+    growFromEvents: Boolean = true,
 ) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
@@ -6668,7 +6670,7 @@ internal fun HourRailContent(
                             )
                         }
                         .alpha(if (draggingCardKey == cardKey) 0f else 1f)
-                        .calinoSurfaceOrigin(event.id, if (laneWidth < 72.dp) 6.dp else 11.dp)
+                        .calinoSurfaceOrigin(event.id, if (laneWidth < 72.dp) 6.dp else 11.dp, growFromEvents)
                         .then(directDragInteraction)
                         .semantics(mergeDescendants = true) {
                             contentDescription = eventDescription(event, timeFormat)

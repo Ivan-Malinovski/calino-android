@@ -67,9 +67,12 @@ val LocalCalinoSurfaceOrigin = staticCompositionLocalOf { CalinoSurfaceOrigin() 
  * Publishes this element's bounds as the origin for [key] when it is pressed.
  *
  * It only observes the pointer stream: nothing is consumed, so the element's
- * own click, long press and drag handling are unaffected.
+ * own click, long press and drag handling are unaffected. When [enabled] is
+ * false nothing is recorded and the surface slides up from the bottom instead;
+ * list rows and single-day rails span the width, so growing from them reads
+ * as a jump rather than a transform.
  */
-fun Modifier.calinoSurfaceOrigin(key: String, cornerRadius: Dp): Modifier = composed {
+fun Modifier.calinoSurfaceOrigin(key: String, cornerRadius: Dp, enabled: Boolean = true): Modifier = if (!enabled) this else composed {
     val recorder = LocalCalinoSurfaceOrigin.current
     // A plain holder: bounds change on every scroll frame and nothing needs
     // to recompose when they do.
