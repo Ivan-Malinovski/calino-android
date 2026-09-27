@@ -175,6 +175,7 @@ import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.formatCalinoDuration
 import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.design.CalinoTypography
+import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.eventTint
 import calino.malinov.ski.qa.TaskBucket
 import calino.malinov.ski.qa.taskBucket
@@ -190,6 +191,8 @@ import calino.malinov.ski.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoChip
 import calino.malinov.ski.ui.components.CalinoScrim
+import calino.malinov.ski.ui.components.PromptButton
+import androidx.compose.ui.semantics.paneTitle
 import calino.malinov.ski.ui.components.CalinoSheet
 import calino.malinov.ski.ui.components.CalinoMarkdown
 import calino.malinov.ski.ui.components.CalinoMarkdownEditor
@@ -1032,6 +1035,7 @@ private fun EventDetailContent(
             )
         }
     }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         HeroMasthead(tint) {
             val kicker = eventKicker(event)
@@ -1259,21 +1263,6 @@ private fun EventDetailContent(
             }
             error?.let { message -> item { Text(message, color = CalinoColors.Rose, style = CalinoTypography.bodySmall, modifier = Modifier.padding(12.dp)) } }
         }
-        AnimatedVisibility(scopePrompt) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text("Apply changes to", style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    (if (event.providerRecurring) listOf(RecurrenceEditScope.This, RecurrenceEditScope.All) else RecurrenceEditScope.entries).forEach { option ->
-                        val text = when(option) { RecurrenceEditScope.This -> "This"; RecurrenceEditScope.Future -> "This and future"; RecurrenceEditScope.All -> "Entire series" }
-                        CalinoChip(text, saveScope == option, "Save $text", onClick = { saveScope = option }, semanticsRole = Role.RadioButton)
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton({ scopePrompt = false }) { Text("Cancel") }
-                    TextButton({ save(pendingOpen) }) { Text("Continue") }
-                }
-            }
-        }
         AnimatedVisibility(
             visible = confirmDelete && isRecurringEvent(event),
             enter = expandVertically(tween(180)) + fadeIn(tween(150)),
@@ -1310,11 +1299,70 @@ private fun EventDetailContent(
         // The scope prompts sit below the list, so only while one is open
         // does the card reserve the pill's lane as a fixed footer.
         val footer by animateDpAsState(
-            targetValue = if (scopePrompt || (confirmDelete && isRecurringEvent(event))) EventPreviewPillClearance else 0.dp,
+            targetValue = if (confirmDelete && isRecurringEvent(event)) EventPreviewPillClearance else 0.dp,
             animationSpec = tween(180),
             label = "event detail pill footer",
         )
         Spacer(Modifier.height(footer))
+    }
+    // DetailCardSurface draws its drag handle above this content slot. Cover
+    // that lane too, otherwise the handle stays bright through the prompt's
+    // shade while the rest of the card dims.
+    val handleHeight = if (LocalCalinoSurfaceMode.current == CalinoSurfaceMode.EndPanel) 16.dp else 24.dp
+    AnimatedVisibility(
+        visible = scopePrompt,
+        enter = fadeIn(tween(CalinoMotion.SurfaceFadeMillis)),
+        exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
+        modifier = Modifier.align(Alignment.TopCenter).offset(y = -handleHeight)
+            .fillMaxWidth().height(handleHeight),
+    ) {
+        Box(Modifier.fillMaxSize().background(CalinoColors.Scrim))
+    }
+    CalinoScrim(visible = scopePrompt, modifier = Modifier.matchParentSize(), onDismiss = { if (!saving) scopePrompt = false })
+    AnimatedVisibility(
+        visible = scopePrompt,
+        enter = slideInVertically(CalinoMotion.expressiveSpatial()) { it / 3 } + fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+        exit = slideOutVertically(tween(CalinoMotion.ContentExitMillis)) { it / 4 } + fadeOut(tween(CalinoMotion.ContentExitMillis)),
+        modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = EventPreviewPillClearance),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().shadow(24.dp, RoundedCornerShape(CalinoShapes.Sheet), clip = false)
+                .clip(RoundedCornerShape(CalinoShapes.Sheet)).background(CalinoColors.Panel)
+                .semantics { paneTitle = "Apply changes to" }
+                .padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 14.dp),
+        ) {
+            Text("Apply changes to", style = CalinoTypography.titleLarge, color = CalinoColors.Ink)
+            Spacer(Modifier.height(14.dp))
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(CalinoShapes.Row))
+                    .background(CalinoColors.Ink.copy(alpha = .035f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            ) {
+                (if (event.providerRecurring) listOf(RecurrenceEditScope.This, RecurrenceEditScope.All) else RecurrenceEditScope.entries).forEach { option ->
+                    val label = when (option) {
+                        RecurrenceEditScope.This -> "This event"
+                        RecurrenceEditScope.Future -> "This and future"
+                        RecurrenceEditScope.All -> "Entire series"
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(CalinoShapes.Row))
+                            .clickable(role = Role.RadioButton, onClickLabel = "Apply changes to $label") { saveScope = option },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(if (saveScope == option) "●" else "○", color = CalinoColors.Accent, style = CalinoTypography.bodyLarge)
+                        Spacer(Modifier.width(12.dp))
+                        Text(label, color = CalinoColors.Ink, style = CalinoTypography.bodyLarge)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PromptButton("Cancel", filled = false, enabled = !saving, onClick = { scopePrompt = false }, modifier = Modifier.weight(1f))
+                PromptButton("Continue", filled = true, enabled = !saving, onClick = { save(pendingOpen) }, modifier = Modifier.weight(1f))
+            }
+        }
+    }
     }
 }
 
