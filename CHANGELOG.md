@@ -3,6 +3,31 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.7.0 — 2026-09-27
+
+Calino 0.7.0 replaces the system date and time dialogs with Calino's own pickers, lets you slide and type event times in place, shows travel time on the timeline, and asks before completing a task with open subtasks.
+
+### Added
+
+- **Calino date and time pickers.** The framework dialogs are replaced by Calino's own cards. The time picker has snapping, looping hour and minute wheels (with AM/PM in 12-hour mode) and follows Calino's 24-hour setting. The date picker is a swipeable month grid that uses your week start, always shows the year, shows week numbers when that setting is on, and swaps to month and year wheels when you tap its heading. Each wheel responds to a swipe anywhere on its side of the card.
+- **Month and year from calendar headings.** Tapping a calendar heading opens the month and year picker.
+- **Slide and type event times.** Slide an event's clock sideways to move it by quarter hours, or long-press to type its times and dates in place. This works on the event card as well as in the editor; sliding one clock moves only that time, while sliding the rule between them moves both.
+- **Travel time on the timeline.** Events with travel time show a faint band in the event's colour before them in the day view and Range. The band is labelled when there is room and opens the event when tapped.
+- **Finishing open subtasks.** Completing a task that has open subtasks asks whether to mark them done too, with one undo that reopens them all. New subtasks start with the parent's due date, calendar, category and colour.
+
+### Changed
+
+- The sample calendar is explained by a dismissible notice.
+- The recurrence scope choice ("this event" or "all events") is styled as a detail prompt.
+- The task list's own completion banner is gone; completing tasks there uses the add pill's undo like every other surface.
+- The Wear app uses the Calino launcher icon, and Wear edge complications show the event name alongside its countdown.
+- The pill's view menu scrolls when the window is too short to show every row. Markdown headings scale to body text and lists sit closer together.
+
+### Fixed
+
+- Editing one occurrence of a recurring event in the sample calendar no longer affects the whole series.
+- The end panel's downward dismiss no longer interrupts scrolling up through its content.
+
 ## 0.6.2 — 2026-09-26
 
 Calino 0.6.2 improves event attachments and time zones, and restores due-time and reminder editing in the task detail screen.
