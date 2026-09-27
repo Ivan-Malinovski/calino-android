@@ -744,6 +744,7 @@ fun EventDetailSurface(
         val length = sizingEvent.attendees.sumOf { it.name.ifBlank { it.email }.length + 2 }
         ((length + 37) / 38).coerceAtLeast(1)
     }
+    val hasMeeting = meetingLink(sizingEvent) != null
     // Base includes the handle, the masthead with its when-hero, the
     // location and description rows, the divider, and the real pill
     // clearance. Add only what this event renders on top of that.
@@ -756,6 +757,8 @@ fun EventDetailSurface(
         (if (sizingEvent.allDay) 368 else 398) +
             (descriptionLines - 1) * 22 +
             attendeeLines * 24 +
+            (if (hasMeeting) 52 else 0) +
+            sizingEvent.attachments.size * 54 +
             (if (sizingEvent.recurrence != null) 54 else 0) +
             (if (sizingEvent.reminders.isNotEmpty() ||
                 (onLocalReminders != null && eventDetailReadOnly(readOnly, sizingEvent))) 54 else 0) +
