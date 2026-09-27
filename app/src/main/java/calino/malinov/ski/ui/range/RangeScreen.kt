@@ -602,7 +602,18 @@ private fun RangePage(
                         Modifier.weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()).uppercase(), fontSize = 10.sp, color = CalinoColors.Ink3)
+                        val weekdayStyle = when (days.size) {
+                            1 -> TextStyle.FULL
+                            3 -> TextStyle.SHORT
+                            else -> TextStyle.NARROW
+                        }
+                        Text(
+                            day.dayOfWeek.getDisplayName(weekdayStyle, Locale.getDefault()).uppercase(),
+                            fontSize = 10.sp,
+                            color = CalinoColors.Ink3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         Text(day.dayOfMonth.toString(), fontSize = if (days.size == 7) 14.sp else 16.sp, fontWeight = FontWeight.SemiBold, color = CalinoColors.Ink)
                     }
                 }
