@@ -3617,6 +3617,8 @@ private fun MonthEventTarget(
         Modifier
             .fillMaxSize()
             .combinedClickable(
+                interactionSource = null,
+                indication = null,
                 onClick = click,
                 onLongClick = onEventAction?.let { { menuOpen = true } },
             )
@@ -5231,7 +5233,7 @@ private fun DayCell(
     }
     val interactionModifier = if (interactive) {
         Modifier
-            .clickable(onClick = onDay)
+            .clickable(interactionSource = null, indication = null, onClick = onDay)
             .semantics(mergeDescendants = true) {
                 contentDescription = dateDescription
             }
@@ -5533,11 +5535,18 @@ private fun EventChip(
     val shape = RoundedCornerShape(if (agendaStyle) 10.dp else 6.dp)
     val interaction = when {
         onClick != null && onEventAction != null -> Modifier.combinedClickable(
+            interactionSource = null,
+            indication = null,
             onClick = onClick,
             onLongClick = { menuOpen = true },
         )
-        onClick != null -> Modifier.clickable { onClick() }
-        onEventAction != null -> Modifier.combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
+        onClick != null -> Modifier.clickable(interactionSource = null, indication = null) { onClick() }
+        onEventAction != null -> Modifier.combinedClickable(
+            interactionSource = null,
+            indication = null,
+            onClick = {},
+            onLongClick = { menuOpen = true },
+        )
         else -> Modifier
     }
     var dragDistance by remember(event.id) { mutableFloatStateOf(0f) }
@@ -6510,11 +6519,18 @@ internal fun HourRailContent(
                 }
                 val eventInteraction = when {
                     onEvent != null && onEventAction != null -> Modifier.combinedClickable(
+                        interactionSource = null,
+                        indication = null,
                         onClick = { onEvent(event) },
                         onLongClick = { menuOpen = true },
                     )
-                    onEvent != null -> Modifier.clickable { onEvent(event) }
-                    onEventAction != null -> Modifier.combinedClickable(onClick = {}, onLongClick = { menuOpen = true })
+                    onEvent != null -> Modifier.clickable(interactionSource = null, indication = null) { onEvent(event) }
+                    onEventAction != null -> Modifier.combinedClickable(
+                        interactionSource = null,
+                        indication = null,
+                        onClick = {},
+                        onLongClick = { menuOpen = true },
+                    )
                     else -> Modifier
                 }
                 val directDragInteraction = if (onEventDragEnd != null) {
@@ -6597,7 +6613,10 @@ internal fun HourRailContent(
                                 .zIndex(if (compactRangeCards) slot.column.toFloat() else 0f)
                                 .graphicsLayer { alpha = travelAlpha }
                                 .then(
-                                    if (onEvent != null) Modifier.clickable { onEvent(event) } else Modifier,
+                                    if (onEvent != null) Modifier.clickable(
+                                        interactionSource = null,
+                                        indication = null,
+                                    ) { onEvent(event) } else Modifier,
                                 )
                                 .clearAndSetSemantics { },
                             minutes = travelMinutes,

@@ -663,9 +663,7 @@ fun CalinoToast(
 }
 
 /**
- * Pressed surfaces use a very small scale and a 6% ink wash. This keeps the
- * handoff's quiet paper language while making touch feedback visible without a
- * ripple covering dense calendar content.
+ * Pressed surfaces use a very small scale without a drawn selection overlay.
  */
 @Composable
 internal fun Modifier.calinoPressable(
@@ -676,19 +674,12 @@ internal fun Modifier.calinoPressable(
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    // Hoisted: a draw scope cannot read the palette's composition local. The
-    // wash also has to invert -- darkening an already dark row does nothing.
-    val pressWash = CalinoColors.PressWash
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
         animationSpec = tween(CalinoMotion.PressMillis),
         label = "pressed scale",
     )
     return graphicsLayer { scaleX = scale; scaleY = scale }
-        .drawWithContent {
-            drawContent()
-            if (pressed) drawRect(pressWash)
-        }
         .clickable(
             interactionSource = interactionSource,
             indication = null,
@@ -929,9 +920,13 @@ fun AgendaRow(
         Modifier
     }
     val pressModifier = when {
-        onClick != null && onLongClick != null -> Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        onClick != null && onLongClick != null -> Modifier.combinedClickable(
+            interactionSource = null, indication = null, onClick = onClick, onLongClick = onLongClick,
+        )
         onClick != null -> Modifier.calinoPressable(onClick = onClick)
-        onLongClick != null -> Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
+        onLongClick != null -> Modifier.combinedClickable(
+            interactionSource = null, indication = null, onClick = {}, onLongClick = onLongClick,
+        )
         else -> Modifier
     }
     val rowInteraction = if (onDragEnd != null) {
@@ -1173,9 +1168,13 @@ fun AgendaRow(
         priorityLabel(task.priority)?.let { append(", ").append(it) }
     }
     val rowPressModifier = when {
-        onClick != null && onLongClick != null -> Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        onClick != null && onLongClick != null -> Modifier.combinedClickable(
+            interactionSource = null, indication = null, onClick = onClick, onLongClick = onLongClick,
+        )
         onClick != null -> Modifier.calinoPressable(onClick = onClick)
-        onLongClick != null -> Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
+        onLongClick != null -> Modifier.combinedClickable(
+            interactionSource = null, indication = null, onClick = {}, onLongClick = onLongClick,
+        )
         else -> Modifier
     }
     val rowInteraction = if (onDragEnd != null) {
@@ -1338,7 +1337,11 @@ fun CalinoMonthHeading(
         // to the optical center of the surrounding 48dp controls.
         Column(
             Modifier.weight(1f).padding(horizontal = 2.dp).offset(y = 2.dp)
-                .then(if (onMonthYearClick != null) Modifier.clickable(onClick = onMonthYearClick)
+                .then(if (onMonthYearClick != null) Modifier.clickable(
+                    interactionSource = null,
+                    indication = null,
+                    onClick = onMonthYearClick,
+                )
                     .semantics { contentDescription = "Choose month and year"; role = Role.Button }
                 else Modifier),
         ) {

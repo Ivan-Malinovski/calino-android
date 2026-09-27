@@ -502,12 +502,12 @@ fun CalinoTheme(
     CompositionLocalProvider(
         LocalCalinoPalette provides palette,
         LocalContentColor provides palette.Ink,
-        // A compact, unbounded glow avoids revealing the rectangular touch
-        // lanes around rounded controls and calendar cells.
+        // Navigation and calendar touch lanes have their own visual states.
+        // Keep the foundation indication invisible throughout the app so a
+        // press cannot draw a glow outside a compact control.
         LocalIndication provides ripple(
             bounded = false,
-            radius = 22.dp,
-            color = palette.Accent.copy(alpha = .36f),
+            color = Color.Transparent,
         ),
     ) {
         MaterialTheme(

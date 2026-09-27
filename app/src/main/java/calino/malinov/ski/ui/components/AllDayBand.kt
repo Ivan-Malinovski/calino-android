@@ -255,7 +255,12 @@ private fun AllDayEventChip(
             .clip(shape)
             .background(eventTint(rawColor, .12f, CalinoColors.Panel), shape)
             .border(1.dp, edgeColor.copy(alpha = .16f), shape)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                interactionSource = null,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
             .semantics(mergeDescendants = true) { contentDescription = description },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -365,7 +370,12 @@ private fun AllDayTaskChip(
             .fillMaxSize()
             .clip(shape)
             .border(1.dp, color.copy(alpha = .30f), shape)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(
+                interactionSource = null,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
             .semantics { contentDescription = description }
             .padding(horizontal = rowPadding),
         verticalAlignment = Alignment.CenterVertically,

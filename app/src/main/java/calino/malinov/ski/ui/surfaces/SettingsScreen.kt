@@ -502,7 +502,7 @@ private fun SettingsNavChip(
             // stays compact in the horizontal rail.
             .height(SettingsNavLaneHeight)
             .widthIn(min = 48.dp)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = null, indication = null, onClick = onClick)
             .semantics(mergeDescendants = true) {
                 contentDescription = "${section.title} settings"
                 role = Role.Tab
