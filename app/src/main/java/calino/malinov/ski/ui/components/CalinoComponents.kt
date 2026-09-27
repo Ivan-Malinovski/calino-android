@@ -3453,8 +3453,11 @@ fun ModalActionPill(
             val remaining = abs(target - morph.value)
             morph.animateTo(
                 target,
+                // CalinoMotion.expressiveSpatial with a tight threshold: the
+                // default 1% ends the spring a couple of pixels short of the
+                // settled width and jumps them in its last frame.
                 if (target == 1f) {
-                    CalinoMotion.expressiveSpatial()
+                    spring(dampingRatio = .78f, stiffness = 520f, visibilityThreshold = .0005f)
                 } else {
                     tween(
                         durationMillis = (CalinoMotion.PillUnmorphMillis * remaining).roundToInt().coerceAtLeast(1),

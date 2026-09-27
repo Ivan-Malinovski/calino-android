@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.snap
 import androidx.compose.ui.graphics.TransformOrigin
@@ -516,7 +515,7 @@ fun AdaptiveSurfaceHost(
                     when {
                         !morphs -> snap()
                         targetState == EnterExitState.Visible -> CalinoMotion.containerTransform()
-                        else -> tween(CalinoMotion.ContainerReturnMillis, easing = FastOutSlowInEasing)
+                        else -> tween(CalinoMotion.ContainerReturnMillis, easing = CalinoMotion.EmphasizedAccelerate)
                     }
                 },
                 label = "adaptive surface origin morph",

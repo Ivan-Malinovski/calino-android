@@ -441,13 +441,16 @@ object CalinoMotion {
     )
 
     /**
-     * A surface growing out of the record it shows. Unbouncy: the panel is
-     * clipped to its travelling bounds, and an overshoot would briefly draw
-     * the card larger than itself.
+     * A surface growing out of the record it shows: Material 3 Expressive's
+     * default spatial spring (damping .9, stiffness 700). Its sub-percent
+     * overshoot is clamped by the caller. The tight visibility threshold
+     * matters: with the default 1% the spring creeps through its tail and
+     * then snaps the remaining distance, which reads as a hitch as it lands.
      */
-    fun <T> containerTransform(): FiniteAnimationSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = 380f,
+    fun containerTransform(): FiniteAnimationSpec<Float> = spring(
+        dampingRatio = .9f,
+        stiffness = 700f,
+        visibilityThreshold = .0005f,
     )
 
     /**
@@ -455,6 +458,9 @@ object CalinoMotion {
      * inside the unmount delay the detail surfaces wait before removal.
      */
     const val ContainerReturnMillis = 200
+
+    /** Material 3 emphasized accelerate, for a surface leaving for good. */
+    val EmphasizedAccelerate = androidx.compose.animation.core.CubicBezierEasing(.3f, 0f, .8f, .15f)
 
     fun <T> gestureReturn(): FiniteAnimationSpec<T> = spring(
         dampingRatio = .86f,
