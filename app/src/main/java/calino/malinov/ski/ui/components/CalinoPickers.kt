@@ -85,6 +85,7 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.util.lerp
@@ -251,23 +252,31 @@ private fun PickerCard(
             },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(Modifier.weight(1f)) {
             Row(
                 Modifier
+                    .weight(1f)
                     .heightIn(min = 44.dp)
                     .clip(RoundedCornerShape(CalinoShapes.Row))
                     .then(if (onTitleClick != null) Modifier.calinoPressable(onClick = onTitleClick) else Modifier)
                     .semantics { if (onTitleClick != null) stateDescription = if (titleOpen) "Choosing month" else "Showing days" },
-                verticalAlignment = Alignment.Bottom,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(title, style = CalinoTypography.titleLarge, color = CalinoColors.Ink)
+                Text(
+                    title,
+                    style = CalinoTypography.titleLarge,
+                    color = CalinoColors.Ink,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 // Quieter, beside the title, as the calendar's own month heading has it.
                 if (titleAside != null) {
                     Text(
                         titleAside,
                         style = CalinoTypography.titleSmall,
                         color = CalinoColors.Ink3,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 2.dp),
+                        modifier = Modifier.padding(start = 8.dp),
+                        maxLines = 1,
                     )
                 }
                 if (onTitleClick != null) {
@@ -276,10 +285,9 @@ private fun PickerCard(
                         CalinoIcons.ChevronDown,
                         contentDescription = null,
                         tint = CalinoColors.Ink3,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 6.dp).size(18.dp).graphicsLayer { rotationZ = turn },
+                        modifier = Modifier.padding(start = 4.dp).size(18.dp).graphicsLayer { rotationZ = turn },
                     )
                 }
-            }
             }
             headerEnd()
         }
