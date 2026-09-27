@@ -11,6 +11,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
@@ -84,6 +85,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -226,7 +228,26 @@ private fun PickerCard(
             .semantics { paneTitle = title }
             .padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        val density = LocalDensity.current
+        val dismissDistance = with(density) { 72.dp.toPx() }
+        var headerDrag by remember { mutableStateOf(Offset.Zero) }
+        Row(
+            modifier = Modifier.pointerInput(onCancel, dismissDistance) {
+                detectDragGestures(
+                    onDragStart = { headerDrag = Offset.Zero },
+                    onDragEnd = {
+                        if (headerDrag.y > dismissDistance && headerDrag.y > abs(headerDrag.x)) onCancel()
+                        headerDrag = Offset.Zero
+                    },
+                    onDragCancel = { headerDrag = Offset.Zero },
+                    onDrag = { change, amount ->
+                        headerDrag += amount
+                        if (headerDrag.y > 0f && headerDrag.y > abs(headerDrag.x)) change.consume()
+                    },
+                )
+            },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Row(Modifier.weight(1f)) {
             Row(
                 Modifier
