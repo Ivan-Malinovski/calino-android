@@ -67,6 +67,7 @@ fun BottomDetailOverlay(
     surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
     preferredSurfaceHeight: androidx.compose.ui.unit.Dp? = null,
     pill: (@Composable () -> Unit)? = null,
+    origin: SurfaceOriginBounds? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     AdaptiveSurfaceHost(
@@ -77,6 +78,7 @@ fun BottomDetailOverlay(
         contentDescription = "Dismiss detail card",
         preferredSurfaceHeight = preferredSurfaceHeight,
         pill = pill,
+        origin = origin,
         content = content,
     )
 }

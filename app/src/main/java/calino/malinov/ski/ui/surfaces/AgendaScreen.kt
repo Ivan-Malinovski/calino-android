@@ -69,6 +69,7 @@ import calino.malinov.ski.state.LocalFoldPosture
 import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.tasksDueOn
 import calino.malinov.ski.ui.components.AgendaRow
+import calino.malinov.ski.ui.components.calinoSurfaceOrigin
 import calino.malinov.ski.ui.components.AgendaRowVariant
 import calino.malinov.ski.ui.components.eventColor
 import calino.malinov.ski.ui.components.AgendaTaskRow
@@ -497,7 +498,7 @@ internal fun AgendaDayBlock(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 dayEvents.forEach { event ->
                     var menuOpen by remember(event.id) { mutableStateOf(false) }
-                    Box {
+                    Box(Modifier.calinoSurfaceOrigin(event.id, CalinoShapes.Row)) {
                         AgendaRow(
                             title = event.title,
                             color = eventColor(event.color),

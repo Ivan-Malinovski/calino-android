@@ -2,6 +2,13 @@ package calino.malinov.ski.ui.components
 
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.snap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -207,6 +214,9 @@ fun AdaptiveSurfaceHost(
     contentDescription: String = "Dismiss surface",
     preferredSurfaceHeight: Dp? = null,
     pill: (@Composable () -> Unit)? = null,
+    // Where the record this surface shows was touched. When given, the panel
+    // grows out of that rectangle and returns to it instead of sliding.
+    origin: SurfaceOriginBounds? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
@@ -376,6 +386,15 @@ fun AdaptiveSurfaceHost(
             CalinoSurfaceMode.EndPanel ->
                 slideOutHorizontally(tween(220)) { it } + fadeOut(tween(150))
         }
+        // A card leaving under the finger or the back gesture is already on
+        // its way somewhere; pulling it back into its origin from there would
+        // reverse the motion the person started. Sampled when visibility
+        // flips, which is when the exit is chosen.
+        val gestureExit = remember(visible) {
+            !visible && (dismissDrag.progress > 0f || predictiveBackProgress > 0f)
+        }
+        val morphs = origin != null && !gestureExit
+        var panelRootRect by remember { mutableStateOf<Rect?>(null) }
         val panelModifier: Modifier = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
                 Modifier
@@ -484,18 +503,55 @@ fun AdaptiveSurfaceHost(
         ) {
         AnimatedVisibility(
             visible = mounted && visible,
-            enter = enter,
-            exit = exit,
+            enter = if (origin != null) EnterTransition.None else enter,
+            exit = if (morphs) ExitTransition.None else exit,
             modifier = Modifier.fillMaxSize(),
             label = "adaptive surface visibility",
         ) {
+            // 0 at the origin rectangle, 1 at the panel's own bounds. Held at
+            // 1 whenever there is no origin to travel to, so it never adds to
+            // the ordinary enter and exit.
+            val morph by transition.animateFloat(
+                transitionSpec = {
+                    when {
+                        !morphs -> snap()
+                        targetState == EnterExitState.Visible -> CalinoMotion.containerTransform()
+                        else -> tween(CalinoMotion.ContainerReturnMillis, easing = FastOutSlowInEasing)
+                    }
+                },
+                label = "adaptive surface origin morph",
+            ) { state -> if (state == EnterExitState.Visible || !morphs) 1f else 0f }
             // AnimatedVisibility is not a BoxScope, so alignment modifiers on
             // its direct child are only metadata. Give the panel a real Box
             // parent or CenterEnd/Center would be ignored and the child could
             // be measured at the full window width.
             Box(Modifier.fillMaxSize()) {
                 Box(
-                    panelModifier.graphicsLayer {
+                    panelModifier
+                        .onGloballyPositioned { coords ->
+                            panelRootRect = Rect(
+                                coords.positionInRoot(),
+                                androidx.compose.ui.geometry.Size(
+                                    coords.size.width.toFloat(),
+                                    coords.size.height.toFloat(),
+                                ),
+                            )
+                        }
+                        .graphicsLayer {
+                        val from = origin?.rect
+                        val to = panelRootRect
+                        val progress = morph.coerceIn(0f, 1f)
+                        if (from != null && progress < 1f) {
+                            if (to == null || to.width <= 0f) {
+                                // Not placed yet: nothing to grow into.
+                                alpha = 0f
+                                return@graphicsLayer
+                            }
+                            applyOriginMorph(from, to, progress, origin!!.cornerRadius.toPx(), PanelCornerRadius.toPx())
+                            return@graphicsLayer
+                        }
+                        transformOrigin = TransformOrigin.Center
+                        clip = false
                         val predictiveX = when (mode) {
                             CalinoSurfaceMode.EndPanel -> size.width * predictiveBackProgress
                             else -> 0f
@@ -602,6 +658,56 @@ private fun RootAnchoredPill(anchor: Rect, content: @Composable () -> Unit) {
         }
     }
 }
+
+/**
+ * One frame of a panel growing out of [from] into [to], both in root space.
+ *
+ * The visible rectangle travels from the origin to the panel. The panel is
+ * scaled uniformly -- to the travelling width -- so its content is never
+ * stretched, and clipped at the bottom to the travelling height. At the start
+ * the panel's top edge is therefore drawn shrunk into the event's own card,
+ * and it opens downward and outward from there. It fades in over the first
+ * part of the trip so the handover from the card it replaces is not a cut.
+ */
+private fun androidx.compose.ui.graphics.GraphicsLayerScope.applyOriginMorph(
+    from: Rect,
+    to: Rect,
+    progress: Float,
+    fromCorner: Float,
+    toCorner: Float,
+) {
+    fun lerp(a: Float, b: Float) = a + (b - a) * progress
+    val width = lerp(from.width, to.width).coerceAtLeast(1f)
+    val height = lerp(from.height, to.height).coerceAtLeast(1f)
+    val scale = width / to.width
+    transformOrigin = TransformOrigin(0f, 0f)
+    scaleX = scale
+    scaleY = scale
+    translationX = lerp(from.left, to.left) - to.left
+    translationY = lerp(from.top, to.top) - to.top
+    alpha = (progress / OriginFadeFraction).coerceIn(0f, 1f)
+    val clipHeight = (height / scale).coerceAtMost(size.height)
+    val corner = lerp(fromCorner, toCorner) / scale
+    clip = true
+    shape = object : androidx.compose.ui.graphics.Shape {
+        override fun createOutline(
+            size: androidx.compose.ui.geometry.Size,
+            layoutDirection: LayoutDirection,
+            density: androidx.compose.ui.unit.Density,
+        ) = androidx.compose.ui.graphics.Outline.Rounded(
+            androidx.compose.ui.geometry.RoundRect(
+                0f, 0f, size.width, clipHeight,
+                androidx.compose.ui.geometry.CornerRadius(corner),
+            ),
+        )
+    }
+}
+
+/** How much of an origin morph the panel spends fading in. */
+private const val OriginFadeFraction = .3f
+
+/** The detail card's own corner, which the travelling clip arrives at. */
+private val PanelCornerRadius = 28.dp
 
 /**
  * Just inside the host's own unmount delay, so the card finishes leaving

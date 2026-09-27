@@ -121,8 +121,15 @@ suspend fun CalinoRepository.moveEventToDate(event: CalEvent, date: java.time.Lo
     )
 }
 
-/** Moves a timed event on the day rail while preserving its duration. */
-suspend fun CalinoRepository.moveEventToDateTime(event: CalEvent, start: LocalDateTime): WriteResult<CalEvent> {
+/**
+ * Moves a timed event on the day rail. Its duration is preserved unless
+ * [durationMinutes] is given, which is how dragging its end edge resizes it.
+ */
+suspend fun CalinoRepository.moveEventToDateTime(
+    event: CalEvent,
+    start: LocalDateTime,
+    durationMinutes: Int? = event.durationMinutes,
+): WriteResult<CalEvent> {
     if (event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null) {
         return WriteResult.Rejected("Recurring events cannot be moved from a single occurrence.")
     }
@@ -133,7 +140,7 @@ suspend fun CalinoRepository.moveEventToDateTime(event: CalEvent, start: LocalDa
             title = event.title,
             date = start.toLocalDate(),
             startTime = start.toLocalTime(),
-            durationMinutes = event.durationMinutes,
+            durationMinutes = durationMinutes,
             allDay = false,
             color = event.color,
             location = event.location,
@@ -153,6 +160,13 @@ suspend fun CalinoRepository.moveEventToDateTime(event: CalEvent, start: LocalDa
             etag = event.etag,
         ),
     )
+}
+
+/** Changes a timed event's length, keeping where it starts. */
+suspend fun CalinoRepository.resizeEvent(event: CalEvent, durationMinutes: Int): WriteResult<CalEvent> {
+    val start = event.start
+    if (event.allDay || start == null) return WriteResult.Rejected("Only timed events can be resized.")
+    return moveEventToDateTime(event, start, durationMinutes)
 }
 
 /** Converts through the repository so fixture and CalDAV surfaces share behavior. */

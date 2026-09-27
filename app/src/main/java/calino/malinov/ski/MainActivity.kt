@@ -182,6 +182,7 @@ import calino.malinov.ski.platform.AndroidCalendarId
 import calino.malinov.ski.platform.AndroidCalendarSource
 import calino.malinov.ski.data.repository.moveEventToDate
 import calino.malinov.ski.data.repository.moveEventToDateTime
+import calino.malinov.ski.data.repository.resizeEvent
 import calino.malinov.ski.data.repository.accepts
 import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.design.CalinoMotion
@@ -1753,6 +1754,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         launchWrite({ repository.moveEventToDateTime(event, start) }, indicate = PillWriteKind.Save)
     }
 
+    fun handleEventResize(event: CalEvent, durationMinutes: Int) {
+        if (event.durationMinutes == durationMinutes || !eventIsMovable(event)) return
+        launchWrite({ repository.resizeEvent(event, durationMinutes) }, indicate = PillWriteKind.Save)
+    }
+
     fun restoreDetailOrigin() {
         when (detailOrigin) {
             PocReturnTarget.DayModal -> {
@@ -2099,6 +2105,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onEventAction = ::handleEventAction,
                         onEventDrop = ::handleEventDrop,
                         onEventTimeDrop = ::handleEventTimeDrop,
+                        onEventResize = ::handleEventResize,
                         onCreateEventAt = { start ->
                             selectCalendarDate(start.toLocalDate())
                             openQuickAdd(

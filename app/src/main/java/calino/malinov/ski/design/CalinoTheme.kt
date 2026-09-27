@@ -440,6 +440,22 @@ object CalinoMotion {
         stiffness = Spring.StiffnessMediumLow,
     )
 
+    /**
+     * A surface growing out of the record it shows. Unbouncy: the panel is
+     * clipped to its travelling bounds, and an overshoot would briefly draw
+     * the card larger than itself.
+     */
+    fun <T> containerTransform(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 380f,
+    )
+
+    /**
+     * The return trip into the origin. Timed rather than sprung so it ends
+     * inside the unmount delay the detail surfaces wait before removal.
+     */
+    const val ContainerReturnMillis = 200
+
     fun <T> gestureReturn(): FiniteAnimationSpec<T> = spring(
         dampingRatio = .86f,
         stiffness = 420f,

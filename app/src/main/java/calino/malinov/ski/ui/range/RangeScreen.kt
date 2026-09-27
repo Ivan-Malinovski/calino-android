@@ -128,6 +128,7 @@ fun RangeScreen(
     onEventAction: (EventMenuAction, CalEvent) -> Unit,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
     onEventTimeDrop: (CalEvent, LocalDateTime) -> Unit,
+    onEventResize: (CalEvent, Int) -> Unit,
     onCreateEventAt: (LocalDateTime) -> Unit,
     onTaskClick: (CalTask) -> Unit,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
@@ -228,6 +229,7 @@ fun RangeScreen(
                 onEventAction = onEventAction,
                 onEventDrop = onEventDrop,
                 onEventTimeDrop = onEventTimeDrop,
+                onEventResize = onEventResize,
                 onCreateEventAt = onCreateEventAt,
                 onTaskClick = onTaskClick,
                 onTaskAction = onTaskAction,
@@ -252,6 +254,7 @@ private fun RangePagerSurface(
     onEventAction: (EventMenuAction, CalEvent) -> Unit,
     onEventDrop: (CalEvent, LocalDate) -> Unit,
     onEventTimeDrop: (CalEvent, LocalDateTime) -> Unit,
+    onEventResize: (CalEvent, Int) -> Unit,
     onCreateEventAt: (LocalDateTime) -> Unit,
     onTaskClick: (CalTask) -> Unit,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
@@ -277,7 +280,7 @@ private fun RangePagerSurface(
         activeMode,
         weekStart,
     )
-    val dragTarget = drag?.let { session ->
+    val dragTarget = drag?.takeUnless { it.resize }?.let { session ->
         val day = rangeDropDay(
             session.pointer.x,
             hostWidth,
@@ -294,6 +297,27 @@ private fun RangePagerSurface(
                 hourHeight = hourHeightPx,
             )
         } else null
+    }
+
+    // The length a held end edge would give the event, on the same quarter-hour
+    // grid a move snaps to. Shared by the preview and the write on release.
+    val resizeTarget = drag?.takeIf { it.resize }?.let { session ->
+        rangeResizeDuration(
+            start = session.card.event.start!!,
+            durationMinutes = session.card.event.durationMinutes!!,
+            dragY = session.offset.y,
+            scrollDelta = timelineScroll.value - session.scrollAtLift,
+            hourHeight = hourHeightPx,
+        )
+    }
+    var lastHapticDuration by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(resizeTarget) {
+        val minutes = resizeTarget ?: return@LaunchedEffect
+        val previous = lastHapticDuration
+        if (previous != null && minutes != previous) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        lastHapticDuration = minutes
     }
 
     LaunchedEffect(dragTarget?.toLocalTime()) {
@@ -349,13 +373,23 @@ private fun RangePagerSurface(
                     cardBounds.values.firstOrNull { it.day in visible && it.rootRect.contains(root) }
                 },
                 onLift = { card, pointer ->
-                    drag = RangeDragSession(card, pointer = pointer, scrollAtLift = timelineScroll.value)
+                    val resize = rangeCanResize(card.event, card.day) && rangeInResizeEdge(
+                        pointerY = pointer.y + hostOrigin.y,
+                        cardTop = card.rootRect.top,
+                        cardBottom = card.rootRect.bottom,
+                        edge = with(density) { RangeResizeEdge.toPx() },
+                    )
+                    drag = RangeDragSession(card, pointer = pointer, scrollAtLift = timelineScroll.value, resize = resize)
                     lastHapticMinute = card.event.start?.toLocalTime()
+                    lastHapticDuration = card.event.durationMinutes.takeIf { resize }
                 },
                 onDragStart = { menuDismissalGeneration++ },
                 onDrag = { delta, pointer ->
                     drag = drag?.let { it.copy(offset = it.offset + delta, pointer = pointer) }
-                    edgeDirection = rangeEdgeDirection(pointer.x, hostWidth, with(density) { RangeEdgeTurnZone.toPx() })
+                    // An end edge stays in its own day, so it never turns pages.
+                    edgeDirection = if (drag?.resize == true) 0 else {
+                        rangeEdgeDirection(pointer.x, hostWidth, with(density) { RangeEdgeTurnZone.toPx() })
+                    }
                     autoScrollDirection = edgeScrollDirection(
                         pointer.y,
                         hostHeight,
@@ -368,7 +402,13 @@ private fun RangePagerSurface(
                     autoScrollDirection = 0
                     drag = null
                     lastHapticMinute = null
-                    if (session != null) {
+                    lastHapticDuration = null
+                    if (session != null && session.resize) {
+                        val minutes = resizeTarget
+                        if (minutes != null && minutes != session.card.event.durationMinutes) {
+                            onEventResize(session.card.event, minutes)
+                        }
+                    } else if (session != null) {
                         val start = session.card.event.start
                         val target = dragTarget
                         if (start != null && target != null) {
@@ -376,7 +416,13 @@ private fun RangePagerSurface(
                         }
                     }
                 },
-                onCancel = { edgeDirection = 0; autoScrollDirection = 0; drag = null; lastHapticMinute = null },
+                onCancel = {
+                    edgeDirection = 0
+                    autoScrollDirection = 0
+                    drag = null
+                    lastHapticMinute = null
+                    lastHapticDuration = null
+                },
             ),
     ) {
         HorizontalPager(
@@ -469,7 +515,17 @@ private fun RangePagerSurface(
                 hideAccentRail = true,
             )
         }
-        drag?.let { session ->
+        val resizing = drag?.takeIf { it.resize }
+        if (resizing != null && resizeTarget != null) {
+            RangeResizePreview(
+                session = resizing,
+                durationMinutes = resizeTarget,
+                hostOrigin = hostOrigin,
+                scrollDelta = timelineScroll.value - resizing.scrollAtLift,
+                hourHeightPx = hourHeightPx,
+            )
+        }
+        drag?.takeUnless { it.resize }?.let { session ->
             val rect = session.card.rootRect
             TimelineEventCard(
                 modifier = Modifier
@@ -645,7 +701,114 @@ private data class RangeDragSession(
     val offset: Offset = Offset.Zero,
     val pointer: Offset,
     val scrollAtLift: Int,
+    /** Lifted by its end edge: the drag changes the length, not the start. */
+    val resize: Boolean = false,
 )
+
+/**
+ * A card being stretched by its end edge.
+ *
+ * The card itself follows the finger exactly -- its start stays pinned to the
+ * rail, scrolling with it, and its end is wherever the finger is. Behind it a
+ * faint copy shows the quarter-hour length a release would commit, and the
+ * gutter names that end time, the way a move names its start.
+ */
+@Composable
+private fun RangeResizePreview(
+    session: RangeDragSession,
+    durationMinutes: Int,
+    hostOrigin: Offset,
+    scrollDelta: Int,
+    hourHeightPx: Float,
+) {
+    val density = LocalDensity.current
+    val timeFormat = LocalTimeFormat
+    val preferences = LocalCalinoPreferences.current
+    val rect = session.card.rootRect
+    val event = session.card.event
+    val start = event.start!!
+    val startMinute = start.hour * 60 + start.minute
+    val inset = with(density) { RangeCardBottomInset.toPx() }
+    val minHeight = with(density) { RangeCardMinHeight.toPx() }
+    fun cardHeight(minutes: Int) = (minutes / 60f * hourHeightPx - inset).coerceAtLeast(minHeight)
+    val top = rect.top - hostOrigin.y - scrollDelta
+    val left = rect.left - hostOrigin.x
+    val liveHeight = (rect.height + session.offset.y + scrollDelta)
+        .coerceIn(cardHeight(RangeMinResizeMinutes), cardHeight(24 * 60 - startMinute))
+    val snappedHeight = cardHeight(durationMinutes)
+    val end = start.plusMinutes(durationMinutes.toLong())
+    val endLabel = timeFormat.format(end.toLocalTime())
+    val width = with(density) { rect.width.toDp() }
+    TimelineEventCard(
+        modifier = Modifier
+            .width(width)
+            .height(with(density) { snappedHeight.toDp() })
+            .graphicsLayer {
+                translationX = left
+                translationY = top
+                alpha = .34f
+            }
+            .semantics { contentDescription = "Resize preview, ends $endLabel" },
+        event = event,
+        showMetadata = session.card.showMetadata,
+        timeFormat = timeFormat,
+        preferences = preferences,
+        colors = CalinoColors,
+        hideAccentRail = true,
+    )
+    Text(
+        text = endLabel,
+        modifier = Modifier
+            .width(CalinoSpacing.RailGutter - 6.dp)
+            .graphicsLayer {
+                translationX = with(density) { 3.dp.toPx() }
+                translationY = top + snappedHeight + inset - with(density) { 8.dp.toPx() }
+            }
+            .clip(RoundedCornerShape(7.dp))
+            .background(CalinoColors.Canvas.copy(alpha = .94f))
+            .border(1.dp, CalinoColors.Accent.copy(alpha = .7f), RoundedCornerShape(7.dp))
+            .padding(horizontal = 3.dp, vertical = 2.dp)
+            .semantics { contentDescription = "Resize end time, $endLabel" },
+        color = CalinoColors.Accent,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        textAlign = TextAlign.Center,
+    )
+    TimelineEventCard(
+        modifier = Modifier
+            .width(width)
+            .height(with(density) { liveHeight.toDp() })
+            .graphicsLayer {
+                translationX = left
+                translationY = top
+            },
+        event = event,
+        showMetadata = session.card.showMetadata,
+        timeFormat = timeFormat,
+        preferences = preferences,
+        colors = CalinoColors,
+        lifted = true,
+        liftFromTop = true,
+        hideAccentRail = true,
+    ) {
+        // The edge being held, so the card says which end it is carrying.
+        Box(Modifier.fillMaxSize().padding(bottom = 3.dp), contentAlignment = Alignment.BottomCenter) {
+            Box(
+                Modifier.width(18.dp).height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(CalinoColors.Accent.copy(alpha = .8f)),
+            )
+        }
+    }
+}
+
+/** How far up from a card's end a lift takes the edge instead of the card. */
+private val RangeResizeEdge = 14.dp
+
+/** Mirrors the rail's card geometry: a 4dp gap below each card, 24dp minimum. */
+private val RangeCardBottomInset = 4.dp
+private val RangeCardMinHeight = 24.dp
 
 /** Lanes shown at rest before the all-day band's overflow row takes over. */
 private const val RangeBandLaneLimit = 2

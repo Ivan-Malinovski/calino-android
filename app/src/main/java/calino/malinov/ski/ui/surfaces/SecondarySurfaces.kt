@@ -186,6 +186,8 @@ import calino.malinov.ski.design.eventTint
 import calino.malinov.ski.qa.TaskBucket
 import calino.malinov.ski.qa.taskBucket
 import calino.malinov.ski.ui.components.BottomDetailOverlay
+import calino.malinov.ski.ui.components.LocalCalinoSurfaceOrigin
+import calino.malinov.ski.ui.components.calinoSurfaceOrigin
 import calino.malinov.ski.ui.components.calinoSurfaceEdgeFade
 import calino.malinov.ski.ui.components.calinoSurfaceShadowBleed
 import calino.malinov.ski.ui.components.AdaptiveDetailCard
@@ -364,7 +366,7 @@ private fun label(text: String, modifier: Modifier = Modifier) = Text(text.upper
 private fun AgendaCard(event: CalEvent, onClick: () -> Unit = {}) {
     val color = eventColor(event)
     val timeFormat = LocalTimeFormat
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(11.dp), colors = CardDefaults.cardColors(CalinoColors.Panel), border = androidx.compose.foundation.BorderStroke(1.dp, CalinoColors.Ink.copy(alpha = .07f))) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth().calinoSurfaceOrigin(event.id, 11.dp), shape = RoundedCornerShape(11.dp), colors = CardDefaults.cardColors(CalinoColors.Panel), border = androidx.compose.foundation.BorderStroke(1.dp, CalinoColors.Ink.copy(alpha = .07f))) {
         Row(Modifier.padding(vertical = 10.dp, horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(3.dp).height(40.dp).clip(RoundedCornerShape(3.dp)).background(color)); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -710,10 +712,17 @@ fun EventDetailSurface(
         }
     }
 
+    val initialPage = remember { events.indexOfFirst { it.id == event.id }.coerceAtLeast(0) }
     val pager = rememberPagerState(
-        initialPage = events.indexOfFirst { it.id == event.id }.coerceAtLeast(0),
+        initialPage = initialPage,
         pageCount = { events.size },
     )
+    // Taken once, as the surface first composes: the card grows out of the
+    // event that was tapped. It only returns there while that event is still
+    // the one showing -- after a swipe to a neighbour the tapped card is no
+    // longer what this surface is about.
+    val originRecorder = LocalCalinoSurfaceOrigin.current
+    val origin = remember { originRecorder.take(event.id) }
     val currentSelectionCallback by rememberUpdatedState(onEventSelected)
     LaunchedEffect(pager, events) {
         snapshotFlow { pager.settledPage }.collect { page ->
@@ -764,6 +773,7 @@ fun EventDetailSurface(
         onDismiss = { closeAfterAnimation(onBack) },
         surfaceKind = CalinoSurfaceKind.EventPreviewCompact,
         preferredSurfaceHeight = preferredPreviewHeight,
+        origin = origin.takeIf { pager.currentPage == initialPage },
         pill = {
             val state = pillState
             ModalActionPill(

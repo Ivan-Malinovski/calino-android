@@ -1,5 +1,6 @@
 package calino.malinov.ski.ui.range
 
+import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoWeekStart
 import calino.malinov.ski.util.startOfWeek
@@ -59,4 +60,49 @@ internal fun rangeDropTarget(
     val startMinute = start.hour * 60 + start.minute
     val targetMinute = (startMinute + minuteDelta).coerceIn(0, 23 * 60 + 45)
     return day.atStartOfDay().plusMinutes(targetMinute.toLong())
+}
+
+/** The shortest an event can be dragged to by its end edge. */
+internal const val RangeMinResizeMinutes = 15
+
+/**
+ * Whether [event]'s end edge can be dragged on [day]'s rail: a timed event
+ * with a known length that starts and ends within that day, and is not part
+ * of a series. A card clipped at midnight is showing an end that is not its
+ * own.
+ */
+internal fun rangeCanResize(event: CalEvent, day: LocalDate): Boolean {
+    val start = event.start ?: return false
+    val duration = event.durationMinutes ?: return false
+    if (event.allDay || start.toLocalDate() != day) return false
+    // A single occurrence cannot be written back on its own yet; offering its
+    // edge would promise a change the write is going to refuse.
+    if (event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null) return false
+    return start.hour * 60 + start.minute + duration <= 24 * 60
+}
+
+/**
+ * Whether a lift at [pointerY] grabbed the card's end edge rather than its
+ * body. The edge lane is at most [edge] tall and never more than a third of
+ * the card, so a short card can still be picked up and moved.
+ */
+internal fun rangeInResizeEdge(pointerY: Float, cardTop: Float, cardBottom: Float, edge: Float): Boolean {
+    val height = cardBottom - cardTop
+    if (height <= 0f) return false
+    val lane = minOf(edge, height / 3f)
+    return pointerY >= cardBottom - lane && pointerY <= cardBottom
+}
+
+/** The length a held end edge gives, on the quarter-hour grid moves use. */
+internal fun rangeResizeDuration(
+    start: LocalDateTime,
+    durationMinutes: Int,
+    dragY: Float,
+    scrollDelta: Int,
+    hourHeight: Float,
+): Int {
+    if (hourHeight <= 0f) return durationMinutes
+    val minuteDelta = (((dragY + scrollDelta) / hourHeight) * 4f).roundToInt() * 15
+    val latest = 24 * 60 - (start.hour * 60 + start.minute)
+    return (durationMinutes + minuteDelta).coerceIn(minOf(RangeMinResizeMinutes, durationMinutes), latest)
 }

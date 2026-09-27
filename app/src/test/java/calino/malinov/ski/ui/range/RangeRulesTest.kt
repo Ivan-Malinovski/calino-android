@@ -1,10 +1,13 @@
 package calino.malinov.ski.ui.range
 
+import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoWeekStart
 import java.time.LocalDate
 import java.time.LocalDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RangeRulesTest {
@@ -86,5 +89,42 @@ class RangeRulesTest {
             LocalDateTime.of(2026, 9, 17, 23, 45),
             rangeDropTarget(start, wednesday.plusDays(1), dragY = 500f, scrollDelta = 0, hourHeight = 62f),
         )
+    }
+
+    private fun timed(start: LocalDateTime, minutes: Int, recurrence: String? = null) =
+        CalEvent("evt", "Event", 0xFF5B7FB5, start, minutes, recurrence = recurrence, calendarId = "work")
+
+    @Test fun `end edge resizes on the quarter-hour grid`() {
+        val start = LocalDateTime.of(2026, 9, 16, 9, 0)
+        // Half an hour at 62dp per hour, nudged a little further.
+        assertEquals(90, rangeResizeDuration(start, 60, dragY = 33f, scrollDelta = 0, hourHeight = 62f))
+        assertEquals(60, rangeResizeDuration(start, 60, dragY = 7f, scrollDelta = 0, hourHeight = 62f))
+        // Scrolling while held counts as travel, like it does for a move.
+        assertEquals(90, rangeResizeDuration(start, 60, dragY = 0f, scrollDelta = 31, hourHeight = 62f))
+    }
+
+    @Test fun `end edge stops at a quarter hour and at midnight`() {
+        val start = LocalDateTime.of(2026, 9, 16, 22, 0)
+        assertEquals(15, rangeResizeDuration(start, 60, dragY = -500f, scrollDelta = 0, hourHeight = 62f))
+        assertEquals(120, rangeResizeDuration(start, 60, dragY = 900f, scrollDelta = 0, hourHeight = 62f))
+        // An event already shorter than the floor is not lengthened by lifting it.
+        assertEquals(10, rangeResizeDuration(start, 10, dragY = 0f, scrollDelta = 0, hourHeight = 62f))
+    }
+
+    @Test fun `only single timed events inside the day offer their end edge`() {
+        val start = LocalDateTime.of(2026, 9, 16, 9, 0)
+        assertTrue(rangeCanResize(timed(start, 60), wednesday))
+        assertFalse(rangeCanResize(timed(start, 60), wednesday.plusDays(1)))
+        assertFalse(rangeCanResize(timed(start.withHour(23), 120), wednesday))
+        assertFalse(rangeCanResize(timed(start, 60, recurrence = "FREQ=DAILY"), wednesday))
+        assertFalse(rangeCanResize(timed(start, 60).copy(allDay = true), wednesday))
+    }
+
+    @Test fun `end edge lane is a thin strip that leaves short cards movable`() {
+        assertTrue(rangeInResizeEdge(pointerY = 195f, cardTop = 100f, cardBottom = 200f, edge = 14f))
+        assertFalse(rangeInResizeEdge(pointerY = 180f, cardTop = 100f, cardBottom = 200f, edge = 14f))
+        // A 27px card gives up at most a third of itself to the edge.
+        assertTrue(rangeInResizeEdge(pointerY = 125f, cardTop = 100f, cardBottom = 127f, edge = 14f))
+        assertFalse(rangeInResizeEdge(pointerY = 116f, cardTop = 100f, cardBottom = 127f, edge = 14f))
     }
 }

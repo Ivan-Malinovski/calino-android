@@ -252,6 +252,7 @@ private fun AllDayEventChip(
     Row(
         Modifier
             .fillMaxSize()
+            .calinoSurfaceOrigin(event.id, chipRadius)
             .clip(shape)
             .background(eventTint(rawColor, .12f, CalinoColors.Panel), shape)
             .border(1.dp, edgeColor.copy(alpha = .16f), shape)

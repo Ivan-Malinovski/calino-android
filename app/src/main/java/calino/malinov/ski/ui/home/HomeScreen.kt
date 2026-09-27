@@ -153,6 +153,7 @@ import calino.malinov.ski.data.model.spanLengthDays
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.ui.components.AbsentParentRow
 import calino.malinov.ski.ui.components.AllDayBand
+import calino.malinov.ski.ui.components.calinoSurfaceOrigin
 import calino.malinov.ski.ui.components.AllDayBandDensity
 import calino.malinov.ski.ui.components.taskNestIndent
 import calino.malinov.ski.state.LocalTaskLookup
@@ -5565,7 +5566,9 @@ private fun EventChip(
     }
     Column {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = maxOf(44.dp, minHeight)).clip(shape)
+        Modifier.fillMaxWidth().heightIn(min = maxOf(44.dp, minHeight))
+            .calinoSurfaceOrigin(event.id, if (agendaStyle) 10.dp else 6.dp)
+            .clip(shape)
             .then(rowInteraction)
             .graphicsLayer { translationY = dragDistance }
             .zIndex(if (abs(dragDistance) > .5f) 1f else 0f)
@@ -6660,6 +6663,7 @@ internal fun HourRailContent(
                             )
                         }
                         .alpha(if (draggingCardKey == cardKey) 0f else 1f)
+                        .calinoSurfaceOrigin(event.id, if (laneWidth < 72.dp) 6.dp else 11.dp)
                         .then(directDragInteraction)
                         .semantics(mergeDescendants = true) {
                             contentDescription = eventDescription(event, timeFormat)
@@ -7071,6 +7075,9 @@ internal fun TimelineEventCard(
     preferences: calino.malinov.ski.state.CalinoPreferences,
     colors: calino.malinov.ski.design.CalinoPalette,
     lifted: Boolean = false,
+    // A card stretched by its end edge keeps its start where the rail puts
+    // it, so its lift grows from the top instead of around its centre.
+    liftFromTop: Boolean = false,
     hideAccentRail: Boolean = false,
     content: @Composable (() -> Unit)? = null,
 ) {
@@ -7090,6 +7097,7 @@ internal fun TimelineEventCard(
             .graphicsLayer {
                 scaleX = liftScale
                 scaleY = liftScale
+                if (liftFromTop) transformOrigin = TransformOrigin(.5f, 0f)
                 shadowElevation = liftShadow.toPx()
                 this.shape = shape
             },
