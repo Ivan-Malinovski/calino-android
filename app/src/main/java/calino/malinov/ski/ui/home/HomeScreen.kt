@@ -3612,7 +3612,11 @@ private fun MonthEventTarget(
     var menuOpen by remember(event.id) { mutableStateOf(false) }
     val timeFormat = LocalTimeFormat
     val click = {
-        onEventClick?.invoke(event) ?: onDay(sourceDate)
+        // The month cell can be tapped without selecting its day first. Detail
+        // uses the committed day to seed an occurrence's editable date.
+        onDay(sourceDate)
+        onEventClick?.invoke(event)
+        Unit
     }
     Box(
         Modifier

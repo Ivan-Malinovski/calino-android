@@ -9,12 +9,16 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.Duration
+import java.time.temporal.ChronoUnit
 
 data class EventPreviewDraft(
     val title: String,
     val date: LocalDate,
     val startTime: LocalTime?,
     val durationMinutes: Int?,
+    /** Inclusive last day for an all-day span; timed ends come from duration. */
+    val allDayEndDate: LocalDate? = null,
     val location: String,
     val description: String,
 )
@@ -24,12 +28,55 @@ fun eventPreviewDraft(event: CalEvent) = EventPreviewDraft(
     date = event.start?.toLocalDate() ?: event.date ?: error("Event ${event.id} has no date"),
     startTime = event.start?.toLocalTime(),
     durationMinutes = event.durationMinutes,
+    allDayEndDate = event.endDate,
     location = event.location.orEmpty(),
     description = event.notes.orEmpty(),
 )
 
+val EventPreviewDraft.finish: LocalDateTime?
+    get() = startTime?.let {
+        val device = ZoneId.systemDefault()
+        date.atTime(it).atZone(device).toInstant()
+            .plusSeconds((durationMinutes ?: 0).toLong() * 60L)
+            .atZone(device).toLocalDateTime()
+    }
+
+val EventPreviewDraft.finishDate: LocalDate
+    get() = finish?.toLocalDate() ?: allDayEndDate ?: date
+
+/** Moving the start keeps the event's existing span. */
+fun EventPreviewDraft.withStartDate(picked: LocalDate): EventPreviewDraft = copy(
+    date = picked,
+    allDayEndDate = allDayEndDate?.plusDays(ChronoUnit.DAYS.between(date, picked)),
+)
+
+/** Moving the end keeps both the start and the end's displayed clock time. */
+fun EventPreviewDraft.withEndDate(picked: LocalDate): EventPreviewDraft {
+    val start = startTime ?: return copy(allDayEndDate = picked.takeIf { it != date })
+    val endTime = finish?.toLocalTime() ?: return this
+    val device = ZoneId.systemDefault()
+    val minutes = Duration.between(
+        date.atTime(start).atZone(device).toInstant(),
+        picked.atTime(endTime).atZone(device).toInstant(),
+    ).toMinutes()
+    return copy(durationMinutes = minutes.toInt())
+}
+
+fun EventPreviewDraft.withEndTime(picked: LocalTime): EventPreviewDraft {
+    val start = startTime ?: return this
+    val end = finishDate.atTime(picked)
+    val device = ZoneId.systemDefault()
+    val minutes = Duration.between(date.atTime(start).atZone(device).toInstant(), end.atZone(device).toInstant()).toMinutes()
+    // On a same-day event, an earlier clock time means the following day.
+    val resolved = if (minutes <= 0 && finishDate == date) {
+        Duration.between(date.atTime(start).atZone(device).toInstant(), end.plusDays(1).atZone(device).toInstant()).toMinutes()
+    } else minutes
+    return copy(durationMinutes = resolved.toInt())
+}
+
 fun EventPreviewDraft.validationError(): String? = when {
     title.isBlank() -> "Enter an event title."
+    startTime == null && allDayEndDate != null && allDayEndDate.isBefore(date) -> "End date must be on or after start date."
     startTime != null && (durationMinutes ?: 0) <= 0 -> "End time must be after start time."
     else -> null
 }
@@ -39,6 +86,7 @@ fun EventPreviewDraft.toNewEvent(event: CalEvent, scope: RecurrenceEditScope): N
     date = date,
     startTime = startTime,
     durationMinutes = if (startTime == null) null else durationMinutes,
+    endDate = if (startTime == null) allDayEndDate else null,
     allDay = startTime == null,
     color = event.color,
     recurrence = event.recurrence,

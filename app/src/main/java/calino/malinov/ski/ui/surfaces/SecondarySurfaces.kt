@@ -148,6 +148,7 @@ import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.model.upcomingOccurrences
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.data.model.occursOn
+import calino.malinov.ski.data.model.occurrenceStartCovering
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.JournalEntry
 import calino.malinov.ski.data.model.NewTask
@@ -216,7 +217,6 @@ import calino.malinov.ski.state.CalinoSurfaceMode
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.LocalTime
-import java.time.temporal.ChronoUnit
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
@@ -880,11 +880,13 @@ private fun EventDetailContent(
     onPillState: (EventPreviewPillState) -> Unit,
 ) {
     val tint = eventTint(eventColor(event), .13f, CalinoColors.Panel)
-    // An expansion of a series carries the master's DTSTART, so a card opened
-    // on the 22nd of May was stating the April date the series began on. The
-    // day that was tapped is the one the card is about.
+    // An expansion of a series carries the master's DTSTART. Resolve the
+    // occurrence shown by the tapped day; on day 2..n of a spanning event,
+    // that is still the span's start rather than the day under the finger.
     val original = remember(event, occurrenceDate) {
-        eventPreviewDraft(event).let { draft -> occurrenceDate?.let { draft.copy(date = it) } ?: draft }
+        eventPreviewDraft(event).let { draft ->
+            occurrenceDate?.let(event::occurrenceStartCovering)?.let(draft::withStartDate) ?: draft
+        }
     }
     var draft by remember(event.id, event.etag, occurrenceDate) { mutableStateOf(original) }
     var savedDraft by remember(event.id, event.etag, occurrenceDate) { mutableStateOf(original) }
@@ -960,17 +962,15 @@ private fun EventDetailContent(
     val deleteOccurrenceAction = {
         onDeleteEvent(event, if (isRecurringEvent(event)) RecurrenceEditScope.This else deleteScope)
     }
-    val pickDate = rememberDatePicker({ draft.date }) { edit { draft -> draft.copy(date = it) } }
+    val pickDate = rememberDatePicker({ draft.date }) { picked -> edit { it.withStartDate(picked) } }
+    val pickEndDate = rememberDatePicker({ draft.finishDate }) { picked -> edit { it.withEndDate(picked) } }
     val pickStartTime = rememberTimePicker({ draft.startTime }, title = "Starts") { picked ->
         // Keep the span the person already agreed to rather than snapping the
         // end back to an hour: moving a meeting is not re-planning its length.
         edit { it.copy(startTime = picked, durationMinutes = it.durationMinutes ?: DefaultEventMinutes) }
     }
-    val pickEndTime = rememberTimePicker({ draft.startTime?.plusMinutes(draft.durationMinutes?.toLong() ?: 0L) }, title = "Ends") { picked ->
-        val start = draft.startTime ?: return@rememberTimePicker
-        val span = java.time.Duration.between(start, picked).toMinutes()
-        val minutes = if (span <= 0) span + java.time.Duration.ofDays(1).toMinutes() else span
-        edit { it.copy(durationMinutes = minutes.toInt()) }
+    val pickEndTime = rememberTimePicker({ draft.finish?.toLocalTime() }, title = "Ends") { picked ->
+        edit { it.withEndTime(picked) }
     }
     val toggleAllDay = {
         edit {
@@ -1036,21 +1036,11 @@ private fun EventDetailContent(
             // The draft holds a start and a span, so the finishing day is
             // derived: an event that runs past midnight ends tomorrow, and the
             // hero has to say so rather than show a smaller number.
-            val finish = draft.startTime?.let {
-                draft.date.atTime(it).plusMinutes(draft.durationMinutes?.toLong() ?: 0L)
-            }
-            // An all-day span lives on the record rather than in the draft, so
-            // it is carried across as a length in days. Taking the record's own
-            // end date instead would state the series master's last day on
-            // every occurrence of a repeating multi-day event.
-            val allDayEnd = event.endDate?.let { end ->
-                val from = event.date ?: event.start?.toLocalDate()
-                from?.let { draft.date.plusDays(ChronoUnit.DAYS.between(it, end)) }
-            }
+            val finish = draft.finish
             WhenHero(
                 startDate = draft.date,
                 startTime = draft.startTime,
-                endDate = if (draft.startTime == null) allDayEnd else finish?.toLocalDate(),
+                endDate = if (draft.startTime == null) draft.allDayEndDate else finish?.toLocalDate(),
                 endTime = finish?.toLocalTime(),
                 accent = eventColor(event),
                 // The preview draft has no separate flag: no start time is
@@ -1059,22 +1049,16 @@ private fun EventDetailContent(
                 modifier = Modifier.padding(top = 8.dp),
                 onStartDate = pickDate,
                 onStartTime = pickStartTime,
-                onEndDate = pickDate,
+                onEndDate = pickEndDate,
                 onEndTime = pickEndTime,
                 onAllDay = toggleAllDay,
                 // The same slide and typing the editor offers, straight on the card.
                 onStartTimeTyped = { picked ->
                     edit { it.copy(startTime = picked, durationMinutes = it.durationMinutes ?: DefaultEventMinutes) }
                 },
-                onStartDateTyped = { picked -> edit { it.copy(date = picked) } },
-                onEndTimeTyped = { picked ->
-                    val start = draft.startTime
-                    if (start != null) {
-                        val span = java.time.Duration.between(start, picked).toMinutes()
-                        val minutes = if (span <= 0) span + java.time.Duration.ofDays(1).toMinutes() else span
-                        edit { it.copy(durationMinutes = minutes.toInt()) }
-                    }
-                },
+                onStartDateTyped = { picked -> edit { it.withStartDate(picked) } },
+                onEndDateTyped = { picked -> edit { it.withEndDate(picked) } },
+                onEndTimeTyped = { picked -> edit { it.withEndTime(picked) } },
                 onSlide = { startBy, endBy ->
                     edit { current ->
                         val start = current.startTime ?: return@edit current

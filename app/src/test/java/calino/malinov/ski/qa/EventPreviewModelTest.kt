@@ -8,7 +8,14 @@ import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.ui.surfaces.eventPreviewDraft
 import calino.malinov.ski.ui.surfaces.toNewEvent
 import calino.malinov.ski.ui.surfaces.validationError
+import calino.malinov.ski.ui.surfaces.finishDate
+import calino.malinov.ski.ui.surfaces.withEndDate
+import calino.malinov.ski.ui.surfaces.withStartDate
+import calino.malinov.ski.ui.surfaces.withEndTime
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -44,5 +51,34 @@ class EventPreviewModelTest {
         assertEquals("Enter an event title.", draft.copy(title = " ").validationError())
         assertEquals("End time must be after start time.", draft.copy(durationMinutes = 0).validationError())
         assertNull(draft.validationError())
+    }
+
+    @Test fun movingTimedEndDateKeepsStartAndEndClockTime() {
+        val start = LocalDateTime.of(2026, 10, 8, 15, 15)
+        val originalEnd = LocalDateTime.of(2026, 10, 18, 5, 15)
+        val spanning = event.copy(start = start, durationMinutes = Duration.between(start, originalEnd).toMinutes().toInt())
+        val draft = eventPreviewDraft(spanning)
+
+        assertEquals(LocalDate.of(2026, 10, 18), draft.finishDate)
+        val changed = draft.withEndDate(LocalDate.of(2026, 10, 17))
+        val saved = changed.toNewEvent(spanning, RecurrenceEditScope.All)
+        assertEquals(LocalDate.of(2026, 10, 8), saved.date)
+        assertEquals(LocalTime.of(15, 15), saved.startTime)
+        assertEquals(Duration.between(start, LocalDateTime.of(2026, 10, 17, 5, 15)).toMinutes().toInt(), saved.durationMinutes)
+        assertEquals(LocalDate.of(2026, 10, 17), changed.finishDate)
+        val clockChanged = draft.withEndTime(LocalTime.of(6, 15))
+        assertEquals(LocalDate.of(2026, 10, 18), clockChanged.finishDate)
+        assertEquals(Duration.between(start, LocalDateTime.of(2026, 10, 18, 6, 15)).toMinutes().toInt(), clockChanged.durationMinutes)
+    }
+
+    @Test fun movingAllDayEndDateWritesInclusiveLastDay() {
+        val spanning = event.copy(start = null, allDay = true, date = LocalDate.of(2026, 5, 24), endDate = LocalDate.of(2026, 5, 26))
+        val draft = eventPreviewDraft(spanning)
+        assertEquals(LocalDate.of(2026, 5, 26), draft.finishDate)
+
+        val changed = draft.withEndDate(LocalDate.of(2026, 5, 25))
+        assertEquals(LocalDate.of(2026, 5, 25), changed.toNewEvent(spanning, RecurrenceEditScope.All).endDate)
+        assertEquals(LocalDate.of(2026, 5, 27), draft.withStartDate(LocalDate.of(2026, 5, 25)).finishDate)
+        assertEquals("End date must be on or after start date.", draft.withEndDate(LocalDate.of(2026, 5, 23)).validationError())
     }
 }

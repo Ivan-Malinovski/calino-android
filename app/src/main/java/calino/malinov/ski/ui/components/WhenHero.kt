@@ -116,7 +116,7 @@ fun WhenHero(
     spanMinutes: Int? = null,
 ) {
     if (allDay) {
-        AllDayHero(startDate, endDate, accent, modifier, onStartDate, onAllDay)
+        AllDayHero(startDate, endDate, accent, modifier, onStartDate, onEndDate, onAllDay)
     } else {
         TimedHero(startDate, startTime, endDate, endTime, accent, modifier, onStartDate, onStartTime, onEndDate, onEndTime, onAllDay, spanMinutes,
             onStartTimeTyped, onStartDateTyped, onEndTimeTyped, onEndDateTyped, onSlide)
@@ -399,6 +399,7 @@ private fun AllDayHero(
     accent: Color,
     modifier: Modifier,
     onStartDate: (() -> Unit)?,
+    onEndDate: (() -> Unit)?,
     onAllDay: (() -> Unit)?,
 ) {
     val finish = endDate?.takeIf { it != startDate }
@@ -419,7 +420,7 @@ private fun AllDayHero(
                 action = "All day, give it a time",
                 topPadding = 0.dp,
             )
-            DayAnchor(finish, "End", null, Modifier.weight(1f), align = Alignment.End)
+            DayAnchor(finish, "End", onEndDate, Modifier.weight(1f), align = Alignment.End)
         }
     } else {
         // One day has nothing to put in a second column, so it does not pretend

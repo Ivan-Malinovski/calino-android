@@ -56,6 +56,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -157,11 +158,13 @@ private fun <T : Any> rememberPickerDialog(
     val current = seed
     if (current != null && (visible.targetState || !visible.isIdle || visible.currentState)) {
         PickerDialog(visible, onDismiss = { visible.targetState = false }) {
-            card(
-                current,
-                { visible.targetState = false },
-                { picked -> currentOnPicked(picked); visible.targetState = false },
-            )
+            key(current) {
+                card(
+                    current,
+                    { visible.targetState = false },
+                    { picked -> currentOnPicked(picked); visible.targetState = false },
+                )
+            }
         }
     }
     LaunchedEffect(visible.isIdle, visible.currentState) {
@@ -615,7 +618,7 @@ private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick:
     )
     val ink by animateColorAsState(
         when {
-            selected -> CalinoColors.OnFloat
+            selected -> CalinoColors.OnSelection
             today -> CalinoColors.Accent
             else -> CalinoColors.Ink
         },
@@ -641,7 +644,8 @@ private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick:
                 .matchParentSize()
                 .graphicsLayer { scaleX = fill; scaleY = fill; alpha = fill.coerceIn(0f, 1f) }
                 .clip(CircleShape)
-                .background(CalinoColors.FloatFill),
+                .background(CalinoColors.SelectionFill)
+                .border(1.dp, CalinoColors.SelectionBorder, CircleShape),
         )
         Text(
             date.dayOfMonth.toString(),

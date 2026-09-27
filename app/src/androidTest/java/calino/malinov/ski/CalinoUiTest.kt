@@ -12,6 +12,7 @@ import calino.malinov.ski.data.CalinoContainer
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.util.CalinoDefaultView
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.CalinoThemeChoice
 import calino.malinov.ski.util.CalinoWeekStart
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -42,9 +43,10 @@ import org.junit.rules.RuleChain
 abstract class CalinoUiTest(
     defaultView: CalinoDefaultView = CalinoDefaultView.Default,
     menuPill: Boolean = true,
+    theme: CalinoThemeChoice = CalinoThemeChoice.Default,
 ) {
 
-    private val reset = CalinoResetRule(defaultView, menuPill)
+    private val reset = CalinoResetRule(defaultView, menuPill, theme)
 
     protected val compose: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeRule()
@@ -121,6 +123,7 @@ abstract class CalinoUiTest(
 class CalinoResetRule(
     private val defaultView: CalinoDefaultView = CalinoDefaultView.Default,
     private val menuPill: Boolean = true,
+    private val theme: CalinoThemeChoice = CalinoThemeChoice.Default,
 ) : ExternalResource() {
     override fun before() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -136,6 +139,7 @@ class CalinoResetRule(
             saveNotificationPromptShown(true)
             saveDefaultView(defaultView)
             saveMenuPill(menuPill)
+            saveThemeChoice(theme)
             // Device defaults are exercised by unit tests; UI tests stay
             // deterministic across emulator images with different locales.
             saveTimeFormat(CalinoTimeFormat.TwelveHour)
