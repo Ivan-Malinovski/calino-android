@@ -129,6 +129,13 @@ fun rememberTimePicker(
 fun rememberDatePicker(initial: () -> LocalDate, onPicked: (LocalDate) -> Unit): () -> Unit =
     rememberPickerDialog(initial, onPicked) { seed, cancel, done -> DatePickerCard(seed, cancel, done) }
 
+/** Opens the date picker on its month/year wheels and returns the chosen month. */
+@Composable
+fun rememberMonthYearPicker(initial: () -> LocalDate, onPicked: (YearMonth) -> Unit): () -> Unit =
+    rememberPickerDialog(initial, { onPicked(YearMonth.from(it)) }) { seed, cancel, done ->
+        DatePickerCard(seed, cancel, done, startOnMonthYear = true)
+    }
+
 /**
  * The lifecycle both pickers share: a dialog window that stays mounted until
  * its card has finished leaving, seeded fresh each time it opens.
@@ -363,12 +370,15 @@ private fun TimeWheel(
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val currentOnSelected by rememberUpdatedState(onSelected)
+    val currentSelected by rememberUpdatedState(selected)
 
     val centred by remember { derivedStateOf { state.centredIndex(rowPx) } }
     LaunchedEffect(state) {
-        snapshotFlow { centred }.distinctUntilChanged().drop(1).collect {
-            haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
-            currentOnSelected(it % count)
+        snapshotFlow { centred }.distinctUntilChanged().collect {
+            if (it % count != currentSelected) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                currentOnSelected(it % count)
+            }
         }
     }
     // Another wheel can move this one (AM/PM following the hour, say).
@@ -455,7 +465,7 @@ private val DayDateFormat = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Lo
 private val MonthTitleFormat = DateTimeFormatter.ofPattern("MMMM", Locale.US)
 
 @Composable
-private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (LocalDate) -> Unit) {
+private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (LocalDate) -> Unit, startOnMonthYear: Boolean = false) {
     val weekStart = LocalCalinoPreferences.current.weekStart
     val weekNumbers = LocalCalinoPreferences.current.showWeekNumbers
     var picked by remember { mutableStateOf(seed) }
@@ -465,18 +475,22 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
     val monthAt = { page: Int -> seedMonth.plusMonths((page - DatePagerMonths).toLong()) }
     // The title follows the swipe: whichever month is more than half on screen.
     val shown = monthAt(pager.currentPage)
+    var wheelMonth by remember { mutableStateOf(seedMonth) }
     val today = LocalDate.now()
-    var choosingMonth by remember { mutableStateOf(false) }
+    var choosingMonth by remember { mutableStateOf(startOnMonthYear) }
 
     PickerCard(
-        title = shown.format(MonthTitleFormat),
-        titleAside = shown.year.toString(),
-        onTitleClick = { choosingMonth = !choosingMonth },
+        title = (if (startOnMonthYear) wheelMonth else shown).format(MonthTitleFormat),
+        titleAside = (if (startOnMonthYear) wheelMonth else shown).year.toString(),
+        onTitleClick = if (startOnMonthYear) null else { { choosingMonth = !choosingMonth } },
         titleOpen = choosingMonth,
         onCancel = onCancel,
         // With the wheels up no day has been chosen in the new month yet, so
         // Done first lands on that month's days.
-        onDone = { if (choosingMonth) choosingMonth = false else onDone(picked) },
+        onDone = {
+            if (startOnMonthYear) onDone(wheelMonth.atDay(seed.dayOfMonth.coerceAtMost(wheelMonth.lengthOfMonth())))
+            else if (choosingMonth) choosingMonth = false else onDone(picked)
+        },
         headerEnd = {
             if (!choosingMonth) MonthStep(CalinoIcons.ChevronLeft, "Previous month") {
                 scope.launch { pager.animateScrollToPage(pager.currentPage - 1, animationSpec = CalinoMotion.standardSpatial()) }
@@ -498,8 +512,9 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
         ) { months ->
             if (months) {
                 MonthYearWheels(
-                    month = shown,
+                    month = if (startOnMonthYear) wheelMonth else shown,
                     onMonth = { target ->
+                        wheelMonth = target
                         val page = DatePagerMonths + (target.year - seedMonth.year) * 12 + (target.monthValue - seedMonth.monthValue)
                         scope.launch { pager.scrollToPage(page.coerceIn(0, pager.pageCount - 1)) }
                     },

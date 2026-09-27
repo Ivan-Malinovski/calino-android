@@ -198,6 +198,7 @@ import calino.malinov.ski.util.EventDateIndex
 import calino.malinov.ski.util.sortAgendaEvents
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.CalinoMonthHeading
+import calino.malinov.ski.ui.components.rememberMonthYearPicker
 import calino.malinov.ski.ui.components.eventDescription
 import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.TaskRow
@@ -631,6 +632,12 @@ fun HomeScreen(
     LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
 
     val selected = LocalDate.ofEpochDay(selectedEpoch)
+    val openMonthYearPicker = rememberMonthYearPicker(initial = { LocalDate.ofEpochDay(selectedEpoch) }) { month ->
+        val current = LocalDate.ofEpochDay(selectedEpoch)
+        val date = month.atDay(current.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
+        selectedEpoch = date.toEpochDay()
+        onDateChanged(date)
+    }
     val today = LocalCalinoNow.current.today
     val events = remember(sourceEvents, filterCalendarVisibility, visibleCalendarIds) {
         sourceEvents.filter { event ->
@@ -1559,6 +1566,7 @@ fun HomeScreen(
             dayPaneCollapsed = dayPaneCollapsed,
             onToggleDayPane = { dayPaneCollapsed = !dayPaneCollapsed },
             onOpenMenu = onOpenMenu,
+            onMonthYearClick = openMonthYearPicker,
             onPreviousMonth = {
                 scope.launch {
                     pagerDragOrigins[monthPagerState] = selectedEpoch
@@ -1624,6 +1632,7 @@ fun HomeScreen(
     Column(foldMorph.fillMaxSize()) {
         MonthHeading(
             day = compactHeadingDay,
+            onMonthYearClick = openMonthYearPicker,
             headingPagerState = headingPager,
             monthForHeadingPage = headingMonthForPage,
             onOpenMenu = onOpenMenu,
@@ -2184,6 +2193,7 @@ private fun SplitHomeLayout(
     dayPaneCollapsed: Boolean,
     onToggleDayPane: () -> Unit,
     onOpenMenu: (() -> Unit)?,
+    onMonthYearClick: () -> Unit,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onToday: () -> Unit,
@@ -2242,6 +2252,7 @@ private fun SplitHomeLayout(
         ) {
             MonthHeading(
                 day = selected,
+                onMonthYearClick = onMonthYearClick,
                 headingPagerState = monthPagerState,
                 monthForHeadingPage = ::monthForPage,
                 onOpenMenu = onOpenMenu,
@@ -2350,6 +2361,7 @@ private fun smoothStep(value: Float): Float {
 @Composable
 private fun MonthHeading(
     day: LocalDate,
+    onMonthYearClick: () -> Unit,
     headingPagerState: PagerState?,
     monthForHeadingPage: ((Int) -> YearMonth)?,
     onOpenMenu: (() -> Unit)?,
@@ -2358,6 +2370,7 @@ private fun MonthHeading(
     onToday: () -> Unit,
 ) = CalinoMonthHeading(
     day = day,
+    onMonthYearClick = onMonthYearClick,
     onOpenMenu = onOpenMenu,
     onPreviousMonth = onPreviousMonth,
     onNextMonth = onNextMonth,

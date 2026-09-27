@@ -1309,6 +1309,7 @@ fun AgendaRow(
 @Composable
 fun CalinoMonthHeading(
     day: LocalDate,
+    onMonthYearClick: (() -> Unit)? = null,
     onOpenMenu: (() -> Unit)?,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
@@ -1335,7 +1336,12 @@ fun CalinoMonthHeading(
         // Compose centers the title's line box, but the display face has more
         // visual weight above its baseline. Nudge the complete month/year lockup
         // to the optical center of the surrounding 48dp controls.
-        Column(Modifier.weight(1f).padding(horizontal = 2.dp).offset(y = 2.dp)) {
+        Column(
+            Modifier.weight(1f).padding(horizontal = 2.dp).offset(y = 2.dp)
+                .then(if (onMonthYearClick != null) Modifier.clickable(onClick = onMonthYearClick)
+                    .semantics { contentDescription = "Choose month and year"; role = Role.Button }
+                else Modifier),
+        ) {
             if (monthPagerState != null && monthForPage != null) {
                 val centerPage = monthPagerState.currentPage
                 val headingFollowsPager by remember(monthPagerState, monthForPage) {

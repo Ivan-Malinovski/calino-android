@@ -73,6 +73,7 @@ import calino.malinov.ski.ui.components.AgendaRowVariant
 import calino.malinov.ski.ui.components.eventColor
 import calino.malinov.ski.ui.components.AgendaTaskRow
 import calino.malinov.ski.ui.components.CalinoMonthHeading
+import calino.malinov.ski.ui.components.rememberMonthYearPicker
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.state.FixtureNow
 import calino.malinov.ski.state.LocalCalinoNow
@@ -253,6 +254,12 @@ fun AgendaScreen(
         selectedEpoch = next.toEpochDay()
         onDateChanged(next)
     }
+    val openMonthYearPicker = rememberMonthYearPicker(initial = { LocalDate.ofEpochDay(selectedEpoch) }) { month ->
+        val current = LocalDate.ofEpochDay(selectedEpoch)
+        val next = month.atDay(current.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
+        selectedEpoch = next.toEpochDay()
+        onDateChanged(next)
+    }
 
     BoxWithConstraints(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         val layoutSpec = calinoLayoutSpec(maxWidth.value.toInt(), maxHeight.value.toInt(), LocalFoldPosture.current)
@@ -262,6 +269,7 @@ fun AgendaScreen(
             Column(contentModifier) {
         CalinoMonthHeading(
             day = selected,
+            onMonthYearClick = openMonthYearPicker,
             onOpenMenu = onOpenMenu,
             onPreviousMonth = { goToPage(pagerState.currentPage - 1) },
             onNextMonth = { goToPage(pagerState.currentPage + 1) },

@@ -84,6 +84,7 @@ import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.ui.components.AllDayBand
 import calino.malinov.ski.ui.components.AllDayBandDensity
 import calino.malinov.ski.ui.components.CalinoMonthHeading
+import calino.malinov.ski.ui.components.rememberMonthYearPicker
 import calino.malinov.ski.ui.components.CompactSegmentedControl
 import calino.malinov.ski.ui.home.CompactLaneScrim
 import calino.malinov.ski.ui.home.HourRailContent
@@ -173,9 +174,18 @@ fun RangeScreen(
     } else {
         "${visibleDays.first().format(RangeDate)} – ${visibleDays.last().format(RangeDate)}"
     }
+    val openMonthYearPicker = rememberMonthYearPicker(initial = { LocalDate.ofEpochDay(anchorEpoch) }) { month ->
+        val current = LocalDate.ofEpochDay(anchorEpoch)
+        val next = month.atDay(current.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
+        pagerBaseEpoch = next.toEpochDay()
+        anchorEpoch = next.toEpochDay()
+        onDateChanged(next)
+        pagerGeneration += 1
+    }
     Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         CalinoMonthHeading(
             day = visibleDays.first(),
+            onMonthYearClick = openMonthYearPicker,
             onOpenMenu = onOpenMenu,
             onPreviousMonth = {},
             onNextMonth = {},
