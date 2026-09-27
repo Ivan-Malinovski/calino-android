@@ -3,12 +3,14 @@ package calino.malinov.ski.design
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -500,6 +502,13 @@ fun CalinoTheme(
     CompositionLocalProvider(
         LocalCalinoPalette provides palette,
         LocalContentColor provides palette.Ink,
+        // A compact, unbounded glow avoids revealing the rectangular touch
+        // lanes around rounded controls and calendar cells.
+        LocalIndication provides ripple(
+            bounded = false,
+            radius = 22.dp,
+            color = palette.Accent.copy(alpha = .36f),
+        ),
     ) {
         MaterialTheme(
             colorScheme = scheme,
