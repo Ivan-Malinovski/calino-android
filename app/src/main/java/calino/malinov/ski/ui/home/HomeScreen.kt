@@ -4185,7 +4185,8 @@ private fun StaticMonthGrid(
                             val selectorHeight = pillHeight + (selectorSize - pillHeight) * selectorMorph
                             val selectorCorner = compactCorner + (selectorSize / 2f - compactCorner) * selectorMorph
                             drawRoundRect(
-                                color = faded(colors.SelectionFill, placement.alpha * expandedSelectionAlpha),
+                                // Same .95 as the week strip pill, so the selector keeps its shade as it morphs.
+                                color = faded(colors.SelectionFill, placement.alpha * expandedSelectionAlpha * .95f),
                                 topLeft = selectorTopLeft,
                                 size = Size(selectorWidth, selectorHeight),
                                 cornerRadius = CornerRadius(selectorCorner),
