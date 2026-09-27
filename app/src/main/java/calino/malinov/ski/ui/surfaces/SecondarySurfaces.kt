@@ -1,5 +1,11 @@
 package calino.malinov.ski.ui.surfaces
 
+import androidx.compose.ui.graphics.vector.ImageVector
+import calino.malinov.ski.ui.components.CalinoActionMenu
+import calino.malinov.ski.ui.components.CalinoActionMenuDivider
+import calino.malinov.ski.ui.components.CalinoActionMenuItem
+import calino.malinov.ski.ui.components.CalinoActionMenuTile
+import calino.malinov.ski.ui.components.CalinoActionMenuTiles
 import calino.malinov.ski.util.meetingLink
 import calino.malinov.ski.util.MeetingLink
 import android.net.Uri
@@ -258,63 +264,6 @@ enum class EventMenuAction {
     Delete,
 }
 
-/** Compact action menu matching the web app's plain, paper-like context menu. */
-@Composable
-private fun CalinoActionMenu(
-    expanded: Boolean,
-    onDismiss: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val shape = RoundedCornerShape(8.dp)
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        // Keep the pointer stream on the held row. This lets a menu that
-        // appeared during the hold yield immediately when that same finger
-        // moves into a drag.
-        properties = PopupProperties(focusable = false),
-        modifier = Modifier
-            .widthIn(min = 184.dp, max = 264.dp)
-            .shadow(10.dp, shape)
-            .clip(shape)
-            .background(CalinoColors.Panel)
-            .border(1.dp, CalinoColors.Line, shape)
-            .padding(vertical = 4.dp),
-        content = content,
-    )
-}
-
-@Composable
-private fun CalinoActionMenuItem(
-    text: String,
-    enabled: Boolean = true,
-    danger: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val itemShape = RoundedCornerShape(5.dp)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 32.dp)
-            .clip(itemShape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .semantics { contentDescription = text }
-            .padding(horizontal = 12.dp, vertical = 5.dp),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Text(
-            text,
-            color = when {
-                danger && enabled -> CalinoColors.Rose
-                enabled -> CalinoColors.Ink
-                else -> CalinoColors.Ink3
-            },
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-        )
-    }
-}
-
 /** One action list shared by ledger rows and calendar task rows. */
 @Composable
 fun TaskActionMenu(
@@ -325,23 +274,28 @@ fun TaskActionMenu(
     hasSubtasks: Boolean = false,
 ) {
     CalinoActionMenu(expanded = expanded, onDismiss = onDismiss) {
-        @Composable
-        fun action(action: TaskMenuAction, text: String, enabled: Boolean = true) {
-            CalinoActionMenuItem(text = text, enabled = enabled, danger = action == TaskMenuAction.Delete) {
-                onDismiss()
-                onAction(action)
-            }
+        fun run(action: TaskMenuAction) {
+            onDismiss()
+            onAction(action)
         }
-        action(TaskMenuAction.Edit, "Edit task")
-        if (!hasSubtasks) action(TaskMenuAction.AddSubtask, "Add subtask")
-        if (task.parentTaskId != null) action(TaskMenuAction.Promote, "Move to top level")
-        action(TaskMenuAction.Today, "Move to today", !task.done)
-        action(TaskMenuAction.Tomorrow, "Move to tomorrow", !task.done)
-        action(TaskMenuAction.NextWeek, "Move to next week", !task.done)
-        action(TaskMenuAction.ToggleDone, if (task.done) "Mark as open" else "Mark as done")
-        action(TaskMenuAction.Duplicate, "Duplicate")
-        action(TaskMenuAction.ConvertToEvent, "Convert to event", task.due != null)
-        action(TaskMenuAction.Delete, "Delete task")
+
+        @Composable
+        fun action(action: TaskMenuAction, text: String, icon: ImageVector? = null, enabled: Boolean = true) {
+            CalinoActionMenuItem(text = text, icon = icon, enabled = enabled, danger = action == TaskMenuAction.Delete) { run(action) }
+        }
+        CalinoActionMenuTiles {
+            CalinoActionMenuTile("Edit", CalinoIcons.Edit, emphasized = true) { run(TaskMenuAction.Edit) }
+            CalinoActionMenuTile(if (task.done) "Reopen" else "Done", CalinoIcons.Check) { run(TaskMenuAction.ToggleDone) }
+            CalinoActionMenuTile("Duplicate", CalinoIcons.Copy) { run(TaskMenuAction.Duplicate) }
+        }
+        action(TaskMenuAction.Today, "Move to today", CalinoIcons.Calendar, !task.done)
+        action(TaskMenuAction.Tomorrow, "Move to tomorrow", CalinoIcons.ChevronRight, !task.done)
+        action(TaskMenuAction.NextWeek, "Move to next week", CalinoIcons.CalendarRange, !task.done)
+        if (!hasSubtasks) action(TaskMenuAction.AddSubtask, "Add subtask", CalinoIcons.Plus)
+        if (task.parentTaskId != null) action(TaskMenuAction.Promote, "Move to top level", CalinoIcons.AgendaList)
+        action(TaskMenuAction.ConvertToEvent, "Convert to event", CalinoIcons.Clock, task.due != null)
+        CalinoActionMenuDivider()
+        CalinoActionMenuItem("Delete", icon = CalinoIcons.Trash, danger = true, description = "Delete task") { run(TaskMenuAction.Delete) }
     }
 }
 
@@ -353,14 +307,21 @@ fun EventActionMenu(
     onAction: (EventMenuAction) -> Unit,
 ) {
     CalinoActionMenu(expanded = expanded, onDismiss = onDismiss) {
-        CalinoActionMenuItem("Edit event") { onDismiss(); onAction(EventMenuAction.Edit) }
-        CalinoActionMenuItem("Share event") { onDismiss(); onAction(EventMenuAction.Share) }
-        CalinoActionMenuItem("Duplicate") { onDismiss(); onAction(EventMenuAction.Duplicate) }
+        fun run(action: EventMenuAction) {
+            onDismiss()
+            onAction(action)
+        }
+        CalinoActionMenuTiles {
+            CalinoActionMenuTile("Edit", CalinoIcons.Edit, emphasized = true) { run(EventMenuAction.Edit) }
+            CalinoActionMenuTile("Duplicate", CalinoIcons.Copy) { run(EventMenuAction.Duplicate) }
+            CalinoActionMenuTile("Share", CalinoIcons.Share) { run(EventMenuAction.Share) }
+        }
         CalinoActionMenuItem(
             "Convert to task",
+            icon = CalinoIcons.CheckSquare,
             enabled = event.recurrence == null && event.recurrenceId == null && event.recurrenceDate == null,
-        ) { onDismiss(); onAction(EventMenuAction.ConvertToTask) }
-        CalinoActionMenuItem("Delete event", danger = true) { onDismiss(); onAction(EventMenuAction.Delete) }
+        ) { run(EventMenuAction.ConvertToTask) }
+        CalinoActionMenuItem("Delete", icon = CalinoIcons.Trash, danger = true, description = "Delete event") { run(EventMenuAction.Delete) }
     }
 }
 

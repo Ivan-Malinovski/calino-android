@@ -1,5 +1,8 @@
 package calino.malinov.ski
 
+import calino.malinov.ski.ui.components.CalinoPressPoint
+import calino.malinov.ski.ui.components.LocalCalinoPressPoint
+import calino.malinov.ski.ui.components.recordCalinoPressPoint
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -919,6 +922,7 @@ fun CalinoApp() {
         CalinoThemeChoice.Light -> false
         CalinoThemeChoice.Dark -> true
     }
+    val pressPoint = remember { CalinoPressPoint() }
     CalinoTheme(if (dark) CalinoThemes.PaperDark else CalinoThemes.PaperLight) {
         SystemBarAppearance(light = !dark)
         CompositionLocalProvider(
@@ -931,8 +935,11 @@ fun CalinoApp() {
             // One pill lane for the whole app: the root add pill and every
             // modal's action pill are the same object changing shape in it.
             LocalCalinoPillLane provides remember { CalinoPillLane() },
+            LocalCalinoPressPoint provides pressPoint,
         ) {
-            CalinoAppContent(pocViewModel)
+            Box(Modifier.fillMaxSize().recordCalinoPressPoint(pressPoint)) {
+                CalinoAppContent(pocViewModel)
+            }
         }
     }
 }
