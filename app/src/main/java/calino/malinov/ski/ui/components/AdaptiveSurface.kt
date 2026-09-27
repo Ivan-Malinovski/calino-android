@@ -539,8 +539,10 @@ fun AdaptiveSurfaceHost(
                         .graphicsLayer {
                         val from = origin?.rect
                         val to = panelRootRect
-                        val progress = morph.coerceIn(0f, 1f)
-                        if (from != null && progress < 1f) {
+                        // Not clamped at 1: the spring's overshoot is the
+                        // card landing slightly past its size and settling.
+                        val progress = morph.coerceAtLeast(0f)
+                        if (from != null && progress != 1f) {
                             if (to == null || to.width <= 0f) {
                                 // Not placed yet: nothing to grow into.
                                 alpha = 0f
@@ -685,7 +687,7 @@ private fun androidx.compose.ui.graphics.GraphicsLayerScope.applyOriginMorph(
     translationX = lerp(from.left, to.left) - to.left
     translationY = lerp(from.top, to.top) - to.top
     alpha = (progress / OriginFadeFraction).coerceIn(0f, 1f)
-    val clipHeight = (height / scale).coerceAtMost(size.height)
+    val clipHeight = if (progress >= 1f) size.height else (height / scale).coerceAtMost(size.height)
     val corner = lerp(fromCorner, toCorner) / scale
     clip = true
     shape = object : androidx.compose.ui.graphics.Shape {

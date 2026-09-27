@@ -3617,6 +3617,7 @@ private fun MonthEventTarget(
     Box(
         Modifier
             .fillMaxSize()
+            .calinoSurfaceOrigin(event.id, 6.dp)
             .combinedClickable(
                 interactionSource = null,
                 indication = null,

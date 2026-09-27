@@ -441,14 +441,14 @@ object CalinoMotion {
     )
 
     /**
-     * A surface growing out of the record it shows: Material 3 Expressive's
-     * default spatial spring (damping .9, stiffness 700). Its sub-percent
-     * overshoot is clamped by the caller. The tight visibility threshold
+     * A surface growing out of the record it shows: stiffness of Material 3
+     * Expressive's default spatial spring, with enough give to land a couple
+     * of percent past its size and settle. The tight visibility threshold
      * matters: with the default 1% the spring creeps through its tail and
      * then snaps the remaining distance, which reads as a hitch as it lands.
      */
     fun containerTransform(): FiniteAnimationSpec<Float> = spring(
-        dampingRatio = .9f,
+        dampingRatio = .78f,
         stiffness = 700f,
         visibilityThreshold = .0005f,
     )
