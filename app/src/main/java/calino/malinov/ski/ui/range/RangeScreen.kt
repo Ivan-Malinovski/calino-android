@@ -1,7 +1,6 @@
 package calino.malinov.ski.ui.range
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -577,15 +576,10 @@ private fun RangePage(
                 }
             }
         }
-        val scrimHeight by animateDpAsState(
-            stripHeight,
-            CalinoMotion.standardSpatial(),
-            label = "range strip scrim height",
-        )
         CompactLaneScrim(
             source = railLayer,
             blend = { 1f },
-            modifier = Modifier.fillMaxWidth().height(scrimHeight),
+            modifier = Modifier.fillMaxWidth().height(stripHeight),
             dissolveEdge = false,
         )
         Column(
