@@ -722,7 +722,8 @@ fun EventDetailSurface(
     // the one showing -- after a swipe to a neighbour the tapped card is no
     // longer what this surface is about.
     val originRecorder = LocalCalinoSurfaceOrigin.current
-    val origin = remember { originRecorder.take(event.id) }
+    val growFromEvent = LocalCalinoPreferences.current.growDetailFromEvent
+    val origin = remember { originRecorder.take(event.id)?.takeIf { growFromEvent } }
     val currentSelectionCallback by rememberUpdatedState(onEventSelected)
     LaunchedEffect(pager, events) {
         snapshotFlow { pager.settledPage }.collect { page ->

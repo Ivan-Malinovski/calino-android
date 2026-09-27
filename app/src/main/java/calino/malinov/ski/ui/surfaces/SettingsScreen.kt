@@ -142,6 +142,7 @@ enum class SettingsSection(val title: String, val shortTitle: String) {
     Reminders("Reminders", "Reminders"),
     CalendarsSync("Calendars & sync", "Calendars & sync"),
     DataAccess("Data & access", "Data & access"),
+    Advanced("Advanced", "Advanced"),
 }
 
 private val SettingsNavLaneHeight = 44.dp
@@ -195,6 +196,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry("Show in phone search", SettingsSection.DataAccess, "Search & assistants", "Samsung Finder"),
     SettingsSearchEntry("Let assistants use Calino", SettingsSection.DataAccess, "Search & assistants", "Gemini AppFunctions"),
     SettingsSearchEntry("AI Photo Import", SettingsSection.DataAccess, "AI Photo Import", "provider API key model"),
+    SettingsSearchEntry("Grow details from events", SettingsSection.Advanced, "Motion", "animation container transform"),
 )
 
 private enum class SettingRowControlLayout {
@@ -614,6 +616,20 @@ private fun SettingsSectionContent(
             DataSettings(onImportCalendar, onExportCalendar)
             SettingsGroup("AI Photo Import") { AiVisionSettingsContent() }
         }
+        SettingsSection.Advanced -> SettingsPage { AdvancedSettings() }
+    }
+}
+
+@Composable
+private fun AdvancedSettings() {
+    val preferences = LocalCalinoPreferences.current
+    SettingsGroup("Motion") {
+        SettingToggleRow(
+            "Grow details from events",
+            "An event's details open out of the event you tapped. Off, they slide in",
+            preferences.growDetailFromEvent,
+            preferences.setGrowDetailFromEvent,
+        )
     }
 }
 

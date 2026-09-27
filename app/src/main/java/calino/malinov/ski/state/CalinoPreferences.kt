@@ -77,6 +77,12 @@ data class CalinoPreferences(
     val showZoomHandle: Boolean = true,
     val setShowZoomHandle: (Boolean) -> Unit = {},
     /**
+     * Whether an event's detail card grows out of the event that was tapped.
+     * Off, it arrives with its surface's ordinary slide.
+     */
+    val growDetailFromEvent: Boolean = true,
+    val setGrowDetailFromEvent: (Boolean) -> Unit = {},
+    /**
      * Whether the root pill carries the view menu (tap, swipe up or hold its
      * view icon). Off restores the swipe-only add pill.
      */
@@ -167,6 +173,8 @@ interface CalinoPreferenceStore {
     fun saveTimeFormat(format: CalinoTimeFormat)
     fun loadShowZoomHandle(): Boolean
     fun saveShowZoomHandle(show: Boolean)
+    fun loadGrowDetailFromEvent(): Boolean
+    fun saveGrowDetailFromEvent(grow: Boolean)
     fun loadMenuPill(): Boolean
     fun saveMenuPill(enabled: Boolean)
     fun loadPillDocked(): Boolean
@@ -259,6 +267,7 @@ interface CalinoPreferenceStore {
         private var themeChoice = CalinoThemeChoice.Default
         private var timeFormat = CalinoTimeFormat.Default
         private var zoomHandle = true
+        private var growDetail = true
         private var menuPill = true
         private var pillDocked = false
         private var weekStart = CalinoWeekStart.Default
@@ -281,6 +290,8 @@ interface CalinoPreferenceStore {
         override fun saveTimeFormat(format: CalinoTimeFormat) { timeFormat = format }
         override fun loadShowZoomHandle() = zoomHandle
         override fun saveShowZoomHandle(show: Boolean) { zoomHandle = show }
+        override fun loadGrowDetailFromEvent() = growDetail
+        override fun saveGrowDetailFromEvent(grow: Boolean) { growDetail = grow }
         override fun loadMenuPill() = menuPill
         override fun saveMenuPill(enabled: Boolean) { menuPill = enabled }
         override fun loadPillDocked() = pillDocked
@@ -378,6 +389,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 
     override fun loadShowZoomHandle(): Boolean = prefs.getBoolean(ShowZoomHandleKey, true)
     override fun saveShowZoomHandle(show: Boolean) = putBoolean(ShowZoomHandleKey, show)
+    override fun loadGrowDetailFromEvent(): Boolean = prefs.getBoolean(GrowDetailFromEventKey, true)
+    override fun saveGrowDetailFromEvent(grow: Boolean) = putBoolean(GrowDetailFromEventKey, grow)
     override fun loadMenuPill(): Boolean = prefs.getBoolean(MenuPillKey, true)
     override fun saveMenuPill(enabled: Boolean) = putBoolean(MenuPillKey, enabled)
     override fun loadPillDocked(): Boolean = prefs.getBoolean(PillDockedKey, false)
@@ -477,6 +490,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ThemeChoiceKey = "theme_choice"
         const val TimeFormatKey = "time_format"
         const val ShowZoomHandleKey = "show_zoom_handle"
+        const val GrowDetailFromEventKey = "grow_detail_from_event"
         const val MenuPillKey = "menu_pill"
         const val PillDockedKey = "pill_docked"
         const val WeekStartKey = "week_start"
@@ -524,6 +538,7 @@ fun rememberCalinoPreferences(
     var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
     var timeFormatChoice by remember(store) { mutableStateOf(store.loadTimeFormat()) }
     var showZoomHandle by remember(store) { mutableStateOf(store.loadShowZoomHandle()) }
+    var growDetailFromEvent by remember(store) { mutableStateOf(store.loadGrowDetailFromEvent()) }
     var menuPill by remember(store) { mutableStateOf(store.loadMenuPill()) }
     var pillDocked by remember(store) { mutableStateOf(store.loadPillDocked()) }
     var weekStartChoice by remember(store) { mutableStateOf(store.loadWeekStart()) }
@@ -556,6 +571,8 @@ fun rememberCalinoPreferences(
         setTimeFormat = { value -> timeFormatChoice = value; store.saveTimeFormat(value) },
         showZoomHandle = showZoomHandle,
         setShowZoomHandle = { value -> showZoomHandle = value; store.saveShowZoomHandle(value) },
+        growDetailFromEvent = growDetailFromEvent,
+        setGrowDetailFromEvent = { value -> growDetailFromEvent = value; store.saveGrowDetailFromEvent(value) },
         menuPill = menuPill,
         setMenuPill = { value -> menuPill = value; store.saveMenuPill(value) },
         pillDocked = pillDocked,
