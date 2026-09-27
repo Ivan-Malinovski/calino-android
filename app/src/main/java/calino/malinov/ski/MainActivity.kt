@@ -1125,6 +1125,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var selectedDate by rememberSaveable(stateSaver = LocalDateSaver) {
         mutableStateOf(if (pocViewModel.hasLiveData) LocalDate.now() else FixtureNow.today)
     }
+    var sampleNoticeDismissed by rememberSaveable { mutableStateOf(false) }
     // The two days a live swipe has the add pill's label between, ahead of
     // the commit. Only chrome that merely names the day reads this; the
     // calendar itself still follows the committed [selectedDate].
@@ -2746,6 +2747,22 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            AnimatedVisibility(
+                visible = !pocViewModel.hasAccounts && !sampleNoticeDismissed && writeError == null &&
+                    route == currentRootRoute && !showDayModal && !journalReviewVisible &&
+                    currentRootRoute in listOf(PockRoute.Day, PockRoute.Range, PockRoute.Agenda),
+                enter = slideInVertically(CalinoMotion.expressiveSpatial(), initialOffsetY = { it / 2 }) +
+                    fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+                exit = slideOutVertically(tween(CalinoMotion.ContentExitMillis), targetOffsetY = { it / 2 }) +
+                    fadeOut(tween(CalinoMotion.ContentExitMillis)),
+            ) {
+                CalinoToast(
+                    message = "May 2026 sample calendar\nAdd a calendar for your dates",
+                    icon = CalinoIcon.Calendar,
+                    onDismiss = { sampleNoticeDismissed = true },
+                    dismissDescription = "Dismiss sample calendar notice",
+                )
+            }
             androidx.compose.animation.AnimatedVisibility(
                 visible = writeError != null,
                 enter = slideInVertically(tween(200), initialOffsetY = { it / 2 }) + fadeIn(tween(170)),
