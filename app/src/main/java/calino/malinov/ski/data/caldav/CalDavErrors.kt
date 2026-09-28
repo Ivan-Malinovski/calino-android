@@ -110,7 +110,7 @@ fun calDavErrorForStatus(status: Int, url: String, body: String? = null): CalDav
         )
         status == 400 || status == 415 || status == 422 -> fail(
             CalDavErrorCode.Rejected,
-            "The server refused this item's contents ($status).",
+            "The server refused this item as invalid ($status). Edit it and save again, or discard the change.",
         )
         status == 507 -> fail(
             CalDavErrorCode.InsufficientStorage,

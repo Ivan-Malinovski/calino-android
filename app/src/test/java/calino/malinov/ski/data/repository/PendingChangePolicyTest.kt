@@ -36,7 +36,7 @@ class PendingChangePolicyTest {
 
             assertTrue(result.disposition is WriteDisposition.Drop)
             assertEquals(
-                "The server refused this change as invalid ($status). Edit the item and save it again.",
+                "The server refused this item as invalid ($status). Edit it and save again, or discard the change.",
                 result.message,
             )
         }

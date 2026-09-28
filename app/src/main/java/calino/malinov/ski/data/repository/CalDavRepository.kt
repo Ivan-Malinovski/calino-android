@@ -95,23 +95,41 @@ private fun String.isTransientSyncFailure(): Boolean {
 }
 
 object RepositorySyncRetryPolicy {
+    /**
+     * A worker retry helps only while some change can still replay: one that
+     * is neither dead-lettered nor waiting behind a dead letter for the same
+     * record.
+     */
     fun retryNeeded(
         transientReadFailure: Boolean,
-        pendingStates: Iterable<PendingChangeState>,
-    ): Boolean = transientReadFailure || pendingStates
-        .takeWhile { it != PendingChangeState.DEAD_LETTER }
-        .any { it != PendingChangeState.DEAD_LETTER }
+        changes: List<PendingChange>,
+    ): Boolean = transientReadFailure || changes.any {
+        it.state != PendingChangeState.DEAD_LETTER && it.id !in heldByDeadLetter(changes)
+    }
 
-    fun pendingQueueMessage(pendingStates: Iterable<PendingChangeState>): String? {
-        val states = pendingStates.toList()
-        val deadLetterAt = states.indexOf(PendingChangeState.DEAD_LETTER)
-        return when {
-            deadLetterAt == 0 && states.drop(1).any { it != PendingChangeState.DEAD_LETTER } ->
-                "A failed saved change is blocking later queued changes. Review queued changes."
-            deadLetterAt >= 0 -> "A saved change needs attention. Review queued changes."
-            states.isNotEmpty() -> "Some saved changes are waiting to sync."
-            else -> null
+    fun pendingQueueMessage(changes: List<PendingChange>): String? = when {
+        heldByDeadLetter(changes).isNotEmpty() ->
+            "A failed change is holding up later changes to the same item. Review queued changes."
+        changes.any { it.state == PendingChangeState.DEAD_LETTER } ->
+            "A saved change needs attention. Review queued changes."
+        changes.isNotEmpty() -> "Some saved changes are waiting to sync."
+        else -> null
+    }
+
+    /** Ids of queued changes that cannot run until a dead letter is resolved. */
+    private fun heldByDeadLetter(changes: List<PendingChange>): Set<String> {
+        val blocked = HashSet<String>()
+        val held = HashSet<String>()
+        for (change in changes) {
+            val keys = change.resourceKeys()
+            if (keys.any(blocked::contains)) {
+                held += change.id
+                blocked += keys
+            } else if (change.state == PendingChangeState.DEAD_LETTER) {
+                blocked += keys
+            }
         }
+        return held
     }
 }
 
@@ -154,7 +172,8 @@ data class WebcalOverlay(
  * local overlay makes an accepted PUT/DELETE visible immediately; an
  * authoritative fetch reconciles it with the server response. Transport and
  * transient HTTP failures are persisted in [pendingStore] and replayed in
- * FIFO order, while permanent failures remain visible as a failed record.
+ * order per item (unrelated items keep syncing past a failure), while
+ * permanent failures remain visible as a failed record.
  *
  * Reads are cached. Each complete fetch writes the server's own resource text
  * to [cache], and a launch maps that back before any request is made, so a
@@ -386,21 +405,32 @@ class CalDavRepository(
         return true
     }
 
-    /** Discards a dead letter and removes its optimistic layer if it is alone. */
+    /**
+     * Reverts one item to its server version: discards the chosen waiting or
+     * dead-lettered change together with every other queued write for the same
+     * record, so a later UPDATE cannot survive the CREATE it depended on, and
+     * drops the optimistic layer. The chosen change must have been attempted;
+     * a later refresh shows whatever the server holds.
+     */
     fun discardPendingChange(id: String): Boolean {
         val store = pendingStore ?: return false
-        val change = store.snapshot().firstOrNull { it.id == id } ?: return false
-        if (!store.discard(id)) return false
-        val hasAnotherForRecord = store.snapshot().any { it.eventId == change.eventId }
-        if (!hasAnotherForRecord) {
-            when (change.component.uppercase()) {
-                "VEVENT" -> overlay.dropEvent(change.eventId)
-                "VTODO" -> overlay.dropTask(change.eventId)
-                "VJOURNAL" -> overlay.dropJournal(change.eventId)
-                "VCARD" -> overlay.dropContact(change.eventId)
-            }
-            writeStatuses = writeStatuses - change.eventId
+        val snapshot = store.snapshot()
+        val change = snapshot.firstOrNull { it.id == id } ?: return false
+        if (change.state == PendingChangeState.PENDING) return false
+        val related = snapshot.filter { it.eventId == change.eventId }
+        // Attempted changes can be discarded directly; untried ones are parked
+        // as dead letters first so no drain picks them up mid-discard.
+        related.filter { it.state == PendingChangeState.PENDING }.forEach {
+            store.markDeadLetter(it.id, PendingChangeFailure("Discarded with the rest of this item."))
         }
+        related.forEach { store.discard(it.id) }
+        when (change.component.uppercase()) {
+            "VEVENT" -> overlay.dropEvent(change.eventId)
+            "VTODO" -> overlay.dropTask(change.eventId)
+            "VJOURNAL" -> overlay.dropJournal(change.eventId)
+            "VCARD" -> overlay.dropContact(change.eventId)
+        }
+        writeStatuses = writeStatuses - change.eventId
         publish()
         return true
     }
@@ -553,16 +583,16 @@ class CalDavRepository(
             syncState = SyncState.Ready(lastReadAt!!, warnings = loaded.warnings)
             publish()
 
-            val pendingStates = pendingStore?.snapshot().orEmpty().map { it.state }
+            val pendingChanges = pendingStore?.snapshot().orEmpty()
             val retryNeeded = RepositorySyncRetryPolicy.retryNeeded(
                 transientReadFailure = loaded.retryableFailure,
-                pendingStates = pendingStates,
+                changes = pendingChanges,
             )
             RepositorySyncResult.Success(
                 warnings = loaded.warnings,
                 retryNeeded = retryNeeded,
                 message = loaded.warnings.firstOrNull()
-                    ?: RepositorySyncRetryPolicy.pendingQueueMessage(pendingStates),
+                    ?: RepositorySyncRetryPolicy.pendingQueueMessage(pendingChanges),
             )
         } catch (_: AccountSyncAbortedException) {
             cache.evictExcept(sources.map { it.calendar.url }.toSet())
@@ -3056,14 +3086,37 @@ class CalDavRepository(
         restoreQueuedEventOverlay(change, source, start, end)
     }
 
+    /** Set when a queued write failed before reaching the server. */
+    @Volatile
+    private var queueTransportFailed = false
+
     private suspend fun drainQueue(
         isCurrent: () -> Boolean = { true },
         deferReloads: Boolean = false,
     ) {
         val store = pendingStore ?: return
+        // Each change gets at most one attempt per drain. A failure no longer
+        // stops the drain: the store keeps that record's later writes behind
+        // it, and unrelated items still sync. Only a transport failure stops
+        // it, since every other request would fail the same way.
+        val attempted = HashSet<String>()
+        // Records whose change was attempted but is still queued. Their later
+        // writes must not overtake it within this drain.
+        val held = HashSet<String>()
+        var previous: PendingChange? = null
+        queueTransportFailed = false
         while (true) {
-            if (!isCurrent()) return
-            val change = withContext(ioDispatcher) { store.ready(Instant.now()).firstOrNull() } ?: return
+            if (!isCurrent() || queueTransportFailed) return
+            val change = withContext(ioDispatcher) {
+                previous?.let { last ->
+                    if (store.snapshot().any { it.id == last.id }) held += last.resourceKeys()
+                }
+                store.ready(Instant.now()).firstOrNull {
+                    it.id !in attempted && it.resourceKeys().none(held::contains)
+                }
+            } ?: return
+            attempted += change.id
+            previous = change
             if (!isCurrent()) return
             if (change.component.equals("VCARD", ignoreCase = true)) {
                 val book = addressBookSources.firstOrNull {
@@ -3074,9 +3127,9 @@ class CalDavRepository(
                     val failure = PendingChangeFailure("That address book is no longer connected.")
                     withContext(ioDispatcher) { store.markDeadLetter(change.id, failure) }
                     setWriteStatus(change.eventId, RecordWriteState.Failed, failure.message)
-                    return
+                    continue
                 }
-                val progressed = when (change.type) {
+                when (change.type) {
                     PendingChangeType.CREATE,
                     PendingChangeType.UPDATE,
                     -> replayQueuedCardPut(store, book, change, deferReloads)
@@ -3090,7 +3143,6 @@ class CalDavRepository(
                         false
                     }
                 }
-                if (!progressed) return
                 continue
             }
             val source = sources.firstOrNull {
@@ -3101,9 +3153,9 @@ class CalDavRepository(
                 val failure = PendingChangeFailure("That calendar is no longer connected.")
                 withContext(ioDispatcher) { store.markDeadLetter(change.id, failure) }
                 setWriteStatus(change.eventId, RecordWriteState.Failed, failure.message)
-                return
+                continue
             }
-            val progressed = when (change.type) {
+            when (change.type) {
                 PendingChangeType.CREATE,
                 PendingChangeType.UPDATE,
                 -> replayQueuedPut(store, source, change)
@@ -3112,7 +3164,6 @@ class CalDavRepository(
                 -> replayQueuedDelete(store, source, change, deferReloads)
                 PendingChangeType.MOVE -> replayQueuedMove(store, source, change, deferReloads)
             }
-            if (!progressed) return
         }
     }
 
@@ -3439,7 +3490,29 @@ class CalDavRepository(
                 refreshError != null -> return handleQueuedFailure(store, change, refreshError)
             }
         }
-        if (error != null && classifyWriteError(error, change.type).disposition == WriteDisposition.StaleEtag) {
+        // Auto-repair: a payload the server refuses as invalid is normalized
+        // (line endings, blank lines) and sent once more. An update is also
+        // rebuilt from the server's current copy below, which re-serializes
+        // the local edit instead of resending the refused bytes.
+        var repairAttempted = false
+        if (error != null && isContentRejected(error)) {
+            val normalized = normalizeICalendarText(prepared.body)
+            if (normalized != prepared.body) {
+                repairAttempted = true
+                prepared = prepared.copy(body = normalized)
+                outcome = attemptWrite(source.calendar.url) {
+                    writer.putPrepared(source.calendar, source.credentials, prepared)
+                }
+                error = outcome.exceptionOrNull()
+            }
+        }
+        val rebuildRejected = error != null && isContentRejected(error) && change.type == PendingChangeType.UPDATE
+        if (rebuildRejected) repairAttempted = true
+        if (error != null && (
+                rebuildRejected ||
+                    classifyWriteError(error, change.type).disposition == WriteDisposition.StaleEtag
+                )
+        ) {
             val refreshed = attemptWrite(source.calendar.url) {
                 writer.refreshResource(source.calendar, source.credentials, href, change.uid ?: change.eventId)
             }
@@ -3477,6 +3550,14 @@ class CalDavRepository(
                 )
             }
         }
+        if (error != null && repairAttempted && isContentRejected(error)) {
+            error = CalDavException(
+                CalDavErrorCode.Rejected,
+                "The server refused this item as invalid (${(error as CalDavException).status}), " +
+                    "even after Calino tried to repair it. Discard the change to go back to the server's version.",
+                status = error.status,
+            )
+        }
         if (error != null) return handleQueuedFailure(store, change, error)
 
         val written = outcome.getOrThrow()
@@ -3485,6 +3566,9 @@ class CalDavRepository(
         clearWriteStatus(change.eventId)
         return true
     }
+
+    private fun isContentRejected(error: Throwable): Boolean =
+        (error as? CalDavException)?.code == CalDavErrorCode.Rejected
 
     private fun isPreconditionFailure(error: Throwable): Boolean {
         val dav = error as? CalDavException ?: return false
@@ -3803,6 +3887,7 @@ class CalDavRepository(
             message = classification.message,
             statusCode = classification.statusCode,
         )
+        if (classification.disposition == WriteDisposition.Retry) queueTransportFailed = true
         when (val disposition = classification.disposition) {
             is WriteDisposition.Drop -> {
                 withContext(ioDispatcher) { store.markDeadLetter(change.id, failure) }
