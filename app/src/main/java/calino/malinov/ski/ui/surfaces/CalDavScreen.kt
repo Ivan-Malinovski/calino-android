@@ -72,8 +72,6 @@ import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalDavForm
 import calino.malinov.ski.data.repository.CalDavClient
 import calino.malinov.ski.data.repository.PendingChange
-import calino.malinov.ski.data.repository.PendingChangeState
-import calino.malinov.ski.data.repository.PendingChangeType
 import calino.malinov.ski.data.repository.SyncState
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
@@ -146,6 +144,10 @@ fun CalendarAccountsSurface(
     pendingChanges: List<PendingChange> = emptyList(),
     onRetryPendingChange: (String) -> Unit = {},
     onDiscardPendingChange: (String) -> Unit = {},
+    onRetryAllPendingChanges: () -> Unit = {},
+    /** Arriving from a sync alert: bring the queued changes into view. */
+    focusPendingWrites: Boolean = false,
+    onFocusPendingWritesConsumed: () -> Unit = {},
 ) {
     // Whether the sheet is open survives rotation; the credentials inside it
     // deliberately do not.
@@ -241,6 +243,14 @@ fun CalendarAccountsSurface(
         }
     }
 
+    // Queued changes are the first item whenever they exist, so an alert can
+    // land on them regardless of where the list was last left.
+    LaunchedEffect(focusPendingWrites) {
+        if (!focusPendingWrites) return@LaunchedEffect
+        if (pendingChanges.isNotEmpty()) listState.animateScrollToItem(0)
+        onFocusPendingWritesConsumed()
+    }
+
     Box(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -271,17 +281,28 @@ fun CalendarAccountsSurface(
                 ),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                if (pendingChanges.isNotEmpty()) {
+                    item(key = "pending-writes") {
+                        PendingWritesCard(
+                            changes = pendingChanges,
+                            collections = remember(accounts) {
+                                accounts.flatMap { account ->
+                                    account.calendars.map { it.id to CollectionLabel(it.name, Color(it.color)) } +
+                                        account.addressBooks.flatMap {
+                                            val label = CollectionLabel(it.name, null)
+                                            listOf(it.id to label, it.url to label)
+                                        }
+                                }.toMap()
+                            },
+                            onRetry = onRetryPendingChange,
+                            onRetryAll = onRetryAllPendingChanges,
+                            onDiscard = onDiscardPendingChange,
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
+                }
                 if (accounts.isNotEmpty()) {
                     item { SyncStatusCard(syncState, onRefresh) }
-                    if (pendingChanges.isNotEmpty()) {
-                        item {
-                            PendingWritesCard(
-                                changes = pendingChanges,
-                                onRetry = onRetryPendingChange,
-                                onDiscard = onDiscardPendingChange,
-                            )
-                        }
-                    }
                 }
                 if (accounts.isEmpty()) {
                     item { EmptyAccountsCard() }
@@ -451,77 +472,6 @@ private fun SyncStatusCard(state: SyncState, onRefresh: () -> Unit) {
             )
         }
     }
-}
-
-/** Durable writes that are waiting, retrying, or need a user's decision. */
-@Composable
-private fun PendingWritesCard(
-    changes: List<PendingChange>,
-    onRetry: (String) -> Unit,
-    onDiscard: (String) -> Unit,
-) = EditorSection("Pending writes") {
-    val deadLetters = changes.count { it.state == PendingChangeState.DEAD_LETTER }
-    Text(
-        if (deadLetters == 0) {
-            "${changes.size} change${if (changes.size == 1) "" else "s"} waiting to sync."
-        } else {
-            "$deadLetters change${if (deadLetters == 1) "" else "s"} need attention."
-        },
-        style = CalinoTypography.bodySmall,
-        color = if (deadLetters == 0) CalinoColors.Ink3 else CalinoColors.Rose,
-    )
-    changes.forEachIndexed { index, change ->
-        if (index > 0) HorizontalDivider(color = CalinoColors.Line)
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Column(Modifier.weight(1f)) {
-                    Text(pendingChangeLabel(change), style = CalinoTypography.bodyMedium)
-                    Text(
-                        pendingChangeStatus(change),
-                        style = CalinoTypography.bodySmall,
-                        color = if (change.state == PendingChangeState.DEAD_LETTER) CalinoColors.Rose else CalinoColors.Ink3,
-                    )
-                }
-                if (change.state == PendingChangeState.DEAD_LETTER) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        TextButton(
-                            onClick = { onRetry(change.id) },
-                            modifier = Modifier.heightIn(min = 44.dp),
-                        ) { Text("Retry", color = CalinoColors.Accent) }
-                        TextButton(
-                            onClick = { onDiscard(change.id) },
-                            modifier = Modifier.heightIn(min = 44.dp),
-                        ) { Text("Discard", color = CalinoColors.Rose) }
-                    }
-                }
-            }
-            change.lastFailure?.let { failure ->
-                Text(
-                    failure.message,
-                    style = CalinoTypography.bodySmall,
-                    color = CalinoColors.Ink2,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-        }
-    }
-}
-
-private fun pendingChangeLabel(change: PendingChange): String {
-    val action = when (change.type) {
-        PendingChangeType.CREATE -> "Create"
-        PendingChangeType.UPDATE -> "Update"
-        PendingChangeType.DELETE -> "Delete"
-        PendingChangeType.MOVE -> "Move"
-        PendingChangeType.DELETE_HREF -> "Finish move"
-    }
-    return "$action ${change.component}"
-}
-
-private fun pendingChangeStatus(change: PendingChange): String = when (change.state) {
-    PendingChangeState.PENDING -> "Queued"
-    PendingChangeState.RETRY -> "Will retry automatically"
-    PendingChangeState.DEAD_LETTER -> "Needs attention"
 }
 
 private fun formatSyncTime(instant: java.time.Instant, timeFormat: CalinoTimeFormat): String =

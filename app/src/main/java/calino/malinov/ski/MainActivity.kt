@@ -164,6 +164,7 @@ import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.localReminderKey
 import calino.malinov.ski.notify.ReminderChannels
 import calino.malinov.ski.notify.AgendaDeepLinks
+import calino.malinov.ski.data.repository.displayTitle
 import calino.malinov.ski.notify.ReminderDeepLink
 import calino.malinov.ski.notify.ReminderDeepLinks
 import calino.malinov.ski.notify.ReminderKind
@@ -391,6 +392,12 @@ class MainActivity : ComponentActivity() {
     var addAccountPending by mutableStateOf(false)
         private set
 
+    /** A "sync problem" notification was tapped; open the queued changes. */
+    var syncIssuesPending by mutableStateOf(false)
+        private set
+
+    fun consumeSyncIssues() { syncIssuesPending = false }
+
     /**
      * A notification tap, waiting for a snapshot that can resolve it.
      *
@@ -520,6 +527,7 @@ class MainActivity : ComponentActivity() {
         if (intent?.action != Intent.ACTION_VIEW) return
         val raw = intent.data?.toString()
         ReminderDeepLinks.parse(raw)?.let { pendingReminderLink = it }
+        if (calino.malinov.ski.notify.SyncIssueNotifier.isDeepLink(raw)) syncIssuesPending = true
         AgendaDeepLinks.parse(raw)?.let { pendingAgendaDate = it }
     }
 
@@ -815,6 +823,8 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     fun retryPendingChange(id: String): Boolean = container.calDavRepository.retryPendingChange(id)
 
     fun discardPendingChange(id: String): Boolean = container.calDavRepository.discardPendingChange(id)
+
+    fun retryAllPendingChanges(): Boolean = container.calDavRepository.retryAllPendingChanges()
 
     fun setEventWindowMonths(months: Long) = container.calDavRepository.setWindowMonths(months)
 
@@ -1116,6 +1126,22 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         snapshot.tasks.filter { it.calendarId in taskCalendarIds }
     }
     val pendingChanges = remember(snapshot.revision) { pocViewModel.pendingChanges() }
+    val writeHealth = remember(pendingChanges) {
+        val attention = pendingChanges.filter {
+            it.state == calino.malinov.ski.data.repository.PendingChangeState.DEAD_LETTER
+        }
+        calino.malinov.ski.state.WriteQueueHealth(
+            waiting = pendingChanges.size - attention.size,
+            attentionIds = attention.mapTo(LinkedHashSet()) { it.id },
+            firstAttentionTitle = attention.firstNotNullOfOrNull { it.displayTitle() },
+        )
+    }
+    // The in-app alert covers the foreground; this only withdraws a shade
+    // notification whose problem has since been resolved.
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    LaunchedEffect(pendingChanges) {
+        calino.malinov.ski.notify.SyncIssueNotifier.reconcile(appContext, pendingChanges, post = false)
+    }
     val calDavAccounts = rememberCalDavAccounts(accountStore)
     val webcalSubscriptions = rememberWebcalSubscriptions(pocViewModel.webcalStore)
     val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
@@ -1225,6 +1251,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var accountsAutoAdd by rememberSaveable { mutableStateOf(false) }
     // Which account a Settings "Manage" row asked to be brought into view.
     var accountsFocusId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Arriving from a sync alert brings the queued-changes card into view.
+    var accountsFocusSyncIssues by rememberSaveable { mutableStateOf(false) }
+    // Failed changes the in-app alert has already raised (and the person has
+    // acted on or dismissed), so a problem is announced once, not per screen.
+    var acknowledgedSyncIssues by rememberSaveable { mutableStateOf(listOf<String>()) }
     var journalReviewVisible by rememberSaveable { mutableStateOf(false) }
     var journalEditorVisible by rememberSaveable { mutableStateOf(false) }
     var journalOpenEntryId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1433,6 +1464,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         if (!activity.addAccountPending) return@LaunchedEffect
         activity.consumeAddAccount()
         sidebarVisible = false
+        route = PockRoute.Accounts
+    }
+
+    LaunchedEffect(activity.syncIssuesPending) {
+        if (!activity.syncIssuesPending) return@LaunchedEffect
+        activity.consumeSyncIssues()
+        sidebarVisible = false
+        accountsFocusSyncIssues = true
         route = PockRoute.Accounts
     }
 
@@ -1991,11 +2030,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 PockRoute.Agenda -> PocReturnTarget.Agenda
                 else -> PocReturnTarget.Calendar
             }
+            accountsFocusSyncIssues = true
             route = PockRoute.Accounts
         }
     }
-    val syncStatus = remember(snapshot.sync, openSyncDetail) {
-        CalinoSyncStatus(state = snapshot.sync, onOpenDetail = openSyncDetail)
+    val syncStatus = remember(snapshot.sync, writeHealth, openSyncDetail) {
+        CalinoSyncStatus(state = snapshot.sync, writes = writeHealth, onOpenDetail = openSyncDetail)
     }
     // Every surface shows a slice of the tasks; a subtask's parent can sit
     // outside the slice, and still has to be nameable there.
@@ -2332,12 +2372,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         pendingChanges = pendingChanges,
                         onRetryPendingChange = { pocViewModel.retryPendingChange(it) },
                         onDiscardPendingChange = { pocViewModel.discardPendingChange(it) },
+                        onRetryAllPendingChanges = { pocViewModel.retryAllPendingChanges() },
                         modifier = Modifier.fillMaxSize(),
                         onOpenMenu = { sidebarVisible = true },
                         startAdding = accountsAutoAdd,
                         onStartAddingConsumed = { accountsAutoAdd = false },
                         focusAccountId = accountsFocusId,
                         onFocusAccountConsumed = { accountsFocusId = null },
+                        focusPendingWrites = accountsFocusSyncIssues,
+                        onFocusPendingWritesConsumed = { accountsFocusSyncIssues = false },
                     )
                     PockRoute.Detail, PockRoute.TaskDetail -> Unit
                     PockRoute.Notifications -> NotificationsSurface(
@@ -2820,6 +2863,42 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     icon = CalinoIcon.Calendar,
                     onDismiss = { sampleNoticeDismissed = true },
                     dismissDescription = "Dismiss sample calendar notice",
+                )
+            }
+            // A saved change that could not sync is raised once, wherever the
+            // person is in the calendar, rather than waiting to be found under
+            // Calendars. It yields to an immediate write error.
+            val unannouncedIssues = writeHealth.attentionIds - acknowledgedSyncIssues.toSet()
+            val syncAlertVisible = unannouncedIssues.isNotEmpty() && writeError == null &&
+                route == currentRootRoute && !showDayModal && currentRootRoute != PockRoute.Accounts
+            androidx.compose.animation.AnimatedVisibility(
+                visible = syncAlertVisible,
+                enter = slideInVertically(CalinoMotion.expressiveSpatial(), initialOffsetY = { it / 2 }) +
+                    fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+                exit = slideOutVertically(tween(CalinoMotion.ContentExitMillis), targetOffsetY = { it / 2 }) +
+                    fadeOut(tween(CalinoMotion.ContentExitMillis)),
+            ) {
+                // Keep the last text through the exit animation.
+                val shown = remember { mutableStateOf("") }
+                if (syncAlertVisible) {
+                    shown.value = if (writeHealth.needsAttention == 1) {
+                        writeHealth.firstAttentionTitle?.let { "“$it” couldn’t sync" } ?: "A change couldn’t sync"
+                    } else {
+                        "${writeHealth.needsAttention} changes couldn’t sync"
+                    }
+                }
+                CalinoToast(
+                    message = shown.value,
+                    icon = CalinoIcon.Bell,
+                    accent = CalinoColors.Rose,
+                    actionLabel = "Review",
+                    actionDescription = "Review changes that could not sync",
+                    onAction = {
+                        acknowledgedSyncIssues = writeHealth.attentionIds.toList()
+                        openSyncDetail()
+                    },
+                    onDismiss = { acknowledgedSyncIssues = writeHealth.attentionIds.toList() },
+                    dismissDescription = "Dismiss sync problem",
                 )
             }
             androidx.compose.animation.AnimatedVisibility(

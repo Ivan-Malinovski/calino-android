@@ -228,7 +228,9 @@ class CalDavMoveRepositoryTest {
         queue.enqueue(
             PendingChangeRequest(
                 type = PendingChangeType.UPDATE,
-                eventId = "dependent",
+                // Same record as the move: per-item ordering must hold it
+                // behind the cleanup. Unrelated items may pass a failure.
+                eventId = move.eventId,
                 accountId = "account",
                 calendarId = target.url,
                 component = "VEVENT",

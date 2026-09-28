@@ -22,6 +22,24 @@ enum class SyncBadge {
     /** Read, but part of the calendar is missing and the user should know. */
     Incomplete,
     Failed,
+    /** Saved changes are queued and will sync on their own (e.g. offline). */
+    WritesWaiting,
+    /** A saved change was refused or gave up and needs the person. */
+    WritesFailed,
+}
+
+/**
+ * The durable write queue reduced to what the calendar needs to say about it.
+ * [attentionIds] are the queued changes that need a decision; they let the
+ * app notice a *new* problem rather than re-announcing an old one.
+ */
+data class WriteQueueHealth(
+    val waiting: Int = 0,
+    val attentionIds: Set<String> = emptySet(),
+    /** The first item that needs attention, by name, for a one-line alert. */
+    val firstAttentionTitle: String? = null,
+) {
+    val needsAttention: Int get() = attentionIds.size
 }
 
 /**
@@ -46,6 +64,24 @@ fun syncBadgeFor(
     state: SyncState,
     now: Instant,
     staleAfter: Duration = SyncStaleAfter,
+    writes: WriteQueueHealth = WriteQueueHealth(),
+): SyncBadge {
+    val read = readBadgeFor(state, now, staleAfter)
+    // A refused save outranks everything but a failed read: it is the one
+    // state where something the person did is not on the server.
+    return when {
+        read == SyncBadge.Failed -> read
+        writes.needsAttention > 0 -> SyncBadge.WritesFailed
+        read == SyncBadge.Incomplete || read == SyncBadge.Refreshing -> read
+        writes.waiting > 0 -> SyncBadge.WritesWaiting
+        else -> read
+    }
+}
+
+private fun readBadgeFor(
+    state: SyncState,
+    now: Instant,
+    staleAfter: Duration,
 ): SyncBadge = when (state) {
     // Idle is the fixture repository with no account connected. It has nothing
     // to read and cannot go stale, so the sample app shows no marker at all.
@@ -67,6 +103,7 @@ fun syncBadgeFor(
  */
 data class CalinoSyncStatus(
     val state: SyncState = SyncState.Idle,
+    val writes: WriteQueueHealth = WriteQueueHealth(),
     /** Open the Calendars screen, where the detail and Refresh live. */
     val onOpenDetail: () -> Unit = {},
 )

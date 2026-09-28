@@ -38,6 +38,13 @@ enum class CalDavErrorCode {
 
     /** 410. The resource is gone; for a delete that is success, not failure. */
     Gone,
+
+    /**
+     * 400, 415 or 422. The server understood the request and refused its
+     * content, e.g. sabre/Baïkal answers 415 to iCalendar it cannot parse.
+     * Resending the same bytes cannot succeed.
+     */
+    Rejected,
 }
 
 /**
@@ -100,6 +107,10 @@ fun calDavErrorForStatus(status: Int, url: String, body: String? = null): CalDav
         status == 412 -> fail(
             CalDavErrorCode.PreconditionFailed,
             "That item changed on the server since it was last read.",
+        )
+        status == 400 || status == 415 || status == 422 -> fail(
+            CalDavErrorCode.Rejected,
+            "The server refused this item as invalid ($status). Edit it and save again, or revert the change.",
         )
         status == 507 -> fail(
             CalDavErrorCode.InsufficientStorage,

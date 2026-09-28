@@ -23,4 +23,22 @@ class PendingChangePolicyTest {
             result.message,
         )
     }
+
+    @Test fun `server refusing the payload drops instead of retrying`() {
+        for (status in listOf(400, 415, 422)) {
+            val error = calino.malinov.ski.data.caldav.calDavErrorForStatus(
+                status,
+                "https://dav.example/cal/task.ics",
+            )
+            assertEquals(CalDavErrorCode.Rejected, error.code)
+
+            val result = classifyWriteError(error, PendingChangeType.UPDATE)
+
+            assertTrue(result.disposition is WriteDisposition.Drop)
+            assertEquals(
+                "The server refused this item as invalid ($status). Edit it and save again, or revert the change.",
+                result.message,
+            )
+        }
+    }
 }

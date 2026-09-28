@@ -1489,8 +1489,8 @@ fun CalendarSyncBadge(modifier: Modifier = Modifier) {
     val zone = remember { ZoneId.systemDefault() }
     // Recomputed as the clock ticks, which is what lets a calendar left open
     // cross into "stale" on its own rather than at the next interaction.
-    val badge = remember(status.state, now, zone) {
-        syncBadgeFor(status.state, now.dateTime.atZone(zone).toInstant())
+    val badge = remember(status.state, status.writes, now, zone) {
+        syncBadgeFor(status.state, now.dateTime.atZone(zone).toInstant(), writes = status.writes)
     }
     val description = when (badge) {
         SyncBadge.None -> null
@@ -1498,6 +1498,12 @@ fun CalendarSyncBadge(modifier: Modifier = Modifier) {
         SyncBadge.Stale -> "Calendar may be out of date. Open Calendars to refresh."
         SyncBadge.Incomplete -> "Part of the calendar could not be read. Open Calendars for details."
         SyncBadge.Failed -> "Calendar could not be updated. Open Calendars for details."
+        SyncBadge.WritesWaiting -> status.writes.waiting.let {
+            "$it saved change${if (it == 1) " is" else "s are"} waiting to sync. Open Calendars for details."
+        }
+        SyncBadge.WritesFailed -> status.writes.needsAttention.let {
+            "$it change${if (it == 1) "" else "s"} could not sync. Open Calendars to review."
+        }
     }
     // Fade and widen rather than appear: the heading must not jump a month
     // title sideways the instant a refresh starts.
@@ -1516,7 +1522,8 @@ fun CalendarSyncBadge(modifier: Modifier = Modifier) {
         val settled = shown.value.orEmpty()
         val tint by animateColorAsState(
             targetValue = when (badge) {
-                SyncBadge.Failed, SyncBadge.Incomplete -> CalinoColors.Rose
+                SyncBadge.Failed, SyncBadge.Incomplete, SyncBadge.WritesFailed -> CalinoColors.Rose
+                SyncBadge.WritesWaiting -> CalinoColors.Amber
                 else -> CalinoColors.Ink3
             },
             animationSpec = tween(CalinoMotion.SurfaceFadeMillis),

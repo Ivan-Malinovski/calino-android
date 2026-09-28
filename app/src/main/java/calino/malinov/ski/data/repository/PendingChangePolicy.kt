@@ -53,6 +53,11 @@ fun classifyWriteError(error: Throwable, changeType: PendingChangeType): WriteEr
             ) -> WriteDisposition.Drop("The server rejected this calendar item as invalid.")
         status == 403 -> WriteDisposition.Drop(message)
         status == 507 -> WriteDisposition.Drop("The server is out of space for this calendar.")
+        // The same payload will be refused again; retrying only holds up the
+        // rest of the queue behind it.
+        status == 400 || status == 415 || status == 422 -> WriteDisposition.Drop(
+            if (dav?.code == CalDavErrorCode.Rejected) message else "The server refused this item as invalid ($status).",
+        )
         status == 404 || status == 410 -> WriteDisposition.Drop(
             when {
                 status == 404 && changeType == PendingChangeType.UPDATE ->

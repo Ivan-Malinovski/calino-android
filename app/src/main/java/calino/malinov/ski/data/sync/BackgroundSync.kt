@@ -177,6 +177,14 @@ class BackgroundSyncWorker(
                 // Search has an in-memory fallback and its repository observer
                 // will retry. A local index failure must not retry DAV writes.
             }
+            // A write can dead-letter while the app is closed; say so once.
+            runCatching {
+                calino.malinov.ski.notify.SyncIssueNotifier.reconcile(
+                    applicationContext,
+                    container.calDavRepository.pendingChanges(),
+                    post = true,
+                )
+            }
             when (val result = syncResult) {
                 is calino.malinov.ski.data.repository.RepositorySyncResult.Success -> {
                     if (result.retryNeeded) {

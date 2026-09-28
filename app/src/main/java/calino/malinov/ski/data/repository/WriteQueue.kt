@@ -127,9 +127,10 @@ sealed interface PendingChangeEnqueueResult {
  * Minimal persistence/replay contract for the future CalDAV writer.
  *
  * Implementations must keep the returned lists in queue order. [ready] is
- * deliberately FIFO: a delayed or dead-lettered head blocks later writes so a
- * replay cannot silently apply operations out of order. A caller can resolve a
- * dead letter with [requeue] or [discard].
+ * FIFO per record: a delayed or dead-lettered change blocks later writes that
+ * share its record, resource URL or UID, so one item's operations never apply
+ * out of order, while unrelated items keep syncing past it. A caller can
+ * resolve a waiting or dead-lettered change with [requeue] or [discard].
  */
 interface PendingChangeStore {
     fun snapshot(): List<PendingChange>
@@ -140,7 +141,7 @@ interface PendingChangeStore {
 
     fun deadLetters(): List<PendingChange>
 
-    /** Returns the ready FIFO prefix, stopping at the first blocked record. */
+    /** Returns ready changes in order, skipping records behind a blocked change. */
     fun ready(now: Instant): List<PendingChange>
 
     fun enqueue(
@@ -187,11 +188,23 @@ interface PendingChangeStore {
     /** Removes a successfully applied change. */
     fun acknowledge(id: String): Boolean
 
-    /** Explicitly removes a dead-lettered change after user resolution. */
+    /**
+     * Explicitly removes a change after user resolution. Only a waiting or
+     * dead-lettered change can be discarded; one that has not been attempted
+     * yet may be in flight.
+     */
     fun discard(id: String): Boolean
 
     /** Makes a dead letter eligible again without losing its queue position. */
     fun requeue(id: String, now: Instant = Instant.now()): PendingChange?
+}
+
+/** Identities a change writes to; changes sharing one must replay in order. */
+internal fun PendingChange.resourceKeys(): Set<String> = buildSet {
+    add("record:$eventId")
+    href?.let { add("href:$it") }
+    sourceHref?.let { add("href:$it") }
+    uid?.let { add("uid:$it") }
 }
 
 /** Short names for integration code that prefers to speak in queue terms. */
@@ -269,17 +282,21 @@ class FilePendingChangeStore(
 
     override fun ready(now: Instant): List<PendingChange> = synchronized(lock) {
         val ready = ArrayList<PendingChange>()
+        val blocked = HashSet<String>()
         for (entry in entries) {
-            when (entry.state) {
-                PendingChangeState.PENDING -> ready += entry
-                PendingChangeState.RETRY -> {
-                    if (entry.nextAttemptAt != null && !entry.nextAttemptAt.isAfter(now)) {
-                        ready += entry
-                    } else {
-                        break
-                    }
-                }
-                PendingChangeState.DEAD_LETTER -> break
+            val keys = entry.resourceKeys()
+            val due = when (entry.state) {
+                PendingChangeState.PENDING -> true
+                PendingChangeState.RETRY ->
+                    entry.nextAttemptAt != null && !entry.nextAttemptAt.isAfter(now)
+                PendingChangeState.DEAD_LETTER -> false
+            }
+            if (due && keys.none(blocked::contains)) {
+                ready += entry
+            } else {
+                // Everything later that touches this record waits behind it,
+                // so one record's writes still replay strictly in order.
+                blocked += keys
             }
         }
         ready
@@ -484,7 +501,7 @@ class FilePendingChangeStore(
 
     override fun discard(id: String): Boolean = synchronized(lock) {
         val index = entries.indexOfFirst {
-            it.id == id && it.state == PendingChangeState.DEAD_LETTER
+            it.id == id && it.state != PendingChangeState.PENDING
         }
         if (index == -1) return@synchronized false
         replaceEntries(entries.toMutableList().also { it.removeAt(index) })
@@ -495,11 +512,13 @@ class FilePendingChangeStore(
         val index = entries.indexOfFirst { it.id == id }
         if (index == -1) return@synchronized null
         val current = entries[index]
-        if (current.state != PendingChangeState.DEAD_LETTER) return@synchronized current
+        if (current.state == PendingChangeState.PENDING) return@synchronized current
 
+        // "Retry now" on a waiting change skips its backoff but keeps its
+        // counted attempts, so it still reaches the dead-letter cap.
         val updated = current.copy(
             updatedAt = now,
-            retryCount = 0,
+            retryCount = if (current.state == PendingChangeState.DEAD_LETTER) 0 else current.retryCount,
             state = PendingChangeState.PENDING,
             nextAttemptAt = null,
             lastFailure = null,

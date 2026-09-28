@@ -83,10 +83,11 @@ class WriteQueueTest {
     }
 
     @Test
-    fun `ready exposes only the FIFO prefix and a waiting head blocks later writes`() {
+    fun `a waiting change lets unrelated writes pass but holds its own record`() {
         val store = FilePendingChangeStore(queueFile, clock = clock)
         val first = enqueued(store, "first", PendingChangeType.UPDATE)
         enqueued(store, "second", PendingChangeType.UPDATE)
+        enqueued(store, "first", PendingChangeType.DELETE)
 
         val retried = store.markRetry(
             first.id,
@@ -99,10 +100,10 @@ class WriteQueueTest {
         assertEquals(0, retried.retryCount)
         assertEquals(1, retried.attemptCount)
         assertTrue(retried.nextAttemptAt!!.isAfter(start))
-        assertTrue(store.ready(start).isEmpty())
+        assertEquals(listOf("second"), store.ready(start).map { it.eventId })
         assertEquals(
-            listOf("first", "second"),
-            store.ready(start.plusMillis(PENDING_CHANGE_BACKOFF_BASE_MS)).map { it.eventId },
+            listOf(PendingChangeType.UPDATE, PendingChangeType.UPDATE, PendingChangeType.DELETE),
+            store.ready(start.plusMillis(PENDING_CHANGE_BACKOFF_BASE_MS)).map { it.type },
         )
     }
 
@@ -123,9 +124,10 @@ class WriteQueueTest {
         assertEquals(2, dead.retryCount)
         assertNull(dead.nextAttemptAt)
         assertEquals(listOf("first"), store.deadLetters().map { it.eventId })
-        assertTrue(
-            "a dead letter must hold the FIFO gate",
-            store.ready(start.plus(1, ChronoUnit.DAYS)).isEmpty(),
+        assertEquals(
+            "a dead letter holds only its own record",
+            listOf("second"),
+            store.ready(start.plus(1, ChronoUnit.DAYS)).map { it.eventId },
         )
 
         val restored = FilePendingChangeStore(queueFile, clock = clock, maxRetries = 2)
@@ -148,6 +150,10 @@ class WriteQueueTest {
         assertTrue(store.discard(first.id))
         assertEquals(listOf("second"), store.snapshot().map { it.eventId })
         assertFalse(store.discard(first.id))
+        assertFalse(
+            "a change that has not been attempted may be in flight",
+            store.discard(store.snapshot().single().id),
+        )
     }
 
     @Test
