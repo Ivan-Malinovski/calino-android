@@ -144,6 +144,10 @@ fun CalendarAccountsSurface(
     pendingChanges: List<PendingChange> = emptyList(),
     onRetryPendingChange: (String) -> Unit = {},
     onDiscardPendingChange: (String) -> Unit = {},
+    onRetryAllPendingChanges: () -> Unit = {},
+    /** Arriving from a sync alert: bring the queued changes into view. */
+    focusPendingWrites: Boolean = false,
+    onFocusPendingWritesConsumed: () -> Unit = {},
 ) {
     // Whether the sheet is open survives rotation; the credentials inside it
     // deliberately do not.
@@ -239,6 +243,14 @@ fun CalendarAccountsSurface(
         }
     }
 
+    // Queued changes are the first item whenever they exist, so an alert can
+    // land on them regardless of where the list was last left.
+    LaunchedEffect(focusPendingWrites) {
+        if (!focusPendingWrites) return@LaunchedEffect
+        if (pendingChanges.isNotEmpty()) listState.animateScrollToItem(0)
+        onFocusPendingWritesConsumed()
+    }
+
     Box(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
@@ -269,23 +281,28 @@ fun CalendarAccountsSurface(
                 ),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                if (pendingChanges.isNotEmpty()) {
+                    item(key = "pending-writes") {
+                        PendingWritesCard(
+                            changes = pendingChanges,
+                            collections = remember(accounts) {
+                                accounts.flatMap { account ->
+                                    account.calendars.map { it.id to CollectionLabel(it.name, Color(it.color)) } +
+                                        account.addressBooks.flatMap {
+                                            val label = CollectionLabel(it.name, null)
+                                            listOf(it.id to label, it.url to label)
+                                        }
+                                }.toMap()
+                            },
+                            onRetry = onRetryPendingChange,
+                            onRetryAll = onRetryAllPendingChanges,
+                            onDiscard = onDiscardPendingChange,
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
+                }
                 if (accounts.isNotEmpty()) {
                     item { SyncStatusCard(syncState, onRefresh) }
-                    if (pendingChanges.isNotEmpty()) {
-                        item {
-                            PendingWritesCard(
-                                changes = pendingChanges,
-                                collectionNames = remember(accounts) {
-                                    accounts.flatMap { account ->
-                                        account.calendars.map { it.id to it.name } +
-                                            account.addressBooks.flatMap { listOf(it.id to it.name, it.url to it.name) }
-                                    }.toMap()
-                                },
-                                onRetry = onRetryPendingChange,
-                                onDiscard = onDiscardPendingChange,
-                            )
-                        }
-                    }
                 }
                 if (accounts.isEmpty()) {
                     item { EmptyAccountsCard() }

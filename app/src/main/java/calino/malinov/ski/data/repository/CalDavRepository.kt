@@ -405,6 +405,21 @@ class CalDavRepository(
         return true
     }
 
+    /** Makes every waiting or dead-lettered change eligible now, then syncs. */
+    fun retryAllPendingChanges(): Boolean {
+        val store = pendingStore ?: return false
+        val stuck = store.snapshot().filter { it.state != PendingChangeState.PENDING }
+        if (stuck.isEmpty()) return false
+        stuck.forEach { change ->
+            if (store.requeue(change.id)?.state == PendingChangeState.PENDING) {
+                setWriteStatus(change.eventId, RecordWriteState.Pending, null)
+            }
+        }
+        onPendingChangeEnqueued?.invoke()
+        drainPendingWrites()
+        return true
+    }
+
     /**
      * Reverts one item to its server version: discards the chosen waiting or
      * dead-lettered change together with every other queued write for the same
@@ -3554,7 +3569,7 @@ class CalDavRepository(
             error = CalDavException(
                 CalDavErrorCode.Rejected,
                 "The server refused this item as invalid (${(error as CalDavException).status}), " +
-                    "even after Calino tried to repair it. Discard the change to go back to the server's version.",
+                    "even after Calino tried to repair it. Revert it to go back to the server's version.",
                 status = error.status,
             )
         }
