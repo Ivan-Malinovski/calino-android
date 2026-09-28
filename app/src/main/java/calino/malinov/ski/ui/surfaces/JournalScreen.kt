@@ -97,6 +97,7 @@ import calino.malinov.ski.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.ui.components.calinoSurfaceEdgeFade
 import calino.malinov.ski.ui.components.calinoSurfaceShadowBleed
 import calino.malinov.ski.ui.components.rememberDatePicker
+import calino.malinov.ski.ui.components.CalinoMonthCalendar
 import calino.malinov.ski.ui.components.ModalActionPill
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
@@ -498,10 +499,7 @@ private fun JournalMonthGrid(
     onDay: (LocalDate) -> Unit,
 ) {
     if (progress <= 0f) return
-    val weekStart = LocalCalinoPreferences.current.weekStart
     val entryDates = remember(entries) { entries.mapTo(mutableSetOf()) { it.date } }
-    val start = month.gridStart(weekStart)
-    val today = LocalCalinoNow.current.today
     Column(
         Modifier
             .fillMaxWidth()
@@ -516,60 +514,19 @@ private fun JournalMonthGrid(
                 val shownHeight = (placeable.height * progress.coerceIn(0f, 1f)).toInt()
                 layout(placeable.width, shownHeight) { placeable.placeRelative(0, 0) }
             }
-            .padding(horizontal = CalinoSpacing.Screen)
+            .padding(horizontal = CalinoSpacing.Screen + 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(CalinoShapes.Card))
             .background(CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
-            .padding(top = 12.dp, start = 14.dp, end = 14.dp, bottom = 14.dp),
+            .padding(top = 12.dp, start = 22.dp, end = 22.dp, bottom = 16.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            JournalGridNav("Previous month", CalinoIcons.ChevronLeft) { onMonth(month.minusMonths(1)) }
-            Text(month.format(JournalMonthFormat), style = CalinoTypography.titleMedium, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            JournalGridNav("Next month", CalinoIcons.ChevronRight) { onMonth(month.plusMonths(1)) }
-        }
-        Row(Modifier.fillMaxWidth()) {
-            weekdayLetters(weekStart).forEach { letter ->
-                Text(letter, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.weight(1f))
-            }
-        }
-        repeat(6) { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                repeat(7) { column ->
-                    val date = start.plusDays((row * 7 + column).toLong())
-                    val hasEntry = date in entryDates
-                    val selected = date == today
-                    val outside = YearMonth.from(date) != month
-                    val weekend = dayOfWeekForColumn(column, weekStart).value >= 6
-                    val background = when { selected -> CalinoColors.SelectionFill; outside -> CalinoColors.OutsideMonthWash; weekend -> CalinoColors.WeekendWash; else -> Color.Transparent }
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .height(JournalTouchLane)
-                            .then(if (hasEntry) Modifier.semantics { contentDescription = "Jump to journal entry on ${date.format(JournalDateFormat)}" }.clickable { onDay(date) } else Modifier),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(CalinoShapes.DayBlock)).background(background),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Text(date.dayOfMonth.toString(), style = CalinoTypography.bodyMedium, color = when { selected -> CalinoColors.OnSelection; hasEntry -> CalinoColors.Ink; else -> CalinoColors.Ink2 })
-                            Box(Modifier.size(4.dp).clip(CircleShape).background(if (hasEntry) { if (selected) CalinoColors.Canvas else CalinoColors.Accent } else Color.Transparent))
-                        }
-                    }
-                }
-            }
-            if (row < 5) Spacer(Modifier.height(2.dp))
-        }
-    }
-}
-
-@Composable
-private fun JournalGridNav(description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    Box(Modifier.size(JournalTouchLane).semantics { contentDescription = description }.clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.Icon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(16.dp), contentDescription = null)
-        }
+        CalinoMonthCalendar(
+            month = month,
+            onMonth = onMonth,
+            onPick = onDay,
+            marked = entryDates,
+            pickable = { it in entryDates },
+        )
     }
 }
 

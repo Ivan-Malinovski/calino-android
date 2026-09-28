@@ -590,8 +590,10 @@ private fun MonthGrid(
     month: YearMonth,
     weekStart: CalinoWeekStart,
     weekNumbers: Boolean,
-    picked: LocalDate,
+    picked: LocalDate?,
     today: LocalDate,
+    marked: Set<LocalDate> = emptySet(),
+    pickable: (LocalDate) -> Boolean = { true },
     onPick: (LocalDate) -> Unit,
 ) {
     val cells = sidebarMonthCells(month, weekStart).let { it + List(42 - it.size) { null } }
@@ -609,7 +611,7 @@ private fun MonthGrid(
                 }
                 week.forEach { date ->
                     Box(Modifier.weight(1f).height(DayCell), contentAlignment = Alignment.Center) {
-                        if (date != null) DayCell(date, selected = date == picked, today = date == today) { onPick(date) }
+                        if (date != null) DayCell(date, selected = date == picked, today = date == today, marked = date in marked, enabled = pickable(date)) { onPick(date) }
                     }
                 }
             }
@@ -618,7 +620,7 @@ private fun MonthGrid(
 }
 
 @Composable
-private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick: () -> Unit) {
+private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, marked: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val fill by animateFloatAsState(
         if (selected) 1f else 0f,
         spring(dampingRatio = .7f, stiffness = 600f),
@@ -628,7 +630,8 @@ private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick:
         when {
             selected -> CalinoColors.OnSelection
             today -> CalinoColors.Accent
-            else -> CalinoColors.Ink
+            enabled -> CalinoColors.Ink
+            else -> CalinoColors.Ink3
         },
         tween(CalinoMotion.FadeThroughMillis),
         label = "day ink",
@@ -637,7 +640,7 @@ private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick:
         Modifier
             .size(40.dp)
             .clip(CircleShape)
-            .calinoPressable(onClick = onClick)
+            .then(if (enabled) Modifier.calinoPressable(onClick = onClick) else Modifier)
             .semantics {
                 contentDescription = date.format(DayDateFormat)
                 this.selected = selected
@@ -660,6 +663,120 @@ private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, onClick:
             style = CalinoTypography.bodyLarge.copy(fontFeatureSettings = "tnum"),
             color = ink,
         )
+        if (marked) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 5.dp)
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) CalinoColors.OnSelection else CalinoColors.Accent),
+            )
+        }
+    }
+}
+
+/**
+ * The date picker's month face without its dialog: a swipeable month pager
+ * whose title opens the month/year wheels. [month] is controlled, so the
+ * host can move it (the journal does as its list scrolls); a settled swipe
+ * reports back through [onMonth]. [marked] days carry a dot, and only
+ * [pickable] days respond to a tap.
+ */
+@Composable
+fun CalinoMonthCalendar(
+    month: YearMonth,
+    onMonth: (YearMonth) -> Unit,
+    onPick: (LocalDate) -> Unit,
+    modifier: Modifier = Modifier,
+    picked: LocalDate? = null,
+    marked: Set<LocalDate> = emptySet(),
+    pickable: (LocalDate) -> Boolean = { true },
+) {
+    val weekStart = LocalCalinoPreferences.current.weekStart
+    val weekNumbers = LocalCalinoPreferences.current.showWeekNumbers
+    val baseMonth = remember { month }
+    val pager = rememberPagerState(initialPage = DatePagerMonths) { DatePagerMonths * 2 }
+    val scope = rememberCoroutineScope()
+    val monthAt = { page: Int -> baseMonth.plusMonths((page - DatePagerMonths).toLong()) }
+    val pageOf = { target: YearMonth ->
+        (DatePagerMonths + (target.year - baseMonth.year) * 12 + (target.monthValue - baseMonth.monthValue))
+            .coerceIn(0, pager.pageCount - 1)
+    }
+    val currentOnMonth by rememberUpdatedState(onMonth)
+    val currentMonth by rememberUpdatedState(month)
+    val shown = monthAt(pager.currentPage)
+    val today = LocalDate.now()
+    var choosingMonth by remember { mutableStateOf(false) }
+
+    // Host -> pager: follow the month the host commits, unless we are already there.
+    LaunchedEffect(month) {
+        val target = pageOf(month)
+        if (pager.currentPage != target && !pager.isScrollInProgress) {
+            pager.animateScrollToPage(target, animationSpec = CalinoMotion.standardSpatial())
+        }
+    }
+    // Pager -> host: report a month only once a swipe has settled on it.
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.settledPage }.collect { page -> monthAt(page).let { if (it != currentMonth) currentOnMonth(it) } }
+    }
+
+    Column(modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 44.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Row))
+                    .calinoPressable(onClick = { choosingMonth = !choosingMonth })
+                    .semantics { stateDescription = if (choosingMonth) "Choosing month" else "Showing days" },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(shown.format(MonthTitleFormat), style = CalinoTypography.titleMedium, color = CalinoColors.Ink, maxLines = 1)
+                Text(shown.year.toString(), style = CalinoTypography.titleSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 8.dp), maxLines = 1)
+                val turn by animateFloatAsState(if (choosingMonth) 180f else 0f, CalinoMotion.standardSpatial(), label = "month title chevron")
+                androidx.compose.material3.Icon(
+                    CalinoIcons.ChevronDown,
+                    contentDescription = null,
+                    tint = CalinoColors.Ink3,
+                    modifier = Modifier.padding(start = 4.dp).size(18.dp).graphicsLayer { rotationZ = turn },
+                )
+            }
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronLeft, "Previous month") {
+                scope.launch { pager.animateScrollToPage(pager.currentPage - 1, animationSpec = CalinoMotion.standardSpatial()) }
+            }
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronRight, "Next month") {
+                scope.launch { pager.animateScrollToPage(pager.currentPage + 1, animationSpec = CalinoMotion.standardSpatial()) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        AnimatedContent(
+            targetState = choosingMonth,
+            transitionSpec = {
+                (fadeIn(tween(CalinoMotion.ContentEnterMillis, delayMillis = CalinoMotion.FadeThroughMillis / 2)) +
+                    scaleIn(tween(CalinoMotion.ContentEnterMillis), initialScale = .96f)) togetherWith
+                    fadeOut(tween(CalinoMotion.FadeThroughMillis))
+            },
+            label = "month calendar face",
+        ) { months ->
+            if (months) {
+                MonthYearWheels(month = shown, onMonth = { target -> scope.launch { pager.scrollToPage(pageOf(target)) } })
+            } else {
+                Column {
+                    Row(Modifier.fillMaxWidth()) {
+                        if (weekNumbers) Spacer(Modifier.width(WeekGutter))
+                        weekdayLetters(weekStart).forEach {
+                            Box(Modifier.weight(1f).height(28.dp), contentAlignment = Alignment.Center) {
+                                Text(it, style = CalinoTypography.labelMedium, color = CalinoColors.Ink3)
+                            }
+                        }
+                    }
+                    HorizontalPager(state = pager, beyondViewportPageCount = 1, pageSpacing = 28.dp, verticalAlignment = Alignment.Top) { page ->
+                        MonthGrid(monthAt(page), weekStart, weekNumbers, picked, today, marked, pickable, onPick)
+                    }
+                }
+            }
+        }
     }
 }
 
