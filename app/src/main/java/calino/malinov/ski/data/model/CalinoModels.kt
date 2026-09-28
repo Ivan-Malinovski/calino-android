@@ -7,7 +7,15 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 
 /** Visual-POC data contract; server persistence and sync live in the DAV layer. */
-data class Attendee(val name: String, val email: String)
+data class Attendee(
+    val name: String,
+    val email: String,
+    val participationStatus: String = "NEEDS-ACTION",
+    val role: String = "REQ-PARTICIPANT",
+    val rsvp: Boolean = false,
+)
+
+data class EventOrganizer(val name: String, val address: String)
 
 /** A lead-time alarm, optionally repeated at a fixed minute interval. */
 data class Reminder(
@@ -55,6 +63,7 @@ data class CalEvent(
     val location: String? = null,
     val notes: String? = null,
     val attendees: List<Attendee> = emptyList(),
+    val organizer: EventOrganizer? = null,
     val calendarId: String,
     /** Explicit placement for all-day records; null means no all-day date. */
     val date: LocalDate? = null,

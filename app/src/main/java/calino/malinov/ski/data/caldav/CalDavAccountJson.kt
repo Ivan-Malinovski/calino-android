@@ -55,6 +55,8 @@ object CalDavAccountJson {
                     .put("displayName", account.displayName)
                     .put("serverUrl", account.serverUrl)
                     .put("username", account.username)
+                    .put("calendarUserAddresses", JSONArray(account.calendarUserAddresses.toList()))
+                    .put("autoSchedule", account.autoSchedule)
                     .put("calendars", calendars)
                     .put("addressBooks", addressBooks),
             )
@@ -119,6 +121,10 @@ object CalDavAccountJson {
             username = json.optString("username"),
             calendars = calendars,
             addressBooks = addressBooks,
+            calendarUserAddresses = json.optJSONArray("calendarUserAddresses")?.let { values ->
+                (0 until values.length()).mapNotNull { values.optString(it).takeIf(String::isNotBlank) }.toSet()
+            }.orEmpty(),
+            autoSchedule = json.optBoolean("autoSchedule", false),
         )
     }
 }

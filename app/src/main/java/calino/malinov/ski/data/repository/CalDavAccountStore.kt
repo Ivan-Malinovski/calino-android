@@ -127,6 +127,17 @@ class CalDavAccountStore(
         }
     }
 
+    fun replaceScheduling(accountId: String, addresses: Set<String>, autoSchedule: Boolean) {
+        update { accounts ->
+            accounts.map { account ->
+                if (account.id == accountId) account.copy(
+                    calendarUserAddresses = addresses,
+                    autoSchedule = autoSchedule,
+                ) else account
+            }
+        }
+    }
+
     fun setAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
         update { accounts ->
             accounts.map { account ->

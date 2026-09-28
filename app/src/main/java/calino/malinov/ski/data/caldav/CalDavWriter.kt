@@ -1,6 +1,7 @@
 package calino.malinov.ski.data.caldav
 
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.JournalEntry
 import java.net.URI
@@ -61,6 +62,26 @@ class CalDavWriter(
             patch = { original -> patcher.patchEvents(original, listOf(record), now()) },
         )
     }
+
+    fun prepareRsvp(
+        calendar: DiscoveredCalendar,
+        event: CalEvent,
+        address: String,
+        status: String,
+        expectedStatus: String,
+        scope: RecurrenceEditScope,
+        etag: String? = event.etag,
+    ): PreparedCalendarWrite = prepare(
+        calendar = calendar,
+        href = hrefFor(calendar.url, event.href, event.uid ?: event.id),
+        uid = event.uid ?: event.id,
+        etag = etag,
+        forceCreate = false,
+        build = { error("RSVP cannot create a new event") },
+        patch = { original ->
+            ICalRsvp.patch(original, event, address, status, expectedStatus, scope, now())
+        },
+    )
 
     suspend fun putTask(
         calendar: DiscoveredCalendar,

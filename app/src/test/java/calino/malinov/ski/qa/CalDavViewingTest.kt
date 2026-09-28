@@ -104,6 +104,8 @@ class CalDavViewingTest {
                 CalDavCalendar("https://caldav.example.test/test-user/a/", "fixture calendar", 0xFF11A602),
                 CalDavCalendar("https://caldav.example.test/test-user/b/", "extra calendar", 0xFFF6DC6B, enabled = false, readOnly = true),
             ),
+            calendarUserAddresses = setOf("mailto:test-user@example.test"),
+            autoSchedule = true,
         )
         val restored = CalDavAccountJson.decode(CalDavAccountJson.encode(listOf(account)))
         assertEquals(listOf(account), restored)

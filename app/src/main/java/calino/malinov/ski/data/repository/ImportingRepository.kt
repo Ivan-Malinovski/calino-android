@@ -176,6 +176,12 @@ class ImportingRepository(
         return primary.updateEvent(id, input)
     }
 
+    override suspend fun respondToEvent(
+        id: String,
+        status: String,
+        scope: RecurrenceEditScope,
+    ): WriteResult<CalEvent> = primary.respondToEvent(id, status, scope)
+
     override suspend fun deleteEvent(
         id: String,
         scope: RecurrenceEditScope,

@@ -152,6 +152,11 @@ interface CalinoRepository {
     fun observe(listener: (CalinoSnapshot) -> Unit): Closeable
     suspend fun addEvent(input: NewEvent): WriteResult<CalEvent>
     suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent>
+    suspend fun respondToEvent(
+        id: String,
+        status: String,
+        scope: RecurrenceEditScope = RecurrenceEditScope.All,
+    ): WriteResult<CalEvent> = WriteResult.Rejected("Invitations require a connected scheduling calendar.")
     /**
      * [occurrenceDate] is the occurrence the person was actually looking at,
      * and it is what makes [RecurrenceEditScope.This] and

@@ -541,6 +541,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 location = vevent.location?.value?.trim()?.takeIf(String::isNotEmpty),
                 notes = vevent.description?.value?.trim()?.takeIf(String::isNotEmpty),
                 attendees = mapAttendees(vevent),
+                organizer = mapOrganizer(vevent),
                 categories = readCategories(vevent),
                 reminders = vevent.readReminders(),
                 travelTimeMinutes = vevent.readAppleTravelTimeMinutes(),
@@ -574,6 +575,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
                 location = vevent.location?.value?.trim()?.takeIf(String::isNotEmpty),
                 notes = vevent.description?.value?.trim()?.takeIf(String::isNotEmpty),
                 attendees = mapAttendees(vevent),
+                organizer = mapOrganizer(vevent),
                 categories = readCategories(vevent),
                 availability = if (vevent.transparency?.isTransparent == true) {
                     Availability.Free
@@ -601,8 +603,25 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             val email = attendee.email?.trim()
                 ?: attendee.uri?.trim()?.removePrefix("mailto:")?.removePrefix("MAILTO:")
                 ?: return@mapNotNull null
-            Attendee(name = attendee.commonName?.trim()?.takeIf(String::isNotEmpty) ?: email, email = email)
+            Attendee(
+                name = attendee.commonName?.trim()?.takeIf(String::isNotEmpty) ?: email,
+                email = email,
+                participationStatus = attendee.participationStatus?.value ?: "NEEDS-ACTION",
+                role = attendee.role?.value ?: "REQ-PARTICIPANT",
+                rsvp = attendee.rsvp == true,
+            )
         }
+
+    private fun mapOrganizer(vevent: VEvent): calino.malinov.ski.data.model.EventOrganizer? {
+        val organizer = vevent.organizer ?: return null
+        val address = organizer.email?.trim()
+            ?: organizer.uri?.trim()?.removePrefix("mailto:")?.removePrefix("MAILTO:")
+            ?: return null
+        return calino.malinov.ski.data.model.EventOrganizer(
+            name = organizer.commonName?.trim()?.takeIf(String::isNotEmpty) ?: address,
+            address = address,
+        )
+    }
 
     /**
      * Reads every CATEGORIES property and every value within each.

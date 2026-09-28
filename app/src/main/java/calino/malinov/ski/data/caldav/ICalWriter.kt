@@ -33,6 +33,8 @@ import biweekly.property.Status
 import biweekly.property.Summary
 import biweekly.property.Transparency
 import biweekly.property.Url
+import biweekly.property.Organizer
+import biweekly.parameter.ParticipationStatus
 import biweekly.util.DateTimeComponents
 import biweekly.util.ICalDate
 import calino.malinov.ski.data.model.Availability
@@ -148,13 +150,20 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
             },
         )
 
+        if (vevent.organizer == null && event.organizer != null) {
+            vevent.replace(Organizer(event.organizer.name, event.organizer.address))
+        }
+
         val unmatchedOriginalAttendees = vevent.attendees.toMutableList()
         val attendeesToWrite = event.attendees.map { attendee ->
             val existing = unmatchedOriginalAttendees.firstOrNull { originalAttendee ->
                 attendeeAddress(originalAttendee).equals(attendee.email.normalizedAttendeeAddress(), ignoreCase = true)
             }
             if (existing == null) {
-                ICalAttendee(attendee.name.takeIf { it != attendee.email }, attendee.email)
+                ICalAttendee(attendee.name.takeIf { it != attendee.email }, attendee.email).also {
+                    it.participationStatus = ParticipationStatus.NEEDS_ACTION
+                    it.rsvp = true
+                }
             } else {
                 unmatchedOriginalAttendees.remove(existing)
                 existing.copy().also { copy ->

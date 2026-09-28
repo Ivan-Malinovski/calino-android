@@ -30,6 +30,8 @@ data class DiscoveredAccount(
     val principalUrl: String,
     val homeSetUrl: String,
     val calendars: List<DiscoveredCalendar>,
+    val calendarUserAddresses: Set<String> = emptySet(),
+    val autoSchedule: Boolean = false,
 )
 
 /**
@@ -61,12 +63,31 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
         val base = resolveBaseUrl(enteredUrl, credentials)
         val principal = findPrincipal(base, credentials) ?: base
         val home = findCalendarHome(principal, credentials) ?: principal
+        val scheduling = findScheduling(principal, credentials)
         return DiscoveredAccount(
             baseUrl = base,
             principalUrl = principal,
             homeSetUrl = home,
             calendars = listCalendars(home, credentials),
+            calendarUserAddresses = scheduling.first,
+            autoSchedule = scheduling.second,
         )
+    }
+
+    private suspend fun findScheduling(principalUrl: String, credentials: DavCredentials): Pair<Set<String>, Boolean> {
+        val response = runCatching {
+            propfind(principalUrl, credentials, depth = "0", body = PropfindScheduling)
+        }.getOrNull() ?: return emptySet<String>() to false
+        val root = DavXml.parse(response.body) ?: return emptySet<String>() to false
+        val addresses = DavXml.elements(root, DavNs.Dav, "response")
+            .mapNotNull { DavXml.successfulProperty(it, DavNs.CalDav, "calendar-user-address-set") }
+            .flatMap { DavXml.elements(it, DavNs.Dav, "href") }
+            .mapNotNull { it.textContent?.trim()?.takeIf(String::isNotBlank) }
+            .toSet()
+        val capability = response.header("DAV")?.split(',')?.any {
+            it.trim().equals("calendar-auto-schedule", ignoreCase = true)
+        } == true
+        return addresses to capability
     }
 
     // --- step 1: where does this server actually live -------------------------
@@ -238,6 +259,10 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
         const val PropfindCalendarHomeSet =
             """<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-home-set/></d:prop></d:propfind>"""
+
+        const val PropfindScheduling =
+            """<?xml version="1.0" encoding="UTF-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-user-address-set/></d:prop></d:propfind>"""
 
         const val PropfindCalendars =
             """<?xml version="1.0" encoding="UTF-8"?>

@@ -35,6 +35,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
 import calino.malinov.ski.data.model.Reminder
+import calino.malinov.ski.data.caldav.normalizedCalendarAddress
 import calino.malinov.ski.ui.components.EditorReveal
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -693,6 +694,12 @@ fun EventDetailSurface(
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
     onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
+    selfAddresses: Set<String> = emptySet(),
+    canRespond: Boolean = false,
+    onRespond: suspend (CalEvent, String, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
+    readOnlyForEvent: (CalEvent) -> Boolean = { readOnly },
+    selfAddressesForEvent: (CalEvent) -> Set<String> = { selfAddresses },
+    canRespondToEvent: (CalEvent) -> Boolean = { canRespond },
     localReminders: (CalEvent) -> List<Reminder>? = { null },
     onLocalReminders: ((CalEvent, List<Reminder>) -> Unit)? = null,
 ) {
@@ -760,7 +767,7 @@ fun EventDetailSurface(
             sizingEvent.attachments.size * 54 +
             (if (sizingEvent.recurrence != null) 54 else 0) +
             (if (sizingEvent.reminders.isNotEmpty() ||
-                (onLocalReminders != null && eventDetailReadOnly(readOnly, sizingEvent))) 54 else 0) +
+                (onLocalReminders != null && eventDetailReadOnly(readOnlyForEvent(sizingEvent), sizingEvent))) 54 else 0) +
             (if (sizingEvent.travelTimeMinutes != null) 54 else 0)
         // Matches CalinoSurfaceKind.EventPreviewCompact's own ceiling, which
         // clamps this anyway; asking for more here only hides that.
@@ -771,6 +778,8 @@ fun EventDetailSurface(
     val paging by remember(pager) {
         derivedStateOf { pager.isScrollInProgress || pager.currentPageOffsetFraction != 0f }
     }
+    val currentPageEvent = events.getOrNull(pager.currentPage) ?: event
+    val currentPageReadOnly = readOnlyForEvent(currentPageEvent)
     BottomDetailOverlay(
         visible = shown,
         onDismiss = { closeAfterAnimation(onBack) },
@@ -790,21 +799,21 @@ fun EventDetailSurface(
                     // Null rather than disabled: a greyed-out trash on
                     // somebody else's calendar invites the question every
                     // time it is seen.
-                    deleteLabel = "Delete".takeUnless { readOnly },
-                    onDelete = state.onDelete.takeUnless { readOnly },
+                    deleteLabel = "Delete".takeUnless { currentPageReadOnly },
+                    onDelete = state.onDelete.takeUnless { currentPageReadOnly },
                     deleteDescription = "Delete event",
                     deleteConfirmationActive = state.confirmingDelete,
                     onDeleteConfirmationChange = state.onDeletePromptChanged,
                     deleteHoldToConfirm = true,
                     onDeleteHold = state.onDeleteOccurrence,
-                    secondaryLabel = "Open".takeUnless { readOnly },
-                    onSecondary = state.onOpen.takeUnless { readOnly },
+                    secondaryLabel = "Open".takeUnless { currentPageReadOnly },
+                    onSecondary = state.onOpen.takeUnless { currentPageReadOnly },
                     secondaryDescription = "Open event",
                     primaryLabel = "Save",
                     onPrimary = state.onSave,
                     // Delete keeps its own lane whatever happens; Save is the
                     // one that appears, and only once the preview is dirty.
-                    primaryVisible = state.dirty && !readOnly,
+                    primaryVisible = state.dirty && !currentPageReadOnly,
                     primaryDescription = "Save event changes",
             )
         },
@@ -843,7 +852,7 @@ fun EventDetailSurface(
                         // capability passed by the host; their id alone no
                         // longer makes them read-only. Subscriptions remain
                         // intrinsically read-only.
-                        readOnly = eventDetailReadOnly(readOnly, pageEvent),
+                        readOnly = eventDetailReadOnly(readOnlyForEvent(pageEvent), pageEvent),
                         // Only the page the card opened on is the occurrence
                         // that was tapped; a paged-to neighbour states its own
                         // date.
@@ -854,6 +863,9 @@ fun EventDetailSurface(
                             closeAfterAnimation { onDeleteEvent(target, scope) }
                         },
                         onInlineSave = onInlineSave,
+                        selfAddresses = selfAddressesForEvent(pageEvent),
+                        canRespond = canRespondToEvent(pageEvent),
+                        onRespond = onRespond,
                         localReminders = localReminders(pageEvent),
                         onLocalReminders = onLocalReminders,
                         active = page == pager.currentPage,
@@ -875,6 +887,9 @@ private fun EventDetailContent(
     onPrimary: () -> Unit,
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit,
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean,
+    selfAddresses: Set<String>,
+    canRespond: Boolean,
+    onRespond: suspend (CalEvent, String, RecurrenceEditScope) -> Boolean,
     localReminders: List<Reminder>?,
     onLocalReminders: ((CalEvent, List<Reminder>) -> Unit)?,
     active: Boolean,
@@ -898,6 +913,12 @@ private fun EventDetailContent(
     // outside this page can act on it.
     var occurrencesExpanded by remember(event.id) { mutableStateOf(false) }
     var saving by remember(event.id) { mutableStateOf(false) }
+    var responding by remember(event.id) { mutableStateOf(false) }
+    var responseScope by remember(event.id) { mutableStateOf(RecurrenceEditScope.All) }
+    var responseError by remember(event.id) { mutableStateOf<String?>(null) }
+    val ownAttendee = event.attendees.singleOrNull {
+        normalizedCalendarAddress(it.email) in selfAddresses.map(::normalizedCalendarAddress)
+    }
     var saveScope by remember(event.id) {
         mutableStateOf(if (event.providerRecurring || event.recurrenceId != null || event.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All)
     }
@@ -1195,7 +1216,50 @@ private fun EventDetailContent(
             event.travelTimeMinutes?.takeIf { it > 0 }?.let { minutes ->
                 item { PreviewStaticRow(CalinoIcon.Clock, "Travel time", formatCalinoDuration(minutes)) }
             }
-            if (event.attendees.isNotEmpty()) item { PreviewStaticRow(CalinoIcon.Users, "Attendees", event.attendees.joinToString { it.name.ifBlank { it.email } }) }
+            if (canRespond && ownAttendee != null) {
+                item { Text("Your response", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2,
+                    modifier = Modifier.fillMaxWidth().padding(start = 22.dp, top = 8.dp, bottom = 4.dp)) }
+                if (event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null) item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf(RecurrenceEditScope.All to "Whole series", RecurrenceEditScope.This to "This occurrence").forEach { (scope, label) ->
+                            CalinoChip(label, responseScope == scope, "Respond to $label", onClick = { responseScope = scope }, modifier = Modifier.heightIn(min = 44.dp))
+                        }
+                    }
+                }
+                item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("ACCEPTED" to "Accept", "TENTATIVE" to "Maybe", "DECLINED" to "Decline").forEach { (status, label) ->
+                            CalinoChip(label, ownAttendee.participationStatus == status, "$label invitation", modifier = Modifier.heightIn(min = 44.dp), onClick = {
+                                if (!responding) {
+                                    responding = true
+                                    responseError = null
+                                    coroutineScope.launch {
+                                        if (!onRespond(event, status, responseScope)) responseError = "The response could not be saved."
+                                        responding = false
+                                    }
+                                }
+                            })
+                        }
+                    }
+                }
+                responseError?.let { message -> item { Text(message, color = CalinoColors.Rose, style = CalinoTypography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 4.dp)) } }
+            }
+            event.organizer?.let { organizer ->
+                item { PreviewStaticRow(CalinoIcon.Users, "Organizer", organizer.name) }
+            }
+            if (event.attendees.isNotEmpty()) item {
+                val counts = event.attendees.groupingBy { it.participationStatus.uppercase() }.eachCount()
+                val summary = listOf("ACCEPTED" to "accepted", "TENTATIVE" to "maybe", "DECLINED" to "declined", "NEEDS-ACTION" to "pending")
+                    .mapNotNull { (key, label) -> counts[key]?.takeIf { it > 0 }?.let { "$it $label" } }
+                    .joinToString(" · ")
+                PreviewStaticRow(CalinoIcon.Users, "Responses", summary)
+                Column(Modifier.fillMaxWidth().padding(start = 38.dp, end = 20.dp, bottom = 8.dp)) {
+                    event.attendees.forEach { attendee ->
+                        Text("${attendee.name.ifBlank { attendee.email }} · ${attendee.participationStatus.lowercase().replace('-', ' ')}", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
+                    }
+                }
+            }
             item { HorizontalDivider(Modifier.padding(vertical = 6.dp), color = CalinoColors.Ink.copy(.1f)) }
             item {
                 if (draft.description.isBlank()) {
@@ -2997,6 +3061,12 @@ fun EventDetail(
     onDeleteEvent: (CalEvent, RecurrenceEditScope) -> Unit = { _, _ -> },
     onEventAction: (EventMenuAction, CalEvent) -> Unit = { _, _ -> },
     onInlineSave: suspend (CalEvent, NewEvent, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
+    selfAddresses: Set<String> = emptySet(),
+    canRespond: Boolean = false,
+    onRespond: suspend (CalEvent, String, RecurrenceEditScope) -> Boolean = { _, _, _ -> false },
+    readOnlyForEvent: (CalEvent) -> Boolean = { readOnly },
+    selfAddressesForEvent: (CalEvent) -> Set<String> = { selfAddresses },
+    canRespondToEvent: (CalEvent) -> Boolean = { canRespond },
     localReminders: (CalEvent) -> List<Reminder>? = { null },
     onLocalReminders: ((CalEvent, List<Reminder>) -> Unit)? = null,
 ) = EventDetailSurface(
@@ -3011,6 +3081,12 @@ fun EventDetail(
     onDeleteEvent = onDeleteEvent,
     onEventAction = onEventAction,
     onInlineSave = onInlineSave,
+    selfAddresses = selfAddresses,
+    canRespond = canRespond,
+    onRespond = onRespond,
+    readOnlyForEvent = readOnlyForEvent,
+    selfAddressesForEvent = selfAddressesForEvent,
+    canRespondToEvent = canRespondToEvent,
     localReminders = localReminders,
     onLocalReminders = onLocalReminders,
 )

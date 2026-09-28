@@ -30,7 +30,10 @@ import calino.malinov.ski.data.caldav.WrittenCalendarResource
 import calino.malinov.ski.data.caldav.PreparedCardWrite
 import calino.malinov.ski.data.caldav.calDavErrorForThrowable
 import calino.malinov.ski.data.caldav.normalizeEtag
+import calino.malinov.ski.data.caldav.normalizedCalendarAddress
+import calino.malinov.ski.data.caldav.ICalRsvp
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.EventOrganizer
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.Contact
 import calino.malinov.ski.data.model.ContactAddressBook
@@ -81,6 +84,25 @@ private class AccountSyncAbortedException : Exception()
 
 private class MoveDestinationConflictException(message: String) : Exception(message)
 
+/** RFC 5545 SEQUENCE advances for organizer changes recipients must reconsider. */
+private fun nextEventSequence(current: CalEvent, input: NewEvent): Int? {
+    if (current.organizer == null && input.attendees.isEmpty()) return current.sequence
+    val significant = current.allDay != input.allDay ||
+        (current.date ?: current.start?.toLocalDate()) != input.date ||
+        current.start?.toLocalTime() != input.startTime ||
+        current.durationMinutes != input.durationMinutes ||
+        current.endDate != input.endDate ||
+        current.location != input.location ||
+        (input.recurrenceChanged && current.recurrence != input.recurrence) ||
+        current.attendees.map { normalizedCalendarAddress(it.email) }.toSet() !=
+            input.attendees.map { normalizedCalendarAddress(it.email) }.toSet()
+    return if (significant) (current.sequence ?: 0) + 1 else current.sequence
+}
+
+private fun invitationOrganizer(source: CalDavSource): EventOrganizer? =
+    source.calendarUserAddresses.firstOrNull { it.startsWith("mailto:", ignoreCase = true) }
+        ?.substringAfter(':')?.let { EventOrganizer(it, it) }
+
 private fun CalDavException.isTransientSyncFailure(): Boolean = code in setOf(
     CalDavErrorCode.Network,
     CalDavErrorCode.Timeout,
@@ -120,6 +142,8 @@ data class CalDavSource(
     val calendar: DiscoveredCalendar,
     val credentials: DavCredentials,
     val accountId: String,
+    val calendarUserAddresses: Set<String> = emptySet(),
+    val autoSchedule: Boolean = false,
     /**
      * Cursor committed before the current discovery metadata was observed.
      * Null means the calendar fields themselves are the only cursor we have;
@@ -1082,8 +1106,14 @@ class CalDavRepository(
         writableRejection(source, "VEVENT")?.let { return it }
         source ?: return WriteResult.Rejected("No calendar is connected.")
 
+        val organizer = if (input.attendees.isNotEmpty()) {
+            if (!source.autoSchedule) return WriteResult.Rejected("This calendar server does not advertise invitation scheduling.")
+            invitationOrganizer(source)
+                ?: return WriteResult.Rejected("The server did not identify your invitation address. Refresh the account and try again.")
+        } else null
+
         val local = overlay.newEvent(input.copy(calendarId = source.calendar.url))
-        val candidate = local.copy(uid = input.uid ?: local.id, calendarId = source.calendar.url)
+        val candidate = local.copy(uid = input.uid ?: local.id, calendarId = source.calendar.url, organizer = organizer)
         return when (val result = putEventOnServer(source, candidate, PendingChangeType.CREATE)) {
             is WriteResult.Applied -> result.also {
                 overlay.putEvent(it.record)
@@ -1100,6 +1130,14 @@ class CalDavRepository(
     override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
         val current = events().firstOrNull { it.id == id }
             ?: return WriteResult.Rejected("That calendar event is no longer available.")
+        val currentSource = sourceForRecord(current.calendarId, current.href)
+        if (current.organizer == null && input.attendees.isNotEmpty() &&
+            (currentSource?.autoSchedule != true || invitationOrganizer(currentSource) == null)
+        ) return WriteResult.Rejected("This calendar does not have a verified invitation address.")
+        if (current.organizer != null && currentSource != null &&
+            normalizedCalendarAddress(current.organizer.address) !in
+            currentSource.calendarUserAddresses.map(::normalizedCalendarAddress)
+        ) return WriteResult.Rejected("Only the organizer can edit this invitation. Use a response on its detail card.")
 
         // A locally-created event has no server ETag yet. Keep the edit in
         // the existing CREATE slot instead of manufacturing an UPDATE that
@@ -1119,7 +1157,8 @@ class CalDavRepository(
                     recurrence = if (input.recurrenceChanged) input.recurrence else current.recurrence,
                     recurrenceId = current.recurrenceId,
                     recurrenceDate = current.recurrenceDate,
-                    sequence = current.sequence,
+                    sequence = nextEventSequence(current, input),
+                    organizer = current.organizer ?: invitationOrganizer(source).takeIf { input.attendees.isNotEmpty() },
                 )
                 return when (val result = coalesceQueuedCalendarCreate(
                     source = source,
@@ -1154,7 +1193,8 @@ class CalDavRepository(
                 recurrence = if (input.recurrenceChanged) input.recurrence else current.recurrence,
                 recurrenceId = current.recurrenceId,
                 recurrenceDate = current.recurrenceDate,
-                sequence = current.sequence,
+                sequence = nextEventSequence(current, input),
+                organizer = current.organizer ?: invitationOrganizer(source).takeIf { input.attendees.isNotEmpty() },
             )
             return when (val result = putRecurringEventOnServer(
                 source = source,
@@ -1198,7 +1238,8 @@ class CalDavRepository(
             calendarId = source.calendar.url,
             recurrenceId = current.recurrenceId,
             recurrenceDate = current.recurrenceDate,
-            sequence = current.sequence,
+            sequence = nextEventSequence(current, input),
+            organizer = current.organizer ?: invitationOrganizer(source).takeIf { input.attendees.isNotEmpty() },
         )
         return when (val result = putEventOnServer(source, candidate, PendingChangeType.UPDATE)) {
             is WriteResult.Applied -> result.also {
@@ -1211,6 +1252,69 @@ class CalDavRepository(
             }
             is WriteResult.Rejected -> result
         }
+    }
+
+    override suspend fun respondToEvent(
+        id: String,
+        status: String,
+        scope: RecurrenceEditScope,
+    ): WriteResult<CalEvent> {
+        if (status !in setOf("ACCEPTED", "TENTATIVE", "DECLINED")) {
+            return WriteResult.Rejected("That invitation response is not supported.")
+        }
+        if (scope == RecurrenceEditScope.Future) {
+            return WriteResult.Rejected("Respond to this occurrence or the whole series.")
+        }
+        val event = events().firstOrNull { it.id == id }
+            ?: return WriteResult.Rejected("That invitation is no longer available.")
+        if (pendingStore?.snapshot()?.any {
+            it.eventId == id && it.component == "VEVENT" && it.state != PendingChangeState.DEAD_LETTER
+        } == true) return WriteResult.Rejected("A change to this invitation is already waiting to sync.")
+        val source = sourceForRecord(event.calendarId, event.href)
+            ?: return WriteResult.Rejected("That invitation's calendar is no longer connected.")
+        writableRejection(source, "VEVENT")?.let { return it }
+        if (!source.autoSchedule) return WriteResult.Rejected("This server does not advertise invitation scheduling.")
+        val addresses = source.calendarUserAddresses.map(::normalizedCalendarAddress).toSet()
+        val own = event.attendees.filter { normalizedCalendarAddress(it.email) in addresses }
+        if (own.size != 1) return WriteResult.Rejected("Your attendee address could not be identified uniquely.")
+        if (scope == RecurrenceEditScope.This && event.recurrenceId == null && event.recurrenceDate == null) {
+            return WriteResult.Rejected("This event has no occurrence to answer separately.")
+        }
+        val attendee = own.single()
+        val href = resourceHref(source.calendar.url, event.href, event.uid ?: event.id)
+        val base = cache.loadResource(source.calendar.url, href)
+            ?: return WriteResult.Rejected("This invitation is not available in the raw cache. Refresh and try again.")
+        val expectedStatus = ICalRsvp.status(base.ics, event, attendee.email, scope)
+            ?: return WriteResult.Rejected("Your attendee line could not be read safely.")
+        val candidate = event.copy(attendees = event.attendees.map {
+            if (it.email == attendee.email) it.copy(participationStatus = status) else it
+        })
+        val result = putCalendarWithQueue(
+            source = source,
+            changeType = PendingChangeType.UPDATE,
+            eventId = event.id,
+            component = "VEVENT",
+            uid = event.uid ?: event.id,
+            etag = event.etag,
+            prepare = { etag ->
+                writer.prepareRsvp(
+                    source.calendar, event, attendee.email, status,
+                    expectedStatus, scope, etag,
+                )
+            },
+            record = { written -> candidate.copy(href = written.href, etag = written.etag) },
+            queuedRecord = { prepared -> candidate.copy(etag = prepared?.expectedEtag ?: event.etag) },
+        )
+        if (result is WriteResult.Applied || result is WriteResult.Queued) {
+            overlay.putEvent(when (result) {
+                is WriteResult.Applied -> result.record
+                is WriteResult.Queued -> result.record
+                else -> candidate
+            })
+            publish()
+            if (result is WriteResult.Applied) reload(useCache = false)
+        }
+        return result
     }
 
     /**
@@ -1266,7 +1370,7 @@ class CalDavRepository(
             recurrence = if (input.recurrenceChanged) input.recurrence else current.recurrence,
             recurrenceId = current.recurrenceId,
             recurrenceDate = current.recurrenceDate,
-            sequence = current.sequence,
+            sequence = nextEventSequence(current, input),
         )
         val contentChanged = candidate.copy(uid = null, href = null, etag = null, calendarId = "") !=
             current.copy(uid = null, href = null, etag = null, calendarId = "")

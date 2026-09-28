@@ -1,6 +1,11 @@
 package calino.malinov.ski.ui.surfaces
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -126,6 +131,7 @@ private val AgendaDayFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Loca
 fun AgendaScreen(
     events: List<CalEvent>,
     tasks: List<CalTask>,
+    pendingInvitations: List<CalEvent> = emptyList(),
     modifier: Modifier = Modifier,
     initialDate: LocalDate = FixtureNow.today,
     onOpenMenu: (() -> Unit)? = null,
@@ -282,6 +288,30 @@ fun AgendaScreen(
             monthPagerState = pagerState,
             monthForPage = ::monthForPage,
         )
+        AnimatedVisibility(
+            visible = pendingInvitations.isNotEmpty(),
+            enter = expandVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeIn(tween(CalinoMotion.ContentEnterMillis)),
+            exit = shrinkVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeOut(tween(CalinoMotion.ContentEnterMillis)),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).animateContentSize(tween(CalinoMotion.ContentEnterMillis))) {
+                Text("Pending invitations (${pendingInvitations.size})", style = CalinoTypography.titleMedium, color = CalinoColors.Ink2)
+                Column(Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
+                    pendingInvitations.forEach { invitation ->
+                        val day = invitation.date ?: invitation.start?.toLocalDate() ?: today
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 44.dp)
+                                .calinoPressable { onEventClick?.invoke(day, invitation) }
+                                .semantics { contentDescription = "Open invitation ${invitation.title}" }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(invitation.title, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
+                            Text(day.format(AgendaDayFormatter), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                        }
+                    }
+                }
+            }
+        }
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),

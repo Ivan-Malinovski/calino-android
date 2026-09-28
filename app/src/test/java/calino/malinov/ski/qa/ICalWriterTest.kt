@@ -113,7 +113,7 @@ class ICalWriterTest {
         assertEquals(listOf("work", "team"), back.categories)
         assertEquals(Availability.Free, back.availability)
         assertEquals(75, back.travelTimeMinutes)
-        assertEquals(listOf(Attendee("Ada", "ada@example.com")), back.attendees)
+        assertEquals(listOf(Attendee("Ada", "ada@example.com", rsvp = true)), back.attendees)
         assertEquals("uid-1", back.uid)
     }
 

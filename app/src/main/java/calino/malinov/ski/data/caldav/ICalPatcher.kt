@@ -18,6 +18,7 @@ import biweekly.property.RecurrenceDates
 import biweekly.property.RecurrenceId
 import biweekly.property.RecurrenceRule
 import biweekly.property.RawProperty
+import biweekly.property.Attendee
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.JournalEntry
@@ -290,9 +291,12 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                     }
                 }
                 baseComponent == null -> {
-                    // A local recurrence split or newly added component wins
-                    // over a same-key server addition, but is added only to
-                    // the requested component kind.
+                    // A new detached instance can also be created by another
+                    // client while this edit waits. It is not safe to replace
+                    // that instance with our stale copy.
+                    require(currentComponent == null || currentComponent == localComponent) {
+                        "A detached occurrence was also created on the server"
+                    }
                     currentComponent?.let(current::removeComponent)
                     current.addComponent(localComponent.copy())
                 }
@@ -417,6 +421,7 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                 // Attachments merge as a set, so a link added on the server
                 // survives a local edit that added a different one.
                 if (propertyClass == biweekly.property.Attachment::class.java) return@forEach
+                if (propertyClass == Attendee::class.java) return@forEach
                 val baseValues = baseProperties[propertyClass].orEmpty()
                 val localValues = localProperties[propertyClass].orEmpty()
                 if (baseValues != localValues) {
@@ -427,9 +432,38 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                 }
             }
             mergeAttachments(base, local, merged)
+            mergeAttendees(base, local, merged)
             mergeRawProperties(base, local, merged)
             mergeAlarms(base, local, merged)
             return merged
+        }
+
+        /** Merge attendee lines by identity, never replacing another person's response. */
+        fun mergeAttendees(base: ICalComponent, local: ICalComponent, merged: ICalComponent) {
+            fun Attendee.key(): String = normalizedCalendarAddress(email ?: uri.orEmpty())
+            val baseLines = base.getProperties(Attendee::class.java)
+            val localLines = local.getProperties(Attendee::class.java)
+            val currentLines = merged.getProperties(Attendee::class.java)
+            require((baseLines + localLines + currentLines).none { it.key().isBlank() })
+            require(baseLines.map { it.key() }.distinct().size == baseLines.size)
+            require(localLines.map { it.key() }.distinct().size == localLines.size)
+            require(currentLines.map { it.key() }.distinct().size == currentLines.size)
+            val baseByKey = baseLines.associateBy { it.key() }
+            val localByKey = localLines.associateBy { it.key() }
+            val currentByKey = currentLines.associateBy { it.key() }
+            (baseByKey.keys + localByKey.keys).forEach { key ->
+                val before = baseByKey[key]
+                val changed = localByKey[key]
+                if (before == changed) return@forEach
+                val remote = currentByKey[key]
+                require(remote == before || remote == changed) {
+                    "An attendee changed on the server while this edit was pending"
+                }
+                if (remote != changed) {
+                    remote?.let(merged::removeProperty)
+                    changed?.let { merged.addProperty(it.copy()) }
+                }
+            }
         }
 
         /** Applies the local edit's added and removed `ATTACH`es to the server's current set. */

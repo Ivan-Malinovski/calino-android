@@ -205,6 +205,7 @@ class CalDavConnectionManager(
             }
             freshCalendarMetadata[account.id] = found.calendars.map { it.url }.toSet()
             syncStoredCalendars(stillStored, found.calendars)
+            accountStore.replaceScheduling(account.id, found.calendarUserAddresses, found.autoSchedule)
         }
         if (!isCurrent()) return
         withContext(Dispatchers.IO) {
@@ -267,6 +268,8 @@ class CalDavConnectionManager(
                         calendar = it,
                         credentials = credentials,
                         accountId = account.id,
+                        calendarUserAddresses = account.calendarUserAddresses,
+                        autoSchedule = account.autoSchedule,
                         committedCursor = committedCursors[account.id]?.get(it.url),
                         metadataFresh = it.url in freshCalendarMetadata[account.id].orEmpty(),
                         visible = stored?.visible ?: true,

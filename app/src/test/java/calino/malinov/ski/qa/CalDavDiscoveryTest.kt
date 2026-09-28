@@ -139,6 +139,7 @@ class CalDavDiscoveryTest {
         server.enqueue(multiStatus(CalDavFixtures.Principal))   // well-known probe
         server.enqueue(multiStatus(CalDavFixtures.Principal))   // current-user-principal
         server.enqueue(multiStatus(CalDavFixtures.HomeSet))     // calendar-home-set
+        server.enqueue(multiStatus("""<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response><propstat><prop><C:calendar-user-address-set><href>mailto:test@example.com</href></C:calendar-user-address-set></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""").setHeader("DAV", "1, 3, calendar-auto-schedule"))
         server.enqueue(multiStatus(CalDavFixtures.Calendars))   // the listing
 
         val account = discovery().discoverAccount(url().trimEnd('/'), credentials)
@@ -146,8 +147,10 @@ class CalDavDiscoveryTest {
         assertTrue(account.principalUrl.endsWith("/test-user/"))
         assertTrue(account.homeSetUrl.endsWith("/test-user/"))
         assertEquals(2, account.calendars.size)
+        assertEquals(setOf("mailto:test@example.com"), account.calendarUserAddresses)
+        assertTrue(account.autoSchedule)
 
-        val methods = (1..4).map { server.takeRequest().method }
+        val methods = (1..5).map { server.takeRequest().method }
         assertTrue("every discovery step uses PROPFIND", methods.all { it == "PROPFIND" })
     }
 
@@ -207,6 +210,7 @@ class CalDavDiscoveryTest {
             server.enqueue(multiStatus("<multistatus xmlns=\"DAV:\"/>")) // well-known probe
             server.enqueue(principalResponse("/principals/test-user/"))
             server.enqueue(homeSetResponse("/calendars/test-user/"))
+            server.enqueue(multiStatus("<multistatus xmlns=\"DAV:\"/>")) // scheduling identity
             server.enqueue(multiStatus(
                 """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response>
                     <href>${other.url("/calendar/")}</href><propstat><prop>
@@ -221,7 +225,7 @@ class CalDavDiscoveryTest {
             assertTrue("expected a rejected DAV href, got $error", error is CalDavException)
             assertEquals(CalDavErrorCode.NotCalDav, (error as CalDavException).code)
             assertEquals(0, other.requestCount)
-            assertEquals(4, server.requestCount)
+            assertEquals(5, server.requestCount)
         } finally {
             other.shutdown()
         }

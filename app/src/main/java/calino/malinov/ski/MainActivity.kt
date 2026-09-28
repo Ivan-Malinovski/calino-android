@@ -79,6 +79,7 @@ import calino.malinov.ski.data.caldav.CalDavConnectionManager
 import calino.malinov.ski.data.caldav.CalDavDiscovery
 import calino.malinov.ski.data.caldav.CalDavFetcher
 import calino.malinov.ski.data.caldav.CalDavWriter
+import calino.malinov.ski.data.caldav.normalizedCalendarAddress
 import calino.malinov.ski.data.caldav.CardDavWriter
 import calino.malinov.ski.data.caldav.CredentialStore
 import calino.malinov.ski.data.caldav.DavHttp
@@ -2126,6 +2127,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         // subscribe, so an async refresh would not repaint.
                         events = calendarEvents,
                         tasks = calendarTasks,
+                        pendingInvitations = calendarEvents.filter { invitation ->
+                            val account = calDavAccounts.firstOrNull { candidate ->
+                                candidate.calendars.any { it.id == invitation.calendarId }
+                            }
+                            val own = account?.calendarUserAddresses.orEmpty().map(::normalizedCalendarAddress).toSet()
+                            account?.autoSchedule == true && invitation.calendarId !in readOnlyCalendarIds &&
+                                invitation.organizer != null &&
+                                normalizedCalendarAddress(invitation.organizer.address) !in own &&
+                                invitation.attendees.count {
+                                    normalizedCalendarAddress(it.email) in own &&
+                                        it.participationStatus.equals("NEEDS-ACTION", ignoreCase = true)
+                                } == 1
+                        }.distinctBy { it.uid ?: it.id },
                         modifier = Modifier.fillMaxSize(),
                         initialDate = selectedDate,
                         onOpenMenu = { sidebarVisible = true },
@@ -2434,9 +2448,40 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
         when (route) {
             PockRoute.Detail -> selectedEvent?.let { event ->
+                val accountForEvent: (CalEvent) -> calino.malinov.ski.data.model.CalDavAccount? = { target ->
+                    calDavAccounts.firstOrNull { account -> account.calendars.any { it.id == target.calendarId } }
+                }
+                val addressesForEvent: (CalEvent) -> Set<String> = { target ->
+                    accountForEvent(target)?.calendarUserAddresses.orEmpty()
+                }
+                val nonOrganizerCopy: (CalEvent) -> Boolean = { target ->
+                    val normalizedSelf = addressesForEvent(target).map(::normalizedCalendarAddress).toSet()
+                    target.organizer != null && normalizedCalendarAddress(target.organizer.address) !in normalizedSelf &&
+                        accountForEvent(target) != null
+                }
+                val readOnlyForEvent: (CalEvent) -> Boolean = { target ->
+                    target.calendarId in readOnlyCalendarIds || nonOrganizerCopy(target)
+                }
+                val canRespondToEvent: (CalEvent) -> Boolean = { target ->
+                    val self = addressesForEvent(target).map(::normalizedCalendarAddress).toSet()
+                    nonOrganizerCopy(target) && accountForEvent(target)?.autoSchedule == true &&
+                        target.attendees.count { normalizedCalendarAddress(it.email) in self } == 1 &&
+                        target.calendarId !in readOnlyCalendarIds
+                    }
                 EventDetail(
                     event = event,
-                    readOnly = event.calendarId in readOnlyCalendarIds,
+                    readOnly = readOnlyForEvent(event),
+                    selfAddresses = addressesForEvent(event),
+                    canRespond = canRespondToEvent(event),
+                    readOnlyForEvent = readOnlyForEvent,
+                    selfAddressesForEvent = addressesForEvent,
+                    canRespondToEvent = canRespondToEvent,
+                    onRespond = { target, status, scope ->
+                        when (val result = repository.respondToEvent(target.id, status, scope)) {
+                            is WriteResult.Applied, is WriteResult.Queued -> true
+                            is WriteResult.Rejected -> { writeError = result.reason; false }
+                        }
+                    },
                     localReminders = { pocViewModel.localReminders[localReminderKey(it)] },
                     onLocalReminders = pocViewModel::setLocalReminders,
                     events = remember(snapshot.events, selectedEventOccurrenceDay) {

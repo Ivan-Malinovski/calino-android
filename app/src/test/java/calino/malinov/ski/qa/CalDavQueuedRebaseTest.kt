@@ -354,7 +354,7 @@ END:VCALENDAR
             readOnly = false,
             components = setOf("VEVENT", "VTODO", "VJOURNAL"),
         )
-        repository.setSources(listOf(CalDavSource(calendar, credentials, "account")))
+        repository.setSources(listOf(CalDavSource(calendar, credentials, "account", setOf("mailto:boss@example.com"))))
         repository.awaitSync()
 
         val event = repository.events().single()
