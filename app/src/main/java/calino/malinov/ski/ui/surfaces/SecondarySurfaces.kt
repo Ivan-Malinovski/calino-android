@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1885,6 +1886,9 @@ fun TaskDetailSurface(
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 980.dp,
         canStartDismiss = { !detailScrollState.canScrollBackward },
+        // The event card's own gestures: a swipe down closes it in the side
+        // panel too, not only a swipe toward the edge.
+        allowDownwardDismissInEndPanel = true,
         surfaceKind = CalinoSurfaceKind.TaskPreview,
         handleColor = headerTint,
         pill = {
@@ -1982,36 +1986,132 @@ fun TaskDetailSurface(
                     .verticalScroll(detailScrollState)
                     .padding(horizontal = 18.dp),
             ) {
-                // The editor's own single-choice pills, offered from the same
-                // list; a category the task already carries stays selectable
-                // even if it has since left that list.
-                val choices = remember(categories, task.category) {
-                    (categories + listOfNotNull(task.category?.takeIf { it.isNotBlank() })).distinct()
-                }
-                if (choices.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                        Box(Modifier.width(38.dp).padding(top = 7.dp)) {
-                            CalinoIcon(CalinoIcon.Filter, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                        }
-                        FlowRow(
-                            Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
-                            verticalArrangement = Arrangement.spacedBy(7.dp),
-                        ) {
-                            choices.forEach { choice ->
-                                val on = choice == category
-                                CalinoChip(
-                                    text = choice,
-                                    selected = on,
-                                    description = "Choose category",
-                                    semanticsRole = Role.RadioButton,
-                                    onClick = { category = if (on) "" else choice },
-                                )
-                            }
+                Column(Modifier.padding(bottom = 12.dp)) {
+                    TaskRow(
+                        icon = CalinoIcon.Calendar,
+                        text = due?.format(dateFormat) ?: "Add due date",
+                        set = due != null,
+                        description = "Choose a custom due date",
+                        onClick = pickDueDate,
+                        onClear = if (due != null) ({ due = null; dueTime = null }) else null,
+                        clearDescription = "Remove due date",
+                    )
+                    Row(Modifier.fillMaxWidth().padding(start = 38.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf(
+                            today to "Today",
+                            today.plusDays(1) to "Tomorrow",
+                            today.plusDays(7) to "Next week",
+                        ).forEach { (date, text) ->
+                            CalinoChip(
+                                text = text,
+                                selected = due == date,
+                                description = "Set due date",
+                                semanticsRole = Role.RadioButton,
+                                onClick = { due = date },
+                            )
                         }
                     }
-                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                 }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                TaskRow(
+                    icon = CalinoIcon.Clock,
+                    text = dueTime?.let { LocalTimeFormat.format(it) } ?: "Add due time",
+                    set = dueTime != null,
+                    description = "Change due time",
+                    onClick = pickDueTime,
+                    onClear = if (dueTime != null) ({ dueTime = null }) else null,
+                    clearDescription = "Remove due time",
+                )
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                Column {
+                    val chevron by animateFloatAsState(
+                        if (reminderOpen) 180f else 0f,
+                        CalinoMotion.expressiveSpatial(),
+                        label = "reminder chevron",
+                    )
+                    // The whole row is the control: value and chevron say what
+                    // it holds and that it opens, with no button inside it.
+                    TaskRow(
+                        icon = CalinoIcon.Bell,
+                        text = if (reminder != null) taskReminderSummary(reminder) else "Add reminder",
+                        set = reminder != null,
+                        description = "Change task reminder",
+                        onClick = { reminderOpen = !reminderOpen },
+                    ) {
+                        CalinoIcon(
+                            CalinoIcon.Down,
+                            tint = CalinoColors.Ink3,
+                            modifier = Modifier.size(18.dp).rotate(chevron),
+                            contentDescription = null,
+                        )
+                    }
+                    EditorReveal(reminderOpen) {
+                        Box(Modifier.padding(start = 38.dp, bottom = 12.dp)) {
+                            TaskReminderChips(reminder) { reminder = it }
+                        }
+                    }
+                }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    label("Priority")
+                    val priorities = listOf(0 to "None", 1 to "High", 5 to "Medium", 9 to "Low")
+                    CompactSegmentedControl(
+                        options = priorities.map { it.second },
+                        selectedIndex = priorities.indexOfFirst { it.first == priority }.coerceAtLeast(0),
+                        onSelected = { priority = priorities[it].first },
+                        modifier = Modifier.fillMaxWidth(),
+                        semanticLabel = "Priority",
+                    )
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        label("Progress", Modifier.weight(1f))
+                        Text("$percentComplete%", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                    }
+                    CalinoProgressSlider(
+                        percent = percentComplete,
+                        onPercentChange = { percentComplete = it; done = it == 100 },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    task.recurrence?.let { Text(formatRecurrenceRule(it, task.due ?: today), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }
+                }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                val subtasks = tasks.filter { it.parentTaskId == task.id }
+                if (subtasks.isEmpty()) {
+                    // Same shape as the empty notes row: nothing to list, so
+                    // the whole row is the way to add one.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 54.dp)
+                            .clickable(role = Role.Button, onClickLabel = "Add subtask", onClick = onAddSubtask),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.width(38.dp)) {
+                            CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                        }
+                        Text("Add subtask", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                    }
+                } else {
+                    Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(38.dp)) {
+                                CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                            }
+                            label("Subtasks", Modifier.weight(1f))
+                            Text(
+                                "${subtasks.count { it.done }} of ${subtasks.size}",
+                                style = CalinoTypography.labelSmall,
+                                color = CalinoColors.Ink3,
+                            )
+                            IconButton(onClick = onAddSubtask, modifier = Modifier.size(44.dp)) {
+                                CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Accent, modifier = Modifier.size(20.dp), contentDescription = "Add subtask")
+                            }
+                        }
+                        subtasks.forEach { child ->
+                            SubtaskRow(child, onOpen = { onOpenSubtask(child) }, onToggle = { onToggleSubtask(child) })
+                        }
+                    }
+                }
+                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                 if (editingNotes) {
                     CalinoMarkdownEditor(
                         value = notes,
@@ -2059,157 +2159,97 @@ fun TaskDetailSurface(
                         }
                     }
                 }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                val subtasks = tasks.filter { it.parentTaskId == task.id }
-                if (subtasks.isEmpty()) {
-                    // Same shape as the empty notes row: nothing to list, so
-                    // the whole row is the way to add one.
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 54.dp)
-                            .clickable(role = Role.Button, onClickLabel = "Add subtask", onClick = onAddSubtask),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.width(38.dp)) {
-                            CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                // The editor's own single-choice pills, offered from the same
+                // list; a category the task already carries stays selectable
+                // even if it has since left that list.
+                val choices = remember(categories, task.category) {
+                    (categories + listOfNotNull(task.category?.takeIf { it.isNotBlank() })).distinct()
+                }
+                if (choices.isNotEmpty()) {
+                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                        Box(Modifier.width(38.dp).padding(top = 7.dp)) {
+                            CalinoIcon(CalinoIcon.Filter, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
                         }
-                        Text("Add subtask", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
-                    }
-                } else {
-                    Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
-                        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.width(38.dp)) {
-                                CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                            }
-                            label("Subtasks", Modifier.weight(1f))
-                            Text(
-                                "${subtasks.count { it.done }} of ${subtasks.size}",
-                                style = CalinoTypography.labelSmall,
-                                color = CalinoColors.Ink3,
-                            )
-                            IconButton(onClick = onAddSubtask, modifier = Modifier.size(44.dp)) {
-                                CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Accent, modifier = Modifier.size(20.dp), contentDescription = "Add subtask")
+                        FlowRow(
+                            Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            choices.forEach { choice ->
+                                val on = choice == category
+                                CalinoChip(
+                                    text = choice,
+                                    selected = on,
+                                    description = "Choose category",
+                                    semanticsRole = Role.RadioButton,
+                                    onClick = { category = if (on) "" else choice },
+                                )
                             }
                         }
-                        subtasks.forEach { child ->
-                            SubtaskRow(child, onOpen = { onOpenSubtask(child) }, onToggle = { onToggleSubtask(child) })
-                        }
                     }
-                }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Column(Modifier.padding(bottom = 12.dp)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CalinoIcon(CalinoIcon.Calendar, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                        label("Due date", Modifier.weight(1f).padding(start = 16.dp))
-                        TextButton(onClick = pickDueDate, modifier = Modifier.heightIn(min = 44.dp)
-                            .semantics { contentDescription = "Choose a custom due date" }) {
-                            Text(due?.format(dateFormat) ?: "Add date", color = CalinoColors.Accent)
-                        }
-                        if (due != null) {
-                            TextButton(onClick = { due = null; dueTime = null }, modifier = Modifier.heightIn(min = 44.dp)
-                                .semantics { contentDescription = "Remove due date" }) { Text("Clear") }
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth().padding(start = 38.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        listOf(
-                            today to "Today",
-                            today.plusDays(1) to "Tomorrow",
-                            today.plusDays(7) to "Next week",
-                        ).forEach { (date, text) ->
-                            CalinoChip(
-                                text = text,
-                                selected = due == date,
-                                description = "Set due date",
-                                semanticsRole = Role.RadioButton,
-                                onClick = { due = date },
-                            )
-                        }
-                    }
-                }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 44.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CalinoIcon(CalinoIcon.Clock, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                    label("Due time", Modifier.weight(1f).padding(start = 16.dp))
-                    TextButton(onClick = pickDueTime, modifier = Modifier.heightIn(min = 44.dp)
-                        .semantics { contentDescription = "Change due time" }) {
-                        Text(dueTime?.let { LocalTimeFormat.format(it) } ?: "Add time", color = CalinoColors.Accent)
-                    }
-                    if (dueTime != null) {
-                        TextButton(onClick = { dueTime = null }, modifier = Modifier.heightIn(min = 44.dp)
-                            .semantics { contentDescription = "Remove due time" }) { Text("Clear") }
-                    }
-                }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Column {
-                    val chevron by animateFloatAsState(
-                        if (reminderOpen) 180f else 0f,
-                        CalinoMotion.expressiveSpatial(),
-                        label = "reminder chevron",
-                    )
-                    // The whole row is the control: value and chevron say what
-                    // it holds and that it opens, with no button inside it.
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 54.dp)
-                            .clickable(role = Role.Button, onClickLabel = "Change task reminder") { reminderOpen = !reminderOpen },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CalinoIcon(
-                            CalinoIcon.Bell,
-                            tint = if (reminder != null) CalinoColors.Accent else CalinoColors.Ink2,
-                            modifier = Modifier.size(22.dp),
-                            contentDescription = null,
-                        )
-                        Text(
-                            if (reminder != null) taskReminderSummary(reminder) else "Add reminder",
-                            style = CalinoTypography.bodyLarge,
-                            color = if (reminder != null) CalinoColors.Ink else CalinoColors.Ink3,
-                            modifier = Modifier.weight(1f).padding(start = 16.dp),
-                        )
-                        CalinoIcon(
-                            CalinoIcon.Down,
-                            tint = CalinoColors.Ink3,
-                            modifier = Modifier.size(18.dp).rotate(chevron),
-                            contentDescription = null,
-                        )
-                    }
-                    EditorReveal(reminderOpen) {
-                        Box(Modifier.padding(start = 38.dp, bottom = 12.dp)) {
-                            TaskReminderChips(reminder) { reminder = it }
-                        }
-                    }
-                }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    label("Priority")
-                    val priorities = listOf(0 to "None", 1 to "High", 5 to "Medium", 9 to "Low")
-                    CompactSegmentedControl(
-                        options = priorities.map { it.second },
-                        selectedIndex = priorities.indexOfFirst { it.first == priority }.coerceAtLeast(0),
-                        onSelected = { priority = priorities[it].first },
-                        modifier = Modifier.fillMaxWidth(),
-                        semanticLabel = "Priority",
-                    )
-                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        label("Progress", Modifier.weight(1f))
-                        Text("$percentComplete%", style = CalinoTypography.labelMedium, color = CalinoColors.Ink2)
-                    }
-                    CalinoProgressSlider(
-                        percent = percentComplete,
-                        onPercentChange = { percentComplete = it; done = it == 100 },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    task.recurrence?.let { Text(formatRecurrenceRule(it, task.due ?: today), color = CalinoColors.Ink3, fontSize = 12.sp) }
                 }
                 // The floating pill overlaps the card, so reserve its lane as
                 // scrollable content rather than as a fixed blank footer.
                 Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
+        }
+    }
+}
+
+/**
+ * One editable value on the task card: icon and text form the tap target, and an
+ * optional clear action sits beside it as its own target rather than nested in
+ * it. Every value row shares this size, weight and spacing, so the card reads as
+ * one list; only the small mono labels above a control are a different voice.
+ */
+@Composable
+private fun TaskRow(
+    icon: CalinoIcon,
+    text: String,
+    set: Boolean,
+    description: String,
+    onClick: () -> Unit,
+    onClear: (() -> Unit)? = null,
+    clearDescription: String = "Clear",
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 54.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .weight(1f)
+                .heightIn(min = 54.dp)
+                .clickable(role = Role.Button, onClickLabel = description, onClick = onClick)
+                .semantics { contentDescription = description },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.width(38.dp)) {
+                CalinoIcon(
+                    icon,
+                    tint = if (set) CalinoColors.Accent else CalinoColors.Ink2,
+                    modifier = Modifier.size(22.dp),
+                    contentDescription = null,
+                )
+            }
+            Text(
+                text,
+                style = CalinoTypography.bodyLarge,
+                color = if (set) CalinoColors.Ink else CalinoColors.Ink3,
+                modifier = Modifier.weight(1f),
+            )
+            trailing()
+        }
+        if (onClear != null) {
+            Text(
+                "Clear",
+                style = CalinoTypography.bodyMedium,
+                color = CalinoColors.Ink2,
+                modifier = Modifier
+                    .heightIn(min = 44.dp)
+                    .clickable(role = Role.Button, onClickLabel = clearDescription, onClick = onClear)
+                    .wrapContentHeight(Alignment.CenterVertically)
+                    .padding(horizontal = 12.dp),
+            )
         }
     }
 }

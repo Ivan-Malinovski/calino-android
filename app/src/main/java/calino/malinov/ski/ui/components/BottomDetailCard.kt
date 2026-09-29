@@ -20,6 +20,7 @@ fun BottomDetailCard(
     dismissDistance: androidx.compose.ui.unit.Dp = 980.dp,
     resetKey: Any? = null,
     canStartDismiss: () -> Boolean = { true },
+    allowDownwardDismissInEndPanel: Boolean = false,
     surfaceKind: CalinoSurfaceKind = CalinoSurfaceKind.Detail,
     handleColor: Color = CalinoColors.Canvas,
     // The card's action pill, hosted in the pill lane rather than in the card,
@@ -51,6 +52,7 @@ fun BottomDetailCard(
                 dismissDistance = dismissDistance,
                 resetKey = resetKey,
                 canStartDismiss = canStartDismiss,
+                allowDownwardDismissInEndPanel = allowDownwardDismissInEndPanel,
                 handleColor = handleColor,
                 content = content,
             )
