@@ -366,6 +366,12 @@ fun AdaptiveSurfaceHost(
                 slideInHorizontally(CalinoMotion.expressiveSpatial()) { it } +
                     fadeIn(tween(CalinoMotion.ContentEnterMillis))
         }
+        // A side panel pulled downward leaves downward, the way the finger was
+        // taking it, not off to its own edge. Sampled when visibility flips,
+        // like [gestureExit], while the drag still holds its last offsets.
+        val downwardExit = remember(visible) {
+            !visible && dismissDrag.offsetY > kotlin.math.abs(dismissDrag.offsetX)
+        }
         val exit = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
                 slideOutVertically(tween(240)) { it } + fadeOut(tween(160))
@@ -383,8 +389,11 @@ fun AdaptiveSurfaceHost(
                 ) { (it * .09f).roundToInt() } + fadeOut(
                     tween(FloatingExitMillis, easing = LinearEasing),
                 )
-            CalinoSurfaceMode.EndPanel ->
+            CalinoSurfaceMode.EndPanel -> if (downwardExit) {
+                slideOutVertically(tween(240)) { it } + fadeOut(tween(160))
+            } else {
                 slideOutHorizontally(tween(220)) { it } + fadeOut(tween(150))
+            }
         }
         // A card leaving under the finger or the back gesture is already on
         // its way somewhere; pulling it back into its origin from there would

@@ -1593,10 +1593,20 @@ private fun PreviewAttachmentRow(event: CalEvent, attachment: EventAttachment) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CalinoIcon(CalinoIcon.Paperclip, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+        // Label over value, like every other row on the card; the type, size
+        // or host is a quiet note at the row's end rather than a third line.
         Column(Modifier.weight(1f).padding(start = 16.dp)) {
             label("Attachment")
             Text(name, style = CalinoTypography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            detail?.let { Text(it, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+        detail?.let {
+            Text(
+                it,
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 12.dp, end = PreviewTrailingInset),
+            )
         }
     }
 }
