@@ -189,6 +189,7 @@ import calino.malinov.ski.util.formatCalinoDuration
 import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.design.CalinoShapes
+import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.design.eventTint
 import calino.malinov.ski.qa.TaskBucket
 import calino.malinov.ski.qa.taskBucket
@@ -1269,7 +1270,7 @@ private fun EventDetailContent(
             item { HorizontalDivider(Modifier.padding(vertical = 6.dp), color = CalinoColors.Ink.copy(.1f)) }
             item {
                 if (draft.description.isBlank()) {
-                    PreviewStaticRow(CalinoIcon.Note, "Description", "+ Add description")
+                    PreviewStaticRow(CalinoIcon.Note, "Description", "+ Add description", prompt = true)
                 } else {
                     DetailRow(CalinoIcon.Note, "Description", draft.description, markdown = true) { taskIndex, checked ->
                         if (!readOnly && !saving) {
@@ -1561,17 +1562,33 @@ private fun PreviewMeetingRow(meeting: MeetingLink) {
             label("Meeting")
             Text(meeting.service, style = CalinoTypography.bodyLarge)
         }
-        CalinoChip(
-            text = "Join",
-            selected = true,
-            description = meeting.service,
-            onClick = {
-                runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(meeting.url)))
+        // A slim pill inside the usual 44dp touch lane: at chip height it
+        // outweighs the row it belongs to.
+        val join = meeting.service
+        Box(
+            Modifier
+                .padding(end = PreviewTrailingInset - 18.dp)
+                .heightIn(min = 44.dp)
+                .calinoPressable(role = Role.Button) {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(meeting.url)))
+                    }
                 }
-            },
-            modifier = Modifier.padding(end = PreviewTrailingInset - 18.dp).heightIn(min = 44.dp),
-        )
+                .semantics { contentDescription = "Join, $join" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(CalinoShapes.Pill))
+                    .background(CalinoColors.Accent.copy(.12f))
+                    .border(1.dp, CalinoColors.Accent.copy(.2f), RoundedCornerShape(CalinoShapes.Pill))
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Join", style = CalinoTypography.bodySmall, color = CalinoColors.Ink)
+            }
+        }
     }
 }
 
@@ -1612,10 +1629,19 @@ private fun PreviewAttachmentRow(event: CalEvent, attachment: EventAttachment) {
 }
 
 @Composable
-private fun PreviewStaticRow(icon: CalinoIcon, labelText: String, value: String) {
+private fun PreviewStaticRow(icon: CalinoIcon, labelText: String, value: String, prompt: Boolean = false) {
     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
         CalinoIcon(icon, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-        Column(Modifier.padding(start = 16.dp)) { label(labelText); Text(value, style = CalinoTypography.bodyLarge) }
+        Column(Modifier.padding(start = 16.dp)) {
+            label(labelText)
+            // A prompt to add something is a suggestion, not a value: it sits
+            // a little further from its label and fainter than real content.
+            Text(
+                value,
+                style = CalinoTypography.bodyLarge,
+                modifier = if (prompt) Modifier.padding(top = 3.dp).alpha(.55f) else Modifier,
+            )
+        }
     }
 }
 
