@@ -19,6 +19,9 @@ enum class CalinoSurfaceKind(val widthCapDp: Int, val heightCapDp: Int) {
     CompactPreview(widthCapDp = 400, heightCapDp = 360),
     EventPreviewCompact(widthCapDp = 400, heightCapDp = 560),
     Preview(widthCapDp = 420, heightCapDp = 560),
+    // Same card as Preview on a bottom sheet, but in the end lane it is a
+    // full-height panel like an event's, not a short floating window.
+    TaskPreview(widthCapDp = 420, heightCapDp = 560),
     Detail(widthCapDp = 520, heightCapDp = 760),
     Editor(widthCapDp = 640, heightCapDp = 820),
     Search(widthCapDp = 720, heightCapDp = 680),

@@ -109,7 +109,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.draw.shadow
@@ -199,6 +203,7 @@ import calino.malinov.ski.ui.components.LocalCalinoPillLane
 import calino.malinov.ski.ui.components.LocalCalinoSurfaceMode
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoChip
+import calino.malinov.ski.ui.components.CalinoProgressSlider
 import calino.malinov.ski.ui.components.CalinoScrim
 import calino.malinov.ski.ui.components.PromptButton
 import androidx.compose.ui.semantics.paneTitle
@@ -1771,6 +1776,7 @@ private fun EventDetailPill(
  * in both the calendar and task ledger; completion and rescheduling remain
  * separate row actions so opening a task never mutates it accidentally.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TaskDetailSurface(
     task: CalTask,
@@ -1780,6 +1786,9 @@ fun TaskDetailSurface(
     onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
     onDelete: suspend () -> Boolean = { true },
     onAddSubtask: () -> Unit = {},
+    categories: List<String> = emptyList(),
+    onOpenSubtask: (CalTask) -> Unit = {},
+    onToggleSubtask: (CalTask) -> Unit = {},
 ) {
     val today = LocalCalinoNow.current.today
     var title by remember(task.id) { mutableStateOf(task.title) }
@@ -1799,9 +1808,11 @@ fun TaskDetailSurface(
     var confirmingDelete by remember(task.id) { mutableStateOf(false) }
     var requestedDone by remember(task.id) { mutableStateOf<Boolean?>(null) }
     var savingNotes by remember(task.id) { mutableStateOf(false) }
-    var editingNotes by remember(task.id) { mutableStateOf(task.notes.isNullOrBlank()) }
+    var editingNotes by remember(task.id) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val detailScrollState = rememberScrollState()
+    // Opening a subtask swaps the task under this card; start it at the top.
+    LaunchedEffect(task.id) { detailScrollState.scrollTo(0) }
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
     val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
     val pickDueTime = rememberTimePicker({ dueTime }, title = "Due") { picked ->
@@ -1874,7 +1885,7 @@ fun TaskDetailSurface(
         modifier = Modifier.fillMaxSize(),
         dismissDistance = 980.dp,
         canStartDismiss = { !detailScrollState.canScrollBackward },
-        surfaceKind = CalinoSurfaceKind.Preview,
+        surfaceKind = CalinoSurfaceKind.TaskPreview,
         handleColor = headerTint,
         pill = {
             val canSave = title.trim().isNotEmpty()
@@ -1934,30 +1945,29 @@ fun TaskDetailSurface(
                 .fillMaxSize()
                 .background(CalinoColors.Canvas),
         ) {
-            Box(Modifier.fillMaxWidth().height(52.dp).background(headerTint)) {
-                Row(
-                    Modifier.fillMaxSize().padding(start = 32.dp, end = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CalinoIcon(
-                        CalinoIcon.Check,
-                        tint = taskColor(task),
-                        modifier = Modifier.size(23.dp),
-                        contentDescription = null,
-                    )
+            HeroMasthead(headerTint) {
+                // Same shell as an event's: the category is the kicker above
+                // the title, and an empty kicker still holds its line open so
+                // every card's title starts at the same height.
+                val kicker = listOfNotNull(
+                    category.trim().takeIf { it.isNotEmpty() },
+                    "Repeating".takeIf { task.recurrence != null },
+                ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.uppercase(Locale.US)
+                Column(Modifier.fillMaxWidth().padding(top = if (kicker == null) 14.dp else 0.dp)) {
+                    kicker?.let { Text(it, style = CalinoTypography.labelSmall, color = taskColor(task)) }
                     BasicTextField(
                         value = title,
                         onValueChange = { title = it },
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 14.dp)
+                            .fillMaxWidth()
+                            .padding(top = 10.dp, bottom = 6.dp)
                             .semantics { contentDescription = "Task title" },
-                        textStyle = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink),
+                        textStyle = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink),
                         singleLine = true,
                         decorationBox = { innerTextField ->
                             Box {
                                 if (title.isBlank()) {
-                                    Text("Add task title", style = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink3))
+                                    Text("Add task title", style = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink3))
                                 }
                                 innerTextField()
                             }
@@ -1965,15 +1975,43 @@ fun TaskDetailSurface(
                     )
                 }
             }
-            HorizontalDivider(color = CalinoColors.Ink.copy(alpha = .09f))
+            HorizontalDivider(color = taskColor(task).copy(alpha = .30f))
             Column(
                 Modifier
                     .weight(1f)
                     .verticalScroll(detailScrollState)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 18.dp),
             ) {
-                PreviewEditRow(CalinoIcon.Filter, "Category", category, "Add category") { category = it }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                // The editor's own single-choice pills, offered from the same
+                // list; a category the task already carries stays selectable
+                // even if it has since left that list.
+                val choices = remember(categories, task.category) {
+                    (categories + listOfNotNull(task.category?.takeIf { it.isNotBlank() })).distinct()
+                }
+                if (choices.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                        Box(Modifier.width(38.dp).padding(top = 7.dp)) {
+                            CalinoIcon(CalinoIcon.Filter, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                        }
+                        FlowRow(
+                            Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            choices.forEach { choice ->
+                                val on = choice == category
+                                CalinoChip(
+                                    text = choice,
+                                    selected = on,
+                                    description = "Choose category",
+                                    semanticsRole = Role.RadioButton,
+                                    onClick = { category = if (on) "" else choice },
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                }
                 if (editingNotes) {
                     CalinoMarkdownEditor(
                         value = notes,
@@ -1982,8 +2020,27 @@ fun TaskDetailSurface(
                         label = "Task notes",
                         placeholder = "Add task notes",
                     )
+                } else if (notes.isBlank()) {
+                    // An empty field is one row, not a four-line editor and its
+                    // Write/Preview toolbar; the editor opens on tap.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 54.dp)
+                            .clickable(role = Role.Button, onClickLabel = "Add task notes") { editingNotes = true },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.width(38.dp)) {
+                            CalinoIcon(CalinoIcon.Note, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                        }
+                        Text("Add notes", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                    }
                 } else {
-                    Column {
+                    // Tapping the text edits it; the checkboxes inside keep
+                    // their own taps, so a list can still be ticked off.
+                    Box(
+                        Modifier.clickable(role = Role.Button, onClickLabel = "Edit notes") { editingNotes = true },
+                    ) {
                         DetailRow(CalinoIcon.Note, "Notes", notes, markdown = true) { taskIndex, checked ->
                             if (!savingNotes) {
                                 val before = notes
@@ -2000,98 +2057,74 @@ fun TaskDetailSurface(
                                 }
                             }
                         }
-                        TextButton(
-                            onClick = { editingNotes = true },
-                            modifier = Modifier.heightIn(min = 44.dp).align(Alignment.End),
-                        ) { Text("Edit notes", color = CalinoColors.Accent) }
                     }
                 }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                 val subtasks = tasks.filter { it.parentTaskId == task.id }
-                Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                        label("Subtasks", Modifier.weight(1f).padding(start = 16.dp))
-                        TextButton(onClick = onAddSubtask, modifier = Modifier.heightIn(min = 44.dp)) {
-                            Text("Add", color = CalinoColors.Accent)
+                if (subtasks.isEmpty()) {
+                    // Same shape as the empty notes row: nothing to list, so
+                    // the whole row is the way to add one.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 54.dp)
+                            .clickable(role = Role.Button, onClickLabel = "Add subtask", onClick = onAddSubtask),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.width(38.dp)) {
+                            CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
                         }
+                        Text("Add subtask", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
                     }
-                    if (subtasks.isEmpty()) {
-                        Text("No subtasks yet", color = CalinoColors.Ink3, fontSize = 12.sp)
-                    } else {
-                        subtasks.forEach { child ->
+                } else {
+                    Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(38.dp)) {
+                                CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                            }
+                            label("Subtasks", Modifier.weight(1f))
                             Text(
-                                "• ${child.title}",
-                                color = if (child.done) CalinoColors.Ink3 else CalinoColors.Ink2,
-                                textDecoration = if (child.done) TextDecoration.LineThrough else TextDecoration.None,
-                                modifier = Modifier.padding(start = 5.dp),
+                                "${subtasks.count { it.done }} of ${subtasks.size}",
+                                style = CalinoTypography.labelSmall,
+                                color = CalinoColors.Ink3,
                             )
+                            IconButton(onClick = onAddSubtask, modifier = Modifier.size(44.dp)) {
+                                CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Accent, modifier = Modifier.size(20.dp), contentDescription = "Add subtask")
+                            }
+                        }
+                        subtasks.forEach { child ->
+                            SubtaskRow(child, onOpen = { onOpenSubtask(child) }, onToggle = { onToggleSubtask(child) })
                         }
                     }
                 }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.padding(bottom = 12.dp)) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
                         CalinoIcon(CalinoIcon.Calendar, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                        label("Due date", Modifier.padding(start = 16.dp))
+                        label("Due date", Modifier.weight(1f).padding(start = 16.dp))
+                        TextButton(onClick = pickDueDate, modifier = Modifier.heightIn(min = 44.dp)
+                            .semantics { contentDescription = "Choose a custom due date" }) {
+                            Text(due?.format(dateFormat) ?: "Add date", color = CalinoColors.Accent)
+                        }
+                        if (due != null) {
+                            TextButton(onClick = { due = null; dueTime = null }, modifier = Modifier.heightIn(min = 44.dp)
+                                .semantics { contentDescription = "Remove due date" }) { Text("Clear") }
+                        }
                     }
-                    val choices = listOf(
-                        today to "Today",
-                        today.plusDays(1) to "Tomorrow",
-                        today.plusDays(7) to "Next week",
-                    )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        choices.forEach { (date, text) ->
-                            val selected = due == date
-                            TextButton(
+                    Row(Modifier.fillMaxWidth().padding(start = 38.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf(
+                            today to "Today",
+                            today.plusDays(1) to "Tomorrow",
+                            today.plusDays(7) to "Next week",
+                        ).forEach { (date, text) ->
+                            CalinoChip(
+                                text = text,
+                                selected = due == date,
+                                description = "Set due date",
+                                semanticsRole = Role.RadioButton,
                                 onClick = { due = date },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 44.dp)
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(if (selected) CalinoColors.AccentSoft else CalinoColors.Panel)
-                                    .semantics {
-                                        contentDescription = if (selected) "$text, selected" else "Set due date to $text"
-                                    },
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                            ) {
-                                Text(text, fontSize = 11.sp, color = if (selected) CalinoColors.Accent else CalinoColors.Ink2, maxLines = 1)
-                            }
+                            )
                         }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(
-                            onClick = pickDueDate,
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 44.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(CalinoColors.Panel)
-                                .semantics { contentDescription = "Choose a custom due date" },
-                        ) {
-                            Text("Choose date…", color = CalinoColors.Accent)
-                        }
-                        TextButton(
-                            onClick = { due = null; dueTime = null },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 44.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (due == null) CalinoColors.AccentSoft else CalinoColors.Panel)
-                                .semantics {
-                                    contentDescription = if (due == null) "No date, selected" else "Remove due date"
-                                },
-                        ) {
-                            Text("No date", color = if (due == null) CalinoColors.Accent else CalinoColors.Ink2)
-                        }
-                    }
-                    due?.let { selectedDue ->
-                        Text(
-                            selectedDue.format(dateFormat),
-                            color = CalinoColors.Ink3,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(start = 3.dp),
-                        )
                     }
                 }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
@@ -2112,39 +2145,64 @@ fun TaskDetailSurface(
                 }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                 Column {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CalinoIcon(CalinoIcon.Bell, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                        label("Reminder", Modifier.weight(1f).padding(start = 16.dp))
-                        TextButton(onClick = { reminderOpen = !reminderOpen }, modifier = Modifier.heightIn(min = 44.dp)
-                            .semantics { contentDescription = "Change task reminder" }) {
-                            Text(taskReminderSummary(reminder), color = CalinoColors.Accent)
-                        }
+                    val chevron by animateFloatAsState(
+                        if (reminderOpen) 180f else 0f,
+                        CalinoMotion.expressiveSpatial(),
+                        label = "reminder chevron",
+                    )
+                    // The whole row is the control: value and chevron say what
+                    // it holds and that it opens, with no button inside it.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 54.dp)
+                            .clickable(role = Role.Button, onClickLabel = "Change task reminder") { reminderOpen = !reminderOpen },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CalinoIcon(
+                            CalinoIcon.Bell,
+                            tint = if (reminder != null) CalinoColors.Accent else CalinoColors.Ink2,
+                            modifier = Modifier.size(22.dp),
+                            contentDescription = null,
+                        )
+                        Text(
+                            if (reminder != null) taskReminderSummary(reminder) else "Add reminder",
+                            style = CalinoTypography.bodyLarge,
+                            color = if (reminder != null) CalinoColors.Ink else CalinoColors.Ink3,
+                            modifier = Modifier.weight(1f).padding(start = 16.dp),
+                        )
+                        CalinoIcon(
+                            CalinoIcon.Down,
+                            tint = CalinoColors.Ink3,
+                            modifier = Modifier.size(18.dp).rotate(chevron),
+                            contentDescription = null,
+                        )
                     }
                     EditorReveal(reminderOpen) {
-                        TaskReminderChips(reminder) { reminder = it }
+                        Box(Modifier.padding(start = 38.dp, bottom = 12.dp)) {
+                            TaskReminderChips(reminder) { reminder = it }
+                        }
                     }
                 }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     label("Priority")
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(0 to "None", 1 to "High", 5 to "Medium", 9 to "Low").forEach { (value, text) ->
-                            val selected = priority == value
-                            TextButton(
-                                onClick = { priority = value },
-                                modifier = Modifier.weight(1f).heightIn(min = 44.dp)
-                                    .semantics { contentDescription = "$text priority${if (selected) ", selected" else ""}" },
-                            ) { Text(text, color = if (selected) CalinoColors.Accent else CalinoColors.Ink2, fontSize = 11.sp) }
-                        }
+                    val priorities = listOf(0 to "None", 1 to "High", 5 to "Medium", 9 to "Low")
+                    CompactSegmentedControl(
+                        options = priorities.map { it.second },
+                        selectedIndex = priorities.indexOfFirst { it.first == priority }.coerceAtLeast(0),
+                        onSelected = { priority = priorities[it].first },
+                        modifier = Modifier.fillMaxWidth(),
+                        semanticLabel = "Priority",
+                    )
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        label("Progress", Modifier.weight(1f))
+                        Text("$percentComplete%", style = CalinoTypography.labelMedium, color = CalinoColors.Ink2)
                     }
-                    label("Progress · $percentComplete%")
-                    androidx.compose.material3.Slider(
-                        value = percentComplete.toFloat(),
-                        onValueChange = { percentComplete = it.toInt(); done = percentComplete == 100 },
-                        valueRange = 0f..100f,
-                        steps = 9,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
-                            .semantics { contentDescription = "Task progress, $percentComplete percent" },
+                    CalinoProgressSlider(
+                        percent = percentComplete,
+                        onPercentChange = { percentComplete = it; done = it == 100 },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     task.recurrence?.let { Text(formatRecurrenceRule(it, task.due ?: today), color = CalinoColors.Ink3, fontSize = 12.sp) }
                 }
@@ -2153,6 +2211,59 @@ fun TaskDetailSurface(
                 Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
         }
+    }
+}
+
+/**
+ * One subtask under its parent. The circle is its own 44dp target and completes
+ * it; the title opens it, so neither tap can be mistaken for the other.
+ */
+@Composable
+private fun SubtaskRow(task: CalTask, onOpen: () -> Unit, onToggle: () -> Unit) {
+    val fade = tween<Color>(CalinoMotion.ContentEnterMillis)
+    val fill by animateColorAsState(if (task.done) CalinoColors.Accent else Color.Transparent, fade, label = "subtask fill")
+    val edge by animateColorAsState(if (task.done) CalinoColors.Accent else CalinoColors.Ink3, fade, label = "subtask edge")
+    val tick by animateFloatAsState(if (task.done) 1f else 0f, tween(CalinoMotion.ContentEnterMillis), label = "subtask tick")
+    Row(Modifier.fillMaxWidth().padding(start = 25.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    role = Role.Checkbox,
+                    onClickLabel = if (task.done) "Mark subtask as open" else "Mark subtask as done",
+                    onClick = onToggle,
+                )
+                .semantics { contentDescription = "${task.title}, subtask"; stateDescription = if (task.done) "Done" else "Open" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier.size(18.dp).clip(CircleShape).background(fill).border(1.5.dp, edge, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                CalinoIcon(
+                    CalinoIcon.Check,
+                    tint = CalinoColors.Panel,
+                    modifier = Modifier.size(11.dp).alpha(tick),
+                    contentDescription = null,
+                )
+            }
+        }
+        Text(
+            task.title,
+            style = CalinoTypography.bodyLarge,
+            color = if (task.done) CalinoColors.Ink3 else CalinoColors.Ink,
+            textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 44.dp)
+                .clickable(role = Role.Button, onClickLabel = "Open subtask", onClick = onOpen)
+                .wrapContentHeight(Alignment.CenterVertically)
+                .padding(start = 2.dp),
+        )
     }
 }
 
@@ -3100,7 +3211,12 @@ fun TaskDetail(
     onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
     onDelete: suspend () -> Boolean = { true },
     onAddSubtask: () -> Unit = {},
-) = TaskDetailSurface(task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask)
+    categories: List<String> = emptyList(),
+    onOpenSubtask: (CalTask) -> Unit = {},
+    onToggleSubtask: (CalTask) -> Unit = {},
+) = TaskDetailSurface(
+    task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask, categories, onOpenSubtask, onToggleSubtask,
+)
 
 /** Task ledger; horizontal drag reveals completion/rescheduling affordances. */
 @Composable

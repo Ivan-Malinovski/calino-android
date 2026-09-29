@@ -2596,6 +2596,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 TaskDetail(
                     task = task,
                     tasks = snapshot.tasks,
+                    categories = LocalCalinoPreferences.current.let { prefs ->
+                        remember(snapshot.categories, prefs.userCategories, prefs.autoCategoryRules) {
+                            (snapshot.categories + prefs.userCategories + prefs.autoCategoryRules.map { it.category })
+                                .distinct()
+                        }
+                    },
                     onBack = {
                         selectedTaskId = null
                         restoreTaskDetailOrigin()
@@ -2686,6 +2692,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     onAddSubtask = {
                         openQuickAdd(QuickAddKind.Task, PocReturnTarget.TaskDetail, morphFromAddPill = true, parentTaskId = task.id, date = task.due)
                     },
+                    // Same route, same origin: back still returns to where the
+                    // parent was opened from.
+                    onOpenSubtask = { child -> openTaskDetail(child, taskDetailOrigin) },
+                    onToggleSubtask = { child -> setTaskDone(child, !child.done) },
                 )
             }
             else -> Unit

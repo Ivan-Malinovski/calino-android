@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -40,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -325,3 +328,31 @@ fun EditorReveal(visible: Boolean, content: @Composable () -> Unit) {
     ) { content() }
 }
 
+
+/**
+ * Task progress in steps of ten, with a tick under the finger each time the
+ * value crosses one, so a drag can be counted without looking.
+ */
+@Composable
+fun CalinoProgressSlider(
+    percent: Int,
+    onPercentChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = LocalHapticFeedback.current
+    Slider(
+        value = percent.toFloat(),
+        onValueChange = {
+            val next = it.toInt()
+            if (next != percent) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                onPercentChange(next)
+            }
+        },
+        valueRange = 0f..100f,
+        steps = 9,
+        modifier = modifier
+            .heightIn(min = 44.dp)
+            .semantics { contentDescription = "Task progress, $percent percent" },
+    )
+}

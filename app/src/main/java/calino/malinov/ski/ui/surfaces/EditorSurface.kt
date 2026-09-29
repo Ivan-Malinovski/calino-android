@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -589,12 +590,10 @@ private fun TaskEditorFields(
     EditorDivider()
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         EditorLabel("Progress · ${draft.percentComplete}%")
-        androidx.compose.material3.Slider(
-            value = draft.percentComplete.toFloat(),
-            onValueChange = { onDraft(draft.copy(percentComplete = it.toInt(), taskStatus = if (it > 0f) "IN-PROCESS" else "NEEDS-ACTION")) },
-            valueRange = 0f..100f,
-            steps = 9,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).semantics { contentDescription = "Task progress, ${draft.percentComplete} percent" },
+        calino.malinov.ski.ui.components.CalinoProgressSlider(
+            percent = draft.percentComplete,
+            onPercentChange = { onDraft(draft.copy(percentComplete = it, taskStatus = if (it > 0) "IN-PROCESS" else "NEEDS-ACTION")) },
+            modifier = Modifier.fillMaxWidth(),
         )
     }
     EditorDivider()
@@ -1257,14 +1256,21 @@ internal fun eventReminderSummary(reminders: List<Reminder>): String = reminderS
 
 @Composable
 internal fun TaskReminderChips(reminder: Reminder?, onChange: (Reminder?) -> Unit) =
-    ReminderChips(listOfNotNull(reminder), single = true) { onChange(it.firstOrNull()) }
+    ReminderChips(listOfNotNull(reminder), single = true, singleLine = true) { onChange(it.firstOrNull()) }
 
 internal fun taskReminderSummary(reminder: Reminder?): String = reminderSummary(listOfNotNull(reminder))
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: (List<Reminder>) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+private fun ReminderChips(
+    reminders: List<Reminder>,
+    single: Boolean,
+    singleLine: Boolean = false,
+    onChange: (List<Reminder>) -> Unit,
+) {
+    // A card that is already tall gets one scrolling strip rather than a
+    // block of wrapped chips.
+    val chips: @Composable () -> Unit = {
         ReminderChoices.forEach { minutes ->
             val reminder = Reminder(minutes)
             val on = reminders.any { it.absoluteAt == null && it.minutesBefore == minutes }
@@ -1306,6 +1312,14 @@ private fun ReminderChips(reminders: List<Reminder>, single: Boolean, onChange: 
                 },
             )
         }
+    }
+    if (singleLine) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) { chips() }
+    } else {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) { chips() }
     }
 }
 

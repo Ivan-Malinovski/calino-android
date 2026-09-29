@@ -341,7 +341,8 @@ fun AdaptiveSurfaceHost(
             // half-height there clips the final editable row. This remains a
             // compact card but reaches its content cap when the screen allows.
             kind == CalinoSurfaceKind.EventPreviewCompact -> minOf(paneHeight * .86f, surfaceHeightCap)
-            kind == CalinoSurfaceKind.Preview -> minOf(paneHeight * .76f, surfaceHeightCap)
+            (kind == CalinoSurfaceKind.Preview || kind == CalinoSurfaceKind.TaskPreview) ->
+                minOf(paneHeight * .76f, surfaceHeightCap)
             // .86f is the tallest a bottom sheet goes, not the height it
             // insists on: a caller that knows how much content it has says so
             // through preferredSurfaceHeight and gets a shorter card.

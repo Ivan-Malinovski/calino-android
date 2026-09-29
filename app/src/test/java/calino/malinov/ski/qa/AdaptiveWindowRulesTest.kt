@@ -44,6 +44,15 @@ class AdaptiveWindowRulesTest {
     }
 
     @Test
+    fun `task and event previews share the full-height end panel`() {
+        assertEquals(
+            calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.EventPreviewCompact),
+            calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.TaskPreview),
+        )
+        assertEquals(CalinoSurfaceMode.EndPanel, calinoSurfaceModeFor(CalinoWindowClass.Expanded, CalinoSurfaceKind.TaskPreview))
+    }
+
+    @Test
     fun `the landscape split opens the end lane before expanded does`() {
         assertTrue(calinoEndLaneActive(800, 600))
         assertEquals(CalinoWindowClass.Medium, calinoWindowClassFor(800))
