@@ -1315,6 +1315,9 @@ fun CalinoMonthHeading(
     onToday: () -> Unit,
     showToday: Boolean,
     subtitle: String? = null,
+    // Replaces [subtitle] when the secondary line must follow a gesture per
+    // frame rather than swap on a state change.
+    subtitleContent: (@Composable () -> Unit)? = null,
     monthPagerState: PagerState? = null,
     monthForPage: ((Int) -> YearMonth)? = null,
     showNavigationArrows: Boolean = true,
@@ -1426,7 +1429,9 @@ fun CalinoMonthHeading(
                     label = "month heading",
                 ) { month -> MonthHeadingLabel(month) }
             }
-            if (subtitle != null) {
+            if (subtitleContent != null) {
+                subtitleContent()
+            } else if (subtitle != null) {
                 AnimatedContent(
                     targetState = subtitle,
                     transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },

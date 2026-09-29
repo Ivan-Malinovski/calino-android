@@ -1,8 +1,12 @@
 package calino.malinov.ski.ui.range
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -38,6 +42,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -84,6 +89,7 @@ import calino.malinov.ski.qa.edgeScrollDirection
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoSpacing
+import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.state.LocalCalinoNow
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalTimeFormat
@@ -115,6 +121,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val RangeDate = DateTimeFormatter.ofPattern("MMM d", Locale.US)
+private val RangeMonth = DateTimeFormatter.ofPattern("MMM", Locale.US)
 
 /** The range pager, addressed by tag the way the calendar pagers are. */
 const val RangePagerTag = "range-pager"
@@ -184,10 +191,23 @@ fun RangeScreen(
     val visibleDays = rangeDays(anchor, mode, weekStart, weekAligned)
     val firstVisibleDay = visibleDays.first()
     LaunchedEffect(firstVisibleDay) { onFirstVisibleDayChanged(firstVisibleDay) }
-    val subtitle = if (visibleDays.size == 1) {
-        visibleDays.single().format(RangeDate)
-    } else {
-        "${visibleDays.first().format(RangeDate)} – ${visibleDays.last().format(RangeDate)}"
+    // The heading follows the pager, not the settled anchor: it names the range
+    // the finger is bringing in as soon as that page is the nearer one. A
+    // date-bar swipe sits between pages, so it also shifts by whole days.
+    fun pageFirstDay(page: Int) =
+        rangeStart(rangeAnchorForPage(base, page, mode), mode, weekStart, weekAligned)
+    val liveFirstDay by remember(pager, base, mode, weekStart, weekAligned) {
+        derivedStateOf {
+            // The page being headed for, so the month title and range line
+            // change together when a fling is released rather than late in
+            // its settle, when currentPage finally crosses over.
+            if (headerSliding) {
+                pageFirstDay(pager.currentPage)
+                    .plusDays((pager.currentPageOffsetFraction * mode.dayCount).roundToInt().toLong())
+            } else {
+                pageFirstDay(pager.targetPage)
+            }
+        }
     }
     val openMonthYearPicker = rememberMonthYearPicker(initial = { LocalDate.ofEpochDay(anchorEpoch) }) { month ->
         val current = LocalDate.ofEpochDay(anchorEpoch)
@@ -200,7 +220,7 @@ fun RangeScreen(
     }
     Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
         CalinoMonthHeading(
-            day = visibleDays.first(),
+            day = liveFirstDay,
             onMonthYearClick = openMonthYearPicker,
             onOpenMenu = onOpenMenu,
             onPreviousMonth = {},
@@ -213,7 +233,15 @@ fun RangeScreen(
                 pagerGeneration += 1
             },
             showToday = today !in visibleDays,
-            subtitle = subtitle,
+            subtitleContent = {
+                RangeSubtitle(
+                    pager = pager,
+                    dayCount = mode.dayCount,
+                    sliding = headerSliding,
+                    firstDayNow = { liveFirstDay },
+                    firstDayOf = ::pageFirstDay,
+                )
+            },
             showNavigationArrows = false,
             showTodayButton = true,
             trailingContent = {
@@ -262,6 +290,74 @@ fun RangeScreen(
             )
         }
     }
+}
+
+private fun rangeLabel(first: LocalDate, dayCount: Int): String =
+    if (dayCount == 1) first.format(RangeDate)
+    else "${first.format(RangeDate)} – ${first.plusDays(dayCount - 1L).format(RangeDate)}"
+
+/**
+ * The date range under the month title. It names the page the pager is headed
+ * for (`targetPage`), which is known as soon as a drag passes the halfway point
+ * or a fling is released, and swaps with a short timed transition, part by part: the month text moves only when the month does. Timing it,
+ * instead of tying it to the finger, keeps a fast swipe from crossing the whole
+ * hand-over in a couple of frames. A date-bar swipe lands between pages, so it
+ * shows the exact first day and changes with it.
+ */
+@Composable
+private fun RangeSubtitle(
+    pager: androidx.compose.foundation.pager.PagerState,
+    dayCount: Int,
+    sliding: Boolean,
+    firstDayNow: () -> LocalDate,
+    firstDayOf: (Int) -> LocalDate,
+) {
+    val slide = with(LocalDensity.current) { 8.dp.roundToPx() }
+    val style = CalinoTypography.labelSmall
+    Box(Modifier.padding(top = 1.dp)) {
+        if (sliding) {
+            Text(rangeLabel(firstDayNow(), dayCount), style = style, color = CalinoColors.Ink3, maxLines = 1)
+        } else {
+            val target by remember(pager) { derivedStateOf { pager.targetPage } }
+            val first = firstDayOf(target)
+            val last = first.plusDays(dayCount - 1L)
+            // Each part animates on its own, so a week that stays in the same
+            // month changes only its day numbers.
+            Row {
+                RangeLabelPart(target, first.format(RangeMonth), slide, style)
+                Text(" ", style = style)
+                RangeLabelPart(target, first.dayOfMonth.toString(), slide, style)
+                if (dayCount > 1) {
+                    Text(" – ", style = style, color = CalinoColors.Ink3, maxLines = 1)
+                    RangeLabelPart(target, last.format(RangeMonth), slide, style)
+                    Text(" ", style = style)
+                    RangeLabelPart(target, last.dayOfMonth.toString(), slide, style)
+                }
+            }
+        }
+    }
+}
+
+/** A label part that equals another by text alone, so only a real change animates. */
+private class RangeLabelText(val page: Int, val text: String) {
+    override fun equals(other: Any?) = other is RangeLabelText && other.text == text
+    override fun hashCode() = text.hashCode()
+}
+
+@Composable
+private fun RangeLabelPart(page: Int, text: String, slide: Int, style: androidx.compose.ui.text.TextStyle) {
+    AnimatedContent(
+        targetState = RangeLabelText(page, text),
+        transitionSpec = {
+            val direction = targetState.page.compareTo(initialState.page).coerceIn(-1, 1)
+            ((fadeIn(tween(170)) + slideInHorizontally(tween(170)) { direction * slide }) togetherWith
+                (fadeOut(tween(110)) + slideOutHorizontally(tween(110)) { -direction * slide / 2 })) using
+                // Animate the width too: a new month name is not as wide as the
+                // old one, and a snap would jump every part after it.
+                SizeTransform(clip = false) { _, _ -> tween(170) }
+        },
+        label = "range label part",
+    ) { part -> Text(part.text, style = style, color = CalinoColors.Ink3, maxLines = 1) }
 }
 
 @Composable
