@@ -6,9 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
@@ -1049,19 +1047,10 @@ private fun RangePage(
     val density = LocalDensity.current
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
     val railLayer = rememberGraphicsLayer()
-    var measuredStrip by remember { mutableStateOf(0.dp) }
-    // Glides the top space when the date bar grows or shrinks (all-day band
-    // toggled, events appearing); the hour column reads this same value.
-    // The first measurement snaps, so a page mounting beside the pager does not
-    // grow from zero under the swipe.
-    var stripMeasured by remember { mutableStateOf(false) }
-    LaunchedEffect(measuredStrip) { if (measuredStrip > 0.dp) stripMeasured = true }
-    val stripHeight by animateDpAsState(
-        measuredStrip,
-        if (stripMeasured) CalinoMotion.standardSpatial() else snap(),
-        label = "rangeStrip",
-    )
-    LaunchedEffect(stripHeight) { onStripHeight(stripHeight) }
+    // The date bar's height is already animated by the all-day band, so the
+    // measured value is per-frame; a second spring here would lag it and let the
+    // gutter's header line drift from the page's.
+    var stripHeight by remember { mutableStateOf(0.dp) }
     Box(Modifier.fillMaxSize().semantics { contentDescription = "${days.size}-day calendar" }) {
         Row(
             Modifier.fillMaxSize()
@@ -1131,12 +1120,13 @@ private fun RangePage(
         CompactLaneScrim(
             source = railLayer,
             blend = { 1f },
-            modifier = Modifier.fillMaxWidth().height(measuredStrip),
+            modifier = Modifier.fillMaxWidth().height(stripHeight),
             dissolveEdge = false,
         )
         Column(
             Modifier.fillMaxWidth().onSizeChanged { size ->
-                measuredStrip = with(density) { size.height.toDp() }
+                stripHeight = with(density) { size.height.toDp() }
+                onStripHeight(stripHeight)
             },
         ) {
             Row(
