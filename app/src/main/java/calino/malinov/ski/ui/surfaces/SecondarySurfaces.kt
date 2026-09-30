@@ -69,6 +69,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -222,10 +223,16 @@ import calino.malinov.ski.util.formatRecurrenceSummary
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
 import calino.malinov.ski.util.startOfWeek
+import calino.malinov.ski.state.isSometimeThisWeek
+import calino.malinov.ski.state.isWeekTask
+import calino.malinov.ski.state.shouldSplit
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.compositeOver
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -2443,6 +2450,7 @@ fun TasksSurface(
     onOpenMenu: (() -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     onTaskDrop: (CalTask, CalTask?) -> Unit = { _, _ -> },
+    onReopen: (CalTask) -> Unit = {},
 ) {
     val today = LocalCalinoNow.current.today
     var filter by remember { mutableStateOf(TaskFilter.All) }
@@ -2450,9 +2458,11 @@ fun TasksSurface(
     var reschedulingTaskId by remember { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
     val taskScope = rememberCoroutineScope()
-    onReopen: (CalTask) -> Unit = {},
     var previousDoneById by remember { mutableStateOf(tasks.associate { it.id to it.done }) }
     var collapsedTaskIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    // Parents whose subtasks from other sections are shown beneath them. Those
+    // rows are hidden until asked for, since they already live in their own section.
+    var peekedTaskIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     val taskTree = remember(tasks) { TaskTree(tasks) }
     var draggingTaskId by remember { mutableStateOf<String?>(null) }
     var dragDistanceY by remember { mutableFloatStateOf(0f) }
@@ -2488,14 +2498,56 @@ fun TasksSurface(
         }
     }
 
+    val isPending = { task: CalTask -> task.id in pendingCompletionIds }
+    val isOpenForBucket = { task: CalTask -> !task.done || isPending(task) }
+    val weekFirst = today.startOfWeek(LocalCalinoPreferences.current.weekStart)
+    val weekLast = weekFirst.plusDays(6)
+    // The repository callback can update a task to `done` immediately. Keep a
+    // completing row in its original date bucket until its short visual settle
+    // finishes, so All and Active never briefly lose it or move it underneath
+    // the undo affordance. An open week task that overlaps this week is listed
+    // under "This week" whatever its due date, matching the Range shelf.
+    val displayBucket = { task: CalTask ->
+        val shown = if (isPending(task)) task.copy(done = false) else task
+        if (shown.isSometimeThisWeek(weekFirst, weekLast)) TaskBucket.THIS_WEEK else taskBucket(shown, today)
+    }
+
+    // A collapsed parent hides the subtasks listed beneath it. A subtask that
+    // sits in another section has no parent above it (it carries a parent line
+    // instead), so collapsing must not make it vanish from its own section.
     fun isHiddenByCollapsedAncestor(task: CalTask): Boolean {
+        val bucket = displayBucket(task)
         var parent = task.parentTaskId
         val visited = mutableSetOf<String>()
         while (parent != null && visited.add(parent)) {
-            if (parent in collapsedTaskIds) return true
-            parent = tasks.firstOrNull { it.id == parent }?.parentTaskId
+            val ancestor = taskTree.task(parent) ?: return false
+            if (parent in collapsedTaskIds && displayBucket(ancestor) == bucket) return true
+            parent = ancestor.parentTaskId
         }
         return false
+    }
+
+    // Direct subtasks that are listed in a different section than their parent.
+    fun outsideChildren(task: CalTask): List<CalTask> {
+        val bucket = displayBucket(task)
+        return taskTree.directChildren(task.id).filter { displayBucket(it) != bucket }
+    }
+
+    // With subtasks under it in this section the chevron follows the fold; a
+    // parent whose subtasks are all elsewhere is open only while peeked.
+    fun subtasksCollapsed(task: CalTask): Boolean {
+        val hasInside = taskTree.directChildren(task.id).size > outsideChildren(task).size
+        return if (hasInside) task.id in collapsedTaskIds else task.id !in peekedTaskIds
+    }
+
+    fun toggleSubtasks(task: CalTask) {
+        if (subtasksCollapsed(task)) {
+            collapsedTaskIds = collapsedTaskIds - task.id
+            peekedTaskIds = peekedTaskIds + task.id
+        } else {
+            collapsedTaskIds = collapsedTaskIds + task.id
+            peekedTaskIds = peekedTaskIds - task.id
+        }
     }
 
     fun complete(task: CalTask) {
@@ -2520,15 +2572,6 @@ fun TasksSurface(
     }
 
     val openTasks = tasks.filter { task -> !task.done || task.id in pendingCompletionIds }
-    val isPending = { task: CalTask -> task.id in pendingCompletionIds }
-    val isOpenForBucket = { task: CalTask -> !task.done || isPending(task) }
-    // The repository callback can update a task to `done` immediately. Keep a
-    // completing row in its original date bucket until its short visual settle
-    // finishes, so All and Active never briefly lose it or move it underneath
-    // the undo affordance.
-    val displayBucket = { task: CalTask ->
-        taskBucket(if (isPending(task)) task.copy(done = false) else task, today)
-    }
     val renderTask: (CalTask) -> CalTask = { task ->
         if (isPending(task)) task.copy(done = true) else task
     }
@@ -2604,204 +2647,145 @@ fun TasksSurface(
     }
     val cancelTaskDrag: () -> Unit = { draggingTaskId = null; dragDistanceY = 0f; dragDistanceX = 0f }
 
-    Column(Modifier.fillMaxSize().background(CalinoColors.Canvas).padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            onOpenMenu?.let {
-                MenuButton(onClick = it, modifier = Modifier.padding(end = 4.dp))
-            }
-            Text("Tasks", modifier = Modifier.weight(1f), style = CalinoTypography.displayLarge)
-        }
-        SegmentedFilter(filter) { filter = it }
-        TaskProgress(tasks)
-        Spacer(Modifier.height(14.dp))
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            AnimatedContent(
-                targetState = filter,
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { it / 5 }) togetherWith
-                        (fadeOut(tween(130)) + slideOutHorizontally(tween(150)) { -it / 5 })
-                },
-                label = "task filter transition",
-            ) { activeFilter ->
-                val activeVisible = when (activeFilter) {
-                    // Keep pending completions in All. renderTask supplies the
-                    // checked presentation while the source item remains
-                    // mounted for the undo/settle animation.
-                    TaskFilter.All -> tasks
-                    TaskFilter.Active -> openTasks
-                    TaskFilter.Completed -> tasks.filter { it.done && it.id !in pendingCompletionIds }
+    var selectedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
+    var completedExpanded by rememberSaveable { mutableStateOf(false) }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(CalinoColors.Canvas)) {
+        val windowWidth = maxWidth
+        val splitPanes = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt())
+        // Tablet portrait keeps one readable column and puts the filter beside
+        // the title; a phone stacks them.
+        val wideColumn = !splitPanes && maxWidth >= TaskColumnWideMin
+        val selectedTask = if (splitPanes) {
+            tasks.firstOrNull { it.id == selectedTaskId }
+                ?: tasks.firstOrNull { !it.done }
+                ?: tasks.firstOrNull()
+        } else null
+        val openTask: (CalTask) -> Unit = if (splitPanes) { task -> selectedTaskId = task.id } else onTaskClick
+
+        val listPane: @Composable (Modifier) -> Unit = { paneModifier ->
+            Column(paneModifier) {
+                Row(Modifier.fillMaxWidth().padding(top = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                    onOpenMenu?.let {
+                        MenuButton(onClick = it, modifier = Modifier.padding(end = 4.dp))
+                    }
+                    Text("Tasks", modifier = Modifier.weight(1f), style = CalinoTypography.displayLarge)
+                    if (wideColumn) {
+                        SegmentedFilter(filter, Modifier.width(330.dp)) { filter = it }
+                    }
                 }
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    // The floating add pill is drawn by the shell over this
-                    // list, so the reservation belongs in the scroll content.
-                    contentPadding = PaddingValues(bottom = CalinoSpacing.PillClearance),
-                    // The Completed bucket sits below the fold and is not
-                    // composed until scrolled to, so a test that follows a row
-                    // there needs a handle on the list itself.
-                    modifier = Modifier.fillMaxSize().testTag("task-list"),
-                ) {
-                    TaskBucket(
-                        "Overdue",
-                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.OVERDUE },
-                        ::complete,
-                        { reschedulingTaskId = it.id },
-                        { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
-                        reschedulingTaskId,
-                        renderTask,
-                        onTaskClick,
-                        taskTree,
-                        collapsedTaskIds,
-                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
-                        onTaskAction,
-                        dropTarget,
-                        beginTaskDrag,
-                        moveTaskDrag,
-                        finishTaskDrag,
-                        cancelTaskDrag,
-                        recordTaskPosition,
-                        unnestingTaskId,
-                    )
-                    TaskBucket(
-                        "Today",
-                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.TODAY },
-                        ::complete,
-                        { reschedulingTaskId = it.id },
-                        { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
-                        reschedulingTaskId,
-                        renderTask,
-                        onTaskClick,
-                        taskTree,
-                        collapsedTaskIds,
-                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
-                        onTaskAction,
-                        dropTarget,
-                        beginTaskDrag,
-                        moveTaskDrag,
-                        finishTaskDrag,
-                        cancelTaskDrag,
-                        recordTaskPosition,
-                        unnestingTaskId,
-                    )
-                    TaskBucket(
-                        "This week",
-                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.THIS_WEEK },
-                        ::complete,
-                        { reschedulingTaskId = it.id },
-                        { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
-                        reschedulingTaskId,
-                        renderTask,
-                        onTaskClick,
-                        taskTree,
-                        collapsedTaskIds,
-                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
-                        onTaskAction,
-                        dropTarget,
-                        beginTaskDrag,
-                        moveTaskDrag,
-                        finishTaskDrag,
-                        cancelTaskDrag,
-                        recordTaskPosition,
-                        unnestingTaskId,
-                    )
-                    TaskBucket(
-                        "Later",
-                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.LATER },
-                        ::complete,
-                        { reschedulingTaskId = it.id },
-                        { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
-                        reschedulingTaskId,
-                        renderTask,
-                        onTaskClick,
-                        taskTree,
-                        collapsedTaskIds,
-                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
-                        onTaskAction,
-                        dropTarget,
-                        beginTaskDrag,
-                        moveTaskDrag,
-                        finishTaskDrag,
-                        cancelTaskDrag,
-                        recordTaskPosition,
-                        unnestingTaskId,
-                    )
-                    TaskBucket(
-                        "No date",
-                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && isOpenForBucket(it) && displayBucket(it) == TaskBucket.NO_DATE },
-                        ::complete,
-                        { reschedulingTaskId = it.id },
-                        { task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) },
-                        reschedulingTaskId,
-                        renderTask,
-                        onTaskClick,
-                        taskTree,
-                        collapsedTaskIds,
-                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
-                        onTaskAction,
-                        dropTarget,
-                        beginTaskDrag,
-                        moveTaskDrag,
-                        finishTaskDrag,
-                        cancelTaskDrag,
-                        recordTaskPosition,
-                        unnestingTaskId,
-                    )
-                    TaskBucket(
-                        "Completed",
-                        activeVisible.filter { !isHiddenByCollapsedAncestor(it) && displayBucket(it) == TaskBucket.DONE },
-                        {},
-                        {},
-                        { _, _ -> },
-                        reschedulingTaskId,
-                        renderTask,
-                        onTaskClick,
-                        taskTree,
-                        collapsedTaskIds,
-                        { task -> collapsedTaskIds = if (task.id in collapsedTaskIds) collapsedTaskIds - task.id else collapsedTaskIds + task.id },
-                        onTaskAction,
-                        dropTarget,
-                        beginTaskDrag,
-                        moveTaskDrag,
-                        finishTaskDrag,
-                        cancelTaskDrag,
-                        recordTaskPosition,
-                        unnestingTaskId,
-                    )
-                    if (activeVisible.isEmpty()) {
-                        item(key = "tasks-empty:${activeFilter.name}") {
-                            TaskEmptyState(activeFilter)
+                if (!wideColumn) SegmentedFilter(filter, Modifier.fillMaxWidth()) { filter = it }
+                Spacer(Modifier.height(if (wideColumn) 6.dp else 4.dp))
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    AnimatedContent(
+                        targetState = filter,
+                        modifier = Modifier.fillMaxSize(),
+                        transitionSpec = {
+                            (fadeIn(tween(170)) + slideInHorizontally(tween(190)) { it / 5 }) togetherWith
+                                (fadeOut(tween(130)) + slideOutHorizontally(tween(150)) { -it / 5 })
+                        },
+                        label = "task filter transition",
+                    ) { activeFilter ->
+                        val activeVisible = when (activeFilter) {
+                            // Keep pending completions in All. renderTask
+                            // supplies the checked presentation while the
+                            // source item remains mounted for the undo/settle
+                            // animation.
+                            TaskFilter.All -> tasks
+                            TaskFilter.Active -> openTasks
+                            TaskFilter.Completed -> tasks.filter { it.done && it.id !in pendingCompletionIds }
+                        }
+                        fun LazyListScope.bucket(name: String, kind: TaskBucket) {
+                            val done = kind == TaskBucket.DONE
+                            // The long history is a preview in All; the
+                            // Completed filter is the way to see all of it.
+                            val limit = if (done && activeFilter == TaskFilter.All && !completedExpanded) CompletedPreviewCount else null
+                            TaskBucket(
+                                name,
+                                activeVisible.filter {
+                                    !isHiddenByCollapsedAncestor(it) && displayBucket(it) == kind &&
+                                        (done || isOpenForBucket(it))
+                                },
+                                ::complete,
+                                if (done) ({ _ -> }) else ({ reschedulingTaskId = it.id }),
+                                if (done) ({ _, _ -> }) else ({ task, newDate -> reschedulingTaskId = null; onRescheduleTo(task, newDate) }),
+                                reschedulingTaskId,
+                                renderTask,
+                                openTask,
+                                taskTree,
+                                ::subtasksCollapsed,
+                                ::toggleSubtasks,
+                                onTaskAction,
+                                dropTarget,
+                                beginTaskDrag,
+                                moveTaskDrag,
+                                finishTaskDrag,
+                                cancelTaskDrag,
+                                recordTaskPosition,
+                                unnestingTaskId,
+                                selectedTaskId = selectedTask?.id,
+                                grouped = done,
+                                previewLimit = limit,
+                                onTogglePreview = if (done && activeFilter == TaskFilter.All) ({ completedExpanded = !completedExpanded }) else null,
+                                previewExpanded = completedExpanded,
+                                peekedTaskIds = peekedTaskIds,
+                                outsideChildren = ::outsideChildren,
+                                onCompleteAny = ::complete,
+                            )
+                        }
+                        LazyColumn(
+                            // Each row carries its own gap so the Completed rows
+                            // can sit flush inside one grouped surface.
+                            verticalArrangement = Arrangement.spacedBy(0.dp),
+                            // The floating add pill is drawn by the shell over this
+                            // list, so the reservation belongs in the scroll content.
+                            contentPadding = PaddingValues(bottom = CalinoSpacing.PillClearance),
+                            // The Completed bucket sits below the fold and is not
+                            // composed until scrolled to, so a test that follows a row
+                            // there needs a handle on the list itself.
+                            modifier = Modifier.fillMaxSize().testTag("task-list"),
+                        ) {
+                            bucket("Overdue", TaskBucket.OVERDUE)
+                            bucket("Today", TaskBucket.TODAY)
+                            bucket("This week", TaskBucket.THIS_WEEK)
+                            bucket("Later", TaskBucket.LATER)
+                            bucket("No date", TaskBucket.NO_DATE)
+                            bucket("Completed", TaskBucket.DONE)
+                            if (activeVisible.isEmpty()) {
+                                item(key = "tasks-empty:${activeFilter.name}") {
+                                    TaskEmptyState(activeFilter)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+
+        when {
+            splitPanes -> Row(Modifier.fillMaxSize()) {
+                listPane(Modifier.width(minOf(TaskListPaneWidth, windowWidth * .42f)).fillMaxHeight().padding(horizontal = 16.dp))
+                TaskDetailPane(
+                    task = selectedTask,
+                    taskTree = taskTree,
+                    onComplete = ::complete,
+                    onOpenTask = { selectedTaskId = it.id },
+                    onEdit = onTaskClick,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+            wideColumn -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                listPane(Modifier.widthIn(max = TaskColumnMaxWidth).fillMaxSize().padding(horizontal = 16.dp))
+            }
+            else -> listPane(Modifier.fillMaxSize().padding(horizontal = 16.dp))
+        }
     }
 }
 
-@Composable
-private fun TaskProgress(tasks: List<CalTask>) {
-    val completed = tasks.count { it.done }
-    val progress by animateFloatAsState(
-        targetValue = if (tasks.isEmpty()) 0f else completed.toFloat() / tasks.size,
-        animationSpec = tween(240),
-        label = "task completion progress",
-    )
-    Column(Modifier.fillMaxWidth().padding(top = 7.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("TASK PROGRESS", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
-            Spacer(Modifier.weight(1f))
-            Text(
-                "$completed of ${tasks.size} complete",
-                style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                color = CalinoColors.Ink2,
-            )
-        }
-        Box(Modifier.fillMaxWidth().padding(top = 7.dp).height(6.dp).clip(RoundedCornerShape(3.dp)).background(CalinoColors.Ink.copy(.07f))) {
-            Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(CalinoColors.Green))
-        }
-    }
-}
+private val TaskColumnWideMin = 600.dp
+private val TaskColumnMaxWidth = 672.dp
+private val TaskListPaneWidth = 470.dp
+private const val CompletedPreviewCount = 5
 
 @Composable
 private fun TaskEmptyState(filter: TaskFilter) {
@@ -2813,19 +2797,19 @@ private fun TaskEmptyState(filter: TaskFilter) {
 }
 
 @Composable
-private fun SegmentedFilter(selected: TaskFilter, onSelected: (TaskFilter) -> Unit) {
+private fun SegmentedFilter(selected: TaskFilter, modifier: Modifier, onSelected: (TaskFilter) -> Unit) {
     CompactSegmentedControl(
         options = TaskFilter.entries.map { it.name },
         selectedIndex = TaskFilter.entries.indexOf(selected),
         onSelected = { onSelected(TaskFilter.entries[it]) },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         semanticLabel = "Task filter",
         maxControlWidth = androidx.compose.ui.unit.Dp.Infinity,
     )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
+private fun LazyListScope.TaskBucket(
     name: String,
     tasks: List<CalTask>,
     onComplete: (CalTask) -> Unit,
@@ -2835,7 +2819,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     renderTask: (CalTask) -> CalTask,
     onTaskClick: (CalTask) -> Unit,
     taskTree: TaskTree,
-    collapsedTaskIds: Set<String>,
+    isCollapsed: (CalTask) -> Boolean,
     onToggleSubtasks: (CalTask) -> Unit,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
     dropTarget: CalTask?,
@@ -2845,15 +2829,30 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
     onDragCancel: () -> Unit,
     onTaskPositioned: (CalTask, LayoutCoordinates) -> Unit,
     unnestingTaskId: String?,
+    selectedTaskId: String? = null,
+    /** Rows sit flush in one inset surface (the Completed history). */
+    grouped: Boolean = false,
+    /** Show only this many rows with a footer to reveal the rest. */
+    previewLimit: Int? = null,
+    onTogglePreview: (() -> Unit)? = null,
+    previewExpanded: Boolean = false,
+    /** Parents whose subtasks from other sections are shown beneath them. */
+    peekedTaskIds: Set<String> = emptySet(),
+    outsideChildren: (CalTask) -> List<CalTask> = { emptyList() },
+    /** Completes an open subtask shown here under a parent of another section. */
+    onCompleteAny: (CalTask) -> Unit = onComplete,
 ) {
     if (tasks.isNotEmpty()) {
-        val orderedTasks = orderTasksByDue(tasks)
+        val ordered = orderTasksByDue(tasks)
+        val orderedTasks = if (previewLimit != null) ordered.take(previewLimit) else ordered
+        val hiddenCount = ordered.size - orderedTasks.size
+        val hasFooter = grouped && onTogglePreview != null && (hiddenCount > 0 || previewExpanded)
         item(key = "bucket:$name") {
             label(
                 "$name · ${tasks.size}",
                 Modifier
                     .animateItem()
-                    .padding(top = 10.dp, bottom = 3.dp)
+                    .padding(top = 20.dp, bottom = 10.dp, start = 4.dp)
                     // These divide the list into sections a screen reader can
                     // jump between. Marked here rather than inside `label`,
                     // which is also used for field captions that are not
@@ -2861,41 +2860,114 @@ private fun androidx.compose.foundation.lazy.LazyListScope.TaskBucket(
                     .semantics { heading() },
             )
         }
-        // Rails are drawn from the rendered order: a level keeps its rail when a
-        // later row still sits at that depth before the list climbs above it.
-        val depths = orderedTasks.map { taskTree.depth(it.id) }
+        // A subtask whose parent is in another section has nothing above it to
+        // hang from, so it is drawn at the top level with a parent line; only
+        // a parent listed in this same section is a real indent and rail.
+        val listed = orderedTasks.mapTo(mutableSetOf()) { it.id }
+        // A peeked parent brings its subtasks from other sections along, as
+        // read-only copies right under it; they stay in their own sections too.
+        val entries = buildList {
+            orderedTasks.forEach { task ->
+                add(task to false)
+                if (task.id in peekedTaskIds) orderTasksByDue(outsideChildren(task)).forEach { add(it to true) }
+            }
+        }
+        val depthById = mutableMapOf<String, Int>()
+        val depths = entries.map { (task, peek) ->
+            val parentInList = task.parentTaskId?.takeIf { it in listed }
+            val depth = when {
+                peek -> (depthById[task.parentTaskId] ?: 0) + 1
+                parentInList != null -> (depthById[parentInList] ?: 0) + 1
+                else -> 0
+            }
+            if (!peek) depthById[task.id] = depth
+            depth
+        }
         val lineages = nestingLinesFor(depths)
-        orderedTasks.forEachIndexed { index, originalTask ->
+        entries.forEachIndexed { index, (originalTask, peek) ->
             val task = renderTask(originalTask)
+            val parent = if (peek) null else task.parentTaskId?.takeIf { it !in listed }?.let(taskTree::task)
+            val children = if (peek) emptyList() else taskTree.directChildren(task.id)
             // A completion can move a row from its date bucket to Completed.
             // Give each bucket its own identity so LazyColumn fades the old
             // item out and the new item in instead of animating it through all
             // intervening rows and headers.
-            item(key = "task:$name:${task.id}") {
+            item(key = if (peek) "peek:$name:${task.parentTaskId}:${task.id}" else "task:$name:${task.id}") {
                 TaskRow(
                     task = task,
-                    onComplete = onComplete,
+                    onComplete = if (peek) onCompleteAny else onComplete,
                     onReschedule = onRequestReschedule,
                     showReschedule = reschedulingTaskId == task.id,
                     onRescheduleTo = onRescheduleTo,
                     onClick = { onTaskClick(task) },
                     depth = depths[index],
                     nestingLines = lineages[index],
-                    hasSubtasks = taskTree.directChildren(task.id).isNotEmpty(),
-                    subtasksCollapsed = task.id in collapsedTaskIds,
+                    hasSubtasks = children.isNotEmpty(),
+                    subtaskDone = children.count { it.done },
+                    subtaskTotal = children.size,
+                    parent = parent,
+                    onOpenParent = { parent?.let(onTaskClick) },
+                    selected = task.id == selectedTaskId,
+                    groupPosition = if (!grouped) null else when {
+                        entries.size == 1 && !hasFooter -> TaskGroupPosition.Only
+                        index == 0 -> TaskGroupPosition.First
+                        index == entries.lastIndex && !hasFooter -> TaskGroupPosition.Last
+                        else -> TaskGroupPosition.Middle
+                    },
+                    subtasksCollapsed = isCollapsed(task),
                     onToggleSubtasks = { onToggleSubtasks(task) },
                     onTaskAction = onTaskAction,
                     isDropTarget = dropTarget?.id == task.id,
                     isUnnesting = unnestingTaskId == task.id,
-                    onDragStart = { onDragStart(task) },
-                    onDrag = onDrag,
-                    onDragEnd = onDragEnd,
-                    onDragCancel = onDragCancel,
-                    onPositioned = { coordinates -> onTaskPositioned(task, coordinates) },
+                    // A peeked copy is not a drop target or a drag source: its
+                    // real row, in its own section, owns those.
+                    onDragStart = if (peek) null else ({ onDragStart(task) }),
+                    onDrag = if (peek) null else onDrag,
+                    onDragEnd = if (peek) null else onDragEnd,
+                    onDragCancel = if (peek) null else onDragCancel,
+                    onPositioned = if (peek) null else ({ coordinates -> onTaskPositioned(task, coordinates) }),
                     modifier = Modifier.animateItem(),
                 )
             }
         }
+        if (hasFooter) {
+            item(key = "bucket-footer:$name") {
+                TaskGroupFooter(
+                    text = if (previewExpanded) "Show fewer" else "$hiddenCount more completed",
+                    onClick = { onTogglePreview?.invoke() },
+                    modifier = Modifier.animateItem(),
+                )
+            }
+        }
+    }
+}
+
+enum class TaskGroupPosition { First, Middle, Last, Only }
+
+private fun TaskGroupPosition.shape(): RoundedCornerShape = when (this) {
+    TaskGroupPosition.First -> RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    TaskGroupPosition.Middle -> RoundedCornerShape(0.dp)
+    TaskGroupPosition.Last -> RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)
+    TaskGroupPosition.Only -> RoundedCornerShape(20.dp)
+}
+
+/** The inset surface the Completed history sits in, a step away from the cards. */
+private val TaskInsetFill: Color
+    @Composable get() = CalinoColors.Ink.copy(alpha = .04f).compositeOver(CalinoColors.Canvas)
+
+@Composable
+private fun TaskGroupFooter(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(TaskGroupPosition.Last.shape())
+            .background(TaskInsetFill)
+            .clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(text, style = CalinoTypography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = CalinoColors.Accent)
     }
 }
 
@@ -2912,6 +2984,15 @@ private fun TaskRow(
     /** Per ancestor level, whether that level still has a row below this one. */
     nestingLines: List<Boolean> = emptyList(),
     hasSubtasks: Boolean = false,
+    /** Direct subtasks done / total, shown on the parent. Zero total hides it. */
+    subtaskDone: Int = 0,
+    subtaskTotal: Int = 0,
+    /** Set when the parent is listed in another section, so it is named here. */
+    parent: CalTask? = null,
+    onOpenParent: () -> Unit = {},
+    /** The row whose detail the wide layout's pane is showing. */
+    selected: Boolean = false,
+    groupPosition: TaskGroupPosition? = null,
     subtasksCollapsed: Boolean = false,
     onToggleSubtasks: () -> Unit = {},
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
@@ -2942,17 +3023,32 @@ private fun TaskRow(
     val actionThresholdPx = with(density) { 108.dp.toPx() }
     val maxDragPx = with(density) { 140.dp.toPx() }
     val color = taskColor(task)
-    val rowShape = RoundedCornerShape(16.dp)
+    val grouped = groupPosition != null
+    val rowShape = groupPosition?.shape() ?: RoundedCornerShape(20.dp)
+    val insetFill = TaskInsetFill
+    val selectedFill = CalinoColors.Ink.copy(alpha = .05f).compositeOver(CalinoColors.Panel)
+    val restingFill = when {
+        grouped -> insetFill
+        selected -> selectedFill
+        else -> CalinoColors.Panel
+    }
     val rowFill by animateColorAsState(
-        targetValue = if (isDropTarget) CalinoColors.AccentSoft.copy(alpha = .82f) else CalinoColors.Panel,
+        targetValue = if (isDropTarget) CalinoColors.AccentSoft.copy(alpha = .82f) else restingFill,
         animationSpec = tween(120),
         label = "task drop fill",
     )
     val rowBorder by animateColorAsState(
-        targetValue = if (isDropTarget) CalinoColors.Accent else CalinoColors.Ink.copy(.045f),
+        targetValue = when {
+            isDropTarget -> CalinoColors.Accent
+            selected -> CalinoColors.Accent.copy(alpha = .55f)
+            grouped -> Color.Transparent
+            else -> CalinoColors.Ink.copy(.06f)
+        },
         animationSpec = tween(120),
         label = "task drop border",
     )
+    val hairline = CalinoColors.Ink.copy(.06f)
+    val drawsDivider = groupPosition == TaskGroupPosition.First || groupPosition == TaskGroupPosition.Middle
     val canAct = !task.done
     val chevronRotation by animateFloatAsState(
         targetValue = if (subtasksCollapsed) 0f else 90f,
@@ -2993,6 +3089,8 @@ private fun TaskRow(
         modifier
             .onGloballyPositioned { coordinates -> onPositioned?.invoke(coordinates) }
             .fillMaxWidth()
+            // The gap below a card; a grouped row sits flush on the next one.
+            .padding(bottom = if (grouped) 0.dp else 10.dp)
             .zIndex(if (abs(verticalDrag) > .5f) 1f else 0f),
     ) {
         // Move the whole card so the source stays visible while it is held.
@@ -3004,7 +3102,18 @@ private fun TaskRow(
                 .offset { IntOffset(liftedDrag.x.roundToInt(), verticalDrag.roundToInt()) }
                 // A carried row drops its own rails -- they would otherwise
                 // travel with the card and hide that it has left the parent.
-                .taskNestIndent(depth, nestingLines, drawRails = !isLifted)
+                // A grouped card is one flush surface: indent inside its fill
+                // rather than carving a notch out of it with a rail. The
+                // overhang spans the 10dp gap under the card above, so the
+                // rail reads as one line from the parent down its children.
+                .then(
+                    if (grouped) Modifier else Modifier.taskNestIndent(
+                        depth,
+                        nestingLines,
+                        drawRails = !isLifted,
+                        railOverhang = 10.dp,
+                    ),
+                )
                 .clip(rowShape),
         ) {
             if (canAct) {
@@ -3034,6 +3143,13 @@ private fun TaskRow(
                     .clip(rowShape)
                     .shadow(if (isDropTarget) 8.dp else 0.dp, rowShape, clip = false)
                     .background(rowFill)
+                    .then(
+                        if (drawsDivider) {
+                            Modifier.drawBehind {
+                                drawLine(hairline, Offset(0f, size.height - .5f), Offset(size.width, size.height - .5f), 1.dp.toPx())
+                            }
+                        } else Modifier,
+                    )
                     .border(BorderStroke(if (isDropTarget) 2.dp else 1.dp, rowBorder), rowShape)
                     .semantics { contentDescription = description }
                     .pointerInput(task.id, canAct) {
@@ -3058,6 +3174,10 @@ private fun TaskRow(
                         )
                     }
                     .then(rowInteraction)
+                    .padding(start = if (grouped) (depth * TaskNestStep).dp else 0.dp)
+                    // A grouped row is flush with its card, so the trailing
+                    // date and count need their own inset from the edge.
+                    .padding(end = if (grouped) 14.dp else 0.dp)
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -3071,17 +3191,19 @@ private fun TaskRow(
                 ) {
                     Box(
                         Modifier
-                            .size(22.dp)
+                            .size(if (task.done) 22.dp else 24.dp)
                             .clip(CircleShape)
-                            .background(if (task.done) color else Color.Transparent)
-                            .border(BorderStroke(1.5.dp, color), CircleShape),
+                            // Done is a quiet green wash, not a solid disc: a
+                            // long history should recede behind the open work.
+                            .background(if (task.done) CalinoColors.Green.copy(alpha = .16f) else Color.Transparent)
+                            .then(if (task.done) Modifier else Modifier.border(BorderStroke(1.6.dp, color), CircleShape)),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (task.done) {
                             CalinoIcon(
                                 CalinoIcon.Check,
-                                tint = CalinoColors.OnAccent,
-                                modifier = Modifier.size(14.dp),
+                                tint = CalinoColors.Green,
+                                modifier = Modifier.size(13.dp),
                                 contentDescription = null,
                             )
                         }
@@ -3095,39 +3217,48 @@ private fun TaskRow(
                         .semantics {
                             contentDescription = "Open task: ${task.title}"
                         }
-                        .padding(vertical = 4.dp),
+                        .padding(top = if (parent != null) 0.dp else 4.dp, bottom = 4.dp),
+                    verticalArrangement = Arrangement.Center,
                 ) {
+                    if (parent != null) {
+                        TaskParentLine(parent, onOpen = onOpenParent)
+                    }
                     Text(
                         task.title,
                         style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                        color = titleColor,
+                        color = if (grouped && task.done) CalinoColors.Ink2 else titleColor,
                         textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Row(
-                        modifier = Modifier.padding(top = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        task.due?.let { due ->
-                            Text(
-                                due.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)) +
-                                    (task.dueTime?.let { " · ${it.format(DateTimeFormatter.ofPattern("h:mm a", Locale.US))}" } ?: ""),
-                                color = if (due.isBefore(today) && !task.done) CalinoColors.Rose else CalinoColors.Ink3,
-                                style = CalinoTypography.bodySmall,
-                            )
-                        }
-                        task.category?.let { category ->
-                            Text(
-                                category,
-                                style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                                color = color.copy(alpha = .88f),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(eventTint(color, .10f))
-                                    .padding(horizontal = 7.dp, vertical = 1.dp),
-                            )
+                    val meta = taskMetaLine(task, today, grouped)
+                    if (meta != null || task.category != null) {
+                        Row(
+                            modifier = Modifier.padding(top = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            meta?.let { line ->
+                                Text(
+                                    line.primary,
+                                    color = line.primaryColor,
+                                    style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                )
+                                line.secondary?.let {
+                                    Text(it, color = CalinoColors.Ink3, style = CalinoTypography.bodySmall)
+                                }
+                            }
+                            if (!grouped) task.category?.let { category ->
+                                Text(
+                                    category,
+                                    style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                    color = color.copy(alpha = .88f),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(eventTint(color, .10f))
+                                        .padding(horizontal = 7.dp, vertical = 1.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -3156,25 +3287,47 @@ private fun TaskRow(
                     )
                 }
                 if (hasSubtasks) {
-                    IconButton(
-                        onClick = onToggleSubtasks,
-                        modifier = Modifier
-                            .size(44.dp)
+                    // The count is the parent's only trace of subtasks that live
+                    // in other sections, so it stays even when they are folded.
+                    Row(
+                        Modifier
+                            .heightIn(min = 44.dp)
+                            .clip(CircleShape)
+                            .clickable(role = Role.Button, onClick = onToggleSubtasks)
                             .semantics {
-                                contentDescription = if (subtasksCollapsed) {
-                                    "Expand subtasks of ${task.title}"
-                                } else {
-                                    "Collapse subtasks of ${task.title}"
-                                }
-                            },
+                                contentDescription = (if (subtasksCollapsed) "Expand" else "Collapse") +
+                                    " subtasks of ${task.title}, $subtaskDone of $subtaskTotal done"
+                            }
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CalinoIcon(
-                            CalinoIcon.Forward,
-                            tint = CalinoColors.Ink3,
-                            modifier = Modifier
-                                .size(16.dp)
-                                .graphicsLayer { rotationZ = chevronRotation },
-                            contentDescription = null,
+                        Row(
+                            Modifier
+                                .clip(CircleShape)
+                                .background(CalinoColors.Ink.copy(alpha = .07f))
+                                .padding(start = 9.dp, end = 5.dp, top = 3.dp, bottom = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("$subtaskDone OF $subtaskTotal", style = CalinoTypography.labelSmall, color = CalinoColors.Ink2)
+                            CalinoIcon(
+                                CalinoIcon.Forward,
+                                tint = CalinoColors.Ink2,
+                                modifier = Modifier
+                                    .padding(start = 3.dp)
+                                    .size(13.dp)
+                                    .graphicsLayer { rotationZ = chevronRotation },
+                                contentDescription = null,
+                            )
+                        }
+                    }
+                }
+                if (grouped) {
+                    task.due?.let { due ->
+                        Text(
+                            due.format(DateTimeFormatter.ofPattern("MMM d", Locale.US)).uppercase(Locale.US),
+                            style = CalinoTypography.labelSmall,
+                            color = CalinoColors.Ink3,
+                            modifier = Modifier.padding(start = 4.dp),
                         )
                     }
                 }
@@ -3205,6 +3358,248 @@ private fun TaskRow(
                     ) { Text(labelText, color = CalinoColors.Ink2, fontSize = 12.sp) }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The wide layout's detail pane: a read-only summary of the selected task with
+ * its subtasks. Editing stays in the existing editor surface, which the pencil
+ * opens, so the pane never becomes a second editor with its own write path.
+ */
+@Composable
+private fun TaskDetailPane(
+    task: CalTask?,
+    taskTree: TaskTree,
+    onComplete: (CalTask) -> Unit,
+    onOpenTask: (CalTask) -> Unit,
+    onEdit: (CalTask) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val today = LocalCalinoNow.current.today
+    val shape = RoundedCornerShape(28.dp)
+    Box(modifier.padding(top = 16.dp, end = 16.dp, bottom = 16.dp)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(TaskInsetFill)
+                .border(BorderStroke(1.dp, CalinoColors.Ink.copy(.06f)), shape),
+        ) {
+            androidx.compose.animation.Crossfade(
+                targetState = task,
+                animationSpec = tween(CalinoMotion.ContentEnterMillis),
+                label = "task detail pane",
+            ) { shown ->
+                if (shown == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Select a task", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                    }
+                } else {
+                    TaskDetailPaneContent(shown, taskTree, today, onComplete, onOpenTask, onEdit)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskDetailPaneContent(
+    task: CalTask,
+    taskTree: TaskTree,
+    today: LocalDate,
+    onComplete: (CalTask) -> Unit,
+    onOpenTask: (CalTask) -> Unit,
+    onEdit: (CalTask) -> Unit,
+) {
+    val color = taskColor(task)
+    val subtasks = orderTasksByDue(taskTree.directChildren(task.id))
+    val parent = task.parentTaskId?.let(taskTree::task)
+    val meta = taskMetaLine(task, today, grouped = false)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(start = 44.dp, end = 44.dp, top = 28.dp, bottom = CalinoSpacing.PillClearance + 16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("TASK", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.weight(1f))
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(CalinoColors.Ink.copy(.06f))
+                    .clickable(role = Role.Button, onClickLabel = "Edit task", onClick = { onEdit(task) })
+                    .semantics { contentDescription = "Edit ${task.title}" },
+                contentAlignment = Alignment.Center,
+            ) {
+                CalinoIcon(CalinoIcon.Edit, tint = CalinoColors.Ink, modifier = Modifier.size(20.dp), contentDescription = null)
+            }
+        }
+        if (parent != null) {
+            TaskParentLine(parent, Modifier.heightIn(min = 44.dp)) { onOpenTask(parent) }
+        }
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = !task.done, onClick = { onComplete(task) })
+                    .semantics { contentDescription = if (task.done) "${task.title}, completed" else "Complete ${task.title}" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(if (task.done) CalinoColors.Green.copy(alpha = .16f) else Color.Transparent)
+                        .then(if (task.done) Modifier else Modifier.border(BorderStroke(1.8.dp, color), CircleShape)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (task.done) CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Green, modifier = Modifier.size(16.dp), contentDescription = null)
+                }
+            }
+            Text(
+                task.title,
+                style = CalinoTypography.displayMedium,
+                textDecoration = if (task.done) TextDecoration.LineThrough else TextDecoration.None,
+                color = if (task.done) CalinoColors.Ink3 else CalinoColors.Ink,
+                modifier = Modifier.padding(start = 10.dp).weight(1f),
+            )
+        }
+        if (meta != null) {
+            Row(Modifier.padding(start = 54.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(meta.primary, color = meta.primaryColor, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+                meta.secondary?.let { Text(it, color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge) }
+            }
+        }
+        if (subtasks.isNotEmpty()) {
+            label(
+                "Subtasks · ${subtasks.count { it.done }} of ${subtasks.size}",
+                Modifier.padding(top = 32.dp, bottom = 6.dp).semantics { heading() },
+            )
+            subtasks.forEach { sub ->
+                HorizontalDivider(color = CalinoColors.Ink.copy(.06f))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp)
+                        .clickable(role = Role.Button, onClickLabel = "Show subtask", onClick = { onOpenTask(sub) }),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = !sub.done, onClick = { onComplete(sub) })
+                            .semantics { contentDescription = if (sub.done) "${sub.title}, completed" else "Complete ${sub.title}" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(if (sub.done) CalinoColors.Green.copy(alpha = .16f) else Color.Transparent)
+                                .then(if (sub.done) Modifier else Modifier.border(BorderStroke(1.6.dp, color), CircleShape)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (sub.done) CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Green, modifier = Modifier.size(13.dp), contentDescription = null)
+                        }
+                    }
+                    Text(
+                        sub.title,
+                        style = CalinoTypography.bodyLarge,
+                        color = if (sub.done) CalinoColors.Ink2 else CalinoColors.Ink,
+                        textDecoration = if (sub.done) TextDecoration.LineThrough else TextDecoration.None,
+                        modifier = Modifier.weight(1f).padding(start = 10.dp),
+                    )
+                    sub.due?.let { due ->
+                        Text(
+                            due.format(DateTimeFormatter.ofPattern("EEE MMM d", Locale.US)).uppercase(Locale.US),
+                            style = CalinoTypography.labelSmall,
+                            color = if (sub.done) CalinoColors.Ink3 else CalinoColors.Accent,
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(color = CalinoColors.Ink.copy(.06f))
+        }
+        task.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+            label("Notes", Modifier.padding(top = 28.dp, bottom = 8.dp).semantics { heading() })
+            CalinoMarkdown(notes, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/** What a row says about its dates: an accent lead and a quieter relative note. */
+private data class TaskMeta(val primary: String, val primaryColor: Color, val secondary: String? = null)
+
+@Composable
+private fun taskMetaLine(task: CalTask, today: LocalDate, grouped: Boolean): TaskMeta? {
+    // A completed row carries its date on the right, in the group's own voice.
+    if (grouped) return null
+    val due = task.due ?: return null
+    if (!task.done && task.isWeekTask()) {
+        val start = task.startDate!!
+        val days = due.toEpochDay() - start.toEpochDay() + 1
+        val text = if (days <= 7) {
+            "${start.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} – ${due.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
+        } else {
+            "${start.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))} – ${due.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))}"
+        }
+        return TaskMeta(text, CalinoColors.Accent)
+    }
+    val date = due.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())) +
+        (task.dueTime?.let { " · ${it.format(DateTimeFormatter.ofPattern("h:mm a", Locale.US))}" } ?: "")
+    val late = due.isBefore(today) && !task.done
+    return TaskMeta(date, if (late) CalinoColors.Rose else CalinoColors.Accent, relativeDayLabel(due, today))
+}
+
+private fun relativeDayLabel(date: LocalDate, today: LocalDate): String {
+    val days = date.toEpochDay() - today.toEpochDay()
+    return when {
+        days == 0L -> "today"
+        days == 1L -> "tomorrow"
+        days == -1L -> "yesterday"
+        days > 1 -> "in $days days"
+        else -> "${-days} days ago"
+    }
+}
+
+/**
+ * Names the parent of a subtask that is listed apart from it. The parent's own
+ * state rides on the line -- struck and ticked when done, a small open ring when
+ * not -- so the row answers "is the parent finished?" without opening it.
+ *
+ * The line is visually compact; its tap target relies on Compose's 48dp
+ * minimum-touch-target expansion rather than reserving layout space.
+ */
+@Composable
+private fun TaskParentLine(parent: CalTask, modifier: Modifier = Modifier, onOpen: () -> Unit) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(role = Role.Button, onClickLabel = "Open parent task", onClick = onOpen)
+            .padding(top = 1.dp, bottom = 3.dp)
+            .semantics {
+                contentDescription = "Subtask of ${parent.title}, ${if (parent.done) "completed" else "open"}"
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(CalinoIcons.CornerDownRight, null, tint = CalinoColors.Ink3, modifier = Modifier.size(13.dp))
+        Text(
+            parent.title,
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink3,
+            textDecoration = if (parent.done) TextDecoration.LineThrough else TextDecoration.None,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 5.dp, end = 5.dp).weight(1f, fill = false),
+        )
+        if (parent.done) {
+            CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Green, modifier = Modifier.size(11.dp), contentDescription = null)
+        } else {
+            Box(Modifier.size(7.dp).border(BorderStroke(1.4.dp, CalinoColors.Blue), CircleShape))
         }
     }
 }

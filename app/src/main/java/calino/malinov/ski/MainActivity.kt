@@ -3252,6 +3252,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             // drag steps through them in the same order the sidebar lists.
             val pillRoutes = menuPillRoutes
             val pillIndex = pillRoutes.indexOf(rootRoute)
+            val coveredAlpha by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (pillLane.covered) 0f else 1f,
+                animationSpec = tween(CalinoMotion.ContentEnterMillis),
+                label = "add pill cover",
+            )
             Box(
                 if (pillLaneWidth > 0.dp) Modifier.width(pillLaneWidth) else Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center,
@@ -3263,8 +3268,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 // stacking the two translucent surfaces doubles both the
                 // shadow and the glass fill. Keep the root pill measured for
                 // its handoff anchor, but let only the lane owner paint.
+                // An expanded week sheet sits over the pill: it fades out under
+                // it, and once gone is clipped to nothing so it takes none of
+                // the sheet's taps. Placement is unchanged, so the resting
+                // bounds a modal pill appears from stay true.
                 modifier = Modifier.graphicsLayer {
-                    alpha = if (pillLane.claimedByModal) 0f else 1f
+                    alpha = if (pillLane.claimedByModal) 0f else coveredAlpha
+                    if (coveredAlpha < .01f) {
+                        clip = true
+                        shape = EmptyPillShape
+                    }
                 },
                 backdrop = surfaceLayer,
                 backdropOrigin = { surfaceOrigin },
@@ -3821,4 +3834,10 @@ private fun aiDraftFor(candidate: AiEventCandidate, fallbackDate: LocalDate): Ed
         description = candidate.description,
         touched = calino.malinov.ski.data.model.EditorField.entries.toSet(),
     )
+}
+
+/** A clip that admits nothing: draws no pixel and hit-tests none. */
+private val EmptyPillShape = object : androidx.compose.ui.graphics.Shape {
+    override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+        androidx.compose.ui.graphics.Outline.Rectangle(androidx.compose.ui.geometry.Rect.Zero)
 }

@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
@@ -826,19 +827,28 @@ private fun RangePagerSurface(
             DisposableEffect(Unit) { onDispose { shelfRect = Rect.Zero } }
         }
         // A docked sheet or strip pushes the add pill up with its own measured
-        // height. While a task is dragged the pill settles back so the drop
-        // zone's label is not behind it; otherwise the lift follows the
-        // surface frame for frame, with no second clock of its own.
+        // height, frame for frame with the surface. The pill only rests there
+        // while the lift is the whole story: dragging a task, an open task
+        // modal (whose pill appears at the lane's normal place) and an
+        // expanded sheet (which sits over the pill) each settle it back down
+        // first, on a short tween, and it glides up again after.
         val pillLane = LocalCalinoPillLane.current
-        val rawLift = if (sheetShown || stripShown) (shelfHeight - navInset + 16.dp - 20.dp).coerceAtLeast(0.dp) else 0.dp
-        val lift by animateDpAsState(
-            if (taskDragging) 0.dp else rawLift,
-            animationSpec = if (taskDragging) tween(CalinoMotion.ContentEnterMillis) else snap(),
+        val sheetOpen = sheetShown && sheetExpanded
+        val settleLift = taskDragging || pillLane.claimedByModal || sheetOpen
+        val liftHold by animateFloatAsState(
+            if (settleLift) 0f else 1f,
+            animationSpec = tween(CalinoMotion.ContentEnterMillis),
             label = "week shelf pill lift",
         )
+        val rawLift = if (sheetShown || stripShown) (shelfHeight - navInset + 16.dp - 20.dp).coerceAtLeast(0.dp) else 0.dp
+        val lift = rawLift * liftHold
         DisposableEffect(lift) {
             pillLane.bottomLift = lift
             onDispose { if (pillLane.bottomLift == lift) pillLane.bottomLift = 0.dp }
+        }
+        DisposableEffect(sheetOpen) {
+            pillLane.covered = sheetOpen
+            onDispose { if (pillLane.covered == sheetOpen) pillLane.covered = false }
         }
         taskMenu?.let { task ->
             Box(Modifier.align(Alignment.BottomEnd).padding(bottom = bottomReserve)) {

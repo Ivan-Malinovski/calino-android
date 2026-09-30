@@ -33,6 +33,16 @@ class WeekTaskRulesTest {
         assertEquals(monday.minusDays(1), monday.startOfWeek(CalinoWeekStart.Sunday))
     }
 
+    @Test fun tasksListShowsOnlyOpenWeekTasksOverlappingTheWeekAsSometimeThisWeek() {
+        val last = monday.plusDays(6)
+        assertTrue(task.isSometimeThisWeek(monday, last))
+        assertFalse(task.copy(done = true).isSometimeThisWeek(monday, last))
+        assertFalse(task.copy(due = monday.plusDays(1)).isSometimeThisWeek(monday, last))
+        assertTrue(task.copy(startDate = monday.plusDays(5), due = monday.plusDays(9)).isSometimeThisWeek(monday, last))
+        assertFalse(task.copy(startDate = monday.plusDays(7), due = monday.plusDays(10)).isSometimeThisWeek(monday, last))
+        assertFalse(task.copy(startDate = monday.minusDays(5), due = monday.minusDays(1)).isSometimeThisWeek(monday, last))
+    }
+
     @Test fun schedulingCollapsesRangeAndPreservesTaskContentsAndIdentity() {
         val original = task.copy(notes = "Keep this", priority = 1, percentComplete = 50, status = "IN-PROCESS",
             reminder = Reminder(minutesBefore = 10), uid = "uid", href = "https://example.test/t", etag = "etag", parentTaskId = "parent")

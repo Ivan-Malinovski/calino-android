@@ -49,6 +49,15 @@ class CalinoPillLane {
     var bottomLift by mutableStateOf(0.dp)
 
     /**
+     * True while a surface docked to the bottom edge is open far enough to sit
+     * over the root pill -- Range's expanded week-task sheet. The pill keeps
+     * laying out at its resting place, so [addPillBounds] stay true for a modal
+     * pill to appear from; the shell only fades it out and stops hit-testing
+     * it, since it is painted above route content and would show through.
+     */
+    var covered by mutableStateOf(false)
+
+    /**
      * The label the root pill is showing right now, published by whoever owns
      * that pill whether or not it is currently on screen. A modal pill morphs
      * back into *this*, not into a label of its own: event detail used to name

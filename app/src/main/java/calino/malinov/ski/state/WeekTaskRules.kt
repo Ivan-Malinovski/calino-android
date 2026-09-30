@@ -16,6 +16,10 @@ fun CalTask.isRecurringTask(): Boolean = recurrence != null || recurrenceId != n
 fun CalTask.isWeekTask(): Boolean = !isRecurringTask() &&
     startDate != null && due != null && due.toEpochDay() - startDate.toEpochDay() + 1 >= WeekTaskMinDays
 
+/** An open week task that overlaps [first]..[last]; the Tasks list's "Sometime this week". */
+fun CalTask.isSometimeThisWeek(first: LocalDate, last: LocalDate): Boolean =
+    !done && isWeekTask() && !due!!.isBefore(first) && !startDate!!.isAfter(last)
+
 fun weekTasksInRange(tasks: List<CalTask>, first: LocalDate, last: LocalDate): List<CalTask> = tasks
     .filter { it.isWeekTask() && !it.due!!.isBefore(first) && !it.startDate!!.isAfter(last) }
     .sortedWith(compareBy<CalTask> { it.startDate }.thenBy { it.due }

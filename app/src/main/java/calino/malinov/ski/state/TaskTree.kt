@@ -31,6 +31,8 @@ class TaskTree(tasks: List<CalTask>) {
     private val taskById = tasks.associateBy { it.id }
     private val children = tasks.groupBy { it.parentTaskId }.mapValues { (_, value) -> value.toList() }
 
+    fun task(id: String): CalTask? = taskById[id]
+
     fun directChildren(parentId: String): List<CalTask> = children[parentId].orEmpty()
 
     fun descendants(parentId: String): List<CalTask> {
