@@ -76,15 +76,15 @@ class TaskSaveFailureTest {
             }
         }
 
-        compose.onNodeWithContentDescription("High priority")
+        compose.onNodeWithContentDescription("Priority: High")
             .performScrollTo()
         // Scroll the editor farther than the minimum needed to expose the row:
         // the floating action pill otherwise overlaps the bottom-most controls.
         compose.onNode(hasScrollAction()).performTouchInput {
             swipeUp(startY = height * .78f, endY = height * .64f)
         }
-        compose.onNodeWithContentDescription("High priority").performClick()
-        compose.waitUntil(5_000L) { compose.hasDescribedNode("High priority, selected") }
+        compose.onNodeWithContentDescription("Priority: High").performClick()
+        compose.waitUntil(5_000L) { compose.hasDescribedNode("Priority: High") }
         compose.waitUntil(5_000L) { compose.hasDescribedNode("Save task") }
         compose.onNodeWithContentDescription("Save task").performClick()
 
@@ -92,7 +92,7 @@ class TaskSaveFailureTest {
             writes.get() == 1 && compose.hasDescribedNode("Save task")
         }
         compose.onNodeWithContentDescription("Save task").assertIsDisplayed()
-        compose.onNodeWithContentDescription("High priority, selected")
+        compose.onNodeWithContentDescription("Priority: High")
             .performScrollTo()
             .assertIsDisplayed()
 

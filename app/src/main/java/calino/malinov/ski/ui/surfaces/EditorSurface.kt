@@ -87,6 +87,7 @@ import calino.malinov.ski.ui.components.CalinoColorSwatchRow
 import calino.malinov.ski.ui.components.CalinoSearchField
 import calino.malinov.ski.ui.components.CalinoToggleRow
 import calino.malinov.ski.util.CalinoZones
+import calino.malinov.ski.util.startOfWeek
 import java.time.Instant
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
@@ -311,6 +312,7 @@ fun EditorSurface(
                         )
                         kind == PocQuickAddKind.Task -> TaskEditorFields(
                             draft = draft,
+                            planningDate = baseDate,
                             categories = (categories + draft.categories).distinct(),
                             descriptionOpen = descriptionOpen,
                             remindersOpen = remindersOpen,
@@ -550,6 +552,7 @@ private fun EventEditorFields(
 @Composable
 private fun TaskEditorFields(
     draft: EditorDraft,
+    planningDate: LocalDate,
     categories: List<String>,
     descriptionOpen: Boolean,
     remindersOpen: Boolean,
@@ -562,9 +565,32 @@ private fun TaskEditorFields(
     pickStartTime: () -> Unit,
     pickUntil: () -> Unit,
 ) {
+    val weekStart = calino.malinov.ski.state.LocalCalinoPreferences.current.weekStart
+    val recurring = draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null
+    val pickTaskStart = rememberDatePicker({ draft.taskStartDate ?: draft.date.minusDays(1) }) {
+        onDraft(draft.copy(taskStartDate = it, taskStartTime = null))
+    }
+    TaskRangeFields(
+        start = draft.taskStartDate,
+        due = draft.date.takeUnless { draft.taskDueAbsent && !draft.taskDueChanged },
+        recurring = recurring,
+        onStart = pickTaskStart,
+        onClearStart = { onDraft(draft.copy(taskStartDate = null, taskStartTime = null)) },
+        onWeek = {
+            val first = planningDate.startOfWeek(weekStart)
+            onDraft(draft.copy(taskStartDate = first, taskStartTime = null, date = first.plusDays(6),
+                startTime = null, allDay = true, taskDueAbsent = false, taskDueChanged = true,
+                touched = draft.touched + calino.malinov.ski.data.model.EditorField.Date + calino.malinov.ski.data.model.EditorField.Time))
+        },
+    )
     EditorValueRow(CalinoIcon.Calendar, "Due date",
         if (draft.taskDueAbsent && !draft.taskDueChanged) "Add due date" else draft.date.format(EditorDateFormat),
         pickStartDate)
+    if (!draft.taskDueAbsent || draft.taskDueChanged) {
+        CalinoChip(text = "Clear due", selected = false, description = "Remove task due date",
+            onClick = { onDraft(draft.copy(taskDueAbsent = true, taskDueChanged = false,
+                startTime = null, taskStartDate = null, taskStartTime = null)) })
+    }
     EditorDivider()
     EditorValueRow(
         icon = CalinoIcon.Clock,

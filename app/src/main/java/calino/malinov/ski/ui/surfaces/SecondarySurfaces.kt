@@ -221,6 +221,7 @@ import calino.malinov.ski.ui.components.calinoLongPressDrag
 import calino.malinov.ski.util.formatRecurrenceSummary
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
+import calino.malinov.ski.util.startOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.LocalTime
@@ -254,6 +255,8 @@ enum class QuickAddKind { Event, Task, Journal }
 enum class TaskFilter { All, Active, Completed }
 
 enum class TaskMenuAction {
+    Schedule,
+    ThisWeek,
     Edit,
     AddSubtask,
     Promote,
@@ -298,6 +301,9 @@ fun TaskActionMenu(
             CalinoActionMenuTile(if (task.done) "Reopen" else "Done", CalinoIcons.Check) { run(TaskMenuAction.ToggleDone) }
             CalinoActionMenuTile("Duplicate", CalinoIcons.Copy) { run(TaskMenuAction.Duplicate) }
         }
+        action(TaskMenuAction.Schedule, "Schedule…", CalinoIcons.Clock)
+        action(TaskMenuAction.ThisWeek, "Move to this week", CalinoIcons.CalendarRange,
+            task.recurrence == null && task.recurrenceId == null && task.recurrenceDate == null)
         action(TaskMenuAction.Today, "Move to today", CalinoIcons.Calendar, !task.done)
         action(TaskMenuAction.Tomorrow, "Move to tomorrow", CalinoIcons.ChevronRight, !task.done)
         action(TaskMenuAction.NextWeek, "Move to next week", CalinoIcons.CalendarRange, !task.done)
@@ -1827,6 +1833,7 @@ fun TaskDetailSurface(
     categories: List<String> = emptyList(),
     onOpenSubtask: (CalTask) -> Unit = {},
     onToggleSubtask: (CalTask) -> Unit = {},
+    planningDate: LocalDate? = null,
 ) {
     val today = LocalCalinoNow.current.today
     var title by remember(task.id) { mutableStateOf(task.title) }
@@ -1834,6 +1841,8 @@ fun TaskDetailSurface(
     var notes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var savedNotes by remember(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var due by remember(task.id) { mutableStateOf(task.due) }
+    var taskStart by remember(task.id) { mutableStateOf(task.startDate) }
+    var taskStartTime by remember(task.id) { mutableStateOf(task.startTime) }
     var dueTime by remember(task.id) { mutableStateOf(task.dueTime) }
     var reminder by remember(task.id) { mutableStateOf(task.reminder) }
     var reminderOpen by remember(task.id) { mutableStateOf(false) }
@@ -1853,6 +1862,8 @@ fun TaskDetailSurface(
     LaunchedEffect(task.id) { detailScrollState.scrollTo(0) }
     val headerTint = eventTint(taskColor(task), .13f, CalinoColors.Panel)
     val pickDueDate = rememberDatePicker({ due ?: today }) { due = it }
+    val pickTaskStart = rememberDatePicker({ taskStart ?: (due ?: today).minusDays(1) }) { taskStart = it; taskStartTime = null }
+    val weekStart = LocalCalinoPreferences.current.weekStart
     val pickDueTime = rememberTimePicker({ dueTime }, title = "Due") { picked ->
         if (due == null) due = today
         dueTime = picked
@@ -1882,8 +1893,8 @@ fun TaskDetailSurface(
                         color = task.color,
                         category = category.trim().ifEmpty { null },
                         dueTime = dueTime,
-                        startDate = task.startDate,
-                        startTime = task.startTime,
+                        startDate = taskStart,
+                        startTime = taskStartTime,
                         notes = notes.trim().ifEmpty { null },
                         reminder = reminder,
                         priority = priority,
@@ -1937,6 +1948,7 @@ fun TaskDetailSurface(
                 notes != savedNotes ||
                 due != task.due ||
                 dueTime != task.dueTime ||
+                taskStart != task.startDate || taskStartTime != task.startTime ||
                 reminder != task.reminder ||
                 priority != task.priority ||
                 percentComplete != task.percentComplete
@@ -2023,6 +2035,16 @@ fun TaskDetailSurface(
                     .verticalScroll(detailScrollState)
                     .padding(horizontal = 18.dp),
             ) {
+                TaskRangeFields(
+                    start = taskStart, due = due,
+                    recurring = task.recurrence != null || task.recurrenceId != null || task.recurrenceDate != null,
+                    onStart = pickTaskStart,
+                    onClearStart = { taskStart = null; taskStartTime = null },
+                    onWeek = {
+                        val first = (planningDate ?: today).startOfWeek(weekStart)
+                        taskStart = first; taskStartTime = null; due = first.plusDays(6); dueTime = null
+                    },
+                )
                 Column(Modifier.padding(bottom = 12.dp)) {
                     TaskRow(
                         icon = CalinoIcon.Calendar,
@@ -2030,7 +2052,7 @@ fun TaskDetailSurface(
                         set = due != null,
                         description = "Choose a custom due date",
                         onClick = pickDueDate,
-                        onClear = if (due != null) ({ due = null; dueTime = null }) else null,
+                        onClear = if (due != null) ({ due = null; dueTime = null; taskStart = null; taskStartTime = null }) else null,
                         clearDescription = "Remove due date",
                     )
                     Row(Modifier.fillMaxWidth().padding(start = 38.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -3291,8 +3313,9 @@ fun TaskDetail(
     categories: List<String> = emptyList(),
     onOpenSubtask: (CalTask) -> Unit = {},
     onToggleSubtask: (CalTask) -> Unit = {},
+    planningDate: LocalDate? = null,
 ) = TaskDetailSurface(
-    task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask, categories, onOpenSubtask, onToggleSubtask,
+    task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask, categories, onOpenSubtask, onToggleSubtask, planningDate,
 )
 
 /** Task ledger; horizontal drag reveals completion/rescheduling affordances. */

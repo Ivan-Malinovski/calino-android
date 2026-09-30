@@ -154,6 +154,9 @@ import calino.malinov.ski.data.model.derivedDisplayName
 import calino.malinov.ski.data.model.contactReminderEvent
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.NewJournal
+import calino.malinov.ski.state.weekTask
+import calino.malinov.ski.state.scheduledTask
+import calino.malinov.ski.util.startOfWeek
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.EditorDraft
 import calino.malinov.ski.data.model.blankEditorDraft
@@ -1584,6 +1587,28 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
     }
 
+    suspend fun addWeekTask(title: String, first: LocalDate, last: LocalDate): Boolean {
+        writeError = null
+        val calendar = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VTODO") }
+        if (calendar == null) { writeError = "No writable calendar supports tasks"; return false }
+        savePillLane.saveStarted(PillWriteKind.Save)
+        var landed = false
+        try {
+            when (val result = repository.addTask(NewTask(title = title.trim(), due = last, startDate = first, calendarId = calendar.id, color = calendar.color))) {
+                is WriteResult.Rejected -> writeError = result.reason
+                else -> landed = true
+            }
+            return landed
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            writeError = error.message ?: "That task could not be saved."
+            return false
+        } finally {
+            savePillLane.saveFinished(writeScope, success = landed)
+        }
+    }
+
     fun showUndo(change: UndoableChange) {
         // Named on the add pill rather than a banner of its own: the pill
         // already narrates the deliberate saves it starts, and an undoable
@@ -1711,7 +1736,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun handleTaskAction(action: TaskMenuAction, task: CalTask) {
         when (action) {
-            TaskMenuAction.Edit -> openTaskDetail(task, when (route) {
+            TaskMenuAction.ThisWeek -> {
+                val first = (if (route == PockRoute.Range) (rangeFirstVisibleEpoch?.let(LocalDate::ofEpochDay) ?: selectedDate) else selectedDate).startOfWeek(preferences.weekStart)
+                launchWrite({ repository.updateTask(task.id, task.weekTask(first, first.plusDays(6)), task.done) })
+            }
+            TaskMenuAction.Edit, TaskMenuAction.Schedule -> openTaskDetail(task, when (route) {
                 PockRoute.Year -> PocReturnTarget.Year
                 PockRoute.Range -> PocReturnTarget.Range
                 PockRoute.Agenda -> PocReturnTarget.Agenda
@@ -2235,6 +2264,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 startMinute = start.toLocalTime().toSecondOfDay() / 60,
                             )
                         },
+                        taskIsWritable = { it.calendarId !in readOnlyCalendarIds },
+                        onTaskSchedule = { task, day, time -> launchWrite({ repository.updateTask(task.id, task.scheduledTask(day, time), task.done) }) },
+                        onTaskWeek = { task, first, last -> launchWrite({ repository.updateTask(task.id, task.weekTask(first, last), task.done) }) },
+                        onAddWeekTask = ::addWeekTask,
+                        onWeekTaskDetails = { title, first, last ->
+                            val calendar = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VTODO") }
+                            if (calendar == null) writeError = "No writable calendar supports tasks"
+                            else {
+                                openQuickAdd(QuickAddKind.Task, PocReturnTarget.Range, date = first)
+                                externalDraft = blankEditorDraft(kind = PocQuickAddKind.Task, date = last, title = title)
+                                    .copy(taskStartDate = first, calendarId = calendar.id, color = calendar.color, allDay = true,
+                                        touched = setOf(calino.malinov.ski.data.model.EditorField.Date, calino.malinov.ski.data.model.EditorField.Time))
+                            }
+                        },
                         onTaskClick = { task -> openTaskDetail(task, PocReturnTarget.Range) },
                         onTaskAction = ::handleTaskAction,
                         onTaskDone = { task, done ->
@@ -2727,6 +2770,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.TaskDetail -> selectedTask?.let { task ->
                 TaskDetail(
                     task = task,
+                    planningDate = if (taskDetailOrigin == PocReturnTarget.Range) rangeFirstVisibleEpoch?.let(LocalDate::ofEpochDay) ?: selectedDate else selectedDate,
                     tasks = snapshot.tasks,
                     categories = LocalCalinoPreferences.current.let { prefs ->
                         remember(snapshot.categories, prefs.userCategories, prefs.autoCategoryRules) {

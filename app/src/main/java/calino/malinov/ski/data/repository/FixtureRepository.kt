@@ -360,6 +360,8 @@ class FixtureRepository : CalinoRepository {
         completedAt = if (done || input.percentComplete >= 100 || input.status.equals("COMPLETED", ignoreCase = true)) input.completedAt ?: java.time.Instant.now() else null,
         category = input.category,
         dueTime = input.dueTime,
+        startDate = input.startDate,
+        startTime = input.startTime,
         notes = input.notes,
         reminder = input.reminder,
         calendarId = input.calendarId,
@@ -722,6 +724,10 @@ private fun fixtureTasks(): List<CalTask> {
         CalTask("task-documentation", "Update documentation", Green, LocalDate.of(2026, 5, 20), done = true, category = "Work"),
         CalTask("task-weekend", "Plan weekend trip", Green, day, done = true),
         CalTask("task-goals", "Review Q1 goals", Plum, LocalDate.of(2026, 5, 15), category = "Work"),
+        CalTask("task-week-plumber", "Call the plumber", Amber, day.plusDays(6), startDate = day,
+            notes = "Find a convenient time this week. Hold and drag to schedule, or use Schedule from the menu."),
+        CalTask("task-week-flights", "Book summer flights", Blue, day.plusDays(9), startDate = day.plusDays(3), category = "Travel"),
+        CalTask("task-week-done", "Choose a birthday gift", Rose, day.plusDays(6), done = true, startDate = day),
         CalTask("task-expense", "Submit expense report", Rose, null, category = "Finance"),
         // Two days after their parent, so the sample carries the case the
         // stand-in parent row exists for: subtasks on a day the parent is not.

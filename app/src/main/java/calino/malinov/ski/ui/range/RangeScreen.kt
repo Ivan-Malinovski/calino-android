@@ -24,6 +24,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import calino.malinov.ski.state.*
+import calino.malinov.ski.ui.components.rememberDatePicker
+import calino.malinov.ski.ui.components.rememberTimePicker
+import calino.malinov.ski.ui.components.AgendaRow
+import calino.malinov.ski.ui.surfaces.TaskActionMenu
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -67,6 +80,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -147,6 +161,11 @@ fun RangeScreen(
     onTaskClick: (CalTask) -> Unit,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
+    onAddWeekTask: suspend (String, LocalDate, LocalDate) -> Boolean,
+    onWeekTaskDetails: (String, LocalDate, LocalDate) -> Unit,
+    onTaskSchedule: (CalTask, LocalDate, java.time.LocalTime?) -> Unit,
+    onTaskWeek: (CalTask, LocalDate, LocalDate) -> Unit,
+    taskIsWritable: (CalTask) -> Boolean,
 ) {
     val preferences = LocalCalinoPreferences.current
     val mode = preferences.rangeMode
@@ -287,6 +306,11 @@ fun RangeScreen(
                 onTaskClick = onTaskClick,
                 onTaskAction = onTaskAction,
                 onTaskDone = onTaskDone,
+                onAddWeekTask = onAddWeekTask,
+                onWeekTaskDetails = onWeekTaskDetails,
+                onTaskSchedule = onTaskSchedule,
+                onTaskWeek = onTaskWeek,
+                taskIsWritable = taskIsWritable,
             )
         }
     }
@@ -314,7 +338,10 @@ private fun RangeSubtitle(
 ) {
     val slide = with(LocalDensity.current) { 8.dp.roundToPx() }
     val style = CalinoTypography.labelSmall
-    Box(Modifier.padding(top = 1.dp)) {
+    val describedFirst = if (sliding) firstDayNow() else firstDayOf(pager.targetPage)
+    Box(Modifier.padding(top = 1.dp).clearAndSetSemantics {
+        contentDescription = "Range dates, ${rangeLabel(describedFirst, dayCount)}"
+    }) {
         if (sliding) {
             Text(rangeLabel(firstDayNow(), dayCount), style = style, color = CalinoColors.Ink3, maxLines = 1)
         } else {
@@ -383,10 +410,16 @@ private fun RangePagerSurface(
     onTaskClick: (CalTask) -> Unit,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
+    onAddWeekTask: suspend (String, LocalDate, LocalDate) -> Boolean,
+    onWeekTaskDetails: (String, LocalDate, LocalDate) -> Unit,
+    onTaskSchedule: (CalTask, LocalDate, java.time.LocalTime?) -> Unit,
+    onTaskWeek: (CalTask, LocalDate, LocalDate) -> Unit,
+    taskIsWritable: (CalTask) -> Boolean,
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
     val timeFormat = LocalTimeFormat
+    val taskToday = LocalCalinoNow.current.today
     val preferences = LocalCalinoPreferences.current
     val cardBounds = remember { mutableStateMapOf<String, TimelineCardBounds>() }
     var drag by remember { mutableStateOf<RangeDragSession?>(null) }
@@ -411,6 +444,60 @@ private fun RangePagerSurface(
         weekStart,
         weekAligned,
     )
+    val taskBounds = remember { mutableStateMapOf<String, Pair<CalTask, Rect>>() }
+    var taskDrag by remember { mutableStateOf<Pair<CalTask, Offset>?>(null) }
+    var taskDragging by remember { mutableStateOf(false) }
+    var shelfRect by remember { mutableStateOf(Rect.Zero) }
+    var shelfHeight by remember { mutableStateOf(0.dp) }
+    var taskMenu by remember { mutableStateOf<CalTask?>(null) }
+    var scheduling by remember { mutableStateOf<CalTask?>(null) }
+    var schedulingDay by remember { mutableStateOf(visibleDragDays.first()) }
+    var scheduleChoice by remember { mutableStateOf(false) }
+    val pickScheduleDay = rememberDatePicker({ schedulingDay }) { schedulingDay = it; scheduleChoice = true }
+    val pickScheduleTime = rememberTimePicker({ scheduling?.dueTime }, title = "Due") { time ->
+        scheduling?.let { onTaskSchedule(it, schedulingDay, time) }; scheduling = null
+    }
+    fun taskAction(action: TaskMenuAction, task: CalTask) {
+        when (action) {
+            TaskMenuAction.Schedule -> { scheduling = task; schedulingDay = task.due?.takeIf { it in visibleDragDays } ?: visibleDragDays.first(); pickScheduleDay() }
+            TaskMenuAction.ThisWeek -> onTaskWeek(task, visibleDragDays.first(), visibleDragDays.last())
+            TaskMenuAction.Today, TaskMenuAction.Tomorrow, TaskMenuAction.NextWeek -> {
+                if (task.isWeekTask()) {
+                    val day = taskToday
+                    onTaskSchedule(task, day.plusDays(when (action) { TaskMenuAction.Tomorrow -> 1L; TaskMenuAction.NextWeek -> 7L; else -> 0L }), null)
+                } else onTaskAction(action, task)
+            }
+            else -> onTaskAction(action, task)
+        }
+    }
+    val taskModifier: @Composable (CalTask, String) -> Modifier = { task, source ->
+        val key = "$source:${task.id}"
+        DisposableEffect(key) { onDispose { taskBounds.remove(key) } }
+        Modifier.onGloballyPositioned { taskBounds[key] = task to it.boundsInRoot() }
+            .semantics { customActions = listOf(
+                CustomAccessibilityAction(if (task.done) "Reopen task" else "Complete task") { onTaskDone(task, !task.done); true },
+                CustomAccessibilityAction("Schedule task") { taskAction(TaskMenuAction.Schedule, task); true },
+                CustomAccessibilityAction("Move to this week") { if (!task.isRecurringTask() && taskIsWritable(task)) { onTaskWeek(task, visibleDragDays.first(), visibleDragDays.last()); true } else false },
+            ) }
+    }
+    fun taskDestination(pointer: Offset): TaskDropDestination? {
+        if (pointer.y < 0 || pointer.y >= hostHeight || pointer.x < 0 || pointer.x >= hostWidth) return null
+        if (activeMode.dayCount == 7 && shelfRect.contains(pointer + hostOrigin)) return TaskDropDestination.Week
+        val gutter = with(density) { CalinoSpacing.RailGutter.toPx() }
+        if (pointer.x < gutter || pointer.y >= hostHeight - with(density) { (shelfHeight + CalinoSpacing.PillClearance).toPx() }) return null
+        val day = rangeDropDay(pointer.x, hostWidth, gutter, visibleDragDays) ?: return null
+        val time = if (pointer.y < with(density) { stripHeight.toPx() }) null
+            else java.time.LocalTime.MIDNIGHT.plusMinutes(taskDropMinute(pointer.y, timelineScroll.value, hourHeightPx).toLong())
+        return TaskDropDestination.Day(day, time)
+    }
+    val taskDestination = taskDrag?.let { taskDestination(it.second) }
+    val taskOverShelf = taskDestination == TaskDropDestination.Week
+    val taskDropDay = (taskDestination as? TaskDropDestination.Day)?.day
+    val taskMinute = (taskDestination as? TaskDropDestination.Day)?.time?.let { it.hour * 60 + it.minute }
+    val taskOverHeader = (taskDestination as? TaskDropDestination.Day)?.time == null && taskDropDay != null
+    LaunchedEffect(taskMinute, taskDragging, taskOverHeader, taskOverShelf) {
+        if (taskDragging && !taskOverHeader && !taskOverShelf) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
     val dragTarget = drag?.takeUnless { it.resize }?.let { session ->
         val day = rangeDropDay(
             session.pointer.x,
@@ -480,8 +567,8 @@ private fun RangePagerSurface(
         }
     }
 
-    LaunchedEffect(autoScrollDirection, drag != null) {
-        if (autoScrollDirection == 0 || drag == null) return@LaunchedEffect
+    LaunchedEffect(autoScrollDirection, drag != null || taskDragging) {
+        if (autoScrollDirection == 0 || (drag == null && !taskDragging)) return@LaunchedEffect
         val step = with(density) { RangeAutoScrollStep.toPx() }
         while (true) {
             val consumed = timelineScroll.scrollBy(autoScrollDirection * step)
@@ -499,9 +586,37 @@ private fun RangePagerSurface(
             }
             .rangeTimelineLiftDrag(
                 hitTest = { point ->
+                    taskBounds.entries.firstOrNull { (key, value) ->
+                    val (task, rect) = value
+                    taskIsWritable(task) && !task.isRecurringTask() && rect.width > 0 && rect.contains(point + hostOrigin) &&
+                    // Completion remains a separate touch lane at the leading edge.
+                    (!key.startsWith("shelf:") || point.x + hostOrigin.x > rect.left + with(density) { 44.dp.toPx() })
+                }?.value?.first },
+                onLift = { task, pointer -> taskDrag = task to pointer },
+                onDragStart = { taskDragging = true; taskMenu = null },
+                onDrag = { _, pointer ->
+                    taskDrag = taskDrag?.let { it.first to pointer }
+                    autoScrollDirection = if (shelfRect.contains(pointer + hostOrigin) || pointer.y < with(density) { stripHeight.toPx() }) 0
+                        else edgeScrollDirection(pointer.y, hostHeight - with(density) { (shelfHeight + CalinoSpacing.PillClearance).toPx() }.toInt(), with(density) { RangeAutoScrollEdge.toPx() })
+                },
+                onRelease = {
+                    taskDrag?.let { (task, pointer) ->
+                        if (taskDragging) when (val destination = taskDestination(pointer)) {
+                            TaskDropDestination.Week -> onTaskWeek(task, visibleDragDays.first(), visibleDragDays.last())
+                            is TaskDropDestination.Day -> onTaskSchedule(task, destination.day, destination.time)
+                            null -> Unit
+                        } else taskMenu = task
+                    }
+                    taskDrag = null; taskDragging = false; autoScrollDirection = 0
+                },
+                onCancel = { taskDrag = null; taskDragging = false; autoScrollDirection = 0 },
+            )
+            .rangeTimelineLiftDrag(
+                hitTest = { point ->
                     val root = point + hostOrigin
                     val visible = rangeDays(rangeAnchorForPage(base, pager.currentPage, activeMode), activeMode, weekStart, weekAligned)
-                    cardBounds.values.firstOrNull { it.day in visible && it.rootRect.contains(root) }
+                    if (shelfRect.contains(root) || taskBounds.values.any { it.second.contains(root) }) null
+                    else cardBounds.values.firstOrNull { it.day in visible && it.rootRect.contains(root) }
                 },
                 onLift = { card, pointer ->
                     val resize = rangeCanResize(card.event, card.day) && rangeInResizeEdge(
@@ -572,7 +687,7 @@ private fun RangePagerSurface(
                             drawLayer(gutterLayer)
                         }
                         .verticalScroll(timelineScroll)
-                        .padding(bottom = CalinoSpacing.PillClearance),
+                        .padding(bottom = CalinoSpacing.PillClearance + shelfHeight),
                 )
                 CompactLaneScrim(
                     source = gutterLayer,
@@ -597,6 +712,7 @@ private fun RangePagerSurface(
             }
             HorizontalPager(
                     state = pager,
+                    userScrollEnabled = drag == null && !taskDragging,
                     beyondViewportPageCount = 1,
                     key = { page -> "${activeMode.name}:$page" },
                     // Tagged like month-pager/week-pager/day-pager, so a device
@@ -610,7 +726,9 @@ private fun RangePagerSurface(
                     RangePage(
                         days = days,
                         eventIndex = eventIndex,
-                        tasks = tasks,
+                        tasks = if (days.size == 7) tasks.filterNot { it.isWeekTask() } else tasks,
+                        taskModifier = { task -> taskModifier(task, "page:$page") },
+                        shelfHeight = shelfHeight,
                         timelineScale = timelineScale,
                         timelineScroll = timelineScroll,
                         onTimelineScaleChanged = onTimelineScaleChanged,
@@ -627,7 +745,7 @@ private fun RangePagerSurface(
                         onEventTimeDrop = onEventTimeDrop,
                         onCreateEventAt = onCreateEventAt,
                         onTaskClick = onTaskClick,
-                        onTaskAction = onTaskAction,
+                        onTaskAction = { action, task -> taskAction(action, task) },
                         onTaskDone = onTaskDone,
                         draggingCardKey = drag?.card?.key,
                         menuDismissalGeneration = menuDismissalGeneration,
@@ -638,7 +756,59 @@ private fun RangePagerSurface(
                     )
                 }
       }
-        if (activeMode.dayCount > 1 && drag == null) {
+        if (activeMode.dayCount == 7) WeekTaskShelf(
+            first = visibleDragDays.first(), last = visibleDragDays.last(),
+            tasks = weekTasksInRange(tasks, visibleDragDays.first(), visibleDragDays.last()),
+            hovering = taskOverShelf && taskDragging,
+            onOpen = onTaskClick, onDone = onTaskDone,
+            taskModifier = { task -> taskModifier(task, "shelf") },
+            onLongClick = { taskMenu = it },
+            onAdd = { title -> onAddWeekTask(title, visibleDragDays.first(), visibleDragDays.last()) },
+            onDetails = { title -> onWeekTaskDetails(title, visibleDragDays.first(), visibleDragDays.last()) },
+            modifier = Modifier.align(Alignment.BottomCenter).imePadding().padding(bottom = CalinoSpacing.PillClearance)
+                .onGloballyPositioned { shelfRect = it.boundsInRoot(); shelfHeight = with(density) { it.size.height.toDp() } },
+        )
+        else LaunchedEffect(Unit) { shelfHeight = 0.dp; shelfRect = Rect.Zero }
+        taskMenu?.let { task ->
+            Box(Modifier.align(Alignment.BottomEnd).padding(bottom = CalinoSpacing.PillClearance + shelfHeight)) {
+                TaskActionMenu(task, expanded = true, onDismiss = { taskMenu = null }, onAction = { taskAction(it, task) })
+            }
+        }
+        if (scheduleChoice) AlertDialog(
+            onDismissRequest = { scheduleChoice = false; scheduling = null },
+            title = { Text("Schedule task") }, text = { Text(schedulingDay.format(RangeDate)) },
+            confirmButton = { TextButton(onClick = { scheduleChoice = false; scheduling?.let { onTaskSchedule(it, schedulingDay, null) }; scheduling = null }) { Text("All day") } },
+            dismissButton = { TextButton(onClick = { scheduleChoice = false; pickScheduleTime() }) { Text("Choose time") } },
+        )
+        val visibleTaskDrag = taskDrag
+        if (taskDragging && visibleTaskDrag != null) {
+            val destination = taskDestination
+            val label = when (destination) {
+                TaskDropDestination.Week -> "Sometime this week"
+                is TaskDropDestination.Day -> "${destination.day.format(RangeDate)} · ${destination.time?.let { timeFormat.format(it) } ?: "all day"}"
+                null -> "Drag to a day or this week"
+            }
+            if (destination is TaskDropDestination.Day && destination.time != null) {
+                val gutter = with(density) { CalinoSpacing.RailGutter.toPx() }
+                val columnWidth = (hostWidth - gutter) / visibleDragDays.size
+                val column = visibleDragDays.indexOf(destination.day)
+                val minute = destination.time.hour * 60 + destination.time.minute
+                Box(Modifier.offset { androidx.compose.ui.unit.IntOffset((gutter + columnWidth * column).toInt(),
+                    (minute / 60f * hourHeightPx - timelineScroll.value).toInt()) }
+                    .width(with(density) { columnWidth.toDp() }).height(2.dp).background(CalinoColors.Accent))
+            }
+            Column(Modifier.align(Alignment.TopStart).offset {
+                val x = (visibleTaskDrag.second.x - with(density) { 110.dp.toPx() }).toInt()
+                    .coerceIn(0, (hostWidth - with(density) { 220.dp.toPx() }).toInt().coerceAtLeast(0))
+                androidx.compose.ui.unit.IntOffset(x, (visibleTaskDrag.second.y - with(density) { 72.dp.toPx() }).toInt().coerceAtLeast(0))
+            }.width(220.dp).background(CalinoColors.Panel.copy(alpha = .96f), RoundedCornerShape(12.dp))
+                .border(1.dp, CalinoColors.Accent.copy(alpha = .6f), RoundedCornerShape(12.dp)).padding(12.dp)
+                .semantics { contentDescription = "Task drop preview, $label" }) {
+                Text(visibleTaskDrag.first.title, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+            }
+        }
+        if (activeMode.dayCount > 1 && drag == null && !taskDragging) {
             val gutterPx = with(density) { CalinoSpacing.RailGutter.toPx() }
             val gapPx = with(density) { CalinoSpacing.RailColumnGap.toPx() }
             val columnStep = (hostWidth - gutterPx - gapPx * activeMode.dayCount) / activeMode.dayCount + gapPx
@@ -742,6 +912,8 @@ private fun RangePage(
     days: List<LocalDate>,
     eventIndex: EventDateIndex,
     tasks: List<CalTask>,
+    taskModifier: @Composable (CalTask) -> Modifier,
+    shelfHeight: androidx.compose.ui.unit.Dp,
     timelineScale: Float,
     timelineScroll: ScrollState,
     onTimelineScaleChanged: (Float) -> Unit,
@@ -779,7 +951,7 @@ private fun RangePage(
                     },
                     onHorizontalPinch = onRangeModePinch,
                 )
-                .verticalScroll(timelineScroll).padding(bottom = CalinoSpacing.PillClearance),
+                .verticalScroll(timelineScroll).padding(bottom = CalinoSpacing.PillClearance + shelfHeight),
             horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
         ) {
             // The hours live outside the pager (see RangePagerSurface); this
@@ -793,7 +965,7 @@ private fun RangePage(
                             isOccupied = { point ->
                                 val minute = point.y /
                                     with(density) { (62 * timelineScale).dp.toPx() } * 60f
-                                timed.any { event ->
+                                tasks.any { it.due == day && it.dueTime != null && minute >= it.dueTime.hour * 60 + it.dueTime.minute && minute < it.dueTime.hour * 60 + it.dueTime.minute + 44f * 60 / (62 * timelineScale) } || timed.any { event ->
                                     val start = event.start ?: return@any false
                                     val startMinute = start.hour * 60 + start.minute
                                     val duration = event.durationMinutes ?: 30
@@ -823,6 +995,11 @@ private fun RangePage(
                         growFromEvents = days.size > 1,
                         onEventDragEnd = null,
                     )
+                    tasks.filter { it.due == day && it.dueTime != null && (!hideDone || !it.done) }.forEach { task ->
+                        val minute = task.dueTime!!.hour * 60 + task.dueTime.minute
+                        RangeTaskDeadline(task, onTaskClick, onTaskDone, onTaskAction,
+                            Modifier.offset(y = (minute / 60f * 62 * timelineScale).dp).then(taskModifier(task)))
+                    }
                 }
             }
         }
@@ -867,7 +1044,7 @@ private fun RangePage(
             }
             // Filtered once, ahead of the packer, rather than per day inside
             // it -- otherwise toggling "hide completed" would not relayout.
-            val visibleTasks = remember(tasks, hideDone) { if (hideDone) tasks.filterNot { it.done } else tasks }
+            val visibleTasks = remember(tasks, hideDone) { tasks.filter { it.dueTime == null && (!hideDone || !it.done) } }
             val spans = remember(eventIndex, days) { resolveAllDaySpans(days, eventIndex::eventsOn) }
             var bandExpanded by rememberSaveable(days.first(), days.size) { mutableStateOf(false) }
             val bandLayout = remember(spans, visibleTasks, days, bandExpanded) {
@@ -887,6 +1064,7 @@ private fun RangePage(
                 onTaskClick = onTaskClick,
                 onTaskAction = onTaskAction,
                 onTaskDone = onTaskDone,
+                taskModifier = taskModifier,
             )
             Spacer(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
         }
@@ -1106,9 +1284,9 @@ private val RangeAutoScrollEdge = 64.dp
 private val RangeAutoScrollStep = 10.dp
 private const val RangeAutoScrollFrameMillis = 16L
 
-private fun Modifier.rangeTimelineLiftDrag(
-    hitTest: (Offset) -> TimelineCardBounds?,
-    onLift: (TimelineCardBounds, Offset) -> Unit,
+private fun <T> Modifier.rangeTimelineLiftDrag(
+    hitTest: (Offset) -> T?,
+    onLift: (T, Offset) -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Offset, Offset) -> Unit,
     onRelease: () -> Unit,
@@ -1121,7 +1299,8 @@ private fun Modifier.rangeTimelineLiftDrag(
     val currentOnRelease by rememberUpdatedState(onRelease)
     val currentOnCancel by rememberUpdatedState(onCancel)
     val haptics = LocalHapticFeedback.current
-    pointerInput(Unit) {
+    var gestureGeneration by remember { mutableIntStateOf(0) }
+    pointerInput(gestureGeneration) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             val pointerId = down.id
@@ -1133,6 +1312,14 @@ private fun Modifier.rangeTimelineLiftDrag(
             try {
                 while (!finished) {
                     val remaining = liftDelay - (android.os.SystemClock.uptimeMillis() - startedAt)
+                    // An event can win the timeout race at the hold boundary.
+                    // Lift before awaiting another event once the delay elapsed.
+                    if (!lifted && remaining <= 0) {
+                        val card = currentHitTest(down.position) ?: break
+                        lifted = true
+                        currentOnLift(card, down.position)
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
                     val event = if (!lifted && remaining > 0) {
                         withTimeoutOrNull(remaining) {
                             awaitPointerEvent(PointerEventPass.Initial)
@@ -1147,9 +1334,31 @@ private fun Modifier.rangeTimelineLiftDrag(
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         continue
                     }
+                    if (event.changes.count { it.pressed } > 1) {
+                        if (lifted) currentOnCancel()
+                        finished = true
+                        break
+                    }
                     val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                    // Input may be delivered before an overdue timer gets CPU time.
+                    // A first move after a completed hold still belongs to this drag.
+                    if (!lifted && change.pressed && android.os.SystemClock.uptimeMillis() - startedAt >= liftDelay) {
+                        val card = currentHitTest(down.position) ?: break
+                        lifted = true
+                        currentOnLift(card, down.position)
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
                     if (!change.pressed) {
-                        if (lifted) currentOnRelease()
+                        if (lifted) {
+                            // Compose marks the synthetic up from ACTION_CANCEL consumed.
+                            if (change.isConsumed) {
+                                currentOnCancel()
+                                // Android's synthetic cancel does not replace currentEvent.
+                                // Restart the observer so awaitAllPointersUp cannot swallow
+                                // the following stream while waiting on the old pressed event.
+                                gestureGeneration++
+                            } else currentOnRelease()
+                        }
                         finished = true
                     } else if (!lifted && (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
                         break
@@ -1286,4 +1495,9 @@ private fun RangeHourGutter(timelineScale: Float, modifier: Modifier = Modifier)
             }
         }
     }
+}
+
+private sealed interface TaskDropDestination {
+    data object Week : TaskDropDestination
+    data class Day(val day: LocalDate, val time: java.time.LocalTime?) : TaskDropDestination
 }

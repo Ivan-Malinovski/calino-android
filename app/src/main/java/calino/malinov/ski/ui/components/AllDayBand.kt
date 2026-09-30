@@ -105,6 +105,7 @@ fun AllDayBand(
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    taskModifier: @Composable (CalTask) -> Modifier = { Modifier },
 ) {
     if (layout.placements.isEmpty() && layout.overflow.isEmpty()) return
     val timeFormat = LocalTimeFormat
@@ -130,6 +131,7 @@ fun AllDayBand(
 
                             is AllDayItem.Task -> AllDayTaskChip(
                                 task = item.task,
+                                modifier = taskModifier(item.task),
                                 density = density,
                                 onClick = { onTaskClick(item.task) },
                                 onLongClick = { onTaskAction(TaskMenuAction.Edit, item.task) },
@@ -330,6 +332,7 @@ private fun ContinuationMarker(edge: ContinuationEdge, color: Color, modifier: M
 @Composable
 private fun AllDayTaskChip(
     task: CalTask,
+    modifier: Modifier = Modifier,
     density: AllDayBandDensity,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -369,7 +372,7 @@ private fun AllDayTaskChip(
         priorityLabel(task.priority)?.let { append(", ").append(it) }
     }
     Row(
-        Modifier
+        modifier
             .fillMaxSize()
             .clip(shape)
             .border(1.dp, color.copy(alpha = .30f), shape)

@@ -1160,6 +1160,7 @@ fun AgendaRow(
     compact: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onDragEnd: ((Offset) -> Unit)? = null,
+    checkboxTouchSize: androidx.compose.ui.unit.Dp? = null,
 ) {
     val color = eventColor(task.color)
     val stripeColor = priorityStripeColor(task.priority)
@@ -1223,7 +1224,7 @@ fun AgendaRow(
         }
         Box(
             Modifier
-                .size(if (compact) 36.dp else 44.dp)
+                .size(checkboxTouchSize ?: if (compact) 36.dp else 44.dp)
                 .then(checkboxPressModifier)
                 .semantics {
                     contentDescription = "${task.title}, checkbox"

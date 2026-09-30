@@ -30,6 +30,7 @@ class TaskInteractionTest : CalinoUiTest() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
 
+        compose.onNodeWithTag("task-list").performScrollToNode(hasContentDescription("Complete $Task"))
         compose.onNodeWithContentDescription("Complete $Task").performClick()
         compose.waitForIdle()
 
@@ -44,6 +45,7 @@ class TaskInteractionTest : CalinoUiTest() {
     @Test fun completingATaskOffersAnUndo() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
+        compose.onNodeWithTag("task-list").performScrollToNode(hasContentDescription("Complete $Task"))
         compose.onNodeWithContentDescription("Complete $Task").performClick()
         compose.waitForIdle()
 
@@ -54,6 +56,7 @@ class TaskInteractionTest : CalinoUiTest() {
     @Test fun undoReopensTheTask() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
+        compose.onNodeWithTag("task-list").performScrollToNode(hasContentDescription("Complete $Task"))
         compose.onNodeWithContentDescription("Complete $Task").performClick()
         awaitPillUndo()
 
@@ -72,6 +75,7 @@ class TaskInteractionTest : CalinoUiTest() {
     @Test fun pillUndoExpiresOnItsOwn() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
+        compose.onNodeWithTag("task-list").performScrollToNode(hasContentDescription("Complete $Task"))
         compose.onNodeWithContentDescription("Complete $Task").performClick()
         awaitPillUndo()
         assertTrue(compose.hasDescribedNode("Undo: Completed $Task"))
@@ -91,9 +95,9 @@ class TaskInteractionTest : CalinoUiTest() {
     @Test fun theDueDateChipsRescheduleATask() {
         openTaskDetail()
         // The chip for the current due date reports itself selected first.
-        compose.onNodeWithContentDescription("Today, selected").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Today, Set due date").performScrollTo().assertIsDisplayed()
 
-        compose.onNodeWithContentDescription("Set due date to Tomorrow").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Tomorrow, Set due date").performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Save task").performClick()
 
@@ -106,7 +110,7 @@ class TaskInteractionTest : CalinoUiTest() {
     /** Abandoning the detail editor leaves the due date where it was. */
     @Test fun cancellingTheDetailKeepsTheDueDate() {
         openTaskDetail()
-        compose.onNodeWithContentDescription("Set due date to Tomorrow").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Tomorrow, Set due date").performScrollTo().performClick()
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Cancel task editing").performClick()
@@ -128,13 +132,13 @@ class TaskInteractionTest : CalinoUiTest() {
     @Test fun taskDetailExposesPriorityAndPartialProgressControls() {
         openTaskDetail()
 
-        compose.onNodeWithContentDescription("None priority, selected").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Priority: None").performScrollTo().assertIsDisplayed()
         // Bring the end of the form above the floating pill before selecting
         // a priority; the pill clearance is intentionally scrollable content.
         compose.onNodeWithContentDescription("Task progress, 0 percent").performScrollTo()
-        compose.onNodeWithContentDescription("High priority").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Priority: High").performScrollTo().performClick()
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("High priority, selected").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Priority: High").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Task progress, 0 percent").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Save task").performClick()
         val savedDescription = "$DatedTask, due May 18, Work, priority 1"
@@ -167,6 +171,7 @@ class TaskInteractionTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Task filter: Active").performClick()
         compose.waitForIdle()
 
+        compose.onNodeWithTag("task-list").performScrollToNode(hasContentDescription("Complete $Task"))
         assertTrue(compose.hasDescribedNode("Complete $Task"))
         assertFalse(compose.hasDescribedNode("$DoneTask, completed"))
     }

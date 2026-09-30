@@ -1,6 +1,8 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -20,13 +22,16 @@ class RangeInteractionTest : CalinoUiTest() {
             compose.onNodeWithTag(RangePagerTag).performTouchInput { swipeLeft() }
             compose.waitForIdle()
         }
-        compose.onNodeWithText("May 24 – May 26").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range dates, May 24 – May 26").assertIsDisplayed()
 
         val designReviews = compose.onAllNodesWithContentDescription("Design review", substring = true)
         val visibleEvent = designReviews.fetchSemanticsNodes().indexOfFirst {
-            it.boundsInRoot.left >= 0f && it.boundsInRoot.top >= 0f
+            it.boundsInRoot.width > 0f && it.boundsInRoot.height > 0f &&
+                it.boundsInRoot.left >= 0f && it.boundsInRoot.top >= 0f
         }
-        designReviews[visibleEvent].performClick()
+        // The sticky all-day band can cover the early part of a 10am card.
+        // Tap its visible lower portion rather than the obscured center.
+        designReviews[visibleEvent].performTouchInput { click(Offset(center.x, height - 8f)) }
         awaitDescribed("Close event preview")
         // The cancel lane is a glyph now, so it carries no text node; its
         // description is the stable handle.
@@ -35,7 +40,7 @@ class RangeInteractionTest : CalinoUiTest() {
 
         // The range header is the anchor proof: the page came back to the
         // days it was on, not to today.
-        compose.onNodeWithText("May 24 – May 26").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range dates, May 24 – May 26").assertIsDisplayed()
         // A multi-day range names no single day, so the pill's add form is
         // "New event" rather than a dated label; what matters here is that the
         // lane went back to being an add pill at all.
@@ -50,23 +55,23 @@ class RangeInteractionTest : CalinoUiTest() {
         compose.onNodeWithTag(RangePagerTag).performTouchInput { swipeLeft() }
         compose.onNodeWithContentDescription("Go to today").assertIsDisplayed().performClick()
 
-        compose.onNodeWithText("May 18 – May 20").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range dates, May 18 – May 20").assertIsDisplayed()
         assertFalse(compose.exists(hasContentDescription("Go to today")))
     }
 
     @Test fun oneDayModePagesByOneDayAndPersists() {
         compose.openRoute("Range")
         compose.onNodeWithContentDescription("Range size in days: 1").performClick()
-        compose.onNodeWithText("May 18").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range dates, May 18").assertIsDisplayed()
 
         compose.onNodeWithTag(RangePagerTag).performTouchInput { swipeLeft() }
         compose.waitForIdle()
-        compose.onNodeWithText("May 19").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range dates, May 19").assertIsDisplayed()
 
         compose.openRoute("Agenda")
         compose.openRoute("Range")
         compose.onNodeWithContentDescription("Range size in days: 1").assertIsDisplayed()
-        compose.onNodeWithText("May 19").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range dates, May 19").assertIsDisplayed()
     }
 
     @Test fun rangeOffersOneThreeAndSevenDayModes() {
