@@ -161,7 +161,20 @@ data class CalinoPreferences(
     /** Keyword rules that add a category from a title on Save. Empty by default. */
     val autoCategoryRules: List<AutoCategoryRule> = emptyList(),
     val setAutoCategoryRules: (List<AutoCategoryRule>) -> Unit = {},
+    /** Last few queries the person acted on in search, newest first. Stays on the device. */
+    val recentSearches: List<String> = emptyList(),
+    val rememberSearch: (String) -> Unit = {},
+    val clearRecentSearches: () -> Unit = {},
 )
+
+const val MaxRecentSearches = 5
+
+/** [query] moved to the front, case-insensitively de-duplicated, capped at [MaxRecentSearches]. */
+fun withRecentSearch(recents: List<String>, query: String): List<String> {
+    val clean = query.trim()
+    if (clean.isEmpty()) return recents
+    return (listOf(clean) + recents.filterNot { it.equals(clean, ignoreCase = true) }).take(MaxRecentSearches)
+}
 
 val LocalCalinoPreferences = staticCompositionLocalOf { CalinoPreferences() }
 
@@ -263,6 +276,8 @@ interface CalinoPreferenceStore {
     fun saveUserCategories(names: List<String>) {}
     fun loadAutoCategoryRules(): List<AutoCategoryRule> = emptyList()
     fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) {}
+    fun loadRecentSearches(): List<String> = emptyList()
+    fun saveRecentSearches(queries: List<String>) {}
     /**
      * Whether the notification permission has already been asked for once.
      *
@@ -375,6 +390,9 @@ interface CalinoPreferenceStore {
         private var autoCategoryRules = emptyList<AutoCategoryRule>()
         override fun loadUserCategories() = userCategories
         override fun saveUserCategories(names: List<String>) { userCategories = names }
+        private var recentSearches = emptyList<String>()
+        override fun loadRecentSearches() = recentSearches
+        override fun saveRecentSearches(queries: List<String>) { recentSearches = queries }
         override fun loadAutoCategoryRules() = autoCategoryRules
         override fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) { autoCategoryRules = rules }
         override fun loadNotificationPromptShown() = notificationPrompt
@@ -497,6 +515,9 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveDayTasksExpanded(expanded: Boolean) = putBoolean(DayTasksExpandedKey, expanded)
     override fun loadUserCategories(): List<String> = decodeCategoryNames(name(UserCategoriesKey))
     override fun saveUserCategories(names: List<String>) = putString(UserCategoriesKey, encodeCategoryNames(names))
+    // One query per line: the search field is single-line, so no entry contains a newline.
+    override fun loadRecentSearches(): List<String> = decodeCategoryNames(name(RecentSearchesKey))
+    override fun saveRecentSearches(queries: List<String>) = putString(RecentSearchesKey, encodeCategoryNames(queries))
     override fun loadAutoCategoryRules(): List<AutoCategoryRule> =
         decodeAutoCategoryRules(name(AutoCategoryRulesKey))
     override fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) =
@@ -538,6 +559,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val NotificationPromptKey = "notification_prompt_shown"
         const val UserCategoriesKey = "user_categories"
         const val AutoCategoryRulesKey = "auto_category_rules"
+        const val RecentSearchesKey = "recent_searches"
     }
 }
 
@@ -583,6 +605,7 @@ fun rememberCalinoPreferences(
     var dayTasksExpanded by remember(store) { mutableStateOf(store.loadDayTasksExpanded()) }
     var userCategories by remember(store) { mutableStateOf(store.loadUserCategories()) }
     var autoCategoryRules by remember(store) { mutableStateOf(store.loadAutoCategoryRules()) }
+    var recentSearches by remember(store) { mutableStateOf(store.loadRecentSearches()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
         setThemeChoice = { value -> themeChoice = value; store.saveThemeChoice(value) },
@@ -671,5 +694,11 @@ fun rememberCalinoPreferences(
         setUserCategories = { value -> userCategories = value; store.saveUserCategories(value) },
         autoCategoryRules = autoCategoryRules,
         setAutoCategoryRules = { value -> autoCategoryRules = value; store.saveAutoCategoryRules(value) },
+        recentSearches = recentSearches,
+        rememberSearch = { query ->
+            val next = withRecentSearch(recentSearches, query)
+            if (next != recentSearches) { recentSearches = next; store.saveRecentSearches(next) }
+        },
+        clearRecentSearches = { recentSearches = emptyList(); store.saveRecentSearches(emptyList()) },
     )
 }

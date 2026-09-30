@@ -13,12 +13,22 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
+import calino.malinov.ski.ui.components.calinoPressable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
@@ -44,7 +55,6 @@ import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.search.*
 import calino.malinov.ski.design.*
 import calino.malinov.ski.ui.components.CalinoIcons
-import calino.malinov.ski.ui.components.CalinoChip
 import calino.malinov.ski.ui.components.SwipeDownDismiss
 import calino.malinov.ski.ui.components.rememberDatePicker
 import androidx.compose.runtime.derivedStateOf
@@ -97,6 +107,9 @@ fun CalinoSearchSheet(
     ) -> Set<String>?,
     onSelect: (CalinoSearchResult) -> Unit,
     onDismiss: () -> Unit,
+    recentSearches: List<String> = emptyList(),
+    onRememberSearch: (String) -> Unit = {},
+    onClearRecentSearches: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
     var closeRequest by remember { mutableIntStateOf(0) }
@@ -104,6 +117,9 @@ fun CalinoSearchSheet(
     val keyboard = LocalSoftwareKeyboardController.current
     val contactsEnabled = LocalCalinoPreferences.current.contactsEnabled
     var filtersVisible by remember { mutableStateOf(false) }
+    // Owned here so the dismiss gesture can ask whether the list is at its top:
+    // a downward drag over a scrolled list has to scroll it back, not close the sheet.
+    val resultsState = rememberLazyListState()
     var options by remember { mutableStateOf(CalinoSearchOptions()) }
     var candidateQuery by remember { mutableStateOf<String?>(null) }
     var candidateSnapshot by remember { mutableStateOf<CalinoSnapshot?>(null) }
@@ -241,8 +257,14 @@ fun CalinoSearchSheet(
         )
         val compact = mode == CalinoSurfaceMode.BottomSheet
         val resultCount = groupsCount(results)
-        val filterHeight = if (filtersVisible) 214 else 0
-        val expandedHeight = if (query.isBlank() && !filtersVisible) 190.dp else minOf(680.dp, (150 + filterHeight + resultCount * 66).dp)
+        val filterHeight = if (filtersVisible) 234 else 0
+        val expandedHeight = when {
+            // Header 70 + jump chips 76, then the recents (or, with none, the hint).
+            query.isBlank() && !filtersVisible ->
+                (if (recentSearches.isEmpty()) 200 else 214 + 44 * recentSearches.size).dp
+            query.isBlank() -> (80 + filterHeight).dp
+            else -> minOf(680.dp, (150 + filterHeight + resultCount * 66).dp)
+        }
         val expandedWidth = if (compact) {
             (paneWidth - 24.dp).coerceAtLeast(1.dp)
         } else {
@@ -311,6 +333,7 @@ fun CalinoSearchSheet(
                     .clickable(interactionSource = null, indication = null, onClick = ::requestClose),
             )
         }
+        val resultsAtTop = { !resultsState.canScrollBackward }
         val searchContent: @Composable (Modifier) -> Unit = { dragModifier ->
             Surface(
                 modifier = dragModifier
@@ -322,6 +345,8 @@ fun CalinoSearchSheet(
                         scaleX = predictiveScale
                         scaleY = predictiveScale
                         alpha = 1f - .14f * predictiveBackProgress
+                        // An offscreen layer would clip the shadow to the card's bounds.
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
                     }
                     .clickable(onClick = {}),
                 shape = RoundedCornerShape(capsuleRadius),
@@ -332,41 +357,14 @@ fun CalinoSearchSheet(
             ) {
                 AnimatedVisibility(expanded, enter = fadeIn(tween(duration, delayMillis = 70)), exit = fadeOut(tween(90))) {
                     Column {
-                        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TextField(
-                                value = query,
-                                onValueChange = onQueryChange,
-                                modifier = Modifier.weight(1f).focusRequester(focusRequester).semantics { contentDescription = "Search Calino" },
-                                placeholder = { Text("Search, go to a date, or add an event…") },
-                                leadingIcon = { Icon(CalinoIcons.Search, contentDescription = null) },
-                                singleLine = true,
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = CalinoColors.Accent,
-                                    unfocusedIndicatorColor = CalinoColors.Line,
-                                ),
-                            )
-                            IconButton(
-                                onClick = { filtersVisible = !filtersVisible },
-                                modifier = Modifier.semantics {
-                                    contentDescription = if (filtersVisible) "Hide search filters" else "Show search filters"
-                                },
-                            ) {
-                                Icon(
-                                    CalinoIcons.Filter,
-                                    contentDescription = null,
-                                    tint = if (options != CalinoSearchOptions()) CalinoColors.Accent else CalinoColors.Ink2,
-                                )
-                            }
-                            Text(
-                                "×",
-                                style = CalinoTypography.headlineMedium,
-                                color = CalinoColors.Ink2,
-                                modifier = Modifier.size(44.dp).clickable(onClick = ::requestClose).padding(8.dp)
-                                    .semantics { contentDescription = "Close search" },
-                            )
-                        }
+                        SearchField(
+                            query = query,
+                            onQueryChange = onQueryChange,
+                            filtersVisible = filtersVisible,
+                            filtersActive = options != CalinoSearchOptions(),
+                            onToggleFilters = { filtersVisible = !filtersVisible },
+                            focusRequester = focusRequester,
+                        )
                         AnimatedVisibility(
                             visible = filtersVisible,
                             enter = expandVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeIn(tween(CalinoMotion.FadeThroughMillis)),
@@ -382,7 +380,24 @@ fun CalinoSearchSheet(
                                 onChange = { options = it },
                             )
                         }
-                        SearchResults(results, query, onSelect)
+                        SearchResults(
+                            state = resultsState,
+                            groups = results,
+                            query = query,
+                            showInitial = !filtersVisible,
+                            baseDate = baseDate,
+                            recents = recentSearches,
+                            onQueryChange = onQueryChange,
+                            onClearRecents = onClearRecentSearches,
+                            onSelect = { result ->
+                                // A query is worth remembering once it led somewhere; dates
+                                // and add-event drafts are derived from what was typed.
+                                if (result !is CalinoSearchResult.NavigateDate && result !is CalinoSearchResult.AddEvent) {
+                                    onRememberSearch(query)
+                                }
+                                onSelect(result)
+                            },
+                        )
                     }
                 }
             }
@@ -403,7 +418,7 @@ fun CalinoSearchSheet(
                             y = (bottom - capsuleHeight).coerceAtLeast(0.dp),
                         ),
                 ) {
-                    SwipeDownDismiss(visible = expanded, onDismiss = ::requestClose, content = searchContent)
+                    SwipeDownDismiss(visible = expanded, onDismiss = ::requestClose, canStartDismiss = resultsAtTop, content = searchContent)
                 }
             } else Box(
                 Modifier
@@ -416,6 +431,7 @@ fun CalinoSearchSheet(
                     visible = expanded,
                     onDismiss = ::requestClose,
                     modifier = Modifier.padding(bottom = 20.dp),
+                    canStartDismiss = resultsAtTop,
                     content = searchContent,
                 )
             }
@@ -434,11 +450,79 @@ fun CalinoSearchSheet(
                 SwipeDownDismiss(
                     visible = expanded,
                     onDismiss = ::requestClose,
+                    canStartDismiss = resultsAtTop,
                     content = searchContent,
                 )
             }
         }
     }
+    }
+}
+
+@Composable
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    filtersVisible: Boolean,
+    filtersActive: Boolean,
+    onToggleFilters: () -> Unit,
+    focusRequester: FocusRequester,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val active = focused || query.isNotEmpty()
+    val borderColor by animateColorAsState(if (active) CalinoColors.Accent else CalinoColors.Line, tween(CalinoMotion.ContentEnterMillis), label = "search field border")
+    val borderWidth by animateDpAsState(if (active) 1.5.dp else 1.dp, tween(CalinoMotion.ContentEnterMillis), label = "search field border width")
+    val filterFill by animateColorAsState(if (filtersVisible) CalinoColors.AccentSoft else Color.Transparent, tween(CalinoMotion.ContentEnterMillis), label = "filter fill")
+    val fieldShape = RoundedCornerShape(CalinoShapes.Pill)
+    Row(
+        Modifier.fillMaxWidth().padding(start = 14.dp, end = 12.dp, top = 14.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier.weight(1f).height(48.dp)
+                .clip(fieldShape)
+                .background(CalinoColors.Side)
+                .border(borderWidth, borderColor, fieldShape)
+                .clickable(interactionSource = null, indication = null) { focusRequester.requestFocus() }
+                .padding(start = 16.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(CalinoIcons.Search, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(20.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (query.isEmpty()) {
+                    Text("Search or jump to a date", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier.fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { focused = it.isFocused }
+                        .semantics { contentDescription = "Search Calino" },
+                    singleLine = true,
+                    textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
+                    cursorBrush = SolidColor(CalinoColors.Accent),
+                )
+            }
+            // A 44dp lane around the 36dp circle, which still sits 6dp from the field's end.
+            Box(
+                Modifier.size(44.dp)
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button, onClick = onToggleFilters)
+                    .semantics { contentDescription = if (filtersVisible) "Hide search filters" else "Show search filters" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(36.dp).clip(CircleShape).background(filterFill), contentAlignment = Alignment.Center) {
+                    Icon(
+                        CalinoIcons.Filter,
+                        contentDescription = null,
+                        tint = if (filtersVisible || filtersActive) CalinoColors.Accent else CalinoColors.Ink2,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -458,62 +542,137 @@ private fun SearchFilters(
     val pickEnd = rememberDatePicker({ options.customEnd ?: options.customStart ?: baseDate }) { picked ->
         onChange(options.copy(dateMode = CalinoSearchDateMode.Custom, customStart = options.customStart?.coerceAtMost(picked) ?: picked, customEnd = picked))
     }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         SearchFilterLabel("TYPE")
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        SearchFilterRow {
             CalinoSearchRecordType.entries.filter {
                 (contactsEnabled || it != CalinoSearchRecordType.Contacts) &&
                     (journalsEnabled || it != CalinoSearchRecordType.Journal)
             }.forEach { type ->
-                CalinoChip(type.name, type in options.recordTypes, "filter search by ${type.name.lowercase()}", {
+                SearchFilterChip(type.name, type in options.recordTypes, "filter search by ${type.name.lowercase()}") {
                     onChange(options.copy(recordTypes = if (type in options.recordTypes) options.recordTypes - type else options.recordTypes + type))
-                }, Modifier.heightIn(min = 44.dp))
+                }
             }
         }
         SearchFilterLabel("CALENDAR · EVENTS & TASKS")
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CalinoChip("All", options.calendarIds.isEmpty(), "search every calendar", { onChange(options.copy(calendarIds = emptySet())) }, Modifier.heightIn(min = 44.dp))
+        SearchFilterRow {
+            SearchFilterChip("All", options.calendarIds.isEmpty(), "search every calendar") { onChange(options.copy(calendarIds = emptySet())) }
             calendars.forEach { (id, name) ->
-                CalinoChip(name, id in options.calendarIds, "filter events and tasks by $name", {
+                SearchFilterChip(name, id in options.calendarIds, "filter events and tasks by $name") {
                     val selected = if (id in options.calendarIds) options.calendarIds - id else options.calendarIds + id
                     onChange(options.copy(calendarIds = selected))
-                }, Modifier.heightIn(min = 44.dp))
+                }
             }
         }
         SearchFilterLabel("DATE")
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        SearchFilterRow {
             listOf(
                 CalinoSearchDateMode.AnyTime to "Any time",
                 CalinoSearchDateMode.Past to "Past",
                 CalinoSearchDateMode.Upcoming to "Upcoming",
             ).forEach { (mode, label) ->
-                CalinoChip(label, options.dateMode == mode, "filter search by ${label.lowercase()}", { onChange(options.copy(dateMode = mode)) }, Modifier.heightIn(min = 44.dp))
+                SearchFilterChip(label, options.dateMode == mode, "filter search by ${label.lowercase()}") { onChange(options.copy(dateMode = mode)) }
             }
-            CalinoChip("Custom", options.dateMode == CalinoSearchDateMode.Custom, "choose a custom date range", pickStart, Modifier.heightIn(min = 44.dp))
+            SearchFilterChip("Custom", options.dateMode == CalinoSearchDateMode.Custom, "choose a custom date range", pickStart)
             if (options.dateMode == CalinoSearchDateMode.Custom) {
-                CalinoChip(options.customStart?.format(SearchDateFormat) ?: "Start", false, "choose range start", pickStart, Modifier.heightIn(min = 44.dp))
-                CalinoChip(options.customEnd?.format(SearchDateFormat) ?: "End", false, "choose range end", pickEnd, Modifier.heightIn(min = 44.dp))
+                SearchFilterChip(options.customStart?.format(SearchDateFormat) ?: "Start", false, "choose range start", pickStart)
+                SearchFilterChip(options.customEnd?.format(SearchDateFormat) ?: "End", false, "choose range end", pickEnd)
             }
         }
         if (downloadedOnly) {
-            Text("Search covers downloaded data.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+            Text(
+                "Search covers downloaded data.",
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
         }
     }
 }
 
 @Composable
 private fun SearchFilterLabel(text: String) {
-    Text(text, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(top = 2.dp))
+    SectionLabel(text, Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp))
+}
+
+/** One line that scrolls sideways and is clipped at the sheet's edge, which is what says it scrolls. */
+@Composable
+private fun SearchFilterRow(content: @Composable RowScope.() -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, top = 6.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = CalinoColors.Ink3) {
+    Text(text, style = CalinoTypography.labelSmall, color = color, modifier = modifier)
+}
+
+@Composable
+private fun SearchFilterChip(text: String, selected: Boolean, description: String, onClick: () -> Unit) {
+    val fade = tween<Color>(CalinoMotion.ContentEnterMillis)
+    val fill by animateColorAsState(if (selected) CalinoColors.AccentSoft else CalinoColors.Side, fade, label = "filter chip fill")
+    val edge by animateColorAsState(if (selected) CalinoColors.Accent else Color.Transparent, fade, label = "filter chip edge")
+    val ink by animateColorAsState(if (selected) CalinoColors.Ink else CalinoColors.Ink2, fade, label = "filter chip ink")
+    val shape = RoundedCornerShape(CalinoShapes.Pill)
+    Box(
+        Modifier.height(44.dp)
+            .calinoPressable(onClick = onClick)
+            .semantics {
+                contentDescription = "$text, $description"
+                stateDescription = if (selected) "Selected" else "Not selected"
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.height(40.dp).clip(shape).background(fill).border(1.dp, edge, shape).padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text, style = CalinoTypography.labelMedium, color = ink, maxLines = 1, softWrap = false)
+        }
+    }
 }
 
 private fun groupsCount(groups: CalinoSearchGroups): Int =
     groups.actions.size + groups.events.size + groups.tasks.size + groups.journals.size + groups.contacts.size
 
 @Composable
-private fun SearchResults(groups: CalinoSearchGroups, query: String, onSelect: (CalinoSearchResult) -> Unit) {
-    LazyColumn(Modifier.fillMaxWidth().heightIn(min = 160.dp).padding(top = 4.dp)) {
-        if (query.isBlank()) item { SearchMessage("Find events, tasks and journal entries — or type a date.") }
-        else {
+private fun SearchResults(
+    state: LazyListState,
+    groups: CalinoSearchGroups,
+    query: String,
+    showInitial: Boolean,
+    baseDate: LocalDate,
+    recents: List<String>,
+    onQueryChange: (String) -> Unit,
+    onClearRecents: () -> Unit,
+    onSelect: (CalinoSearchResult) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth().then(if (query.isBlank()) Modifier else Modifier.heightIn(min = 160.dp)).padding(top = 4.dp),
+        state = state,
+    ) {
+        if (query.isBlank()) {
+            // With filters open the groups above are the whole story.
+            if (showInitial) {
+                item("jump") { SearchJumpTo(baseDate, onSelect) }
+                if (recents.isNotEmpty()) {
+                    item("recent-header") { SearchRecentsHeader(onClearRecents) }
+                    items(recents, key = { "recent:$it" }) { recent -> SearchRecentRow(recent) { onQueryChange(recent) } }
+                } else {
+                    item("hint") {
+                        Text(
+                            "Or type an event to add it — “lunch tue 12:30”.",
+                            style = CalinoTypography.bodySmall,
+                            color = CalinoColors.Ink3,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                        )
+                    }
+                }
+            }
+        } else {
             resultGroup("ACTIONS", groups.actions, onSelect)
             if (!groups.hasRecordMatches) item { SearchMessage("No matching records for “${query.trim()}”") }
             resultGroup("EVENTS", groups.events, onSelect)
@@ -522,6 +681,72 @@ private fun SearchResults(groups: CalinoSearchGroups, query: String, onSelect: (
             resultGroup("CONTACTS", groups.contacts, onSelect)
         }
         item { Spacer(Modifier.height(20.dp)) }
+    }
+}
+
+@Composable
+private fun SearchJumpTo(baseDate: LocalDate, onSelect: (CalinoSearchResult) -> Unit) {
+    val pickDate = rememberDatePicker({ baseDate }) { picked -> onSelect(CalinoSearchResult.NavigateDate(picked)) }
+    SectionLabel("JUMP TO", Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp))
+    // Each chip keeps a 44dp lane around its 40dp body; the row's padding is trimmed to match.
+    Row(
+        Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(
+            "Today" to baseDate,
+            "Tomorrow" to baseDate.plusDays(1),
+            "Next week" to baseDate.plusWeeks(1),
+        ).forEach { (label, date) ->
+            SearchJumpChip(Modifier, "$label, go to ${label.lowercase()}", { onSelect(CalinoSearchResult.NavigateDate(date)) }) {
+                Text(label, style = CalinoTypography.labelMedium, color = CalinoColors.Ink, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 13.dp))
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        SearchJumpChip(Modifier, "pick a date to go to", pickDate) {
+            Icon(CalinoIcons.Calendar, contentDescription = null, tint = CalinoColors.Ink, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun SearchJumpChip(modifier: Modifier, description: String, onClick: () -> Unit, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(CalinoShapes.DayBlock)
+    Box(
+        modifier.height(44.dp).calinoPressable(onClick = onClick).semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.defaultMinSize(minWidth = 40.dp).height(40.dp).clip(shape).border(1.dp, CalinoColors.Line, shape),
+            contentAlignment = Alignment.Center,
+        ) { content() }
+    }
+}
+
+@Composable
+private fun SearchRecentsHeader(onClear: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        SectionLabel("RECENT", Modifier.weight(1f))
+        Box(
+            Modifier.heightIn(min = 44.dp)
+                .clickable(role = Role.Button, onClick = onClear)
+                .semantics { contentDescription = "Clear recent searches" },
+            contentAlignment = Alignment.CenterEnd,
+        ) { SectionLabel("CLEAR", color = CalinoColors.Ink2) }
+    }
+}
+
+@Composable
+private fun SearchRecentRow(recent: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).semantics { contentDescription = "Search again: $recent" }
+            .padding(horizontal = 20.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(CalinoIcons.Search, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(16.dp))
+        Text(recent, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

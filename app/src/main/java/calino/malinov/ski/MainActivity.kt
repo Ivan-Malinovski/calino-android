@@ -3429,6 +3429,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             journalsEnabled = preferences.journalEnabled,
             searchRecords = pocViewModel::searchRecordIds,
             onDismiss = { searchVisible = false; searchQuery = "" },
+            recentSearches = preferences.recentSearches,
+            onRememberSearch = preferences.rememberSearch,
+            onClearRecentSearches = preferences.clearRecentSearches,
             onSelect = selectResult@{ candidate ->
                 val result = resolveCurrentSearchResult(
                     snapshot = pocViewModel.activeRepository.snapshot(),
