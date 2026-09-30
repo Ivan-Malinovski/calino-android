@@ -859,7 +859,7 @@ fun EventLinesForEvents(events: List<CalEvent>, modifier: Modifier = Modifier, m
     EventLines(events.map { eventColor(it.color) }, modifier, max)
 
 @Composable
-private fun TaskCheckbox(checked: Boolean, color: Color, modifier: Modifier, circular: Boolean) {
+internal fun TaskCheckbox(checked: Boolean, color: Color, modifier: Modifier, circular: Boolean) {
     val shape = if (circular) CircleShape else RoundedCornerShape(4.dp)
     val fill by animateColorAsState(
         targetValue = if (checked) color else Color.Transparent,

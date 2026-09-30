@@ -18,8 +18,13 @@ class WeekTaskInteractionTest : CalinoUiTest() {
     private fun openWeek() {
         compose.openRoute("Range")
         compose.onNodeWithContentDescription("Range size in days: 7").performClick()
-        compose.onNodeWithText("Sometime this week").assertIsDisplayed()
+        compose.onNode(hasContentDescription("Sometime this week", substring = true)).assertIsDisplayed()
         if (compose.hasDescribedNode("Dismiss sample calendar notice")) compose.onNodeWithContentDescription("Dismiss sample calendar notice").performClick()
+    }
+    /** The default phone layout keeps week tasks behind the corner badge. */
+    private fun openShelf() {
+        compose.onNode(hasContentDescription("Sometime this week", substring = true)).performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Sometime this week").fetchSemanticsNodes().isNotEmpty() }
     }
     private fun capture(name: String) {
         compose.waitForIdle()
@@ -30,8 +35,19 @@ class WeekTaskInteractionTest : CalinoUiTest() {
             }
     }
 
+    @Test fun badgeOpensPopoverAndScrimDismissesIt() {
+        openWeek()
+        compose.onAllNodesWithText("Call the plumber").assertCountEquals(0)
+        openShelf()
+        capture("week-popover")
+        compose.onNodeWithText("Call the plumber").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Close week tasks").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Call the plumber").fetchSemanticsNodes().isEmpty() }
+    }
+
     @Test fun sampleShelfIsUniqueAndCompletionDoesNotSchedule() {
         openWeek()
+        openShelf()
         compose.onAllNodesWithText("Call the plumber").assertCountEquals(1)
         compose.onNodeWithText("Book summer flights").assertIsDisplayed()
         compose.onNodeWithText("Choose a birthday gift").assertIsDisplayed()
@@ -44,6 +60,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
 
     @Test fun quickAddCreatesDateOnlyRangeAndDetailsCarriesTitle() {
         openWeek()
+        openShelf()
         compose.onNodeWithContentDescription("Add week task").performClick()
         compose.onNodeWithContentDescription("Week task title").performTextInput("Check the garden")
         compose.onNodeWithText("Add", substring = false).performClick()
@@ -67,6 +84,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
 
     @Test fun dragSchedulesPointDeadlineAndCanReturnToWeekShelf() {
         openWeek()
+        openShelf()
         val source = compose.onNodeWithText("Call the plumber").fetchSemanticsNode().boundsInRoot
         val grid = compose.onNodeWithTag(RangePagerTag).fetchSemanticsNode().boundsInRoot
         val target = androidx.compose.ui.geometry.Offset(grid.left + grid.width * .22f, grid.top + grid.height * .3f)
@@ -86,12 +104,14 @@ class WeekTaskInteractionTest : CalinoUiTest() {
         assertEquals(0, scheduled.dueTime!!.minute % 15)
         capture("week-timed-deadline")
         val marker = compose.onNodeWithContentDescription("Call the plumber, due", substring = true).fetchSemanticsNode().boundsInRoot
-        val shelf = compose.onNodeWithText("Sometime this week").fetchSemanticsNode().boundsInRoot
+        // With no shelf on screen, the drop zone is a band along the bottom edge.
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val dropZone = androidx.compose.ui.geometry.Offset(root.center.x, root.bottom - 30f)
         compose.onRoot().performTouchInput { down(androidx.compose.ui.geometry.Offset(marker.right - 3f, marker.center.y)) }
         compose.waitForIdle()
         Thread.sleep(300)
         compose.onRoot().performTouchInput {
-            moveTo(shelf.center, delayMillis = 300)
+            moveTo(dropZone, delayMillis = 300)
         }
         compose.waitForIdle()
         capture("week-return-preview")
@@ -102,6 +122,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
 
     @Test fun headerDropWinsOverUnderlyingHoursAndCancellationKeepsRange() {
         openWeek()
+        openShelf()
         val taskBefore = repository.tasks().first { it.id == "task-week-plumber" }
         val source = compose.onNodeWithText("Call the plumber").fetchSemanticsNode().boundsInRoot
         val grid = compose.onNodeWithTag(RangePagerTag).fetchSemanticsNode().boundsInRoot
@@ -116,6 +137,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
         compose.waitForIdle()
         assertEquals(taskBefore, repository.tasks().first { it.id == taskBefore.id })
         Thread.sleep(100)
+        openShelf()
         val freshSource = compose.onNodeWithText("Call the plumber").fetchSemanticsNode().boundsInRoot
         compose.onRoot().performTouchInput { down(freshSource.center) }
         compose.waitForIdle()
@@ -134,6 +156,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
         openWeek()
         compose.onNodeWithTag(RangePagerTag).performTouchInput { swipeLeft() }
         compose.waitForIdle()
+        openShelf()
         compose.onNodeWithText("Book summer flights").assertIsDisplayed()
         compose.onAllNodesWithText("Call the plumber").assertCountEquals(0)
     }

@@ -2039,38 +2039,27 @@ fun TaskDetailSurface(
                     start = taskStart, due = due,
                     recurring = task.recurrence != null || task.recurrenceId != null || task.recurrenceDate != null,
                     onStart = pickTaskStart,
+                    onDue = pickDueDate,
                     onClearStart = { taskStart = null; taskStartTime = null },
                     onWeek = {
                         val first = (planningDate ?: today).startOfWeek(weekStart)
                         taskStart = first; taskStartTime = null; due = first.plusDays(6); dueTime = null
                     },
+                    picks = listOf(today to "Today", today.plusDays(1) to "Tomorrow", today.plusDays(7) to "Next week"),
+                    onPick = { due = it },
+                    dueRow = { startAction ->
+                        TaskRow(
+                            icon = CalinoIcon.Calendar,
+                            text = due?.format(dateFormat) ?: "Add due date",
+                            set = due != null,
+                            description = "Choose a custom due date",
+                            onClick = pickDueDate,
+                            onClear = if (due != null) ({ due = null; dueTime = null; taskStart = null; taskStartTime = null }) else null,
+                            clearDescription = "Remove due date",
+                            trailing = { if (due != null) startAction() },
+                        )
+                    },
                 )
-                Column(Modifier.padding(bottom = 12.dp)) {
-                    TaskRow(
-                        icon = CalinoIcon.Calendar,
-                        text = due?.format(dateFormat) ?: "Add due date",
-                        set = due != null,
-                        description = "Choose a custom due date",
-                        onClick = pickDueDate,
-                        onClear = if (due != null) ({ due = null; dueTime = null; taskStart = null; taskStartTime = null }) else null,
-                        clearDescription = "Remove due date",
-                    )
-                    Row(Modifier.fillMaxWidth().padding(start = 38.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        listOf(
-                            today to "Today",
-                            today.plusDays(1) to "Tomorrow",
-                            today.plusDays(7) to "Next week",
-                        ).forEach { (date, text) ->
-                            CalinoChip(
-                                text = text,
-                                selected = due == date,
-                                description = "Set due date",
-                                semanticsRole = Role.RadioButton,
-                                onClick = { due = date },
-                            )
-                        }
-                    }
-                }
                 HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                 TaskRow(
                     icon = CalinoIcon.Clock,

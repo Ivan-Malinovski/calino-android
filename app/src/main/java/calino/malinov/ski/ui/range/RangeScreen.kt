@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
@@ -26,6 +28,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.ui.platform.LocalConfiguration
+import calino.malinov.ski.ui.components.LocalCalinoPillLane
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
@@ -447,8 +453,38 @@ private fun RangePagerSurface(
     val taskBounds = remember { mutableStateMapOf<String, Pair<CalTask, Rect>>() }
     var taskDrag by remember { mutableStateOf<Pair<CalTask, Offset>?>(null) }
     var taskDragging by remember { mutableStateOf(false) }
+    // Measured bounds of whichever week-task surface is docked (sheet or strip).
     var shelfRect by remember { mutableStateOf(Rect.Zero) }
-    var shelfHeight by remember { mutableStateOf(0.dp) }
+    var popoverRect by remember { mutableStateOf(Rect.Zero) }
+    var popoverOpen by remember { mutableStateOf(false) }
+    var sheetExpanded by remember { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
+    val weekFirst = visibleDragDays.first()
+    val weekLast = visibleDragDays.last()
+    val weekMode = activeMode.dayCount == 7
+    val weekTasks = remember(tasks, weekFirst, weekLast, weekMode) {
+        if (weekMode) weekTasksInRange(tasks, weekFirst, weekLast) else emptyList()
+    }
+    val shelfLayout = weekShelfLayoutFor(configuration.screenWidthDp, configuration.screenHeightDp, preferences.weekShelf, weekTasks.size)
+    val weekComposer = rememberWeekTaskComposer(weekFirst) { title -> onAddWeekTask(title, weekFirst, weekLast) }
+    val navInset = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
+    val sheetShown = weekMode && shelfLayout.kind == WeekShelfKind.Sheet && shelfLayout.hasTasks
+    val stripShown = weekMode && shelfLayout.kind == WeekShelfKind.Strip && shelfLayout.hasTasks
+    val badgeShown = weekMode && shelfLayout.kind == WeekShelfKind.Badge
+    val shelfHeight = with(density) { shelfRect.height.toDp() }
+    // How far the grid and hour column stay clear of the bottom: the pill, plus
+    // the docked surface. A sheet lifts the pill, so the two stack.
+    val bottomReserve = when {
+        sheetShown || stripShown -> shelfHeight + CalinoSpacing.PillClearance - 4.dp
+        else -> CalinoSpacing.PillClearance
+    }
+    // The band a dragged task is released in for "this week". Geometric rather
+    // than measured, so it is right on the first frame of a drag.
+    val weekDropBand = if (weekMode) WeekDropZoneHeight + navInset else CalinoSpacing.PillClearance
+    // Only the week-task surfaces are live while an overlay is open.
+    val overlayOpen = popoverOpen && badgeShown
+    LaunchedEffect(badgeShown) { if (!badgeShown) popoverOpen = false }
+    LaunchedEffect(sheetShown) { if (!sheetShown) sheetExpanded = false }
     var taskMenu by remember { mutableStateOf<CalTask?>(null) }
     var scheduling by remember { mutableStateOf<CalTask?>(null) }
     var schedulingDay by remember { mutableStateOf(visibleDragDays.first()) }
@@ -482,9 +518,10 @@ private fun RangePagerSurface(
     }
     fun taskDestination(pointer: Offset): TaskDropDestination? {
         if (pointer.y < 0 || pointer.y >= hostHeight || pointer.x < 0 || pointer.x >= hostWidth) return null
-        if (activeMode.dayCount == 7 && shelfRect.contains(pointer + hostOrigin)) return TaskDropDestination.Week
+        val band = with(density) { weekDropBand.toPx() }
+        if (weekMode && pointer.y >= hostHeight - band) return TaskDropDestination.Week
         val gutter = with(density) { CalinoSpacing.RailGutter.toPx() }
-        if (pointer.x < gutter || pointer.y >= hostHeight - with(density) { (shelfHeight + CalinoSpacing.PillClearance).toPx() }) return null
+        if (pointer.x < gutter || pointer.y >= hostHeight - band) return null
         val day = rangeDropDay(pointer.x, hostWidth, gutter, visibleDragDays) ?: return null
         val time = if (pointer.y < with(density) { stripHeight.toPx() }) null
             else java.time.LocalTime.MIDNIGHT.plusMinutes(taskDropMinute(pointer.y, timelineScroll.value, hourHeightPx).toLong())
@@ -588,16 +625,22 @@ private fun RangePagerSurface(
                 hitTest = { point ->
                     taskBounds.entries.firstOrNull { (key, value) ->
                     val (task, rect) = value
+                    // An open popover owns the screen: only its rows can be lifted.
+                    (!overlayOpen || key.startsWith("shelf:")) &&
                     taskIsWritable(task) && !task.isRecurringTask() && rect.width > 0 && rect.contains(point + hostOrigin) &&
                     // Completion remains a separate touch lane at the leading edge.
-                    (!key.startsWith("shelf:") || point.x + hostOrigin.x > rect.left + with(density) { 44.dp.toPx() })
+                    when {
+                        key.startsWith("shelf:") -> point.x + hostOrigin.x > rect.left + with(density) { 44.dp.toPx() }
+                        key.startsWith("chip:") -> point.x + hostOrigin.x > rect.left + with(density) { WeekChipCompletionLane.toPx() }
+                        else -> true
+                    }
                 }?.value?.first },
                 onLift = { task, pointer -> taskDrag = task to pointer },
-                onDragStart = { taskDragging = true; taskMenu = null },
+                onDragStart = { taskDragging = true; taskMenu = null; popoverOpen = false; sheetExpanded = false },
                 onDrag = { _, pointer ->
                     taskDrag = taskDrag?.let { it.first to pointer }
-                    autoScrollDirection = if (shelfRect.contains(pointer + hostOrigin) || pointer.y < with(density) { stripHeight.toPx() }) 0
-                        else edgeScrollDirection(pointer.y, hostHeight - with(density) { (shelfHeight + CalinoSpacing.PillClearance).toPx() }.toInt(), with(density) { RangeAutoScrollEdge.toPx() })
+                    autoScrollDirection = if (pointer.y >= hostHeight - with(density) { weekDropBand.toPx() } && weekMode || pointer.y < with(density) { stripHeight.toPx() }) 0
+                        else edgeScrollDirection(pointer.y, hostHeight - with(density) { weekDropBand.toPx() }.toInt(), with(density) { RangeAutoScrollEdge.toPx() })
                 },
                 onRelease = {
                     taskDrag?.let { (task, pointer) ->
@@ -615,7 +658,8 @@ private fun RangePagerSurface(
                 hitTest = { point ->
                     val root = point + hostOrigin
                     val visible = rangeDays(rangeAnchorForPage(base, pager.currentPage, activeMode), activeMode, weekStart, weekAligned)
-                    if (shelfRect.contains(root) || taskBounds.values.any { it.second.contains(root) }) null
+                    if (overlayOpen || (sheetShown || stripShown) && shelfRect.contains(root) ||
+                        taskBounds.values.any { it.second.contains(root) }) null
                     else cardBounds.values.firstOrNull { it.day in visible && it.rootRect.contains(root) }
                 },
                 onLift = { card, pointer ->
@@ -687,7 +731,7 @@ private fun RangePagerSurface(
                             drawLayer(gutterLayer)
                         }
                         .verticalScroll(timelineScroll)
-                        .padding(bottom = CalinoSpacing.PillClearance + shelfHeight),
+                        .padding(bottom = bottomReserve),
                 )
                 CompactLaneScrim(
                     source = gutterLayer,
@@ -728,7 +772,7 @@ private fun RangePagerSurface(
                         eventIndex = eventIndex,
                         tasks = if (days.size == 7) tasks.filterNot { it.isWeekTask() } else tasks,
                         taskModifier = { task -> taskModifier(task, "page:$page") },
-                        shelfHeight = shelfHeight,
+                        bottomReserve = bottomReserve,
                         timelineScale = timelineScale,
                         timelineScroll = timelineScroll,
                         onTimelineScaleChanged = onTimelineScaleChanged,
@@ -756,21 +800,48 @@ private fun RangePagerSurface(
                     )
                 }
       }
-        if (activeMode.dayCount == 7) WeekTaskShelf(
-            first = visibleDragDays.first(), last = visibleDragDays.last(),
-            tasks = weekTasksInRange(tasks, visibleDragDays.first(), visibleDragDays.last()),
-            hovering = taskOverShelf && taskDragging,
-            onOpen = onTaskClick, onDone = onTaskDone,
-            taskModifier = { task -> taskModifier(task, "shelf") },
-            onLongClick = { taskMenu = it },
-            onAdd = { title -> onAddWeekTask(title, visibleDragDays.first(), visibleDragDays.last()) },
-            onDetails = { title -> onWeekTaskDetails(title, visibleDragDays.first(), visibleDragDays.last()) },
-            modifier = Modifier.align(Alignment.BottomCenter).imePadding().padding(bottom = CalinoSpacing.PillClearance)
-                .onGloballyPositioned { shelfRect = it.boundsInRoot(); shelfHeight = with(density) { it.size.height.toDp() } },
+        if (sheetShown) {
+            WeekTaskSheet(
+                first = weekFirst, last = weekLast, tasks = weekTasks, composer = weekComposer,
+                expanded = sheetExpanded, onExpandedChange = { sheetExpanded = it },
+                maxWidth = if (shelfLayout.sheetMaxWidthDp > 0) shelfLayout.sheetMaxWidthDp.dp else androidx.compose.ui.unit.Dp.Infinity,
+                onOpen = onTaskClick, onDone = onTaskDone, onLongClick = { taskMenu = it },
+                taskModifier = { task -> taskModifier(task, "shelf") },
+                onDetails = { title -> onWeekTaskDetails(title, weekFirst, weekLast) },
+                onBounds = { shelfRect = it },
+                modifier = Modifier.align(Alignment.BottomCenter).imePadding(),
+            )
+            DisposableEffect(Unit) { onDispose { shelfRect = Rect.Zero } }
+        }
+        if (stripShown) {
+            WeekTaskStrip(
+                tasks = weekTasks, hovering = taskOverShelf && taskDragging, height = shelfLayout.stripHeightDp.dp,
+                composer = weekComposer,
+                onOpen = onTaskClick, onDone = onTaskDone, onLongClick = { taskMenu = it },
+                taskModifier = { task -> taskModifier(task, "chip") },
+                onDetails = { title -> onWeekTaskDetails(title, weekFirst, weekLast) },
+                onBounds = { shelfRect = it },
+                modifier = Modifier.align(Alignment.BottomCenter).imePadding(),
+            )
+            DisposableEffect(Unit) { onDispose { shelfRect = Rect.Zero } }
+        }
+        // A docked sheet or strip pushes the add pill up with its own measured
+        // height. While a task is dragged the pill settles back so the drop
+        // zone's label is not behind it; otherwise the lift follows the
+        // surface frame for frame, with no second clock of its own.
+        val pillLane = LocalCalinoPillLane.current
+        val rawLift = if (sheetShown || stripShown) (shelfHeight - navInset + 16.dp - 20.dp).coerceAtLeast(0.dp) else 0.dp
+        val lift by animateDpAsState(
+            if (taskDragging) 0.dp else rawLift,
+            animationSpec = if (taskDragging) tween(CalinoMotion.ContentEnterMillis) else snap(),
+            label = "week shelf pill lift",
         )
-        else LaunchedEffect(Unit) { shelfHeight = 0.dp; shelfRect = Rect.Zero }
+        DisposableEffect(lift) {
+            pillLane.bottomLift = lift
+            onDispose { if (pillLane.bottomLift == lift) pillLane.bottomLift = 0.dp }
+        }
         taskMenu?.let { task ->
-            Box(Modifier.align(Alignment.BottomEnd).padding(bottom = CalinoSpacing.PillClearance + shelfHeight)) {
+            Box(Modifier.align(Alignment.BottomEnd).padding(bottom = bottomReserve)) {
                 TaskActionMenu(task, expanded = true, onDismiss = { taskMenu = null }, onAction = { taskAction(it, task) })
             }
         }
@@ -779,6 +850,10 @@ private fun RangePagerSurface(
             title = { Text("Schedule task") }, text = { Text(schedulingDay.format(RangeDate)) },
             confirmButton = { TextButton(onClick = { scheduleChoice = false; scheduling?.let { onTaskSchedule(it, schedulingDay, null) }; scheduling = null }) { Text("All day") } },
             dismissButton = { TextButton(onClick = { scheduleChoice = false; pickScheduleTime() }) { Text("Choose time") } },
+        )
+        WeekTaskDropZone(
+            visible = weekMode && taskDragging, hovering = taskOverShelf, height = weekDropBand,
+            modifier = Modifier.align(Alignment.BottomCenter),
         )
         val visibleTaskDrag = taskDrag
         if (taskDragging && visibleTaskDrag != null) {
@@ -822,6 +897,24 @@ private fun RangePagerSurface(
                 onSlidingChange = onHeaderSlidingChange,
                 onRebase = onRebase,
                 modifier = Modifier.fillMaxWidth().height(headerHeight),
+            )
+        }
+        if (badgeShown) {
+            WeekTaskBadge(
+                openTasks = weekTasks.count { !it.done }, expanded = popoverOpen,
+                onClick = { popoverOpen = !popoverOpen; if (!popoverOpen) weekComposer.adding = false },
+                modifier = Modifier.align(Alignment.TopStart)
+                    .padding(start = 2.dp, top = ((headerHeight - 48.dp) / 2).coerceAtLeast(0.dp)),
+            )
+            WeekTaskPopover(
+                visible = popoverOpen,
+                onDismiss = { popoverOpen = false; weekComposer.adding = false },
+                first = weekFirst, last = weekLast, tasks = weekTasks, composer = weekComposer,
+                anchorTop = ((headerHeight + 48.dp) / 2 + 2.dp).coerceAtLeast(0.dp),
+                onOpen = { popoverOpen = false; onTaskClick(it) }, onDone = onTaskDone, onLongClick = { taskMenu = it },
+                taskModifier = { task -> taskModifier(task, "shelf") },
+                onDetails = { title -> popoverOpen = false; onWeekTaskDetails(title, weekFirst, weekLast) },
+                onBounds = { popoverRect = it },
             )
         }
         if (drag != null && dragTarget != null) {
@@ -913,7 +1006,7 @@ private fun RangePage(
     eventIndex: EventDateIndex,
     tasks: List<CalTask>,
     taskModifier: @Composable (CalTask) -> Modifier,
-    shelfHeight: androidx.compose.ui.unit.Dp,
+    bottomReserve: androidx.compose.ui.unit.Dp,
     timelineScale: Float,
     timelineScroll: ScrollState,
     onTimelineScaleChanged: (Float) -> Unit,
@@ -951,7 +1044,7 @@ private fun RangePage(
                     },
                     onHorizontalPinch = onRangeModePinch,
                 )
-                .verticalScroll(timelineScroll).padding(bottom = CalinoSpacing.PillClearance + shelfHeight),
+                .verticalScroll(timelineScroll).padding(bottom = bottomReserve),
             horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
         ) {
             // The hours live outside the pager (see RangePagerSurface); this

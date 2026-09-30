@@ -128,6 +128,7 @@ import calino.malinov.ski.util.CalinoDefaultDuration
 import calino.malinov.ski.util.CalinoDefaultReminder
 import calino.malinov.ski.util.CalinoDefaultView
 import calino.malinov.ski.util.CalinoEventDensity
+import calino.malinov.ski.util.CalinoWeekShelf
 import calino.malinov.ski.util.CalinoEventSyncRange
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
@@ -177,6 +178,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry("Show pull bar", SettingsSection.Display, "Display", "zoom"),
     SettingsSearchEntry("Menu pill", SettingsSection.Display, "Display", "navigation"),
     SettingsSearchEntry("Event density", SettingsSection.Display, "Display", "month"),
+    SettingsSearchEntry("Sometime this week", SettingsSection.Display, "Display", "week tasks range badge sheet shelf"),
     SettingsSearchEntry("Hide completed tasks", SettingsSection.EventsTasks, "Tasks in calendar"),
     SettingsSearchEntry("Default duration", SettingsSection.EventsTasks, "New event defaults"),
     SettingsSearchEntry("Show end times", SettingsSection.EventsTasks, "Display"),
@@ -774,6 +776,14 @@ private fun CalendarSettings() {
                 selected = preferences.eventDensity,
                 labelOf = { it.label },
                 onSelected = preferences.setEventDensity,
+            )
+            SettingChoiceRow(
+                label = "Sometime this week",
+                description = "Where week-long tasks sit in a phone's Range view. Landscape and wide windows use a strip",
+                options = CalinoWeekShelf.entries,
+                selected = preferences.weekShelf,
+                labelOf = { it.label },
+                onSelected = preferences.setWeekShelf,
             )
         }
     }

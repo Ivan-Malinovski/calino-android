@@ -10,7 +10,9 @@ mapper's display-frame dates; date-only values retain their calendar dates.
 RRULE and either recurrence identity disqualify a task. No vendor property,
 new store, or migration is introduced.
 
-Range's seven-day mode has a pinned shelf above the action pill. It lists
+Range's seven-day mode presents week tasks through a corner badge + popover, an optional
+peek sheet, or (landscape/wide) a chip strip; see `HANDOFF.md` and `weekShelfLayoutFor`. The
+list below is the same in all three. It lists
 visible calendars' week tasks overlapping the seven displayed dates, ordered
 by start, due, title and ID, including completed tasks. Those tasks are removed
 from that page's day lanes. Other calendar modes, Agenda and Tasks retain their

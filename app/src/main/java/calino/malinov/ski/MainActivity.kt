@@ -3235,7 +3235,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(bottom = 20.dp)
+                .padding(bottom = 20.dp + pillLane.bottomLift)
                 .graphicsLayer { alpha = predictiveBackPillAlpha },
             label = "add pill visibility",
         ) {

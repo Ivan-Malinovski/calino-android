@@ -11,6 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -39,6 +40,13 @@ class CalinoPillLane {
      */
     var addPillBounds by mutableStateOf<Rect?>(null)
         internal set
+
+    /**
+     * How far a surface that lives at the bottom edge -- Range's week-task
+     * sheet -- has pushed the root pill up. The owner sets it from the sheet's
+     * own measured height, so the pill rides the sheet frame for frame.
+     */
+    var bottomLift by mutableStateOf(0.dp)
 
     /**
      * The label the root pill is showing right now, published by whoever owns

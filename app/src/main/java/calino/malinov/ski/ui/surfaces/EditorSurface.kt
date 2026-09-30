@@ -570,11 +570,13 @@ private fun TaskEditorFields(
     val pickTaskStart = rememberDatePicker({ draft.taskStartDate ?: draft.date.minusDays(1) }) {
         onDraft(draft.copy(taskStartDate = it, taskStartTime = null))
     }
+    val due = draft.date.takeUnless { draft.taskDueAbsent && !draft.taskDueChanged }
     TaskRangeFields(
         start = draft.taskStartDate,
-        due = draft.date.takeUnless { draft.taskDueAbsent && !draft.taskDueChanged },
+        due = due,
         recurring = recurring,
         onStart = pickTaskStart,
+        onDue = pickStartDate,
         onClearStart = { onDraft(draft.copy(taskStartDate = null, taskStartTime = null)) },
         onWeek = {
             val first = planningDate.startOfWeek(weekStart)
@@ -582,15 +584,22 @@ private fun TaskEditorFields(
                 startTime = null, allDay = true, taskDueAbsent = false, taskDueChanged = true,
                 touched = draft.touched + calino.malinov.ski.data.model.EditorField.Date + calino.malinov.ski.data.model.EditorField.Time))
         },
+        dueRow = { startAction ->
+            Column {
+                EditorValueRow(CalinoIcon.Calendar, "Due date",
+                    if (due == null) "Add due date" else draft.date.format(EditorDateFormat),
+                    pickStartDate)
+                if (due != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CalinoChip(text = "Clear due", selected = false, description = "Remove task due date",
+                            onClick = { onDraft(draft.copy(taskDueAbsent = true, taskDueChanged = false,
+                                startTime = null, taskStartDate = null, taskStartTime = null)) })
+                        startAction()
+                    }
+                }
+            }
+        },
     )
-    EditorValueRow(CalinoIcon.Calendar, "Due date",
-        if (draft.taskDueAbsent && !draft.taskDueChanged) "Add due date" else draft.date.format(EditorDateFormat),
-        pickStartDate)
-    if (!draft.taskDueAbsent || draft.taskDueChanged) {
-        CalinoChip(text = "Clear due", selected = false, description = "Remove task due date",
-            onClick = { onDraft(draft.copy(taskDueAbsent = true, taskDueChanged = false,
-                startTime = null, taskStartDate = null, taskStartTime = null)) })
-    }
     EditorDivider()
     EditorValueRow(
         icon = CalinoIcon.Clock,

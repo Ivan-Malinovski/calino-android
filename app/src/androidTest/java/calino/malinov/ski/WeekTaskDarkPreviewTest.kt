@@ -19,6 +19,8 @@ class WeekTaskDarkPreviewTest : CalinoUiTest(theme = CalinoThemeChoice.Dark) {
         compose.openRoute("Range")
         compose.onNodeWithContentDescription("Range size in days: 7").performClick()
         if (compose.hasDescribedNode("Dismiss sample calendar notice")) compose.onNodeWithContentDescription("Dismiss sample calendar notice").performClick()
+        compose.onNode(hasContentDescription("Sometime this week", substring = true)).performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Call the plumber").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Call the plumber").assertIsDisplayed()
         frame("week-dark")
         compose.mainClock.autoAdvance = false

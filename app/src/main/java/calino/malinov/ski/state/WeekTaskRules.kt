@@ -3,6 +3,7 @@ package calino.malinov.ski.state
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.editorDraftFor
+import calino.malinov.ski.util.CalinoWeekShelf
 import java.time.LocalDate
 import java.time.LocalTime
 import java.util.Locale
@@ -33,3 +34,48 @@ fun CalTask.weekTask(first: LocalDate, last: LocalDate): NewTask {
 /** A deadline follows the pointer rather than an event's relative start offset. */
 fun taskDropMinute(pointerY: Float, scrollY: Int, hourHeight: Float): Int =
     ((pointerY + scrollY).coerceAtLeast(0f) / hourHeight * 60 / 15).toInt().coerceIn(0, 95) * 15
+
+enum class WeekShelfKind { Badge, Sheet, Strip }
+
+/**
+ * How the week's tasks are presented in this window. The badge is always
+ * there (empty, it is the way to add one); the sheet and strip stay out of
+ * sight until there is something to list, but keep their kind so a drag can
+ * still offer the matching drop zone.
+ */
+data class WeekShelfLayout(
+    val kind: WeekShelfKind,
+    val hasTasks: Boolean,
+    /** Strip height, 0 for the other kinds. */
+    val stripHeightDp: Int = 0,
+    /** Widest the peek sheet gets; tablet portrait centers it at this cap. */
+    val sheetMaxWidthDp: Int = 0,
+) {
+    val visible: Boolean get() = kind == WeekShelfKind.Badge || hasTasks
+}
+
+const val WeekStripPhoneHeightDp = 32
+const val WeekStripTabletHeightDp = 44
+const val WeekSheetMaxWidthDp = 560
+/** A phone held sideways is this short or shorter. */
+const val CompactHeightMaxDp = 480
+
+fun weekShelfLayoutFor(
+    widthDp: Int,
+    heightDp: Int,
+    preference: CalinoWeekShelf,
+    taskCount: Int,
+): WeekShelfLayout {
+    val hasTasks = taskCount > 0
+    return when {
+        calinoEndLaneActive(widthDp, heightDp) -> WeekShelfLayout(
+            WeekShelfKind.Strip, hasTasks,
+            stripHeightDp = if (heightDp <= CompactHeightMaxDp) WeekStripPhoneHeightDp else WeekStripTabletHeightDp,
+        )
+        calinoWindowClassFor(widthDp) == CalinoWindowClass.Compact -> when (preference) {
+            CalinoWeekShelf.Badge -> WeekShelfLayout(WeekShelfKind.Badge, hasTasks)
+            CalinoWeekShelf.Sheet -> WeekShelfLayout(WeekShelfKind.Sheet, hasTasks, sheetMaxWidthDp = WeekSheetMaxWidthDp)
+        }
+        else -> WeekShelfLayout(WeekShelfKind.Sheet, hasTasks, sheetMaxWidthDp = WeekSheetMaxWidthDp)
+    }
+}
