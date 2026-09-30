@@ -509,7 +509,7 @@ private fun SearchField(
             Box(
                 Modifier.size(44.dp)
                     .clip(CircleShape)
-                    .clickable(role = Role.Button, onClick = onToggleFilters)
+                    .clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onToggleFilters)
                     .semantics { contentDescription = if (filtersVisible) "Hide search filters" else "Show search filters" },
                 contentAlignment = Alignment.Center,
             ) {
