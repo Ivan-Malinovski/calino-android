@@ -556,6 +556,9 @@ fun SwipeDownDismiss(
                         alpha = 1f - progress * .14f
                         scaleX = 1f - progress * .018f
                         scaleY = 1f - progress * .018f
+                        // Not an offscreen layer: that would clip a shadow hanging
+                        // outside the card's bounds as soon as the drag fades it.
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
                     }
             },
         )
