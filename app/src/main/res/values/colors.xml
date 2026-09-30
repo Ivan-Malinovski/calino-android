@@ -4,6 +4,11 @@
     <!-- Adaptive launcher icon background; fixed so the mark stays consistent
          when the phone switches between light and dark app themes. -->
     <color name="launcher_background">#4A423A</color>
+    <!-- Launcher shortcut icons (long-press menu). The terracotta is the app
+         icon's calendar header, the cream its page; fixed for the same reason
+         as launcher_background. -->
+    <color name="shortcut_background">#B9683F</color>
+    <color name="shortcut_glyph">#FBF7F0</color>
     <!-- The widget draws in the launcher's process and cannot read the app's
          Compose palette, so its static loading/preview layouts restate the two
          tokens they need. CalinoThemes.PaperLight. -->

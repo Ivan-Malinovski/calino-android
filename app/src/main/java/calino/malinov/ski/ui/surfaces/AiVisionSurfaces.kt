@@ -79,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import calino.malinov.ski.MainActivity
+import calino.malinov.ski.R
 import calino.malinov.ski.data.ai.AiEventCandidate
 import calino.malinov.ski.data.ai.AiProvider
 import calino.malinov.ski.data.ai.AiVisionClient
@@ -575,31 +576,44 @@ private fun aiDateLabel(item: AiEventCandidate, timeFormat: CalinoTimeFormat, ki
     return (if (kind == "task") "Due " else "") + "$startText – $endText"
 }
 
+/**
+ * The launcher's long-press menu, in the order the old Capacitor app offered it:
+ * New event, New task, Search, then Photo import once an AI key is configured.
+ *
+ * Dynamic rather than a static `shortcuts.xml` because a static intent must name
+ * its package literally, and the debug build installs as `.nativeDebug`. Titles
+ * and icons carry no record, contact or account detail: launchers can read them.
+ * Every intent is explicit, so it lands in [MainActivity]'s existing intent
+ * handling and opens an editor or the search sheet without saving anything.
+ */
 fun updateLauncherShortcuts(context: Context, aiPhotoImportEnabled: Boolean) {
     val manager = context.getSystemService(ShortcutManager::class.java) ?: return
     val shortcuts = mutableListOf(
         ShortcutInfo.Builder(context, "new-event")
             .setShortLabel("New event")
-            .setLongLabel("Create a new event")
-            .setIcon(Icon.createWithResource(context, android.R.drawable.ic_input_add))
+            .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_new_event))
             .setIntent(Intent(Intent.ACTION_INSERT, null, context, MainActivity::class.java))
             .setRank(0)
             .build(),
+        ShortcutInfo.Builder(context, "new-task")
+            .setShortLabel("New task")
+            .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_new_task))
+            .setIntent(Intent(MainActivity.ActionDraftTask, null, context, MainActivity::class.java))
+            .setRank(1)
+            .build(),
         ShortcutInfo.Builder(context, "search")
             .setShortLabel("Search")
-            .setLongLabel("Search Calino")
-            .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_search))
+            .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_search))
             .setIntent(Intent("calino.malinov.ski.action.SEARCH", null, context, MainActivity::class.java))
-            .setRank(1)
+            .setRank(2)
             .build(),
     )
     if (aiPhotoImportEnabled) {
         shortcuts += ShortcutInfo.Builder(context, "ai-photo-import")
             .setShortLabel("Photo import")
-            .setLongLabel("Import event from photo")
-            .setIcon(Icon.createWithResource(context, android.R.drawable.ic_menu_camera))
+            .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_ai_photo))
             .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("calino.malinov.ski://ai-photo-import"), context, MainActivity::class.java))
-            .setRank(2)
+            .setRank(3)
             .build()
     }
     manager.dynamicShortcuts = shortcuts
