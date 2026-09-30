@@ -680,7 +680,7 @@ private fun RootAnchoredPill(anchor: Rect, content: @Composable () -> Unit) {
  * and it opens downward and outward from there. It fades in over the first
  * part of the trip so the handover from the card it replaces is not a cut.
  */
-private fun androidx.compose.ui.graphics.GraphicsLayerScope.applyOriginMorph(
+internal fun androidx.compose.ui.graphics.GraphicsLayerScope.applyOriginMorph(
     from: Rect,
     to: Rect,
     progress: Float,
@@ -698,7 +698,7 @@ private fun androidx.compose.ui.graphics.GraphicsLayerScope.applyOriginMorph(
     translationY = lerp(from.top, to.top) - to.top
     alpha = (progress / OriginFadeFraction).coerceIn(0f, 1f)
     val clipHeight = if (progress >= 1f) size.height else (height / scale).coerceAtMost(size.height)
-    val corner = lerp(fromCorner, toCorner) / scale
+    val corner = (lerp(fromCorner, toCorner) / scale).coerceAtLeast(0f)
     clip = true
     shape = object : androidx.compose.ui.graphics.Shape {
         override fun createOutline(

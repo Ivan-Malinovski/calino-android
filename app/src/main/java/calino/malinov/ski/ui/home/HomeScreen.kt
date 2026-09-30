@@ -841,9 +841,14 @@ fun HomeScreen(
     // Saved with the zoom, so a recreated Activity does not replay a request
     // it already honoured.
     var handledMonthZoomRequest by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    // A page that grows out of a Year tile is already on screen while the
+    // pagers catch up with the tapped date; they jump there instead of
+    // scrolling across the months in between. Time-boxed, never a stuck flag.
+    val snapDateSyncUntil = remember { longArrayOf(0L) }
     LaunchedEffect(monthZoomRequest) {
         if (monthZoomRequest != handledMonthZoomRequest) {
             handledMonthZoomRequest = monthZoomRequest
+            snapDateSyncUntil[0] = android.os.SystemClock.uptimeMillis() + SnapDateSyncMillis
             cancelMotion()
             zoomState.floatValue = 2f
             settledZoom = 2f
@@ -1086,6 +1091,7 @@ fun HomeScreen(
     // animateScrollToPage gives clicks and external date changes the same
     // physically continuous motion as a finger swipe.
     LaunchedEffect(selectedEpoch) {
+        val jump = android.os.SystemClock.uptimeMillis() < snapDateSyncUntil[0]
         val targetDayPage = dayPageFor(selected)
         val targetMonthPage = monthPageFor(YearMonth.from(selected))
         // These are independent surfaces. Starting both children before
@@ -1096,18 +1102,18 @@ fun HomeScreen(
         // selection.
         launch {
             if (dayPagerState.currentPage != targetDayPage || abs(dayPagerState.currentPageOffsetFraction) > .001f) {
-                dayPagerState.animateScrollToPage(targetDayPage)
+                if (jump) dayPagerState.scrollToPage(targetDayPage) else dayPagerState.animateScrollToPage(targetDayPage)
             }
         }
         launch {
             val targetWeekPage = weekPageFor(selected, weekStart)
             if (weekPagerState.currentPage != targetWeekPage || abs(weekPagerState.currentPageOffsetFraction) > .001f) {
-                weekPagerState.animateScrollToPage(targetWeekPage)
+                if (jump) weekPagerState.scrollToPage(targetWeekPage) else weekPagerState.animateScrollToPage(targetWeekPage)
             }
         }
         launch {
             if (monthPagerState.currentPage != targetMonthPage || abs(monthPagerState.currentPageOffsetFraction) > .001f) {
-                monthPagerState.animateScrollToPage(targetMonthPage)
+                if (jump) monthPagerState.scrollToPage(targetMonthPage) else monthPagerState.animateScrollToPage(targetMonthPage)
             }
         }
     }
@@ -7258,3 +7264,6 @@ private fun ZoomHandle(
         Box(Modifier.width(26.dp).height(3.dp).background(CalinoColors.Ink.copy(.25f)))
     }
 }
+
+/** How long after a Year-tile request the pagers jump, not scroll, to the tapped date. */
+private const val SnapDateSyncMillis = 700L

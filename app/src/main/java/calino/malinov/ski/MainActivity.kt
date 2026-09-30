@@ -1,6 +1,11 @@
 package calino.malinov.ski
 
 import calino.malinov.ski.ui.components.CalinoPressPoint
+import calino.malinov.ski.ui.components.SurfaceOriginBounds
+import calino.malinov.ski.ui.components.applyOriginMorph
+import calino.malinov.ski.ui.year.YearGrowFadeMillis
+import calino.malinov.ski.ui.year.YearGrowHoldMillis
+import calino.malinov.ski.ui.year.YearTileCornerRadius
 import calino.malinov.ski.ui.components.LocalCalinoPressPoint
 import calino.malinov.ski.ui.components.recordCalinoPressPoint
 import androidx.compose.ui.input.pointer.pointerInput
@@ -30,14 +35,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -101,9 +107,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
@@ -119,6 +122,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -1228,10 +1232,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var monthOpenedFromYear by rememberSaveable { mutableStateOf(false) }
     // One-shot: each new value asks the calendar to open at the month level.
     var monthZoomRequest by rememberSaveable { mutableIntStateOf(0) }
-    // Where the tapped tile sat, as fractions of the root surface, so the
-    // Year/Month transition can grow out of it and shrink back into it.
-    var yearZoomOrigin by remember { mutableStateOf(TransformOrigin.Center) }
-    var rootContentSize by remember { mutableStateOf(IntSize.Zero) }
+    // Where the tapped tile sat, so the month can grow out of it the way an
+    // event card grows out of its event.
+    var yearZoomOrigin by remember { mutableStateOf<SurfaceOriginBounds?>(null) }
     var selectedEventId by rememberSaveable { mutableStateOf<String?>(null) }
     // Keep the calendar occurrence separate from the event's series
     // anchor. Detail can then show the occurrence the user actually
@@ -2181,15 +2184,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = ::selectCalendarDate,
                         onOpenMonth = { month, tile ->
-                            val size = rootContentSize
-                            yearZoomOrigin = if (size.width > 0 && size.height > 0) {
-                                TransformOrigin(
-                                    (tile.center.x / size.width).coerceIn(0f, 1f),
-                                    (tile.center.y / size.height).coerceIn(0f, 1f),
-                                )
-                            } else {
-                                TransformOrigin.Center
-                            }
+                            yearZoomOrigin = SurfaceOriginBounds(tile, YearTileCornerRadius)
                             selectCalendarDate(if (YearMonth.from(yearToday) == month) yearToday else month.atDay(1))
                             monthZoomRequest += 1
                             navigateRoot(PockRoute.Day)
@@ -2546,7 +2541,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 targetState = rootRoute,
                 modifier = Modifier
                     .fillMaxSize()
-                    .onSizeChanged { rootContentSize = it }
                     .graphicsLayer {
                         scaleX = 1f - .1f * rootBackProgress
                         scaleY = scaleX
@@ -2559,14 +2553,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     if (predictiveRouteCommit) {
                         return@AnimatedContent EnterTransition.None togetherWith ExitTransition.None
                     }
-                    // A Year tile opens its month by growing out of the tile; Back is
-                    // the ordinary predictive root back, so every other pair slides.
+                    // A Year tile opens its month by growing out of the tile: the
+                    // month page morphs itself (below) while the year stays put
+                    // underneath, fading only once the month has covered it. An
+                    // exit of None would unmount the year on the first frame and
+                    // leave the growing page over a blank window. Back is the
+                    // ordinary predictive root back, so every other pair slides.
                     if (initialState == PockRoute.Year && targetState == PockRoute.Day && monthOpenedFromYear) {
-                        return@AnimatedContent (
-                            scaleIn(tween(300), initialScale = .84f, transformOrigin = yearZoomOrigin) + fadeIn(tween(220))
-                            ) togetherWith (
-                            scaleOut(tween(300), targetScale = 1.12f, transformOrigin = yearZoomOrigin) + fadeOut(tween(180))
-                            )
+                        return@AnimatedContent EnterTransition.None togetherWith
+                            fadeOut(tween(YearGrowFadeMillis, delayMillis = YearGrowHoldMillis))
                     }
                     val direction = if (targetState.rootOrder() >= initialState.rootOrder()) 1 else -1
                     (slideInHorizontally(tween(260)) { direction * it / 4 } + fadeIn(tween(180))) togetherWith
@@ -2574,7 +2569,43 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 },
                 label = "root destination transition",
             ) { currentRoute ->
-                destinationContent(currentRoute)()
+                // Fixed once per arrival: a month opened from a Year tile
+                // grows out of that tile. The morph rides this page's own
+                // enter state, so it never touches the other routes.
+                val growOrigin = remember {
+                    if (currentRoute == PockRoute.Day && monthOpenedFromYear &&
+                        transition.currentState == EnterExitState.PreEnter
+                    ) yearZoomOrigin else null
+                }
+                val morph by transition.animateFloat(
+                    transitionSpec = { if (growOrigin == null) snap() else CalinoMotion.containerTransform() },
+                    label = "year tile grow",
+                ) { state -> if (state == EnterExitState.PreEnter && growOrigin != null) 0f else 1f }
+                var pageBounds by remember { mutableStateOf<Rect?>(null) }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { coords ->
+                            pageBounds = Rect(
+                                coords.positionInRoot(),
+                                androidx.compose.ui.geometry.Size(coords.size.width.toFloat(), coords.size.height.toFloat()),
+                            )
+                        }
+                        .graphicsLayer {
+                            val from = growOrigin?.rect
+                            val progress = morph.coerceIn(0f, 1f)
+                            if (from != null && progress < 1f) {
+                                val to = pageBounds
+                                if (to == null || to.width <= 0f) {
+                                    alpha = 0f
+                                } else {
+                                    applyOriginMorph(from, to, progress, growOrigin!!.cornerRadius.toPx(), 0f)
+                                }
+                            }
+                        },
+                ) {
+                    destinationContent(currentRoute)()
+                }
             }
             LaunchedEffect(rootRoute, predictiveRouteCommit) {
                 if (predictiveRouteCommit) {

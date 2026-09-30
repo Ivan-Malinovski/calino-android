@@ -396,7 +396,7 @@ private fun YearMonthTile(
     val monthName = month.month.getDisplayName(DateTextStyle.FULL, Locale.getDefault())
     val titleColor = if (isCurrentMonth) CalinoColors.Accent else CalinoColors.Ink
     val tileModifier = modifier
-        .clip(RoundedCornerShape(14.dp))
+        .clip(RoundedCornerShape(YearTileCornerRadius))
         .background(if (isCurrentMonth) CalinoColors.AccentSoft else Color.Transparent)
         .onGloballyPositioned { bounds = it.boundsInRoot() }
         .then(
@@ -580,3 +580,10 @@ private fun YearDayPane(
         }
     }
 }
+
+/** A tile's corner; the month grows out of a rectangle rounded like this. */
+internal val YearTileCornerRadius = 14.dp
+
+/** The year stays fully visible this long while its month grows, then fades over [YearGrowFadeMillis]. */
+internal const val YearGrowHoldMillis = 140
+internal const val YearGrowFadeMillis = 180
