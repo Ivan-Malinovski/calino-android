@@ -5,8 +5,10 @@ import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,12 +28,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -40,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -63,6 +68,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -78,6 +84,7 @@ import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.design.*
 import calino.malinov.ski.ui.components.AgendaRow
 import calino.malinov.ski.ui.components.CalinoIcon
+import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.EditorReveal
 import calino.malinov.ski.ui.components.TaskCheckbox
 import calino.malinov.ski.ui.components.calinoPressable
@@ -94,6 +101,12 @@ internal val WeekDropZoneHeight = 124.dp
 /** Corner badge diameter, and the touch square around it. */
 private val BadgeSize = 30.dp
 private val BadgeTouch = 48.dp
+/**
+ * The popover's left rail: its title, checkbox ring and divider start here.
+ * [AgendaRow] keeps 8dp of its own padding and centres a 21dp ring in a 44dp
+ * lane, so the ring's edge lands at 19.5dp.
+ */
+private val PopoverRail = 20.dp
 private const val SheetPeekRowDp = 34
 private const val SheetHandleDp = 7
 
@@ -164,25 +177,41 @@ internal fun WeekTaskBadge(openTasks: Int, expanded: Boolean, onClick: () -> Uni
         contentAlignment = Alignment.Center,
     ) {
         val accent = CalinoColors.Accent
-        val ink = AccentInk
+        // While its card is open the disc fills with the accent, so the two read as one object.
+        val disc by animateColorAsState(
+            when {
+                expanded -> accent
+                empty -> Color.Transparent
+                else -> CalinoColors.AccentSoft
+            },
+            tween(CalinoMotion.ContentEnterMillis), label = "week badge disc",
+        )
+        val ink by animateColorAsState(
+            if (expanded) CalinoColors.OnAccent else AccentInk, tween(CalinoMotion.ContentEnterMillis), label = "week badge ink",
+        )
+        val ring by animateColorAsState(
+            if (expanded) CalinoColors.OnAccent else accent, tween(CalinoMotion.ContentEnterMillis), label = "week badge ring",
+        )
+        val dashes by animateFloatAsState(
+            if (empty && !expanded) 1f else 0f, tween(CalinoMotion.ContentEnterMillis), label = "week badge dashes",
+        )
         Box(
             Modifier.size(BadgeSize)
-                .then(
-                    if (empty) Modifier.drawBehind {
-                        drawCircle(
-                            accent,
-                            radius = size.minDimension / 2 - 0.75.dp.toPx(),
-                            style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))),
-                        )
-                    } else Modifier.background(CalinoColors.AccentSoft, CircleShape),
-                ),
+                .background(disc, CircleShape)
+                .drawBehind {
+                    if (dashes > 0f) drawCircle(
+                        accent.copy(alpha = accent.alpha * dashes),
+                        radius = size.minDimension / 2 - 0.75.dp.toPx(),
+                        style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))),
+                    )
+                },
             contentAlignment = Alignment.Center,
         ) {
             if (empty) {
                 CalinoIcon(CalinoIcon.Plus, tint = ink, modifier = Modifier.size(15.dp), contentDescription = null)
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Box(Modifier.size(9.dp).border(1.5.dp, accent, CircleShape))
+                    Box(Modifier.size(9.dp).border(1.5.dp, ring, CircleShape))
                     Text(openTasks.toString(), color = ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 }
             }
@@ -201,13 +230,18 @@ private fun WeekTaskRows(
     taskModifier: @Composable (CalTask) -> Modifier,
     modifier: Modifier = Modifier,
     horizontalPadding: Dp = 8.dp,
+    /** A hairline between rows, inset to [PopoverRail]. */
+    dividers: Boolean = false,
 ) {
     LazyColumn(modifier.fillMaxWidth().padding(horizontal = horizontalPadding)) {
-        items(tasks, key = { it.id }) { task ->
-            AgendaRow(
-                task = task, modifier = taskModifier(task).heightIn(min = 44.dp).animateItem(), compact = true, checkboxTouchSize = 44.dp,
-                onLongClick = { onLongClick(task) }, onClick = { onOpen(task) }, onCheckedChange = { onDone(task, it) },
-            )
+        itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
+            Column(Modifier.animateItem()) {
+                if (dividers && index > 0) HorizontalDivider(Modifier.padding(start = PopoverRail, end = 14.dp), color = CalinoColors.Line)
+                AgendaRow(
+                    task = task, modifier = taskModifier(task).heightIn(min = 44.dp), compact = true, checkboxTouchSize = 44.dp,
+                    onLongClick = { onLongClick(task) }, onClick = { onOpen(task) }, onCheckedChange = { onDone(task, it) },
+                )
+            }
         }
     }
 }
@@ -252,21 +286,93 @@ private fun WeekTaskInput(composer: WeekTaskComposer, onDetails: (String) -> Uni
     }
 }
 
+/**
+ * The popover's composer: a filled pill with the Add button inside it, and
+ * "More details" as a quiet link underneath.
+ */
+@Composable
+private fun WeekTaskPillInput(composer: WeekTaskComposer, onDetails: (String) -> Unit, modifier: Modifier = Modifier) {
+    val focusRequester = remember { FocusRequester() }
+    BackHandler(enabled = composer.adding) { composer.adding = false }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val canAdd = composer.title.isNotBlank() && !composer.saving
+    val shape = RoundedCornerShape(CalinoShapes.Pill)
+    val fill by animateColorAsState(if (canAdd) CalinoColors.Accent else CalinoColors.AccentSoft, tween(CalinoMotion.ContentEnterMillis), label = "add fill")
+    val tint by animateColorAsState(if (canAdd) CalinoColors.OnAccent else CalinoColors.Ink3, tween(CalinoMotion.ContentEnterMillis), label = "add tint")
+    Column(modifier.padding(start = 14.dp, end = 14.dp, top = 2.dp)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
+                .background(CalinoColors.Side, shape).border(1.dp, CalinoColors.Line2, shape)
+                .padding(start = 19.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                composer.title, { composer.title = it }, enabled = !composer.saving, singleLine = true,
+                textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
+                cursorBrush = SolidColor(CalinoColors.Accent),
+                modifier = Modifier.weight(1f).focusRequester(focusRequester)
+                    .semantics { contentDescription = "Week task title" },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { composer.save() }),
+                decorationBox = { field ->
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                        if (composer.title.isEmpty()) Text(
+                            "What would you like to get done?", color = CalinoColors.Ink3,
+                            style = CalinoTypography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        field()
+                    }
+                },
+            )
+            Box(
+                Modifier.size(44.dp)
+                    .calinoPressable(enabled = canAdd) { composer.save() }
+                    .semantics {
+                        contentDescription = if (composer.saving) "Saving task" else "Add task"
+                        if (!canAdd) disabled()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(34.dp).background(fill, CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(CalinoIcons.ArrowUp, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(end = 2.dp).heightIn(min = 44.dp)
+                .calinoPressable(enabled = !composer.saving) { onDetails(composer.title) }
+                .padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End,
+        ) {
+            Text("More details", color = CalinoColors.Ink2, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            Icon(CalinoIcons.ChevronRight, contentDescription = null, tint = CalinoColors.Ink2, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
 @Composable
 private fun WeekTaskHeader(
-    first: LocalDate, last: LocalDate, count: Int, composer: WeekTaskComposer, showingInput: Boolean,
+    first: LocalDate, last: LocalDate, count: Int, composer: WeekTaskComposer, showAdd: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Row(modifier.fillMaxWidth().padding(start = 18.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
-            Text("Sometime this week", style = CalinoTypography.titleSmall.copy(fontSize = 17.sp), color = CalinoColors.Ink)
+    Row(modifier.fillMaxWidth().padding(start = PopoverRail, end = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(top = 14.dp, bottom = 8.dp)) {
+            Text("Sometime this week", style = CalinoTypography.titleSmall.copy(fontSize = 19.sp), color = CalinoColors.Ink)
             Text(weekRangeLabel(first, last, count), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
         }
-        Box(
-            Modifier.size(40.dp).calinoPressable { composer.adding = !composer.adding }
-                .semantics { contentDescription = "Add week task"; stateDescription = if (showingInput) "Expanded" else "Collapsed" },
-            contentAlignment = Alignment.Center,
-        ) { CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Ink2, contentDescription = null) }
+        if (showAdd) {
+            // The plus turns to a cross while the composer is open, so it says what a second tap does.
+            val turn by animateFloatAsState(if (composer.adding) 45f else 0f, tween(CalinoMotion.ContentEnterMillis), label = "add turn")
+            Box(
+                Modifier.size(44.dp).calinoPressable { composer.adding = !composer.adding }
+                    .semantics { contentDescription = "Add week task"; stateDescription = if (composer.adding) "Expanded" else "Collapsed" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(34.dp).background(CalinoColors.AccentSoft, CircleShape), contentAlignment = Alignment.Center) {
+                    CalinoIcon(CalinoIcon.Plus, tint = AccentInk, modifier = Modifier.size(18.dp).rotate(turn), contentDescription = null)
+                }
+            }
+        }
     }
 }
 
@@ -310,7 +416,7 @@ internal fun WeekTaskPopover(
                 scaleOut(tween(CalinoMotion.ContentExitMillis), targetScale = .94f, transformOrigin = TransformOrigin(.1f, 0f)),
             modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = anchorTop).widthIn(max = 320.dp).fillMaxWidth(),
         ) {
-            val shape = RoundedCornerShape(18.dp)
+            val shape = RoundedCornerShape(CalinoShapes.Card)
             val panel = CalinoColors.Panel
             val edge = CalinoColors.SurfaceBorder
             Column(Modifier.fillMaxWidth()) {
@@ -322,9 +428,16 @@ internal fun WeekTaskPopover(
                         .animateContentSize(CalinoMotion.standardSpatial()),
                 ) {
                     val inputShown = composer.adding || tasks.isEmpty()
-                    WeekTaskHeader(first, last, tasks.size, composer, inputShown)
-                    if (tasks.isNotEmpty()) WeekTaskRows(tasks, onOpen, onDone, onLongClick, taskModifier, Modifier.heightIn(max = cardMaxHeight))
-                    EditorReveal(inputShown) { WeekTaskInput(composer, onDetails) }
+                    // With nothing listed the composer is always shown, so the header has no plus to offer.
+                    WeekTaskHeader(first, last, tasks.size, composer, showAdd = tasks.isNotEmpty())
+                    if (tasks.isNotEmpty()) {
+                        WeekTaskRows(
+                            tasks, onOpen, onDone, onLongClick, taskModifier, Modifier.heightIn(max = cardMaxHeight),
+                            horizontalPadding = 0.dp, dividers = true,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    EditorReveal(inputShown) { WeekTaskPillInput(composer, onDetails) }
                 }
             }
         }

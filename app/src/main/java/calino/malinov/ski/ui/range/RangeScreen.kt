@@ -900,12 +900,6 @@ private fun RangePagerSurface(
             )
         }
         if (badgeShown) {
-            WeekTaskBadge(
-                openTasks = weekTasks.count { !it.done }, expanded = popoverOpen,
-                onClick = { popoverOpen = !popoverOpen; if (!popoverOpen) weekComposer.adding = false },
-                modifier = Modifier.align(Alignment.TopStart)
-                    .padding(start = 2.dp, top = ((headerHeight - 48.dp) / 2).coerceAtLeast(0.dp)),
-            )
             WeekTaskPopover(
                 visible = popoverOpen,
                 onDismiss = { popoverOpen = false; weekComposer.adding = false },
@@ -915,6 +909,13 @@ private fun RangePagerSurface(
                 taskModifier = { task -> taskModifier(task, "shelf") },
                 onDetails = { title -> popoverOpen = false; onWeekTaskDetails(title, weekFirst, weekLast) },
                 onBounds = { popoverRect = it },
+            )
+            // Last, so the badge stays lit above the popover's scrim.
+            WeekTaskBadge(
+                openTasks = weekTasks.count { !it.done }, expanded = popoverOpen,
+                onClick = { popoverOpen = !popoverOpen; if (!popoverOpen) weekComposer.adding = false },
+                modifier = Modifier.align(Alignment.TopStart)
+                    .padding(start = 2.dp, top = ((headerHeight - 48.dp) / 2).coerceAtLeast(0.dp)),
             )
         }
         if (drag != null && dragTarget != null) {
