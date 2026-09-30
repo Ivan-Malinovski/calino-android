@@ -1,7 +1,7 @@
 package calino.malinov.ski.state
 
 /** Origin carried by an overlay so dismiss/back restores the visible surface. */
-enum class PocReturnTarget { Calendar, Range, Agenda, DayModal, Tasks, Journal, Contacts, Settings, Accounts, Detail, TaskDetail, Search }
+enum class PocReturnTarget { Calendar, Year, Range, Agenda, DayModal, Tasks, Journal, Contacts, Settings, Accounts, Detail, TaskDetail, Search }
 
 fun PocReturnTarget.restoresDayModal(): Boolean = this == PocReturnTarget.DayModal
 

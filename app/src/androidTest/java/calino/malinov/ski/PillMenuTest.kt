@@ -133,7 +133,7 @@ class PillMenuTest : CalinoUiTest() {
             .performTouchInput { swipeLeft() }
         compose.waitForIdle()
 
-        viewButton("Range").assertIsDisplayed()
+        viewButton("Year").assertIsDisplayed()
     }
 
     @Test fun swipingUpOnTheLabelOpensTheMenu() {

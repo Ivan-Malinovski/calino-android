@@ -597,6 +597,17 @@ fun HomeScreen(
     onTaskDrop: (CalTask, LocalDate) -> Unit = { _, _ -> },
     onOpenDay: ((LocalDate) -> Unit)? = null,
     interactionEnabled: Boolean = true,
+    /**
+     * A one-shot ask to open at the month level: each new value snaps the zoom
+     * there, without a zoom animation, because the host's route transition is
+     * already carrying the motion in. Year uses it when a tile is tapped.
+     */
+    monthZoomRequest: Int = 0,
+    /**
+     * False while the host owns Back, so the zoom-out step does not sit
+     * between the month and the Year page it was opened from.
+     */
+    zoomBackEnabled: Boolean = true,
     /** Reports whether the large split month layout is active. */
     onSplitPaneChanged: (Boolean) -> Unit = {},
     /**
@@ -824,6 +835,18 @@ fun HomeScreen(
     LaunchedEffect(interactionEnabled) {
         if (!interactionEnabled) {
             cancelMotion()
+        }
+    }
+
+    // Saved with the zoom, so a recreated Activity does not replay a request
+    // it already honoured.
+    var handledMonthZoomRequest by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(monthZoomRequest) {
+        if (monthZoomRequest != handledMonthZoomRequest) {
+            handledMonthZoomRequest = monthZoomRequest
+            cancelMotion()
+            zoomState.floatValue = 2f
+            settledZoom = 2f
         }
     }
 
@@ -1387,7 +1410,7 @@ fun HomeScreen(
         }
     }
 
-    PredictiveBackHandler(enabled = interactionEnabled && settledZoom > .01f) { events ->
+    PredictiveBackHandler(enabled = interactionEnabled && zoomBackEnabled && settledZoom > .01f) { events ->
         cancelMotion()
         val start = settledZoom
         val target = if (start.roundToInt() >= 2) 1f else 0f

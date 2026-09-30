@@ -8,6 +8,7 @@ internal fun detailOriginRootRoute(
     searchOriginRoute: PockRoute,
 ): PockRoute = when (origin) {
     PocReturnTarget.Agenda -> PockRoute.Agenda
+    PocReturnTarget.Year -> PockRoute.Year
     PocReturnTarget.Range -> PockRoute.Range
     PocReturnTarget.Tasks -> PockRoute.Tasks
     PocReturnTarget.Journal -> PockRoute.Journal

@@ -36,6 +36,8 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -99,6 +101,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
@@ -245,6 +250,7 @@ import calino.malinov.ski.ui.components.pockRouteLabel
 import calino.malinov.ski.ui.home.HomeScreen
 import calino.malinov.ski.ui.home.PillSwipeDays
 import calino.malinov.ski.ui.range.RangeScreen
+import calino.malinov.ski.ui.year.YearScreen
 import calino.malinov.ski.ui.components.SwipeDownDismiss
 import calino.malinov.ski.ui.surfaces.DayModalSurface
 import calino.malinov.ski.ui.surfaces.EventDetail
@@ -274,6 +280,7 @@ import calino.malinov.ski.ui.surfaces.updateLauncherShortcuts
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
@@ -307,6 +314,7 @@ private val RouteSaver = Saver<PockRoute, String>(
     restore = { key ->
         when (key) {
             "agenda" -> PockRoute.Agenda
+            "year" -> PockRoute.Year
             "range" -> PockRoute.Range
             "detail" -> PockRoute.Detail
             "task-detail" -> PockRoute.TaskDetail
@@ -334,6 +342,7 @@ private val QuickAddKindSaver = Saver<QuickAddKind, String>(
 
 private fun PockRoute.saveableKey(): String = when (this) {
     PockRoute.Day -> "calendar"
+    PockRoute.Year -> "year"
     PockRoute.Range -> "range"
     PockRoute.Agenda -> "agenda"
     PockRoute.Detail -> "detail"
@@ -349,21 +358,22 @@ private fun PockRoute.saveableKey(): String = when (this) {
 
 private fun PockRoute.rootOrder(): Int = when (this) {
     PockRoute.Day -> 0
-    PockRoute.Range -> 1
-    PockRoute.Agenda -> 2
-    PockRoute.Tasks -> 3
-    PockRoute.Journal -> 4
-    PockRoute.Contacts -> 5
-    PockRoute.Settings -> 6
-    PockRoute.Accounts -> 7
+    PockRoute.Year -> 1
+    PockRoute.Range -> 2
+    PockRoute.Agenda -> 3
+    PockRoute.Tasks -> 4
+    PockRoute.Journal -> 5
+    PockRoute.Contacts -> 6
+    PockRoute.Settings -> 7
+    PockRoute.Accounts -> 8
     // Detail and notification previews are pushed destinations. Keeping them
     // after the root destinations makes opening them enter from the right and
     // returning from them reverse the same motion, instead of treating them
     // as another instance of the calendar route.
-    PockRoute.Detail -> 8
-    PockRoute.TaskDetail -> 8
-    PockRoute.Notifications -> 8
-    PockRoute.QuickAdd -> 8
+    PockRoute.Detail -> 9
+    PockRoute.TaskDetail -> 9
+    PockRoute.Notifications -> 9
+    PockRoute.QuickAdd -> 9
 }
 
 data class CalendarViewRequest(val date: LocalDate? = null, val eventId: String? = null)
@@ -1213,6 +1223,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
     }
     var showDayModal by rememberSaveable { mutableStateOf(false) }
+    // Set when a Year tile opened the month, so Back returns to the year
+    // instead of stepping down the zoom levels; any root navigation clears it.
+    var monthOpenedFromYear by rememberSaveable { mutableStateOf(false) }
+    // One-shot: each new value asks the calendar to open at the month level.
+    var monthZoomRequest by rememberSaveable { mutableIntStateOf(0) }
+    // Where the tapped tile sat, as fractions of the root surface, so the
+    // Year/Month transition can grow out of it and shrink back into it.
+    var yearZoomOrigin by remember { mutableStateOf(TransformOrigin.Center) }
+    var rootContentSize by remember { mutableStateOf(IntSize.Zero) }
     var selectedEventId by rememberSaveable { mutableStateOf<String?>(null) }
     // Keep the calendar occurrence separate from the event's series
     // anchor. Detail can then show the occurrence the user actually
@@ -1689,6 +1708,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun handleTaskAction(action: TaskMenuAction, task: CalTask) {
         when (action) {
             TaskMenuAction.Edit -> openTaskDetail(task, when (route) {
+                PockRoute.Year -> PocReturnTarget.Year
                 PockRoute.Range -> PocReturnTarget.Range
                 PockRoute.Agenda -> PocReturnTarget.Agenda
                 PockRoute.Tasks -> PocReturnTarget.Tasks
@@ -1697,6 +1717,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             TaskMenuAction.AddSubtask -> openQuickAdd(
                 QuickAddKind.Task,
                 when (route) {
+                    PockRoute.Year -> PocReturnTarget.Year
                     PockRoute.Range -> PocReturnTarget.Range
                     PockRoute.Agenda -> PocReturnTarget.Agenda
                     else -> PocReturnTarget.Tasks
@@ -1746,6 +1767,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun handleEventAction(action: EventMenuAction, event: CalEvent) {
         when (action) {
             EventMenuAction.Edit -> openEditor(event, when (route) {
+                PockRoute.Year -> PocReturnTarget.Year
                 PockRoute.Range -> PocReturnTarget.Range
                 PockRoute.Agenda -> PocReturnTarget.Agenda
                 else -> PocReturnTarget.Calendar
@@ -1806,6 +1828,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 showDayModal = true
             }
             PocReturnTarget.Agenda -> route = PockRoute.Agenda
+            PocReturnTarget.Year -> route = PockRoute.Year
             PocReturnTarget.Range -> route = PockRoute.Range
             PocReturnTarget.Tasks -> route = PockRoute.Tasks
             PocReturnTarget.Journal -> route = PockRoute.Journal
@@ -1822,6 +1845,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun restoreTaskDetailOrigin() {
         route = when (taskDetailOrigin) {
+            PocReturnTarget.Year -> PockRoute.Year
             PocReturnTarget.Range -> PockRoute.Range
             PocReturnTarget.Tasks -> PockRoute.Tasks
             PocReturnTarget.Agenda -> PockRoute.Agenda
@@ -1845,6 +1869,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             return
         }
         when (quickAddOrigin) {
+            PocReturnTarget.Year -> {
+                route = PockRoute.Year
+                showDayModal = false
+            }
             PocReturnTarget.Range -> {
                 route = PockRoute.Range
                 showDayModal = false
@@ -1892,6 +1920,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
 
     fun navigateRoot(next: PockRoute) {
         showDayModal = false
+        monthOpenedFromYear = false
         journalReviewVisible = false
         editEventId = null
         selectedEventId = null
@@ -1918,17 +1947,23 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 accountsAutoAdd = false
                 route = when (accountsOrigin) {
                     PocReturnTarget.Settings -> PockRoute.Settings
+                    PocReturnTarget.Year -> PockRoute.Year
                     PocReturnTarget.Range -> PockRoute.Range
                     PocReturnTarget.Agenda -> PockRoute.Agenda
                     else -> PockRoute.Day
                 }
             }
             showDayModal -> showDayModal = false
+            route == PockRoute.Day && monthOpenedFromYear -> {
+                monthOpenedFromYear = false
+                route = PockRoute.Year
+            }
             else -> route = PockRoute.Day
         }
     }
     val currentRootRoute = when (visibleRoute) {
         PockRoute.Day -> PockRoute.Day
+        PockRoute.Year -> PockRoute.Year
         PockRoute.Range -> PockRoute.Range
         PockRoute.Agenda -> PockRoute.Agenda
         PockRoute.Tasks -> PockRoute.Tasks
@@ -1939,6 +1974,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         PockRoute.Detail -> detailOriginRootRoute(detailOrigin, searchOriginRoute)
         PockRoute.TaskDetail -> when (taskDetailOrigin) {
             PocReturnTarget.Agenda -> PockRoute.Agenda
+            PocReturnTarget.Year -> PockRoute.Year
             PocReturnTarget.Range -> PockRoute.Range
             PocReturnTarget.Tasks -> PockRoute.Tasks
             PocReturnTarget.Search -> searchOriginRoute
@@ -1946,6 +1982,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
         PockRoute.QuickAdd -> when (quickAddOrigin) {
             PocReturnTarget.Agenda -> PockRoute.Agenda
+            PocReturnTarget.Year -> PockRoute.Year
             PocReturnTarget.Range -> PockRoute.Range
             PocReturnTarget.Tasks -> PockRoute.Tasks
             PocReturnTarget.Journal -> PockRoute.Journal
@@ -1961,10 +1998,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         PockRoute.Notifications -> if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
         PockRoute.Accounts -> when (accountsOrigin) {
             PocReturnTarget.Settings -> PockRoute.Settings
+            PocReturnTarget.Year -> PockRoute.Year
             PocReturnTarget.Range -> PockRoute.Range
             PocReturnTarget.Agenda -> PockRoute.Agenda
             else -> PockRoute.Day
         }
+        PockRoute.Day -> if (monthOpenedFromYear) PockRoute.Year else PockRoute.Day
         else -> PockRoute.Day
     }
     // Captured once per gesture, at its first frame, and held there through
@@ -1977,7 +2016,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // reintroducing the exact jump this is meant to prevent.
     var predictiveBackDestination by remember { mutableStateOf<PockRoute>(PockRoute.Day) }
     val rootPredictiveBackEnabled = !sidebarVisible && !journalReviewVisible && !journalEditorVisible &&
-        !showDayModal && route != PockRoute.Day && route != PockRoute.Detail &&
+        !showDayModal && (route != PockRoute.Day || monthOpenedFromYear) && route != PockRoute.Detail &&
         route != PockRoute.TaskDetail && route != PockRoute.QuickAdd
     PredictiveBackHandler(enabled = rootPredictiveBackEnabled) { events ->
         try {
@@ -2026,6 +2065,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             // Come back to the calendar the marker was tapped from, not to
             // Day: the marker is on three different roots.
             accountsOrigin = when (syncRoute.value) {
+                PockRoute.Year -> PocReturnTarget.Year
                 PockRoute.Range -> PocReturnTarget.Range
                 PockRoute.Agenda -> PocReturnTarget.Agenda
                 else -> PocReturnTarget.Calendar
@@ -2092,6 +2132,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         filterCalendarVisibility = true,
                         modifier = Modifier.fillMaxSize(),
                         interactionEnabled = route == PockRoute.Day && !showDayModal && !journalReviewVisible,
+                        monthZoomRequest = monthZoomRequest,
+                        zoomBackEnabled = !monthOpenedFromYear,
                         initialDate = selectedDate,
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = ::selectCalendarDate,
@@ -2129,6 +2171,48 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onSplitPaneChanged = { splitMonthLayoutVisible = it },
                         onDayInFocusChanged = { calendarDayInFocus = it },
                     )
+                    PockRoute.Year -> {
+                    val yearToday = LocalCalinoNow.current.today
+                    YearScreen(
+                        events = calendarEvents,
+                        tasks = calendarTasks,
+                        initialDate = selectedDate,
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenMenu = { sidebarVisible = true },
+                        onDateChanged = ::selectCalendarDate,
+                        onOpenMonth = { month, tile ->
+                            val size = rootContentSize
+                            yearZoomOrigin = if (size.width > 0 && size.height > 0) {
+                                TransformOrigin(
+                                    (tile.center.x / size.width).coerceIn(0f, 1f),
+                                    (tile.center.y / size.height).coerceIn(0f, 1f),
+                                )
+                            } else {
+                                TransformOrigin.Center
+                            }
+                            selectCalendarDate(if (YearMonth.from(yearToday) == month) yearToday else month.atDay(1))
+                            monthZoomRequest += 1
+                            navigateRoot(PockRoute.Day)
+                            monthOpenedFromYear = true
+                        },
+                        onEventClick = { day, event ->
+                            selectedEventId = event.id
+                            selectedEventOccurrenceDay = day.toEpochDay()
+                            detailOrigin = PocReturnTarget.Year
+                            route = PockRoute.Detail
+                        },
+                        onEventAction = ::handleEventAction,
+                        onTaskClick = { task -> openTaskDetail(task, PocReturnTarget.Year) },
+                        onTaskAction = ::handleTaskAction,
+                        onTaskDone = { task, done ->
+                            setTaskDone(task, done)
+                        },
+                        onAddOn = { day ->
+                            selectCalendarDate(day)
+                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Year)
+                        },
+                    )
+                    }
                     PockRoute.Range -> RangeScreen(
                         events = calendarEvents,
                         tasks = calendarTasks,
@@ -2421,8 +2505,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         // instant the gesture committed and a fresh instance took over,
         // which read as a one-frame jump, and dragged the header controls
         // (menu button) along with it since they live inside that subtree.
-        val predictiveDestinationContent = remember(predictiveBackDestination) {
-            movableContentOf { rootDestination(predictiveBackDestination) }
+        //
+        // One movable reference per route, kept for the activity's lifetime, so a
+        // route's composition never swaps between a movable and a direct call
+        // site when the gesture's destination changes: a swap mounts the new
+        // copy before the old one is disposed, and both claim the same
+        // SaveableStateProvider key ("Key root:calendar was used multiple times").
+        val currentRootDestination by rememberUpdatedState(rootDestination)
+        val movableDestinations = remember { mutableMapOf<PockRoute, @Composable () -> Unit>() }
+        val destinationContent: (PockRoute) -> (@Composable () -> Unit) = { target ->
+            movableDestinations.getOrPut(target) {
+                movableContentOf { currentRootDestination(target) }
+            }
         }
         Box(
             Modifier
@@ -2445,13 +2539,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             alpha = destinationProgress
                         },
                 ) {
-                    predictiveDestinationContent()
+                    destinationContent(predictiveBackDestination)()
                 }
             }
             AnimatedContent(
                 targetState = rootRoute,
                 modifier = Modifier
                     .fillMaxSize()
+                    .onSizeChanged { rootContentSize = it }
                     .graphicsLayer {
                         scaleX = 1f - .1f * rootBackProgress
                         scaleY = scaleX
@@ -2464,17 +2559,22 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     if (predictiveRouteCommit) {
                         return@AnimatedContent EnterTransition.None togetherWith ExitTransition.None
                     }
+                    // A Year tile opens its month by growing out of the tile; Back is
+                    // the ordinary predictive root back, so every other pair slides.
+                    if (initialState == PockRoute.Year && targetState == PockRoute.Day && monthOpenedFromYear) {
+                        return@AnimatedContent (
+                            scaleIn(tween(300), initialScale = .84f, transformOrigin = yearZoomOrigin) + fadeIn(tween(220))
+                            ) togetherWith (
+                            scaleOut(tween(300), targetScale = 1.12f, transformOrigin = yearZoomOrigin) + fadeOut(tween(180))
+                            )
+                    }
                     val direction = if (targetState.rootOrder() >= initialState.rootOrder()) 1 else -1
                     (slideInHorizontally(tween(260)) { direction * it / 4 } + fadeIn(tween(180))) togetherWith
                         (slideOutHorizontally(tween(210)) { -direction * it / 4 } + fadeOut(tween(140)))
                 },
                 label = "root destination transition",
             ) { currentRoute ->
-                if (currentRoute == predictiveBackDestination) {
-                    predictiveDestinationContent()
-                } else {
-                    rootDestination(currentRoute)
-                }
+                destinationContent(currentRoute)()
             }
             LaunchedEffect(rootRoute, predictiveRouteCommit) {
                 if (predictiveRouteCommit) {
@@ -2862,7 +2962,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             AnimatedVisibility(
                 visible = !pocViewModel.hasAccounts && !sampleNoticeDismissed && writeError == null &&
                     route == currentRootRoute && !showDayModal && !journalReviewVisible &&
-                    currentRootRoute in listOf(PockRoute.Day, PockRoute.Range, PockRoute.Agenda),
+                    currentRootRoute in listOf(PockRoute.Day, PockRoute.Year, PockRoute.Range, PockRoute.Agenda),
                 enter = slideInVertically(CalinoMotion.expressiveSpatial(), initialOffsetY = { it / 2 }) +
                     fadeIn(tween(CalinoMotion.ContentEnterMillis)),
                 exit = slideOutVertically(tween(CalinoMotion.ContentExitMillis), targetOffsetY = { it / 2 }) +
@@ -2947,6 +3047,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         }
         val pillVisible = when (rootRoute) {
             PockRoute.Day -> route == PockRoute.Day && !showDayModal && !journalReviewVisible && editEventId == null
+            PockRoute.Year -> route == PockRoute.Year
             PockRoute.Range -> route == PockRoute.Range
             PockRoute.Agenda -> route == PockRoute.Agenda
             PockRoute.Tasks -> route == PockRoute.Tasks
@@ -2995,6 +3096,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         val addPillLeadingIcon = if (preferences.menuPill && !preferences.pillDocked) pockRouteIcon(rootRoute) else null
         val menuPillRoutes = listOfNotNull(
             PockRoute.Day,
+            PockRoute.Year,
             PockRoute.Range,
             PockRoute.Agenda,
             PockRoute.Tasks,
@@ -3007,7 +3109,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 pockRouteLabel(it),
                 pockRouteIcon(it),
                 current = it == rootRoute,
-                section = if (it == PockRoute.Day || it == PockRoute.Range || it == PockRoute.Agenda) 0 else 1,
+                section = if (it == PockRoute.Day || it == PockRoute.Year || it == PockRoute.Range || it == PockRoute.Agenda) 0 else 1,
             )
         }
         val addPillDock = if (pillBaseMode == AddPillMode.Dock) pillRouteItems else null
@@ -3117,6 +3219,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 onCreate = { kind ->
                     val origin = when (rootRoute) {
                         PockRoute.Tasks -> PocReturnTarget.Tasks
+                        PockRoute.Year -> PocReturnTarget.Year
                         PockRoute.Range -> PocReturnTarget.Range
                         PockRoute.Agenda -> PocReturnTarget.Agenda
                         PockRoute.Journal -> PocReturnTarget.Journal
@@ -3181,6 +3284,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         PockRoute.Tasks -> openQuickAdd(QuickAddKind.Task, PocReturnTarget.Tasks, morphFromAddPill = true)
                         PockRoute.Journal -> journalEntryRequest += 1
                         PockRoute.Contacts -> contactRequest += 1
+                        PockRoute.Year -> openQuickAdd(QuickAddKind.Event, PocReturnTarget.Year, morphFromAddPill = true)
                         PockRoute.Range -> openQuickAdd(
                             QuickAddKind.Event,
                             PocReturnTarget.Range,

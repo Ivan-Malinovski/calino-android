@@ -214,6 +214,6 @@ class NavigationDestinationsTest : CalinoUiTest() {
         val MinimumTouchLane = 44.dp
         const val SettingsSyncSectionIndex = 3
 
-        val Destinations = listOf("Tasks", "Journal", "Agenda", "Contacts", "Settings", "Range")
+        val Destinations = listOf("Tasks", "Journal", "Agenda", "Contacts", "Settings", "Range", "Year")
     }
 }

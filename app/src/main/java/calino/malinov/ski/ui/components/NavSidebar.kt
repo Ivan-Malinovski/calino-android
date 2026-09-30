@@ -141,6 +141,7 @@ fun NavSidebar(
     // the other surfaces.
     val calendarItems = listOf(
         NavItem(pockRouteLabel(PockRoute.Day), PockRoute.Day, pockRouteIcon(PockRoute.Day)),
+        NavItem(pockRouteLabel(PockRoute.Year), PockRoute.Year, pockRouteIcon(PockRoute.Year)),
         NavItem(pockRouteLabel(PockRoute.Range), PockRoute.Range, pockRouteIcon(PockRoute.Range)),
         NavItem(pockRouteLabel(PockRoute.Agenda), PockRoute.Agenda, pockRouteIcon(PockRoute.Agenda)),
     )
@@ -945,6 +946,7 @@ private fun SidebarExtras(
  */
 fun pockRouteLabel(route: PockRoute): String = when (route) {
     PockRoute.Day -> "Month"
+    PockRoute.Year -> "Year"
     PockRoute.Range -> "Range"
     PockRoute.Agenda -> "Agenda"
     PockRoute.Accounts -> "Calendars"
@@ -963,6 +965,7 @@ fun pockRouteLabel(route: PockRoute): String = when (route) {
  * menu and dock all draw from here, for the same reason as [pockRouteLabel].
  */
 fun pockRouteIcon(route: PockRoute): ImageVector = when (route) {
+    PockRoute.Year -> CalinoIcons.CalendarYear
     PockRoute.Range -> CalinoIcons.CalendarRange
     PockRoute.Agenda -> CalinoIcons.AgendaList
     PockRoute.Tasks -> CalinoIcons.ListChecks
