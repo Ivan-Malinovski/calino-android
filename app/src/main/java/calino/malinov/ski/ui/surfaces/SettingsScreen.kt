@@ -766,6 +766,7 @@ private fun CalendarSettings() {
                 preferences.menuPill,
                 preferences.setMenuPill,
             )
+            PillViewsSetting()
             SettingChoiceRow(
                 label = "Event density",
                 description = "How much of a busy day a month cell shows",
@@ -775,9 +776,28 @@ private fun CalendarSettings() {
                 onSelected = preferences.setEventDensity,
             )
         }
-        // Month always stays on the pill. A hidden view is still one tap away
-        // in the sidebar, and the pill's swipe skips it as well.
-        SettingsGroup("Pill views") {
+    }
+}
+
+/**
+ * Which views the root pill carries, as one row of chips. Month is not offered:
+ * it always stays, so the pill can always get home. A view left off is still in
+ * the sidebar, and the pill's swipe skips it too.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PillViewsSetting() {
+    val preferences = LocalCalinoPreferences.current
+    SettingRow(
+        label = "Views on the pill",
+        description = "Tap to hide one. It stays in the sidebar",
+        controlLayout = SettingRowControlLayout.AdaptiveSegmented,
+    ) {
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
             listOfNotNull(
                 PockRoute.Year,
                 PockRoute.Range,
@@ -786,11 +806,15 @@ private fun CalendarSettings() {
                 PockRoute.Journal.takeIf { preferences.journalEnabled },
                 PockRoute.Contacts.takeIf { preferences.contactsEnabled },
             ).forEach { route ->
-                SettingToggleRow(
-                    pockRouteLabel(route),
-                    "Show on the pill's menu, dock and swipe. Off leaves it in the sidebar only",
-                    pockRouteKey(route) !in preferences.pillHiddenViews,
-                ) { shown -> preferences.setPillViewHidden(pockRouteKey(route), !shown) }
+                val key = pockRouteKey(route)
+                val shown = key !in preferences.pillHiddenViews
+                CalinoChip(
+                    text = pockRouteLabel(route),
+                    selected = shown,
+                    description = "Show ${pockRouteLabel(route)} on the pill",
+                    semanticsRole = Role.Checkbox,
+                    onClick = { preferences.setPillViewHidden(key, shown) },
+                )
             }
         }
     }
