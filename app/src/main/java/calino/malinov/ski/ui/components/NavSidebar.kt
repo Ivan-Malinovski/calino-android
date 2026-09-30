@@ -961,6 +961,12 @@ fun pockRouteLabel(route: PockRoute): String = when (route) {
 }
 
 /**
+ * The stable name a route is stored under (a data object prints as its own
+ * name), for preferences that list routes.
+ */
+fun pockRouteKey(route: PockRoute): String = route.toString()
+
+/**
  * The glyph a route goes by. The sidebar and the root pill's view button,
  * menu and dock all draw from here, for the same reason as [pockRouteLabel].
  */

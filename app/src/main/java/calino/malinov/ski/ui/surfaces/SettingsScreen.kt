@@ -102,6 +102,8 @@ import calino.malinov.ski.design.CalinoThemes
 import calino.malinov.ski.util.CalinoThemeChoice
 import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.ui.components.MenuButton
+import calino.malinov.ski.ui.components.pockRouteKey
+import calino.malinov.ski.ui.components.pockRouteLabel
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.design.CalinoMotion
@@ -772,6 +774,24 @@ private fun CalendarSettings() {
                 labelOf = { it.label },
                 onSelected = preferences.setEventDensity,
             )
+        }
+        // Month always stays on the pill. A hidden view is still one tap away
+        // in the sidebar, and the pill's swipe skips it as well.
+        SettingsGroup("Pill views") {
+            listOfNotNull(
+                PockRoute.Year,
+                PockRoute.Range,
+                PockRoute.Agenda,
+                PockRoute.Tasks,
+                PockRoute.Journal.takeIf { preferences.journalEnabled },
+                PockRoute.Contacts.takeIf { preferences.contactsEnabled },
+            ).forEach { route ->
+                SettingToggleRow(
+                    pockRouteLabel(route),
+                    "Show on the pill's menu, dock and swipe. Off leaves it in the sidebar only",
+                    pockRouteKey(route) !in preferences.pillHiddenViews,
+                ) { shown -> preferences.setPillViewHidden(pockRouteKey(route), !shown) }
+            }
         }
     }
 }

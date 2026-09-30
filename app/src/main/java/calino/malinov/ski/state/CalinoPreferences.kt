@@ -91,6 +91,13 @@ data class CalinoPreferences(
     /** Whether the root pill rests as the dock of view icons (held into, held out of). */
     val pillDocked: Boolean = false,
     val setPillDocked: (Boolean) -> Unit = {},
+    /**
+     * Route names the root pill leaves out of its menu, dock and swipe. The
+     * views stay reachable from the sidebar. Month is never hidden, so the
+     * pill always has a way home.
+     */
+    val pillHiddenViews: Set<String> = emptySet(),
+    val setPillViewHidden: (String, Boolean) -> Unit = { _, _ -> },
     /** The effective week start used by every grid and pager. */
     val weekStart: CalinoWeekStart = CalinoWeekStart.Monday,
     /** The stored choice, which may be [CalinoWeekStart.System]. */
@@ -179,6 +186,9 @@ interface CalinoPreferenceStore {
     fun saveMenuPill(enabled: Boolean)
     fun loadPillDocked(): Boolean
     fun savePillDocked(docked: Boolean)
+    /** Route names kept off the root pill's menu, dock and swipe. Empty shows every view. */
+    fun loadPillHiddenViews(): Set<String> = emptySet()
+    fun savePillHiddenViews(names: Set<String>) {}
     fun loadWeekStart(): CalinoWeekStart
     fun saveWeekStart(weekStart: CalinoWeekStart)
     fun loadEventDensity(): CalinoEventDensity
@@ -296,6 +306,9 @@ interface CalinoPreferenceStore {
         override fun saveMenuPill(enabled: Boolean) { menuPill = enabled }
         override fun loadPillDocked() = pillDocked
         override fun savePillDocked(docked: Boolean) { pillDocked = docked }
+        private var pillHiddenViews = emptySet<String>()
+        override fun loadPillHiddenViews() = pillHiddenViews
+        override fun savePillHiddenViews(names: Set<String>) { pillHiddenViews = names }
         override fun loadWeekStart() = weekStart
         override fun saveWeekStart(weekStart: CalinoWeekStart) { this.weekStart = weekStart }
         override fun loadEventDensity() = density
@@ -395,6 +408,11 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveMenuPill(enabled: Boolean) = putBoolean(MenuPillKey, enabled)
     override fun loadPillDocked(): Boolean = prefs.getBoolean(PillDockedKey, false)
     override fun savePillDocked(docked: Boolean) = putBoolean(PillDockedKey, docked)
+    override fun loadPillHiddenViews(): Set<String> =
+        prefs.getStringSet(PillHiddenViewsKey, emptySet()).orEmpty().toSet()
+    override fun savePillHiddenViews(names: Set<String>) {
+        prefs.edit().putStringSet(PillHiddenViewsKey, names).apply()
+    }
 
     override fun loadWeekStart(): CalinoWeekStart = CalinoWeekStart.fromName(name(WeekStartKey))
     override fun saveWeekStart(weekStart: CalinoWeekStart) = putString(WeekStartKey, weekStart.name)
@@ -493,6 +511,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val GrowDetailFromEventKey = "grow_detail_from_event"
         const val MenuPillKey = "menu_pill"
         const val PillDockedKey = "pill_docked"
+        const val PillHiddenViewsKey = "pill_hidden_views"
         const val WeekStartKey = "week_start"
         const val EventDensityKey = "event_density"
         const val ShowWeekNumbersKey = "show_week_numbers"
@@ -541,6 +560,7 @@ fun rememberCalinoPreferences(
     var growDetailFromEvent by remember(store) { mutableStateOf(store.loadGrowDetailFromEvent()) }
     var menuPill by remember(store) { mutableStateOf(store.loadMenuPill()) }
     var pillDocked by remember(store) { mutableStateOf(store.loadPillDocked()) }
+    var pillHiddenViews by remember(store) { mutableStateOf(store.loadPillHiddenViews()) }
     var weekStartChoice by remember(store) { mutableStateOf(store.loadWeekStart()) }
     var eventDensity by remember(store) { mutableStateOf(store.loadEventDensity()) }
     var showWeekNumbers by remember(store) { mutableStateOf(store.loadShowWeekNumbers()) }
@@ -577,6 +597,11 @@ fun rememberCalinoPreferences(
         setMenuPill = { value -> menuPill = value; store.saveMenuPill(value) },
         pillDocked = pillDocked,
         setPillDocked = { value -> pillDocked = value; store.savePillDocked(value) },
+        pillHiddenViews = pillHiddenViews,
+        setPillViewHidden = { name, hidden ->
+            pillHiddenViews = if (hidden) pillHiddenViews + name else pillHiddenViews - name
+            store.savePillHiddenViews(pillHiddenViews)
+        },
         weekStart = weekStartChoice.resolved(deviceDefaults.weekStart),
         weekStartChoice = weekStartChoice,
         setWeekStart = { value -> weekStartChoice = value; store.saveWeekStart(value) },

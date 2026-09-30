@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.activity.compose.BackHandler
 import calino.malinov.ski.ui.components.pockRouteIcon
 import calino.malinov.ski.ui.components.PillRoute
+import calino.malinov.ski.ui.components.pockRouteKey
 import calino.malinov.ski.ui.components.AddPillCreate
 import calino.malinov.ski.ui.components.AddPillMode
 import android.app.Application
@@ -3125,6 +3126,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             else -> "Add on ${selectedDate.format(DateLabel)}"
         }
         val addPillLeadingIcon = if (preferences.menuPill && !preferences.pillDocked) pockRouteIcon(rootRoute) else null
+        // Views the person moved to the sidebar only are left out here, and
+        // so out of the pill's swipe and dock too. Month always stays.
         val menuPillRoutes = listOfNotNull(
             PockRoute.Day,
             PockRoute.Year,
@@ -3133,7 +3136,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Tasks,
             PockRoute.Journal.takeIf { preferences.journalEnabled },
             PockRoute.Contacts.takeIf { preferences.contactsEnabled },
-        )
+        ).filter { it == PockRoute.Day || pockRouteKey(it) !in preferences.pillHiddenViews }
         // The calendar views, then the rest: the menu divides the two.
         val pillRouteItems = menuPillRoutes.map {
             PillRoute(
