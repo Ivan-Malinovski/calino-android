@@ -441,7 +441,15 @@ private fun RangePagerSurface(
     // Each mounted page reports its own date bar; the hour column clears the
     // one that is showing, not whichever neighbour measured last.
     val stripHeights = remember { mutableStateMapOf<Int, androidx.compose.ui.unit.Dp>() }
-    val stripHeight = stripHeights[pager.currentPage] ?: 0.dp
+    // Derived per frame from the pager's own position, so the hour column
+    // tracks the date bar the finger is revealing instead of snapping when
+    // the settled page changes.
+    val stripHeight = run {
+        val current = stripHeights[pager.currentPage] ?: 0.dp
+        val fraction = pager.currentPageOffsetFraction
+        val neighbour = stripHeights[pager.currentPage + if (fraction >= 0f) 1 else -1] ?: current
+        current + (neighbour - current) * kotlin.math.abs(fraction).coerceIn(0f, 1f)
+    }
     val gutterLayer = rememberGraphicsLayer()
     val hourHeightPx = with(density) { (62 * timelineScale).dp.toPx() }
 
@@ -525,7 +533,7 @@ private fun RangePagerSurface(
         if (pointer.x < gutter || pointer.y >= hostHeight - band) return null
         val day = rangeDropDay(pointer.x, hostWidth, gutter, visibleDragDays) ?: return null
         val time = if (pointer.y < with(density) { stripHeight.toPx() }) null
-            else java.time.LocalTime.MIDNIGHT.plusMinutes(taskDropMinute(pointer.y, timelineScroll.value, hourHeightPx).toLong())
+            else java.time.LocalTime.MIDNIGHT.plusMinutes(taskDropMinute(pointer.y, timelineScroll.value - with(density) { stripHeight.toPx() }.toInt(), hourHeightPx).toLong())
         return TaskDropDestination.Day(day, time)
     }
     val taskDestination = taskDrag?.let { taskDestination(it.second) }
@@ -732,7 +740,7 @@ private fun RangePagerSurface(
                             drawLayer(gutterLayer)
                         }
                         .verticalScroll(timelineScroll)
-                        .padding(bottom = bottomReserve),
+                        .padding(top = stripHeight, bottom = bottomReserve),
                 )
                 CompactLaneScrim(
                     source = gutterLayer,
@@ -879,7 +887,7 @@ private fun RangePagerSurface(
                 val column = visibleDragDays.indexOf(destination.day)
                 val minute = destination.time.hour * 60 + destination.time.minute
                 Box(Modifier.offset { androidx.compose.ui.unit.IntOffset((gutter + columnWidth * column).toInt(),
-                    (minute / 60f * hourHeightPx - timelineScroll.value).toInt()) }
+                    (minute / 60f * hourHeightPx - timelineScroll.value + with(density) { stripHeight.toPx() }).toInt()) }
                     .width(with(density) { columnWidth.toDp() }).height(2.dp).background(CalinoColors.Accent))
             }
             Column(Modifier.align(Alignment.TopStart).offset {
@@ -936,7 +944,8 @@ private fun RangePagerSurface(
             val columnWidth = ((hostWidth - gutterPx - gapPx * visibleDragDays.size) /
                 visibleDragDays.size.coerceAtLeast(1)).coerceAtLeast(1f)
             val previewLeft = gutterPx + gapPx + dayIndex.coerceAtLeast(0) * (columnWidth + gapPx)
-            val previewTop = (dragTarget.hour * 60 + dragTarget.minute) / 60f * hourHeightPx - timelineScroll.value
+            val previewTop = (dragTarget.hour * 60 + dragTarget.minute) / 60f * hourHeightPx - timelineScroll.value +
+                with(density) { stripHeight.toPx() }
             Text(
                 text = timeFormat.format(dragTarget.toLocalTime()),
                 modifier = Modifier
@@ -1040,7 +1049,19 @@ private fun RangePage(
     val density = LocalDensity.current
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
     val railLayer = rememberGraphicsLayer()
-    var stripHeight by remember { mutableStateOf(0.dp) }
+    var measuredStrip by remember { mutableStateOf(0.dp) }
+    // Glides the top space when the date bar grows or shrinks (all-day band
+    // toggled, events appearing); the hour column reads this same value.
+    // The first measurement snaps, so a page mounting beside the pager does not
+    // grow from zero under the swipe.
+    var stripMeasured by remember { mutableStateOf(false) }
+    LaunchedEffect(measuredStrip) { if (measuredStrip > 0.dp) stripMeasured = true }
+    val stripHeight by animateDpAsState(
+        measuredStrip,
+        if (stripMeasured) CalinoMotion.standardSpatial() else snap(),
+        label = "rangeStrip",
+    )
+    LaunchedEffect(stripHeight) { onStripHeight(stripHeight) }
     Box(Modifier.fillMaxSize().semantics { contentDescription = "${days.size}-day calendar" }) {
         Row(
             Modifier.fillMaxSize()
@@ -1055,7 +1076,7 @@ private fun RangePage(
                     },
                     onHorizontalPinch = onRangeModePinch,
                 )
-                .verticalScroll(timelineScroll).padding(bottom = bottomReserve),
+                .verticalScroll(timelineScroll).padding(top = stripHeight, bottom = bottomReserve),
             horizontalArrangement = Arrangement.spacedBy(CalinoSpacing.RailColumnGap),
         ) {
             // The hours live outside the pager (see RangePagerSurface); this
@@ -1110,13 +1131,12 @@ private fun RangePage(
         CompactLaneScrim(
             source = railLayer,
             blend = { 1f },
-            modifier = Modifier.fillMaxWidth().height(stripHeight),
+            modifier = Modifier.fillMaxWidth().height(measuredStrip),
             dissolveEdge = false,
         )
         Column(
             Modifier.fillMaxWidth().onSizeChanged { size ->
-                stripHeight = with(density) { size.height.toDp() }
-                onStripHeight(stripHeight)
+                measuredStrip = with(density) { size.height.toDp() }
             },
         ) {
             Row(
