@@ -3,6 +3,37 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.9.0 — 2026-09-30
+
+Calino 0.9.0 adds a Year view, invitations with Accept/Maybe/Decline, proactive sync-problem alerts and a redesigned search sheet.
+
+### Added
+
+- **Year view.** Twelve mini-month tiles shaded by how busy each month is, with week numbers beside the grid. Tap a tile and the month grows out of it; go back and you return to Year. It adapts to phones, tablets and wide screens, where a day agenda sits beside the grid. Year appears after Month in the sidebar and the pill menu.
+- **Invitations and RSVP.** On CalDAV servers that support scheduling, events you organize now send invitations, and events you are invited to show the organizer and each guest's response. Accept, Maybe or Decline from the event, for a whole series or a single occurrence. Pending invitations appear in Agenda.
+- **Sync problems surface on their own.** The calendar heading dot turns rose when a saved change needs you and amber while changes wait to sync. A one-time alert ("'X' couldn't sync · Review") opens the queued changes, and background sync posts a silent "Sync problems" notification that clears once resolved.
+- **Redesigned queued changes.** The card moved to the top of Calendars with a severity header, per-change rows showing calendar, status and details, and Try again, Revert and Retry all actions.
+- **Choose which views the pill offers.** A new Pill views setting hides individual views from the pill's menu, dock and swipe. They stay in the sidebar, and Month always stays.
+- **New task shortcut.** The launcher gains a New task shortcut, and the shortcuts have new terracotta and cream icons that match the app icon.
+
+### Changed
+
+- **Search sheet redesign.** One pill field carries the filter toggle. The empty state offers Today, Tomorrow, Next week and a date picker, followed by your five most recent searches (kept on the device and clearable from the sheet). Dragging down over a scrolled result list scrolls it back to the top instead of dismissing the sheet.
+- **Range date line follows your swipe.** The date under the month title tracks the page you are swiping toward and animates only the parts that change.
+- **Step the 3- and 7-day Range one day at a time.** Swiping the weekday bar drags the days with your finger and settles on the nearest day. The hour column stays put while the days move. Screen readers get Previous and Next day actions.
+- **Task details match event details.** Tasks get the same masthead, ordering and styling as events, with tappable subtasks, a progress slider with haptic ticks, and tap-to-edit notes. In the side panel, the task card swipes down to dismiss like the event card.
+- Side panels pulled down now leave downward instead of off their edge, and attachment rows are laid out as label over name with the type and size at the end.
+- The journal's month grid uses the same month calendar as the date picker.
+- Pill view toggles in Settings fold into a single row of chips.
+- The meeting Join pill is slimmer and the add-description prompt is softer.
+
+### Fixed
+
+- **Rejected changes no longer block the queue.** A change the server refuses as invalid (such as Baikal's 415 response) was retried up to ten times and held up everything behind it. It is now dropped with a clear message, and an unrelated failing change no longer stops the rest from syncing.
+- Content the server rejects is automatically resent with normalized line endings, or rebuilt from the server's current copy, before giving up.
+- Swiping an item down to dismiss no longer clips its shadow.
+- The filter button in the search field no longer flashes a ripple over the pill.
+
 ## 0.8.0 — 2026-09-27
 
 Calino 0.8.0 grows event details out of the event you tap, lets you resize events in Range by dragging their end, and redesigns the long-press action menu.
