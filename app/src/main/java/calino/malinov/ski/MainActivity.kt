@@ -2338,6 +2338,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     PockRoute.Tasks -> Tasks(
                         tasks = snapshot.tasks,
                         onComplete = { task -> setTaskDone(task, true) },
+                        onReopen = { task -> setTaskDone(task, false) },
                         onReschedule = { task ->
                             launchWrite({ repository.rescheduleTask(task.id, fallbackRescheduleDate(task.due, selectedDate, now.today)) }) {
                                 showUndo(it)

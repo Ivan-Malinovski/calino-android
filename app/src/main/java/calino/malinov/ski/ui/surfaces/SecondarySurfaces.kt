@@ -2450,6 +2450,7 @@ fun TasksSurface(
     var reschedulingTaskId by remember { mutableStateOf<String?>(null) }
     val haptic = LocalHapticFeedback.current
     val taskScope = rememberCoroutineScope()
+    onReopen: (CalTask) -> Unit = {},
     var previousDoneById by remember { mutableStateOf(tasks.associate { it.id to it.done }) }
     var collapsedTaskIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     val taskTree = remember(tasks) { TaskTree(tasks) }
@@ -2498,7 +2499,13 @@ fun TasksSurface(
     }
 
     fun complete(task: CalTask) {
-        if (task.done || task.id in pendingCompletionIds) return
+        if (task.id in pendingCompletionIds) return
+        if (task.done) {
+            // A done row's checkbox is a toggle: tapping it reopens the task.
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            onReopen(task)
+            return
+        }
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         // Commit synchronously at release. The visual settle below is
         // independent of the composition, so navigating away cannot cancel
@@ -3058,8 +3065,8 @@ private fun TaskRow(
                     Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .clickable(enabled = canAct, onClick = { onComplete(task) })
-                        .semantics { contentDescription = if (task.done) "${task.title}, completed" else "Complete ${task.title}" },
+                        .clickable(onClick = { onComplete(task) })
+                        .semantics { contentDescription = if (task.done) "${task.title}, completed. Tap to reopen" else "Complete ${task.title}" },
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
@@ -3318,7 +3325,8 @@ fun Tasks(
     onOpenMenu: (() -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
     onTaskDrop: (CalTask, CalTask?) -> Unit = { _, _ -> },
-) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onOpenMenu, onTaskAction, onTaskDrop)
+    onReopen: (CalTask) -> Unit = {},
+) = TasksSurface(tasks, onComplete, onReschedule, onRescheduleTo, onTaskClick, onOpenMenu, onTaskAction, onTaskDrop, onReopen)
 
 /** Shared animated Event/Task/Journal editor sheet. */
 @Composable
