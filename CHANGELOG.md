@@ -3,6 +3,22 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.10.0 — 2026-10-02
+
+Calino 0.10.0 adds "Sometime this week" tasks: plan a task for the week without picking a day, see it from every Range view, and drag it onto a day when you know when.
+
+### Added
+
+- **Sometime this week tasks.** A task with a start and due date spanning at least three days is a week task. It sits out of the day columns and is gathered in a corner badge in 1-, 3- and 7-day Range, where tapping it opens a popover listing the week's tasks; wide landscape windows dock a strip instead. Add one with the popover's quick composer, or choose More details for the full editor. The task editor offers Start and Due fields with a This week preset.
+- **Drag a task onto a day.** Hold a task and drag it to a day header to give it a due date, or into the hour grid to give it a due time. Drop it back on the shelf to return it to the week. Schedule and Move to this week are also in the long-press menu and for screen readers.
+- **Reopen a completed task** by tapping its checkbox on the Tasks page.
+
+### Changed
+
+- **Tasks list.** Open week tasks that overlap the current week appear under This week instead of a separate Sometime this week section.
+- **Range reserves room for the date bar.** The first hours of the day are no longer hidden underneath it, and the hour column's header line follows the date bar when its height changes.
+- **Servers on your own network.** A single-word host such as `nas` is accepted once you give a scheme or a port, and plain HTTP to a server you entered is allowed so self-hosted servers on a private network work without TLS. A bare single word is still rejected as a typo.
+
 ## 0.9.0 — 2026-09-30
 
 Calino 0.9.0 adds a Year view, invitations with Accept/Maybe/Decline, proactive sync-problem alerts and a redesigned search sheet.
