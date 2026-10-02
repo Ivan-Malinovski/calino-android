@@ -30,24 +30,6 @@ enum class CalinoEventDensity(val label: String, val maxItems: Int) {
 }
 
 /**
- * Where the "Sometime this week" tasks live in a compact portrait window. Wide
- * and landscape windows always use the docked strip, so this only chooses
- * between the two phone treatments.
- */
-enum class CalinoWeekShelf(val label: String) {
-    Badge("Corner badge"),
-    Sheet("Bottom sheet"),
-    ;
-
-    companion object {
-        val Default = Badge
-
-        fun fromName(name: String?): CalinoWeekShelf =
-            entries.firstOrNull { it.name == name } ?: Default
-    }
-}
-
-/**
  * The view the app opens on. Calendar views also supply their zoom level.
  *
  * Month, Week and Day seed the calendar zoom state through [zoomLevel].

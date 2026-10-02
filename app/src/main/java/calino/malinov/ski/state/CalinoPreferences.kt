@@ -21,7 +21,6 @@ import calino.malinov.ski.util.CalinoEventSyncRange
 import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoThemeChoice
 import calino.malinov.ski.util.CalinoTimeFormat
-import calino.malinov.ski.util.CalinoWeekShelf
 import calino.malinov.ski.util.CalinoWeekStart
 import kotlin.math.min
 
@@ -113,8 +112,6 @@ data class CalinoPreferences(
     val setSecondaryZoneId: (String?) -> Unit = {},
     val defaultView: CalinoDefaultView = CalinoDefaultView.Default,
     val setDefaultView: (CalinoDefaultView) -> Unit = {},
-    val weekShelf: CalinoWeekShelf = CalinoWeekShelf.Default,
-    val setWeekShelf: (CalinoWeekShelf) -> Unit = {},
     val rangeMode: CalinoRangeMode = CalinoRangeMode.Default,
     val setRangeMode: (CalinoRangeMode) -> Unit = {},
     val defaultDuration: CalinoDefaultDuration = CalinoDefaultDuration.Default,
@@ -209,8 +206,6 @@ interface CalinoPreferenceStore {
     fun saveWeekStart(weekStart: CalinoWeekStart)
     fun loadEventDensity(): CalinoEventDensity
     fun saveEventDensity(density: CalinoEventDensity)
-    fun loadWeekShelf(): CalinoWeekShelf = CalinoWeekShelf.Default
-    fun saveWeekShelf(shelf: CalinoWeekShelf) {}
     fun loadShowWeekNumbers(): Boolean
     fun saveShowWeekNumbers(show: Boolean)
     fun loadSecondaryZone(): String? = null
@@ -302,7 +297,6 @@ interface CalinoPreferenceStore {
         private var pillDocked = false
         private var weekStart = CalinoWeekStart.Default
         private var density = CalinoEventDensity.Default
-        private var weekShelf = CalinoWeekShelf.Default
         private var weekNumbers = true
         private var defaultView = CalinoDefaultView.Default
         private val rangeModes = mutableMapOf<CalinoRangeProfile, CalinoRangeMode>()
@@ -334,8 +328,6 @@ interface CalinoPreferenceStore {
         override fun saveWeekStart(weekStart: CalinoWeekStart) { this.weekStart = weekStart }
         override fun loadEventDensity() = density
         override fun saveEventDensity(density: CalinoEventDensity) { this.density = density }
-        override fun loadWeekShelf() = weekShelf
-        override fun saveWeekShelf(shelf: CalinoWeekShelf) { weekShelf = shelf }
         override fun loadShowWeekNumbers() = weekNumbers
         override fun saveShowWeekNumbers(show: Boolean) { weekNumbers = show }
         private var secondaryZone: String? = null
@@ -445,8 +437,6 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 
     override fun loadEventDensity(): CalinoEventDensity = CalinoEventDensity.fromName(name(EventDensityKey))
     override fun saveEventDensity(density: CalinoEventDensity) = putString(EventDensityKey, density.name)
-    override fun loadWeekShelf(): CalinoWeekShelf = CalinoWeekShelf.fromName(name(WeekShelfKey))
-    override fun saveWeekShelf(shelf: CalinoWeekShelf) = putString(WeekShelfKey, shelf.name)
 
     override fun loadShowWeekNumbers(): Boolean = prefs.getBoolean(ShowWeekNumbersKey, true)
     override fun saveShowWeekNumbers(show: Boolean) = putBoolean(ShowWeekNumbersKey, show)
@@ -545,7 +535,6 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val PillHiddenViewsKey = "pill_hidden_views"
         const val WeekStartKey = "week_start"
         const val EventDensityKey = "event_density"
-        const val WeekShelfKey = "week_shelf"
         const val ShowWeekNumbersKey = "show_week_numbers"
         const val SecondaryZoneKey = "secondary_zone"
         const val DefaultViewKey = "default_view"
@@ -596,7 +585,6 @@ fun rememberCalinoPreferences(
     var pillHiddenViews by remember(store) { mutableStateOf(store.loadPillHiddenViews()) }
     var weekStartChoice by remember(store) { mutableStateOf(store.loadWeekStart()) }
     var eventDensity by remember(store) { mutableStateOf(store.loadEventDensity()) }
-    var weekShelf by remember(store) { mutableStateOf(store.loadWeekShelf()) }
     var showWeekNumbers by remember(store) { mutableStateOf(store.loadShowWeekNumbers()) }
     var secondaryZoneId by remember(store) { mutableStateOf(store.loadSecondaryZone()) }
     var defaultView by remember(store) { mutableStateOf(store.loadDefaultView()) }
@@ -642,8 +630,6 @@ fun rememberCalinoPreferences(
         setWeekStart = { value -> weekStartChoice = value; store.saveWeekStart(value) },
         eventDensity = eventDensity,
         setEventDensity = { value -> eventDensity = value; store.saveEventDensity(value) },
-        weekShelf = weekShelf,
-        setWeekShelf = { value -> weekShelf = value; store.saveWeekShelf(value) },
         showWeekNumbers = showWeekNumbers,
         setShowWeekNumbers = { value -> showWeekNumbers = value; store.saveShowWeekNumbers(value) },
         secondaryZoneId = secondaryZoneId,

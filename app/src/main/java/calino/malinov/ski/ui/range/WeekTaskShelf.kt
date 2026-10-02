@@ -4,7 +4,10 @@ import android.app.Activity
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -107,21 +110,17 @@ private val BadgeTouch = 48.dp
  * lane, so the ring's edge lands at 19.5dp.
  */
 private val PopoverRail = 20.dp
-private const val SheetPeekRowDp = 34
-private const val SheetHandleDp = 7
 
 private val MonthDay = DateTimeFormatter.ofPattern("MMM d")
 
 private fun weekRangeLabel(first: LocalDate, last: LocalDate, count: Int): String =
     "${first.format(MonthDay)} – ${last.format(MonthDay)} · $count ${if (count == 1) "task" else "tasks"}".uppercase(Locale.getDefault())
 
-private fun openCount(tasks: List<CalTask>) = tasks.count { !it.done }
-
 /** Accent, darkened far enough to read on [CalinoColors.AccentSoft] (and lightened in dark themes). */
 private val AccentInk: Color @Composable get() = lerp(CalinoColors.Accent, CalinoColors.Ink, .32f)
 
 /**
- * The shared "add a week task" state, so the popover, the sheet and the strip
+ * The shared "add a week task" state, so the popover and the strip
  * keep one draft between them and a rejected write keeps what was typed.
  */
 @Stable
@@ -181,7 +180,7 @@ internal fun WeekTaskBadge(openTasks: Int, expanded: Boolean, onClick: () -> Uni
         val disc by animateColorAsState(
             when {
                 expanded -> accent
-                empty -> Color.Transparent
+                empty -> accent.copy(alpha = 0f)
                 else -> CalinoColors.AccentSoft
             },
             tween(CalinoMotion.ContentEnterMillis), label = "week badge disc",
@@ -207,12 +206,28 @@ internal fun WeekTaskBadge(openTasks: Int, expanded: Boolean, onClick: () -> Uni
                 },
             contentAlignment = Alignment.Center,
         ) {
-            if (empty) {
-                CalinoIcon(CalinoIcon.Plus, tint = ink, modifier = Modifier.size(15.dp), contentDescription = null)
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Box(Modifier.size(9.dp).border(1.5.dp, ring, CircleShape))
-                    Text(openTasks.toString(), color = ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            // The leaving count keeps its last value rather than flashing "0".
+            var lastCount by remember { mutableIntStateOf(openTasks) }
+            if (openTasks > 0) lastCount = openTasks
+            // The plus and the count trade places by fading and scaling through
+            // the disc, which is itself changing fill and dashed ring.
+            AnimatedContent(
+                targetState = empty,
+                transitionSpec = {
+                    (fadeIn(tween(CalinoMotion.ContentEnterMillis, delayMillis = CalinoMotion.FadeThroughMillis / 2)) +
+                        scaleIn(tween(CalinoMotion.ContentEnterMillis, delayMillis = CalinoMotion.FadeThroughMillis / 2), initialScale = .7f))
+                        .togetherWith(fadeOut(tween(CalinoMotion.FadeThroughMillis)) + scaleOut(tween(CalinoMotion.FadeThroughMillis), targetScale = .7f))
+                        .using(SizeTransform(clip = false))
+                },
+                label = "week badge content",
+            ) { isEmpty ->
+                if (isEmpty) {
+                    CalinoIcon(CalinoIcon.Plus, tint = ink, modifier = Modifier.size(15.dp), contentDescription = null)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Box(Modifier.size(9.dp).border(1.5.dp, ring, CircleShape))
+                        Text(lastCount.toString(), color = ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
                 }
             }
         }
@@ -444,103 +459,6 @@ internal fun WeekTaskPopover(
     }
 }
 
-// ─── Peek sheet ──────────────────────────────────────────────────────────────
-
-/**
- * A 34dp row that swipes up into the list. The list's height follows the
- * finger and the pill above is lifted with the measured height, so the two
- * move as one.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun WeekTaskSheet(
-    first: LocalDate, last: LocalDate, tasks: List<CalTask>,
-    composer: WeekTaskComposer,
-    expanded: Boolean, onExpandedChange: (Boolean) -> Unit,
-    maxWidth: Dp,
-    onOpen: (CalTask) -> Unit, onDone: (CalTask, Boolean) -> Unit, onLongClick: (CalTask) -> Unit,
-    taskModifier: @Composable (CalTask) -> Modifier,
-    onDetails: (String) -> Unit,
-    onBounds: (Rect) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val density = LocalDensity.current
-    val windowHeight = LocalConfiguration.current.screenHeightDp.dp
-    val progress = remember { Animatable(if (expanded) 1f else 0f) }
-    val scope = rememberCoroutineScope()
-    var naturalListPx by remember { mutableIntStateOf(0) }
-    val shape = RoundedCornerShape(topStart = CalinoShapes.Card, topEnd = CalinoShapes.Card)
-    ImeResizeWhile(composer.adding)
-
-    fun settle(target: Boolean, velocity: Float = 0f) {
-        onExpandedChange(target)
-        scope.launch { progress.animateTo(if (target) 1f else 0f, CalinoMotion.standardSpatial(), velocity) }
-    }
-    // Back, the grid's tap-away and a drag that lifts a task all collapse
-    // through the same state the gesture writes.
-    LaunchedEffect(expanded) {
-        if (progress.targetValue != (if (expanded) 1f else 0f) && !progress.isRunning) {
-            progress.animateTo(if (expanded) 1f else 0f, CalinoMotion.standardSpatial())
-        }
-    }
-    BackHandler(enabled = expanded) { settle(false) }
-
-    val dragState = rememberDraggableState { delta ->
-        val full = naturalListPx.coerceAtLeast(1)
-        scope.launch { progress.snapTo((progress.value - delta / full).coerceIn(0f, 1f)) }
-    }
-    Column(
-        modifier.widthIn(max = maxWidth).fillMaxWidth()
-            .onGloballyPositioned { onBounds(it.boundsInRoot()) }
-            .shadow(14.dp * CalinoColors.elevationAlpha, shape, clip = false)
-            .clip(shape).background(CalinoColors.Panel)
-            .border(1.dp, CalinoColors.SurfaceBorder, shape),
-    ) {
-        Column(
-            Modifier.fillMaxWidth()
-                .draggable(dragState, Orientation.Vertical, onDragStopped = { velocity ->
-                    val fling = -velocity / naturalListPx.coerceAtLeast(1)
-                    settle(progress.value + fling * .18f > .5f, fling)
-                })
-                .calinoPressable(role = Role.Button) { settle(!expanded) }
-                .semantics { contentDescription = "Sometime this week, sheet"; stateDescription = if (expanded) "Expanded" else "Collapsed" },
-        ) {
-            Box(Modifier.fillMaxWidth().height(SheetHandleDp.dp), contentAlignment = Alignment.BottomCenter) {
-                Box(Modifier.size(width = 32.dp, height = 4.dp).background(CalinoColors.Ink.copy(alpha = .18f), CircleShape))
-            }
-            Row(Modifier.fillMaxWidth().height(SheetPeekRowDp.dp).padding(start = 18.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Sometime this week", style = CalinoTypography.titleSmall.copy(fontSize = 17.sp), color = CalinoColors.Ink, maxLines = 1)
-                Spacer(Modifier.width(10.dp))
-                Text("${openCount(tasks)} OPEN", color = CalinoColors.Ink3, maxLines = 1,
-                    style = CalinoTypography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 1.1.sp))
-                Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier.size(width = 44.dp, height = SheetPeekRowDp.dp).calinoPressable { composer.adding = !composer.adding; if (composer.adding) settle(true) }
-                        .semantics { contentDescription = "Add week task"; stateDescription = if (composer.adding) "Expanded" else "Collapsed" },
-                    contentAlignment = Alignment.Center,
-                ) { CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Ink2, contentDescription = null) }
-            }
-        }
-        // Measured at its full capped height, revealed by the finger's progress.
-        Box(
-            Modifier.fillMaxWidth().clipToBoundsCompat()
-                .layout { measurable, constraints ->
-                    val placeable = measurable.measure(constraints)
-                    naturalListPx = placeable.height
-                    // The settle spring can overshoot past either end; a layout size can't go negative.
-                    val height = (placeable.height * progress.value).roundToInt().coerceIn(0, placeable.height)
-                    layout(placeable.width, height) { placeable.place(0, 0) }
-                },
-        ) {
-            WeekTaskRows(tasks, onOpen, onDone, onLongClick, taskModifier, Modifier.heightIn(max = windowHeight * .3f), horizontalPadding = 10.dp)
-        }
-        EditorReveal(composer.adding) { WeekTaskInput(composer, onDetails) }
-        Spacer(Modifier.windowInsetsBottom())
-    }
-}
-
-private fun Modifier.clipToBoundsCompat(): Modifier = this.clip(androidx.compose.ui.graphics.RectangleShape)
-
 /**
  * Hands the keyboard inset to `imePadding` alone while [active].
  *
@@ -571,9 +489,6 @@ private fun ImeResizeWhile(active: Boolean) {
         onDispose { apply(previous) }
     }
 }
-
-@Composable
-private fun Modifier.windowInsetsBottom(): Modifier = this.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)).height(0.dp)
 
 // ─── Strip (landscape / wide) ────────────────────────────────────────────────
 

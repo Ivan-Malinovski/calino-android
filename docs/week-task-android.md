@@ -10,14 +10,17 @@ mapper's display-frame dates; date-only values retain their calendar dates.
 RRULE and either recurrence identity disqualify a task. No vendor property,
 new store, or migration is introduced.
 
-Range's seven-day mode presents week tasks through a corner badge + popover, an optional
-peek sheet, or (landscape/wide) a chip strip; see `HANDOFF.md` and `weekShelfLayoutFor`. The
-list below is the same in all three. It lists
-visible calendars' week tasks overlapping the seven displayed dates, ordered
-by start, due, title and ID, including completed tasks. Those tasks are removed
-from that page's day lanes. Other calendar modes, Agenda and Tasks retain their
-ordinary due-date projection. A shifted seven-day window uses its actual first
-and last dates, rather than snapping the shelf to a different calendar week.
+Range presents week tasks in every day-count mode (1, 3 and 7) through a corner
+badge + popover, or (landscape/wide) a chip strip; see `HANDOFF.md` and
+`weekShelfLayoutFor`. The list shows visible calendars' week tasks overlapping
+the displayed dates, ordered by start, due, title and ID, including completed
+tasks. Those tasks are removed from the page's day lanes in every mode. Agenda
+and Tasks retain their ordinary due-date projection. A shifted seven-day window
+uses its actual first and last dates, rather than snapping the shelf to a
+different calendar week. In one- and three-day modes, adding a week task, the
+bottom "release to plan for this week" drop and "Move to this week" all use the
+calendar week (per the week-start preference) that contains the first displayed
+day.
 
 Quick-add creates date-only DTSTART and inclusive DUE, chooses the first
 writable VTODO calendar (the same calendar ordering as the normal editor), and

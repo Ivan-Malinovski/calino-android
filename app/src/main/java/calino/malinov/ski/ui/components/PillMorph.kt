@@ -43,19 +43,10 @@ class CalinoPillLane {
 
     /**
      * How far a surface that lives at the bottom edge -- Range's week-task
-     * sheet -- has pushed the root pill up. The owner sets it from the sheet's
-     * own measured height, so the pill rides the sheet frame for frame.
+     * strip -- has pushed the root pill up. The owner sets it from the strip's
+     * own measured height, so the pill rides the strip frame for frame.
      */
     var bottomLift by mutableStateOf(0.dp)
-
-    /**
-     * True while a surface docked to the bottom edge is open far enough to sit
-     * over the root pill -- Range's expanded week-task sheet. The pill keeps
-     * laying out at its resting place, so [addPillBounds] stay true for a modal
-     * pill to appear from; the shell only fades it out and stops hit-testing
-     * it, since it is painted above route content and would show through.
-     */
-    var covered by mutableStateOf(false)
 
     /**
      * The label the root pill is showing right now, published by whoever owns
