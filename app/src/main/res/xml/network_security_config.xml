@@ -3,9 +3,12 @@
     DAV servers are chosen by the person using the app. Honor CA certificates
     they deliberately installed for private/self-hosted servers as well as
     Android's system roots. Chain and hostname validation still apply.
+    Cleartext HTTP is permitted too, because self-hosted servers are often
+    reached over a private network (LAN, Tailscale) without TLS; the person
+    chooses the address and can use https:// for anything public.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />

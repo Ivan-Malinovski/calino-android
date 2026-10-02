@@ -46,8 +46,19 @@ class CalDavRulesTest {
         assertNull(normalizeServerUrl("   "))
         assertNull(normalizeServerUrl("ftp://dav.example.com"))
         assertNull(normalizeServerUrl("not a host"))
-        // A single label is not a host unless it is localhost.
+        // A bare single label with no scheme or port is treated as a typo.
         assertNull(normalizeServerUrl("example"))
+        assertNull(normalizeServerUrl("http://:1001/dav.php"))
+    }
+
+    @Test
+    fun `single-label hosts are accepted with a scheme or port`() {
+        assertEquals(
+            "http://magic-dns:1001/dav.php",
+            normalizeServerUrl("http://magic-dns:1001/dav.php"),
+        )
+        assertEquals("https://nas", normalizeServerUrl("https://nas"))
+        assertEquals("https://nas:8443", normalizeServerUrl("nas:8443"))
     }
 
     @Test

@@ -41,7 +41,7 @@ The current add-account sheet discovers first, then `CalinoContainer.onAccountCo
 - Preserve every value exactly as entered, apart from rejecting empty and CR/LF/NUL. Never log request headers, whole credential objects or the editor draft. Avoid copying values into saved instance state or unencrypted account serialization.
 - Determine the allowed origin from the user-entered, normalized account URL. Scheme changes (`http` to `https`) and port changes count as origin changes. With headers present, tell the user to enter the final **HTTPS** DAV endpoint where possible. Android need not implement the web client's CORS diagnostics.
 - Header updates should be account scoped and atomic from the user's perspective. If saving to Keystore fails, keep the old usable configuration and show an error. New header values should be used by future syncs and queue replay; in-flight requests may finish under the prior snapshot.
-- Do not alter Android network security policy to permit cleartext globally. Existing server URL policy still applies; custom headers should not weaken it.
+- Custom headers must not change the network security policy (release now permits cleartext HTTP to user-entered servers; see HANDOFF.md).
 
 ## Acceptance and verification
 

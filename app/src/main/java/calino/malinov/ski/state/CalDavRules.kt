@@ -27,6 +27,7 @@ fun normalizeServerUrl(raw: String): String? {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return null
     val lower = trimmed.lowercase(Locale.US)
+    val explicitScheme = lower.startsWith("https://") || lower.startsWith("http://")
     val withScheme = when {
         lower.startsWith("https://") -> "https://" + trimmed.substring(8)
         lower.startsWith("http://") -> "http://" + trimmed.substring(7)
@@ -37,8 +38,13 @@ fun normalizeServerUrl(raw: String): String? {
     val host = body.substringBefore('/').substringBefore('?')
     if (host.isEmpty() || host.startsWith('.') || host.endsWith('.')) return null
     if (host.any { it.isWhitespace() }) return null
-    // A host has to look like a host: a dotted name, or an explicit localhost.
-    if (!host.contains('.') && !host.substringBefore(':').equals("localhost", ignoreCase = true)) return null
+    // A bare single word is most likely a typo, but a single-label name (a MagicDNS or LAN
+    // host such as `nas`) is legitimate once the person gives a scheme or a port.
+    val singleLabel = !host.contains('.')
+    if (singleLabel && !explicitScheme && !host.contains(':') &&
+        !host.equals("localhost", ignoreCase = true)
+    ) return null
+    if (singleLabel && host.substringBefore(':').isEmpty()) return null
     return withScheme.trimEnd('/')
 }
 
