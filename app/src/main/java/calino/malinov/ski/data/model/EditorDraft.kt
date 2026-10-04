@@ -393,6 +393,7 @@ fun editorDraftFor(task: CalTask, fallbackDate: LocalDate): EditorDraft = Editor
     completedAt = task.completedAt,
     recurrence = task.recurrence,
     color = task.color,
+    calendarId = task.calendarId,
     body = task.title,
     touched = EditorField.entries.toSet(),
     uid = task.uid,

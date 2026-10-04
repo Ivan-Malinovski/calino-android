@@ -229,6 +229,16 @@ class EditorDraftTest {
     }
 
     @Test
+    fun taskDraft_carriesItsCalendarIntoTheSavedTask() {
+        val task = CalTask(id = "t", title = "Pack", color = 1L, due = fixtureDate, calendarId = "https://dav.example/private/")
+
+        assertEquals(task.calendarId, editorDraftFor(task, fixtureDate).toNewTask().calendarId)
+
+        val created = blankEditorDraft(PocQuickAddKind.Task, fixtureDate, "Pack").copy(calendarId = "work")
+        assertEquals("work", created.toNewTask().calendarId)
+    }
+
+    @Test
     fun editingAnUndatedTask_doesNotInventADueDate() {
         val task = CalTask(id = "undated", title = "Call Alex", color = 1L,
             due = null, reminder = Reminder(0, absoluteAt = java.time.Instant.parse("2026-05-20T12:00:00Z")))

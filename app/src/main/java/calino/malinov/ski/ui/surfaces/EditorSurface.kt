@@ -77,6 +77,7 @@ import calino.malinov.ski.data.model.withAutoCategories
 import calino.malinov.ski.data.model.withCategoryToggled
 import calino.malinov.ski.data.parser.PocQuickAddKind
 import calino.malinov.ski.data.repository.CalinoCalendar
+import calino.malinov.ski.data.repository.accepts
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoSpacing
@@ -312,6 +313,7 @@ fun EditorSurface(
                         )
                         kind == PocQuickAddKind.Task -> TaskEditorFields(
                             draft = draft,
+                            calendars = calendars,
                             planningDate = baseDate,
                             categories = (categories + draft.categories).distinct(),
                             descriptionOpen = descriptionOpen,
@@ -552,6 +554,7 @@ private fun EventEditorFields(
 @Composable
 private fun TaskEditorFields(
     draft: EditorDraft,
+    calendars: List<CalinoCalendar>,
     planningDate: LocalDate,
     categories: List<String>,
     descriptionOpen: Boolean,
@@ -600,6 +603,8 @@ private fun TaskEditorFields(
             }
         },
     )
+    EditorDivider()
+    TaskCalendarRow(draft, calendars, onDraft)
     EditorDivider()
     EditorValueRow(
         icon = CalinoIcon.Clock,
@@ -992,6 +997,37 @@ private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onD
                 )
             }
         }
+    }
+}
+
+/**
+ * Where a new task is filed. Only writable, non-device collections that accept
+ * VTODO are offered. A saved task, or a subtask that must stay beside its
+ * parent, shows its calendar without a menu: moving a VTODO between
+ * collections is not supported, and the repository would ignore the choice.
+ */
+@Composable
+private fun TaskCalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onDraft: (EditorDraft) -> Unit) {
+    val eligible = remember(calendars) {
+        calendars.filter {
+            !it.readOnly && it.accepts("VTODO") && !calino.malinov.ski.platform.AndroidCalendarId.isImported(it.id)
+        }
+    }
+    val fixed = draft.isEditing || draft.parentTaskId != null
+    // A new draft starts on a placeholder id; name the calendar it will really
+    // land in so the row and the saved task agree.
+    LaunchedEffect(eligible, draft.calendarId, fixed) {
+        if (!fixed && eligible.isNotEmpty() && eligible.none { it.id == draft.calendarId }) {
+            onDraft(draft.copy(calendarId = eligible.first().id))
+        }
+    }
+    if (fixed) {
+        val current = calendars.firstOrNull { it.id == draft.calendarId } ?: return
+        EditorValueRow(CalinoIcon.Calendar, "Calendar", current.name)
+    } else if (eligible.size > 1) {
+        CalendarRow(draft, eligible, onDraft)
+    } else if (eligible.size == 1) {
+        EditorValueRow(CalinoIcon.Calendar, "Calendar", eligible.first().name)
     }
 }
 
