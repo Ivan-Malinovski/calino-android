@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
@@ -80,6 +81,7 @@ import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.repository.accepts
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
+import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.BottomDetailCard
@@ -105,6 +107,7 @@ import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.util.formatRecurrenceRule
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalTimeFormat
@@ -587,31 +590,36 @@ private fun TaskEditorFields(
                 startTime = null, allDay = true, taskDueAbsent = false, taskDueChanged = true,
                 touched = draft.touched + calino.malinov.ski.data.model.EditorField.Date + calino.malinov.ski.data.model.EditorField.Time))
         },
-        dueRow = { startAction ->
-            Column {
-                EditorValueRow(CalinoIcon.Calendar, "Due date",
-                    if (due == null) "Add due date" else draft.date.format(EditorDateFormat),
-                    pickStartDate)
-                if (due != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CalinoChip(text = "Clear due", selected = false, description = "Remove task due date",
-                            onClick = { onDraft(draft.copy(taskDueAbsent = true, taskDueChanged = false,
-                                startTime = null, taskStartDate = null, taskStartTime = null)) })
-                        startAction()
-                    }
+        folded = true,
+        onClearDue = {
+            onDraft(draft.copy(taskDueAbsent = true, taskDueChanged = false,
+                startTime = null, taskStartDate = null, taskStartTime = null))
+        },
+        // Clear, Add start and This week sit behind the chevron the block draws.
+        // The due time shares the date's line; a range swaps that line for its
+        // Start and Due fields, so the time keeps a row of its own beneath.
+        dueRow = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    EditorValueRow(CalinoIcon.Calendar, "Due date",
+                        if (due == null) "Add due date" else draft.date.format(EditorDateFormat),
+                        pickStartDate)
                 }
+                DueTimeAction(draft.startTime, pickStartTime)
             }
         },
     )
+    if (draft.taskStartDate != null && due != null) {
+        EditorDivider()
+        EditorValueRow(
+            icon = CalinoIcon.Clock,
+            label = "Due time",
+            value = draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
+            onClick = pickStartTime,
+        )
+    }
     EditorDivider()
     TaskCalendarRow(draft, calendars, onDraft)
-    EditorDivider()
-    EditorValueRow(
-        icon = CalinoIcon.Clock,
-        label = "Due time",
-        value = draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
-        onClick = pickStartTime,
-    )
     EditorDivider()
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         EditorLabel("Priority")
@@ -638,7 +646,8 @@ private fun TaskEditorFields(
     }
     EditorDivider()
     if (draft.parentTaskId == null) {
-        EditorValueRow(CalinoIcon.Repeat, "Repeat", formatRecurrenceRule(draft.recurrence, draft.date), onRecurrenceOpen)
+        EditorValueRow(CalinoIcon.Repeat, "Repeat",
+            draft.recurrence?.let { formatRecurrenceRule(it, draft.date) } ?: "Don't repeat", onRecurrenceOpen)
         EditorReveal(recurrenceOpen) { RecurrenceEditor(draft, onDraft, pickUntil) }
     } else {
         Text(
@@ -997,6 +1006,25 @@ private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onD
                 )
             }
         }
+    }
+}
+
+/** The due time as a quiet action at the end of the date line. */
+@Composable
+private fun DueTimeAction(time: LocalTime?, onClick: () -> Unit) {
+    val text = time?.let { LocalTimeFormat.format(it) } ?: "Add time"
+    Row(
+        Modifier
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(CalinoShapes.Row))
+            .clickable(role = Role.Button, onClickLabel = "Change due time", onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = "Due time: $text" }
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CalinoIcon(CalinoIcon.Clock, tint = CalinoColors.Ink3, modifier = Modifier.size(17.dp), contentDescription = null)
+        Text(text, style = CalinoTypography.bodyMedium, color = if (time == null) CalinoColors.Ink2 else CalinoColors.Ink)
     }
 }
 
