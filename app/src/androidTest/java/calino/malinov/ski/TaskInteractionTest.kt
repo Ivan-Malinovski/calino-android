@@ -1,6 +1,8 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -34,12 +36,14 @@ class TaskInteractionTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Complete $Task").performClick()
         compose.waitForIdle()
 
-        // A completed task moves to the Completed bucket at the bottom of the
-        // list, which is not composed until it is scrolled to. Still asserted
-        // as displayed, just at the place the list actually put it.
+        // All previews only five completed tasks; the Completed filter shows
+        // the entire history, including this newly completed record.
+        compose.onNodeWithContentDescription("Task filter: Completed").performClick()
+        val completed = "$Task, Personal, completed"
+        awaitDescribed(completed)
         compose.onNodeWithTag("task-list")
-            .performScrollToNode(hasContentDescription("$Task, completed"))
-        compose.onNodeWithContentDescription("$Task, completed").assertIsDisplayed()
+            .performScrollToNode(hasContentDescription(completed))
+        compose.onNodeWithContentDescription(completed).assertIsDisplayed()
     }
 
     @Test fun completingATaskOffersAnUndo() {
@@ -95,7 +99,7 @@ class TaskInteractionTest : CalinoUiTest() {
     @Test fun theDueDateChipsRescheduleATask() {
         openTaskDetail()
         // The chip for the current due date reports itself selected first.
-        compose.onNodeWithContentDescription("Today, Set due date").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Today, Set due date").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
 
         compose.onNodeWithContentDescription("Tomorrow, Set due date").performScrollTo().performClick()
         compose.waitForIdle()
@@ -124,9 +128,12 @@ class TaskInteractionTest : CalinoUiTest() {
         openTaskDetail()
 
         compose.onNodeWithContentDescription("Mark task as done").performClick()
-        awaitDescribed("$DatedTask, completed")
-
-        compose.onNodeWithContentDescription("$DatedTask, completed").performScrollTo().assertIsDisplayed()
+        awaitNoDescribed("Cancel task editing")
+        compose.onNodeWithContentDescription("Task filter: Completed").performClick()
+        val completed = "$DatedTask, due May 18, Work, completed"
+        awaitDescribed(completed)
+        compose.onNodeWithTag("task-list").performScrollToNode(hasContentDescription(completed))
+        compose.onNodeWithContentDescription(completed).assertIsDisplayed()
     }
 
     @Test fun taskDetailExposesPriorityAndPartialProgressControls() {

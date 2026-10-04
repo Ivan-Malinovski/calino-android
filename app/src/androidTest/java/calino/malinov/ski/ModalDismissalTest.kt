@@ -185,7 +185,9 @@ class ModalDismissalTest : CalinoUiTest() {
         }
         compose.waitForIdle()
 
-        assertTrue(compose.hasDescribedNode("Open task: Buy flowers"))
+        compose.onNodeWithTag("task-list").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Task filter: All").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Title, task").assertDoesNotExist()
     }
 
     @Test fun dismissingAnOpenedEventEditorClosesThePreviewToo() {

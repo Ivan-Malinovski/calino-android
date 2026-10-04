@@ -35,8 +35,9 @@ import calino.malinov.ski.R
  * touching the hundreds of call sites that read it. Read them through
  * [CalinoColors], never by holding a palette in a field.
  *
- * Values track `src/themes/built-in.css` in the Calino web repository, which is
- * the same design system. Two of its rules matter here:
+ * Values share the paper vocabulary of Calino web. Android uses a deeper
+ * light copper for legible small controls and a warm ivory panel. Two rules
+ * matter here:
  *
  * - **The warm neutral rule.** No flat grey, no pure black, no pure white.
  *   Every neutral carries the paper's warmth, in both directions.
@@ -124,6 +125,11 @@ data class CalinoPalette(
     // dark palette without a second set of literals to keep in step.
     val Line: Color get() = Ink.copy(alpha = .09f)
     val Line2: Color get() = Ink.copy(alpha = .05f)
+
+    /** A translucent ink wash that lets the sampled blur remain visible. */
+    val FloatFillAlpha: Float get() = .68f
+    /** Secondary icons stay distinguishable over the translucent material. */
+    val FloatSecondaryAlpha: Float get() = .70f
 
     /**
      * Washes that give the month grid a readable structure. Every cell used to
@@ -219,21 +225,21 @@ object CalinoThemes {
         name = "Light",
         isDark = false,
         Canvas = Color(0xFFFAF8F3),
-        Panel = Color.White,
+        Panel = Color(0xFFFFFDFA),
         Side = Color(0xFFF6F3ED),
         Ink = Color(0xFF2C2823),
         Ink2 = Color(0xFF655F57),
         Ink3 = Color(0xFF756D62),
-        Accent = Color(0xFFB07D4F),
+        Accent = Color(0xFF8D5D38),
         AccentSoft = Color(0xFFEFE7DB),
-        OnAccent = Color.White,
-        OnInk = Color.White,
+        OnAccent = Color(0xFFFFFDFA),
+        OnInk = Color(0xFFFFFDFA),
         FloatFill = Color(0xFF2C2823),
         OnFloat = Color(0xFFFAF8F3),
         FloatBorder = Color.Transparent,
         SurfaceBorder = Color.Transparent,
         SelectionFill = Color(0xFF2C2823),
-        OnSelection = Color.White,
+        OnSelection = Color(0xFFFFFDFA),
         SelectionBorder = Color.Transparent,
         Rose = Color(0xFFC2697F),
         Blue = Color(0xFF5B7FB5),
@@ -250,7 +256,7 @@ object CalinoThemes {
     /**
      * The same paper at night. Values are the web's `[data-theme='dark']`
      * block; the three status hues are its measured ones, and Blue, Plum and
-     * Teal are lifted by the move the accent makes (#B07D4F -> #C9956A).
+     * Teal are lifted alongside the night copper (#C9956A).
      */
     val PaperDark = CalinoPalette(
         id = "paper-dark",

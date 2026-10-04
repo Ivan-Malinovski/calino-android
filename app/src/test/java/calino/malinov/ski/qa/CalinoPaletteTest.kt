@@ -1,6 +1,7 @@
 package calino.malinov.ski.qa
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import calino.malinov.ski.design.CalinoPalette
 import calino.malinov.ski.design.CalinoThemes
 import calino.malinov.ski.design.priorityLabel
@@ -71,9 +72,8 @@ class CalinoPaletteTest {
      * unreadable on a phone. Every palette has to clear WCAG AA for body text
      * on the surface it is actually painted on.
      *
-     * Light paper's `Ink2`/`Ink3` follow the web's corrected `built-in.css`
-     * values. White on the light `Accent` is 3.56:1 and is exempted here
-     * knowingly: it is a brand-color decision, not a text token.
+     * Small accent labels and the foreground on accent fills have the same
+     * floor as body copy: selecting a control cannot make its label faint.
      */
     @Test
     fun `every theme clears WCAG AA for text`() {
@@ -82,12 +82,26 @@ class CalinoPaletteTest {
             assertContrast(palette, "Ink2 on Side", palette.Ink2, palette.Side)
             assertContrast(palette, "Ink3 on Canvas", palette.Ink3, palette.Canvas)
             assertContrast(palette, "Ink3 on Side", palette.Ink3, palette.Side)
-            if (palette.isDark) {
-                assertContrast(palette, "OnAccent on Accent", palette.OnAccent, palette.Accent)
+            listOf("Canvas" to palette.Canvas, "Panel" to palette.Panel,
+                "Side" to palette.Side, "AccentSoft" to palette.AccentSoft).forEach { (name, surface) ->
+                assertContrast(palette, "Accent on $name", palette.Accent, surface)
             }
+            assertContrast(palette, "OnAccent on Accent", palette.OnAccent, palette.Accent)
             assertContrast(palette, "OnInk on Ink", palette.OnInk, palette.Ink)
             assertContrast(palette, "OnFloat on FloatFill", palette.OnFloat, palette.FloatFill)
             assertContrast(palette, "OnSelection on SelectionFill", palette.OnSelection, palette.SelectionFill)
+        }
+    }
+
+    @Test fun `floating labels and secondary icons remain readable over bright and dark backdrops`() {
+        CalinoThemes.all.forEach { palette ->
+            listOf(Color.White, CalinoThemes.PaperLight.Panel, CalinoThemes.PaperDark.Canvas).forEach { backdrop ->
+                val glass = palette.FloatFill.copy(alpha = palette.FloatFillAlpha).compositeOver(backdrop)
+                assertContrast(palette, "Floating label on glass", palette.OnFloat, glass)
+                val secondary = palette.OnFloat.copy(alpha = palette.FloatSecondaryAlpha).compositeOver(glass)
+                val ratio = contrastRatio(secondary, glass)
+                assertTrue("${palette.id}: secondary icon on glass is %.2f:1".format(ratio), ratio >= 3f)
+            }
         }
     }
 

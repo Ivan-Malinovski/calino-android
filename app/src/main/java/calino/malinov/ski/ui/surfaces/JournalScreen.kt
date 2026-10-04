@@ -85,6 +85,7 @@ import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoSegmented
 import calino.malinov.ski.ui.components.MenuButton
+import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.ui.components.CalinoMarkdown
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
@@ -596,7 +597,6 @@ private fun JournalMonthRule(month: YearMonth, count: Int, level: Int) {
 @Composable
 private fun JournalCard(entry: JournalEntry, mostRecent: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val dayName = entry.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.US)
-    val wordCount = remember(entry.body) { entry.body.trim().let { if (it.isEmpty()) 0 else it.split(WordBoundaryPattern).size } }
     Box(
         modifier
             .fillMaxWidth()
@@ -604,28 +604,22 @@ private fun JournalCard(entry: JournalEntry, mostRecent: Boolean, modifier: Modi
             .background(CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
             .semantics(mergeDescendants = true) { contentDescription = "Open journal entry ${entry.title.ifBlank { "Untitled note" }}" }
-            .clickable(onClick = onClick),
+            .calinoPressable(onClick = onClick),
     ) {
         val spineColor = if (mostRecent) CalinoColors.Accent else CalinoColors.AccentSoft
         Row(
             Modifier.fillMaxWidth().drawBehind {
-                drawRect(spineColor, size = androidx.compose.ui.geometry.Size(5.dp.toPx(), size.height))
+                drawRect(spineColor, size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height))
             }.padding(15.dp),
             verticalAlignment = Alignment.Top,
         ) {
             Column(Modifier.width(45.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(dayName.uppercase(), style = CalinoTypography.labelSmall.copy(fontSize = CalinoTypography.labelSmall.fontSize * .9f), color = CalinoColors.Ink3)
                 Text(entry.date.dayOfMonth.toString(), style = CalinoTypography.titleLarge, color = CalinoColors.Accent, modifier = Modifier.padding(top = 2.dp))
-                Box(Modifier.padding(top = 4.dp).size(5.dp).clip(CircleShape).background(CalinoColors.Accent))
             }
             Column(Modifier.weight(1f).padding(start = 13.dp)) {
                 Text(entry.title.ifBlank { "Untitled note" }, style = CalinoTypography.titleSmall.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(entry.body, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 9.dp))
-                if (wordCount > 0) {
-                    Row(Modifier.padding(top = 9.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("$wordCount W", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.clip(RoundedCornerShape(CalinoShapes.Chip)).background(CalinoColors.Side).padding(horizontal = 7.dp, vertical = 3.dp))
-                    }
-                }
+                Text(entry.body, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             }
         }
     }

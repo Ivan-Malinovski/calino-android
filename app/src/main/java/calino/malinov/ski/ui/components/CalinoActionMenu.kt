@@ -7,7 +7,6 @@ import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -73,6 +72,7 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
+import calino.malinov.ski.design.CalinoShapes
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -96,7 +96,7 @@ fun Modifier.recordCalinoPressPoint(point: CalinoPressPoint): Modifier = pointer
     }
 }
 
-private val MenuShape = RoundedCornerShape(14.dp)
+private val MenuShape = RoundedCornerShape(CalinoShapes.Button)
 private val MenuWidth = 248.dp
 
 private val EdgeMargin = 12.dp
@@ -135,7 +135,7 @@ fun CalinoActionMenu(
     val thresholdPx = with(density) { DismissThreshold.toPx() }
     val fadePx = with(density) { FadeDistance.toPx() }
     val edgePx = with(density) { EdgeMargin.roundToPx() }
-    val shadowPx = with(density) { 14.dp.toPx() }
+    val shadowPx = with(density) { (10.dp * CalinoColors.elevationAlpha).toPx() }
     val shadowColor = CalinoColors.Ink
     val maxHeight = LocalConfiguration.current.screenHeightDp.dp * .7f
     // The held row, in popup-window coordinates. The popup covers the whole
@@ -338,8 +338,8 @@ fun RowScope.CalinoActionMenuTile(
             .heightIn(min = 60.dp)
             .clip(shape)
             .then(if (emphasized) Modifier.background(CalinoColors.Side) else Modifier)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = text }
+            .calinoPressable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = text }
             .padding(vertical = 9.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -381,9 +381,9 @@ fun CalinoActionMenuItem(
             .fillMaxWidth()
             .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = description }
-            .padding(horizontal = 10.dp),
+            .calinoPressable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = description }
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {

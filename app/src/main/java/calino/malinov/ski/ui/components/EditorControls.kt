@@ -165,19 +165,24 @@ fun CalinoChip(
     )
     Box(
         modifier
-            .heightIn(min = 36.dp)
-            .clip(RoundedCornerShape(CalinoShapes.Pill))
-            .background(fill)
-            .border(1.dp, edge, RoundedCornerShape(CalinoShapes.Pill))
+            .heightIn(min = 48.dp)
             .calinoPressable(role = semanticsRole, onClick = onClick)
-            .semantics {
+            .semantics(mergeDescendants = true) {
                 contentDescription = "$text, $description"
                 stateDescription = if (selected) "Selected" else "Not selected"
-            }
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            },
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, fontSize = 13.sp, color = ink)
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(CalinoShapes.Pill))
+                .background(fill)
+                .border(1.dp, edge, RoundedCornerShape(CalinoShapes.Pill))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text, fontSize = 13.sp, color = ink)
+        }
     }
 }
 

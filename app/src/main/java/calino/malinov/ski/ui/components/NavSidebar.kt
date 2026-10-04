@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
+import calino.malinov.ski.state.LocalCalinoNow
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.data.model.CalDavAccount
@@ -263,7 +264,7 @@ fun NavSidebar(
                             // The flat-dark rule: a drop shadow is a light-mode
                             // device. In dark the Panel step and the hairline
                             // below carry the elevation instead.
-                            .shadow(18.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Card), clip = false)
+                            .shadow(12.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Card), clip = false)
                             .clip(RoundedCornerShape(CalinoShapes.Card))
                             .background(if (CalinoColors.isDark) CalinoColors.Panel else CalinoColors.Canvas)
                             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
@@ -456,6 +457,7 @@ private fun SidebarMiniCalendar(
     onDateChanged: (LocalDate) -> Unit,
 ) {
     val preferences = LocalCalinoPreferences.current
+    val today = LocalCalinoNow.current.today
     val weekStart = preferences.weekStart
     val expanded = preferences.sidebarCalendarExpanded
     var miniMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
@@ -523,7 +525,7 @@ private fun SidebarMiniCalendar(
                             .weight(1f)
                             .height(44.dp)
                             .clip(RoundedCornerShape(7.dp))
-                            .clickable { onDateChanged(LocalDate.now()); miniMonth = YearMonth.now() }
+                            .clickable { onDateChanged(today); miniMonth = YearMonth.from(today) }
                             .semantics {
                                 contentDescription = "Go to today in sidebar"
                                 role = Role.Button
@@ -601,7 +603,7 @@ private fun SidebarMiniCalendar(
                         ) {
                             if (date != null) {
                                 val selected = date == selectedDate
-                                val today = date == LocalDate.now()
+                                val isToday = date == today
                                 Box(
                                     Modifier
                                         .size(26.dp)
@@ -611,7 +613,7 @@ private fun SidebarMiniCalendar(
                                 ) {
                                     Text(
                                         date.dayOfMonth.toString(),
-                                        color = if (selected) CalinoColors.OnAccent else if (today) CalinoColors.Accent else CalinoColors.Ink2,
+                                        color = if (selected) CalinoColors.OnAccent else if (isToday) CalinoColors.Accent else CalinoColors.Ink2,
                                         fontSize = 11.sp,
                                     )
                                 }
@@ -1005,9 +1007,6 @@ private fun SidebarNavGroup(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(CalinoColors.Side)
-            .border(1.dp, CalinoColors.Line2, RoundedCornerShape(12.dp))
             .padding(4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
         content = content,

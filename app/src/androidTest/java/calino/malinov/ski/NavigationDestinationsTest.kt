@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
@@ -59,11 +60,12 @@ class NavigationDestinationsTest : CalinoUiTest() {
     @Test fun destinationsShowTheirOwnContent() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
+        compose.onNodeWithTag("task-list").performScrollToNode(hasContentDescription("Open task: Buy flowers"))
         compose.onNodeWithContentDescription("Open task: Buy flowers").assertIsDisplayed()
 
         compose.openRoute("Journal")
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("Open journal entry A clear Monday").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Open journal entry A clear Monday").performScrollTo().assertIsDisplayed()
 
         compose.openRoute("Agenda")
         compose.waitForIdle()
@@ -122,8 +124,8 @@ class NavigationDestinationsTest : CalinoUiTest() {
         compose.onNodeWithText("May 2026").assertIsDisplayed()
 
         compose.onNodeWithContentDescription("Go to today in sidebar").performClick()
-        compose.onNodeWithText("September 2026").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Monday, September 14, 2026").assertIsDisplayed()
+        compose.onNodeWithText("May 2026").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Monday, May 18, 2026").assertIsDisplayed()
     }
 
     @Test fun miniCalendarDefaultsCollapsedAndRemembersExpansion() {

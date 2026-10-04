@@ -4,8 +4,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -13,6 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import calino.malinov.ski.CalinoTestActions.FixtureDate
 import calino.malinov.ski.CalinoTestActions.WeekPager
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -28,6 +31,22 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class SettingsRetentionTest : CalinoUiTest() {
+
+    @Test fun everyAppearanceChoiceFitsAndDarkHoldsAcrossNavigation() {
+        openSettingsSection(Display)
+        compose.onNodeWithContentDescription("System theme preview").performScrollTo()
+        val viewport = compose.onRoot().getBoundsInRoot()
+        listOf("Light", "System", "Dark").forEach { name ->
+            val choice = compose.onNodeWithContentDescription("$name theme preview")
+            choice.assertIsDisplayed()
+            val bounds = choice.getBoundsInRoot()
+            assertTrue("$name appearance is clipped", bounds.left >= viewport.left && bounds.right <= viewport.right)
+        }
+        compose.onNodeWithContentDescription("Dark theme preview").performClick()
+        compose.openRoute("Month")
+        openSettingsSection(Display)
+        compose.onNodeWithContentDescription("Dark theme preview").performScrollTo().assertIsSelected()
+    }
 
     @Test fun searchOpensTheMatchingReminderSetting() {
         compose.openRoute("Settings")

@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -704,7 +703,7 @@ private fun AppearanceSettings() {
             Column(Modifier.padding(18.dp)) {
                 Text("Appearance", style = CalinoTypography.labelLarge)
                 Text("Paper, night, or follow the system.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     CalinoThemeChoice.entries.forEach { choice ->
                         // System previews whichever palette the phone is
                         // currently in, so the card shows what choosing it
@@ -719,6 +718,7 @@ private fun AppearanceSettings() {
                             choice.label,
                             preview,
                             selected = choice == preferences.themeChoice,
+                            modifier = Modifier.weight(1f),
                         ) { preferences.setThemeChoice(choice) }
                     }
                 }
@@ -1451,20 +1451,19 @@ private fun SettingToggleRow(label: String, description: String, checked: Boolea
  * preview for free.
  */
 @Composable
-private fun ThemeCard(name: String, preview: CalinoPalette, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+private fun ThemeCard(name: String, preview: CalinoPalette, selected: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     val outline by animateColorAsState(
         if (selected) CalinoColors.Accent else CalinoColors.Line,
-        tween(180),
+        tween(CalinoMotion.ContentEnterMillis),
         label = "theme selection outline",
     )
     val foreground by animateColorAsState(
         if (selected) CalinoColors.Accent else CalinoColors.Ink,
-        tween(160),
+        tween(CalinoMotion.ContentExitMillis),
         label = "theme selection label",
     )
     Column(
-        Modifier
-            .width(112.dp)
+        modifier
             .heightIn(min = 112.dp)
             .clip(RoundedCornerShape(12.dp))
             .border(2.dp, outline, RoundedCornerShape(12.dp))
@@ -1480,8 +1479,12 @@ private fun ThemeCard(name: String, preview: CalinoPalette, selected: Boolean, e
         Box(Modifier.fillMaxWidth().height(68.dp).clip(RoundedCornerShape(7.dp)).background(preview.Canvas)) {
             Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Box(Modifier.fillMaxWidth(.65f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(preview.Ink.copy(.35f)))
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(7) { Box(Modifier.size(7.dp).clip(CircleShape).background(preview.Ink.copy(.12f))) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { repeat(5) { Box(Modifier.size(11.dp, 5.dp).clip(RoundedCornerShape(2.dp)).background(preview.Accent.copy(.55f))) } }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    repeat(7) { Box(Modifier.weight(1f).height(7.dp).clip(CircleShape).background(preview.Ink.copy(.12f))) }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    repeat(5) { Box(Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(2.dp)).background(preview.Accent.copy(.55f))) }
+                }
             }
         }
         Text(name, style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium), color = foreground, modifier = Modifier.padding(top = 7.dp, start = 2.dp, bottom = 2.dp))

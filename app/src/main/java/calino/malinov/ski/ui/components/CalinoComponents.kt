@@ -1796,7 +1796,7 @@ fun SectionLabel(text: String, count: Int? = null, modifier: Modifier = Modifier
 
 /**
  * The floating pill's own material: a blurred patch of whatever was recorded
- * behind it, then the ink at just under full opacity. Both the root add pill
+ * behind it, then a translucent ink wash. Both the root add pill
  * and a modal's action pill draw themselves with this, because they are meant
  * to be the same object -- a pill that turned opaque on entering a card would
  * announce itself as a different one.
@@ -1804,8 +1804,6 @@ fun SectionLabel(text: String, count: Int? = null, modifier: Modifier = Modifier
  * The caller records [backdrop]; the pill must be a sibling of that recording,
  * never a child, or the layer would recurse into itself.
  */
-private const val FloatingPillFillAlpha = .68f
-
 @Composable
 private fun Modifier.floatingPillSurface(
     backdrop: GraphicsLayer?,
@@ -1817,6 +1815,7 @@ private fun Modifier.floatingPillSurface(
     var origin by remember { mutableStateOf(Offset.Zero) }
     // Hoisted: a draw scope cannot read the palette's composition local.
     val fill = CalinoColors.FloatFill
+    val fillAlpha = CalinoColors.FloatFillAlpha
     return this
         .onGloballyPositioned { origin = it.positionInRoot() }
         .drawBehind {
@@ -1836,16 +1835,14 @@ private fun Modifier.floatingPillSurface(
                     translate(-offset.x, -offset.y) { drawLayer(backdrop) }
                 }
                 drawLayer(blurred)
-                // Keep the recorded surface legible through the glass. The
-                // wider undo state made the old near-opaque wash read as a
-                // solid bar rather than as the same translucent add pill.
-                drawRect(fill.copy(alpha = FloatingPillFillAlpha))
+                // Let the blurred backdrop show through the translucent ink.
+                drawRect(fill.copy(alpha = fillAlpha))
             } else {
                 // The backdrop is deliberately unavailable for the brief
                 // root/modal ownership handoff (and blur is unavailable
                 // before API 31). Keep the wash at the same opacity so those
                 // frames do not flash darker than the surrounding glass.
-                drawRect(fill.copy(alpha = FloatingPillFillAlpha))
+                drawRect(fill.copy(alpha = fillAlpha))
             }
         }
 }
@@ -2442,7 +2439,7 @@ fun AddPill(
                     active = confirmationActive,
                     color = CalinoColors.Rose,
                 )
-                .shadow(14.dp * CalinoColors.elevationAlpha, pillShape, clip = false)
+                .shadow(8.dp * CalinoColors.elevationAlpha, pillShape, clip = false)
                 .clip(pillShape)
                 // Carries the pill's shape where the fill is too close to the
                 // canvas to do it alone. Transparent in light, which needs no
@@ -2988,7 +2985,7 @@ private fun PillMenuRow(
         CalinoColors.OnFloat.copy(alpha = if (hot) .22f else if (selected) .12f else 0f),
         label = "pill menu row",
     )
-    val content = CalinoColors.OnFloat.copy(alpha = if (dim) .66f else 1f)
+    val content = CalinoColors.OnFloat.copy(alpha = if (dim) CalinoColors.FloatSecondaryAlpha else 1f)
     Row(
         Modifier
             .fillMaxWidth()
@@ -3003,7 +3000,7 @@ private fun PillMenuRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(19.dp))
-        Text(label, color = content, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1, modifier = Modifier.weight(1f))
+        Text(label, color = CalinoColors.OnFloat, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1, modifier = Modifier.weight(1f))
     }
 }
 
@@ -3044,7 +3041,7 @@ private fun PillViewDock(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(route.icon, contentDescription = null, modifier = Modifier.size(19.dp),
-                    tint = CalinoColors.OnFloat.copy(alpha = if (route.current) 1f else .66f))
+                    tint = CalinoColors.OnFloat.copy(alpha = if (route.current) 1f else CalinoColors.FloatSecondaryAlpha))
             }
         }
         Spacer(Modifier.width(4.dp))
@@ -3106,7 +3103,7 @@ private fun PillCreateTypes(onPick: (AddPillCreate) -> Unit, onClose: () -> Unit
                 .semantics { contentDescription = "Close" },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(CalinoIcons.X, contentDescription = null, tint = CalinoColors.OnFloat.copy(alpha = .66f), modifier = Modifier.size(19.dp))
+            Icon(CalinoIcons.X, contentDescription = null, tint = CalinoColors.OnFloat.copy(alpha = CalinoColors.FloatSecondaryAlpha), modifier = Modifier.size(19.dp))
         }
     }
 }
@@ -3689,7 +3686,7 @@ fun ModalActionPill(
                 active = deleteConfirmationActive || (deletePressed && deleteHoldToConfirm),
                 color = CalinoColors.Rose,
             )
-            .shadow(14.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
+            .shadow(8.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
             .clip(RoundedCornerShape(CalinoShapes.Pill))
             // The same glass the root pill is made of. The lane records the
             // card behind it, so the pill stays translucent over a modal
