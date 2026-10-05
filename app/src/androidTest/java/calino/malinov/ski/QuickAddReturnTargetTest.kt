@@ -1,9 +1,12 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertTrue
@@ -29,8 +32,12 @@ class QuickAddReturnTargetTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Title, task").assertIsDisplayed()
 
         compose.onNodeWithContentDescription("Cancel editor").performClick()
-        compose.waitForIdle()
+        awaitNoDescribed("Title, task")
 
+        // This fixture sits below the first viewport even before opening the
+        // editor. Assert the return after its real-time close, then reveal it.
+        compose.onNodeWithTag("task-list")
+            .performScrollToNode(hasContentDescription("Open task: Buy flowers"))
         compose.onNodeWithContentDescription("Open task: Buy flowers").assertIsDisplayed()
     }
 

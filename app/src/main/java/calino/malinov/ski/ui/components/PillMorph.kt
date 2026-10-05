@@ -30,7 +30,9 @@ import kotlinx.coroutines.launch
  * transition, and a second one underneath it would read as two controls.
  */
 @Stable
-class CalinoPillLane {
+class CalinoPillLane(
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+) {
     /**
      * Where the root add pill last sat, in root coordinates, or null before it
      * has laid out. A modal pill is placed against this rather than against a
@@ -92,6 +94,10 @@ class CalinoPillLane {
     var addPillBoundsDock by mutableStateOf<List<PillRoute>?>(null)
         internal set
 
+    /** The create-type row is an arrival source; dismissal still returns to the resting pill. */
+    var addPillBoundsCreateTypes by mutableStateOf(false)
+        internal set
+
     /**
      * Records where the root pill is resting. Ignored while a modal holds the
      * lane: the root pill is only the anchor while it owns the lane, and a
@@ -99,18 +105,35 @@ class CalinoPillLane {
      * spends leaving. Taking those, the modal pill chases the departing pill
      * off the bottom of the screen and stays wherever it last saw it.
      */
-    internal fun setAddPill(bounds: Rect, label: String, leadingIcon: ImageVector?, dock: List<PillRoute>?) {
+    internal fun setAddPill(bounds: Rect, label: String, leadingIcon: ImageVector?, dock: List<PillRoute>?, createTypes: Boolean = false) {
         if (claimedByModal) return
         addPillBounds = bounds
         addPillBoundsLabel = label
         addPillBoundsLeadingIcon = leadingIcon
         addPillBoundsDock = dock
+        addPillBoundsCreateTypes = createTypes
     }
 
     private var claims by mutableIntStateOf(0)
 
     /** True while a modal pill stands in the lane. */
     val claimedByModal: Boolean get() = claims > 0
+
+    private var modalActions: List<ModalPillAction>? = null
+    private var pendingModalActions: List<ModalPillAction>? = null
+
+    /** A replacement modal inherits the current action face, without returning through navigation. */
+    fun handoffModalActions() {
+        pendingModalActions = modalActions.takeIf { claimedByModal }
+    }
+
+    internal fun recordModalActions(actions: List<ModalPillAction>) {
+        modalActions = actions
+    }
+
+    internal fun takeModalActions(): List<ModalPillAction>? = pendingModalActions.also {
+        pendingModalActions = null
+    }
 
     /**
      * True for the frames right after the last modal pill left. The root pill
@@ -198,16 +221,17 @@ class CalinoPillLane {
         undo = null
         settleJob?.cancel()
         settleJob = null
+        val newRun = writesInFlight == 0
         writesInFlight += 1
         // The last thing asked for names the run. Removing something and then
         // saving something else inside one beat is rare, and reporting it as
         // the older of the two would name the wrong record.
         writeKind = kind
-        if (saveState != PillSaveState.Saving) {
+        if (newRun) {
             runFailed = false
-            savingSinceMillis = System.currentTimeMillis()
-            saveState = PillSaveState.Saving
+            savingSinceMillis = nowMillis()
         }
+        saveState = PillSaveState.Saving
     }
 
     /**
@@ -223,7 +247,7 @@ class CalinoPillLane {
         val landed = !runFailed
         settleJob?.cancel()
         settleJob = scope.launch {
-            val elapsed = System.currentTimeMillis() - savingSinceMillis
+            val elapsed = nowMillis() - savingSinceMillis
             delay((MinSavingMillis - elapsed).coerceAtLeast(0L))
             if (!landed) {
                 // A failure has its own message in the feedback lane. The pill
@@ -283,6 +307,7 @@ class CalinoPillLane {
     internal fun release() {
         claims = (claims - 1).coerceAtLeast(0)
         if (claims == 0) {
+            modalActions = null
             handingBack = true
             dismissDrag = 0f
         }

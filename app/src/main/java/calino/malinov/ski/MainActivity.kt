@@ -249,6 +249,7 @@ import calino.malinov.ski.state.shouldSplit
 import calino.malinov.ski.state.PocReturnTarget
 import calino.malinov.ski.ui.components.AddPill
 import calino.malinov.ski.ui.components.CalinoPillLane
+import calino.malinov.ski.ui.components.CalinoPillFeedback
 import calino.malinov.ski.ui.components.LocalCalinoPillLane
 import calino.malinov.ski.ui.components.PillWriteKind
 import calino.malinov.ski.ui.components.CalinoIcon
@@ -967,8 +968,10 @@ fun CalinoApp() {
             LocalCalinoPillLane provides remember { CalinoPillLane() },
             LocalCalinoPressPoint provides pressPoint,
         ) {
-            Box(Modifier.fillMaxSize().recordCalinoPressPoint(pressPoint)) {
-                CalinoAppContent(pocViewModel)
+            CalinoPillFeedback {
+                Box(Modifier.fillMaxSize().recordCalinoPressPoint(pressPoint)) {
+                    CalinoAppContent(pocViewModel)
+                }
             }
         }
     }
@@ -1517,8 +1520,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         quickAddStartMinute = null
         quickAddDateEpoch = null
         quickAddParentTaskId = null
-        // The detail card's edit action is the source pill for the editor,
-        // just like the root add pill is when creating a new event.
+        // Open replaces the preview's action face directly. The root/dock is
+        // still the return target, but is not an intermediate entrance face.
+        if (route == PockRoute.Detail) savePillLane.handoffModalActions()
         quickAddMorphFromAddPill = true
         quickAddKind = QuickAddKind.Event
         quickAddOrigin = origin

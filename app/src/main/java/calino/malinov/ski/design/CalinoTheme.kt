@@ -428,6 +428,17 @@ object CalinoMotion {
      */
     const val PillUnmorphMillis = 200
 
+    const val PillTraceLapMillis = 1150
+    const val PillConfirmMillis = 420
+    const val PillConfirmPauseMillis = 120L
+
+    /** A pill endpoint must settle to the pixel before ownership changes. */
+    fun pillMorph(): FiniteAnimationSpec<Float> = spring(
+        dampingRatio = .78f,
+        stiffness = 520f,
+        visibilityThreshold = .0005f,
+    )
+
     /**
      * Unfolding is a bigger move than any in-app transition, so it gets the
      * longest timing in the app -- long enough to read as the same surface
