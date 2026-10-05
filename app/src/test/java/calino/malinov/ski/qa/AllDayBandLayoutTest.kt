@@ -137,10 +137,10 @@ class AllDayBandLayoutTest {
     }
 
     @Test
-    fun eventsPrecedeTasksInLaneOrder() {
+    fun nonOverlappingTasksAndEventsShareTheLowestLane() {
         // A task on day 0 and an event spanning days 2-3: they never overlap
         // in columns, so the task must land in lane 0 alongside the event,
-        // not be pushed to lane 1 just because events are placed first.
+        // not be pushed to lane 1 just because they are different kinds.
         val trip = event("trip", monday.plusDays(2), monday.plusDays(3))
         val t = task("t", monday)
         val layout = layoutAllDayBand(week, listOf(span(trip, monday.plusDays(2), monday.plusDays(3))), listOf(t), laneLimit = 2)
@@ -151,14 +151,59 @@ class AllDayBandLayoutTest {
     }
 
     @Test
-    fun aClashingTaskIsPushedBehindTheEventThatClaimedTheLane() {
+    fun anOpenTaskKeepsTheTopLaneAheadOfAClashingEvent() {
         val allDay = event("allday", monday)
         val t = task("t", monday)
         val layout = layoutAllDayBand(week, listOf(span(allDay, monday)), listOf(t), laneLimit = 2)
             .placements.associateBy { it.item.key }
 
-        assertEquals(0, layout.getValue("event:allday@$monday").lane)
-        assertEquals(1, layout.getValue("task:t@$monday").lane)
+        assertEquals(1, layout.getValue("event:allday@$monday").lane)
+        assertEquals(0, layout.getValue("task:t@$monday").lane)
+    }
+
+    @Test
+    fun completedTasksOverflowBeforeEventsAndOpenTasks() {
+        val allDay = event("allday", monday)
+        val open = task("z-open", monday)
+        val done = task("a-done", monday).copy(done = true)
+        val layout = layoutAllDayBand(week, listOf(span(allDay, monday)), listOf(done, open), laneLimit = 2)
+
+        assertEquals(listOf("task:z-open@$monday", "event:allday@$monday"), layout.placements.map { it.item.key })
+        assertEquals(listOf("task:a-done@$monday"), layout.overflow.map { it.item.key })
+        assertEquals(0, layout.overflowEventCount)
+        assertEquals(1, layout.overflowTaskCount)
+    }
+
+    @Test
+    fun completingAndReopeningATaskChangesWhichWorkStaysVisible() {
+        val a = task("a", monday)
+        val b = task("b", monday)
+        val initial = layoutAllDayBand(week, emptyList(), listOf(a, b), laneLimit = 1)
+        val completed = layoutAllDayBand(week, emptyList(), listOf(a.copy(done = true), b), laneLimit = 1)
+        val reopened = layoutAllDayBand(week, emptyList(), listOf(a, b), laneLimit = 1)
+
+        assertEquals("task:a@$monday", initial.placements.single().item.key)
+        assertEquals("task:b@$monday", completed.placements.single().item.key)
+        assertEquals("task:a@$monday", completed.overflow.single().item.key)
+        assertEquals(initial, reopened)
+    }
+
+    @Test
+    fun openTasksOnEachDayPrecedeASpanningEventAndExpansionKeepsTheirLanes() {
+        val trip = event("trip", monday, week.last())
+        val tasks = week.flatMapIndexed { index, day ->
+            listOf(task("open$index", day), task("done$index", day).copy(done = true))
+        }
+        val spans = listOf(span(trip, monday, week.last()))
+        val collapsed = layoutAllDayBand(week, spans, tasks, laneLimit = 2)
+        val expanded = layoutAllDayBand(week, spans, tasks, laneLimit = Int.MAX_VALUE)
+
+        assertEquals(7, collapsed.placements.count { it.lane == 0 && it.item is AllDayItem.Task })
+        assertEquals(1, collapsed.placements.single { it.item is AllDayItem.Event }.lane)
+        assertEquals(7, collapsed.overflowTaskCount)
+        assertEquals(collapsed.placements, expanded.placements.filter { it.lane < 2 })
+        assertEquals(collapsed.overflow, expanded.placements.filter { it.lane >= 2 })
+        assertTrue(expanded.overflow.isEmpty())
     }
 
     @Test
@@ -187,8 +232,9 @@ class AllDayBandLayoutTest {
 
         assertEquals(1, layout.placements.size)
         assertEquals(2, layout.overflow.size)
-        assertEquals(1, layout.overflowEventCount)
-        assertEquals(1, layout.overflowTaskCount)
+        assertEquals("task:t@$monday", layout.placements.single().item.key)
+        assertEquals(2, layout.overflowEventCount)
+        assertEquals(0, layout.overflowTaskCount)
     }
 
     @Test

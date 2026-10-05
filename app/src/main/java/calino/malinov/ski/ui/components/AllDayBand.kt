@@ -1,6 +1,7 @@
 package calino.malinov.ski.ui.components
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -27,6 +28,11 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -123,36 +129,49 @@ fun AllDayBand(
     val timeFormat = LocalTimeFormat
     val laneHeight = if (density == AllDayBandDensity.Narrow) NarrowLaneHeight else WideLaneHeight
     val rowGap = CalinoSpacing.LaneRowGap
-    val laneCount = layout.laneCount.coerceAtLeast(0)
+    var shownLayout by remember { mutableStateOf(layout) }
+    val contentAlpha = remember { Animatable(1f) }
+    // Fade through one chip tree: overlapping trees would register competing
+    // drag bounds with the Range host, then remove the surviving chip's bounds.
+    LaunchedEffect(layout) {
+        if (shownLayout != layout) {
+            contentAlpha.animateTo(0f, tween(CalinoMotion.FadeThroughMillis))
+            shownLayout = layout
+        }
+        contentAlpha.animateTo(1f, tween(CalinoMotion.ContentEnterMillis))
+    }
+    val laneCount = shownLayout.laneCount.coerceAtLeast(0)
 
     Column(modifier.fillMaxWidth().animateContentSize(CalinoMotion.standardSpatial())) {
         if (laneCount > 0) {
             Layout(
                 content = {
-                    layout.placements.forEach { placement ->
-                        when (val item = placement.item) {
-                            is AllDayItem.Event -> AllDayEventChip(
-                                placement = placement,
-                                event = item.event,
-                                density = density,
-                                growFromEvent = days.size > 1,
-                                timeFormat = timeFormat,
-                                onClick = { onEventClick(item.occurrenceStart, item.event) },
-                                onLongClick = { onEventAction(EventMenuAction.Edit, item.event) },
-                            )
+                    shownLayout.placements.forEach { placement ->
+                        key(placement.item.key) {
+                            when (val item = placement.item) {
+                                is AllDayItem.Event -> AllDayEventChip(
+                                    placement = placement,
+                                    event = item.event,
+                                    density = density,
+                                    growFromEvent = days.size > 1,
+                                    timeFormat = timeFormat,
+                                    onClick = { onEventClick(item.occurrenceStart, item.event) },
+                                    onLongClick = { onEventAction(EventMenuAction.Edit, item.event) },
+                                )
 
-                            is AllDayItem.Task -> AllDayTaskChip(
-                                task = item.task,
-                                modifier = taskModifier(item.task),
-                                density = density,
-                                onClick = { onTaskClick(item.task) },
-                                onLongClick = { onTaskAction(TaskMenuAction.Edit, item.task) },
-                                onDone = { done -> onTaskDone(item.task, done) },
-                            )
+                                is AllDayItem.Task -> AllDayTaskChip(
+                                    task = item.task,
+                                    modifier = taskModifier(item.task),
+                                    density = density,
+                                    onClick = { onTaskClick(item.task) },
+                                    onLongClick = { onTaskAction(TaskMenuAction.Edit, item.task) },
+                                    onDone = { done -> onTaskDone(item.task, done) },
+                                )
+                            }
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = contentAlpha.value },
             ) { measurables, constraints ->
                 val gutterPx = gutterWidth.roundToPx()
                 val edgePx = edgeWidth.roundToPx()
@@ -175,7 +194,7 @@ fun AllDayBand(
                     // column), so side-by-side chips need their own gap
                     // rather than inheriting that.
                     val wideGapPx = maxOf(gapPx, WideChipGap.roundToPx())
-                    val itemCount = layout.placements.size
+                    val itemCount = shownLayout.placements.size
                     val itemsPerRow = (available / WideChipMinWidth.roundToPx().coerceAtLeast(1)).coerceIn(1, 2)
                     val rowCount = if (itemsPerRow > 0) (itemCount + itemsPerRow - 1) / itemsPerRow else 0
                     val rowCellWidth = IntArray(rowCount) { row ->
@@ -186,7 +205,7 @@ fun AllDayBand(
                     val totalHeight = laneHeightPx * rowCount + rowGapPx * (rowCount - 1).coerceAtLeast(0)
 
                     val placed = measurables.mapIndexed { index, measurable ->
-                        val placement = layout.placements[index]
+                        val placement = shownLayout.placements[index]
                         val row = placement.lane / itemsPerRow
                         val cellWidth = rowCellWidth.getOrElse(row) { available }
                         measurable.measure(Constraints.fixed(cellWidth, laneHeightPx)) to (placement to row)
@@ -203,10 +222,10 @@ fun AllDayBand(
                         }
                     }
                 } else {
-                    val totalHeight = laneHeightPx * laneCount + rowGapPx * (laneCount - 1).coerceAtLeast(0)
+                    val totalHeight = laneHeightPx * shownLayout.laneCount + rowGapPx * (shownLayout.laneCount - 1).coerceAtLeast(0)
 
                     val placed = measurables.mapIndexed { index, measurable ->
-                        val placement = layout.placements[index]
+                        val placement = shownLayout.placements[index]
                         val cols = (placement.endColumn - placement.startColumn + 1).coerceAtLeast(1)
                         val width = (columnWidth * cols + gapPx * (cols - 1)).coerceAtLeast(0)
                         measurable.measure(Constraints.fixed(width, laneHeightPx)) to placement

@@ -66,6 +66,14 @@ class RangeHeaderSettingTest : CalinoUiTest() {
     }
 
     private fun assertInHeader() {
+        // Unfinished day tasks have first claim on the collapsed header.
+        // This span may therefore need overflow expansion before it is visible.
+        if (headers().fetchSemanticsNodes().isEmpty()) {
+            val viewport = compose.onNodeWithTag(RangePagerTag).fetchSemanticsNode().boundsInRoot
+            compose.onAllNodesWithContentDescription("more all-day", substring = true)
+                .filter(SemanticsMatcher("visible overflow row") { it.boundsInRoot.overlaps(viewport) })[0]
+                .performClick()
+        }
         headers().assertCountEquals(1)
         headers()[0].assertIsDisplayed()
         compose.onAllNodesWithContentDescription("Header trip, 12:00 AM").assertCountEquals(0)

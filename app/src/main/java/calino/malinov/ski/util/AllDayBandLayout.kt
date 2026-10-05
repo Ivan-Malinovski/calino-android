@@ -113,9 +113,9 @@ private data class RawBandItem(
 /**
  * Packs [spans] and each day's due [tasks] into lanes across [days].
  *
- * Ordering is fixed, not incidental: every event is placed before any task,
- * because a span claims contiguous lanes that a single-day chip would
- * otherwise fragment. Within events, order is start date ascending, then
+ * Open tasks claim the lowest lanes first, followed by events, then completed
+ * tasks. This keeps unfinished work visible when the band overflows. Within
+ * events, order is start date ascending, then
  * length descending, then id -- so a longer span wins the lower lane on a
  * tie. Tasks keep [tasksDueOn]'s own order, extended day by day across the
  * window. Priority never affects ordering: it is a visual stripe only, and
@@ -171,12 +171,13 @@ fun layoutAllDayBand(
     val placements = mutableListOf<AllDayPlacement>()
     val overflow = mutableListOf<AllDayPlacement>()
     // Occupied columns per lane, tracked exactly rather than as a single
-    // "last end" -- events are placed before tasks regardless of date, so a
-    // later-starting event must not block an earlier, non-overlapping task
+    // "last end" -- items are placed by kind rather than date, so a
+    // later-starting item must not block an earlier, non-overlapping item
     // from a lane a running-end shortcut would think was still busy.
     val laneOccupancy = mutableListOf<BooleanArray>()
 
-    (eventItems + taskItems).forEach { raw ->
+    val (openTasks, completedTasks) = taskItems.partition { !(it.item as AllDayItem.Task).task.done }
+    (openTasks + eventItems + completedTasks).forEach { raw ->
         val range = raw.startColumn..raw.endColumn
         val lane = laneOccupancy.indexOfFirst { occupied -> range.none { occupied[it] } }
             .let { found -> if (found >= 0) found else laneOccupancy.size.also { laneOccupancy += BooleanArray(days.size) } }
