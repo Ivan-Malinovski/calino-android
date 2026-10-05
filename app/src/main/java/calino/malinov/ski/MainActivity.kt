@@ -1278,6 +1278,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // same process death the rest of the quick-add state does.
     var quickAddDateEpoch by rememberSaveable { mutableStateOf<Long?>(null) }
     var rangeFirstVisibleEpoch by rememberSaveable { mutableStateOf<Long?>(null) }
+    var rangeWeekPopoverVisible by remember { mutableStateOf(false) }
     var quickAddParentTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var quickAddMorphFromAddPill by rememberSaveable { mutableStateOf(false) }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
@@ -2327,6 +2328,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = ::selectCalendarDate,
                         onFirstVisibleDayChanged = { rangeFirstVisibleEpoch = it.toEpochDay() },
+                        onWeekPopoverVisibilityChange = { rangeWeekPopoverVisible = it },
                         onEventClick = { day, event ->
                             selectedEventId = event.id
                             selectedEventOccurrenceDay = day.toEpochDay()
@@ -3582,6 +3584,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             }
         }
 
+        // Range is clipped inside the root transition. Its matching system-bar
+        // veil belongs here, alongside the other shell-level transient hosts.
+        calino.malinov.ski.ui.range.WeekTaskStatusBarScrim(
+            visible = rangeWeekPopoverVisible && route == PockRoute.Range,
+        )
         NavSidebar(
             visible = sidebarVisible,
             selectedRoute = rootRoute,

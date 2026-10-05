@@ -178,9 +178,21 @@ fun RangeScreen(
     onTaskSchedule: (CalTask, LocalDate, java.time.LocalTime?) -> Unit,
     onTaskWeek: (CalTask, LocalDate, LocalDate) -> Unit,
     taskIsWritable: (CalTask) -> Boolean,
+    onWeekPopoverVisibilityChange: (Boolean) -> Unit,
 ) {
     val preferences = LocalCalinoPreferences.current
     val mode = preferences.rangeMode
+    var popoverOpen by remember(mode) { mutableStateOf(false) }
+    fun changePopoverVisibility(visible: Boolean) {
+        popoverOpen = visible
+        // Start the shell's status-bar fade in the same snapshot as the
+        // heading/grid fades, instead of notifying it after composition.
+        onWeekPopoverVisibilityChange(visible)
+    }
+    DisposableEffect(mode) {
+        onWeekPopoverVisibilityChange(false)
+        onDispose { onWeekPopoverVisibilityChange(false) }
+    }
     val weekStart = preferences.weekStart
     val today = LocalCalinoNow.current.today
     val density = LocalDensity.current
@@ -250,41 +262,48 @@ fun RangeScreen(
         pagerGeneration += 1
     }
     Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
-        CalinoMonthHeading(
-            day = liveFirstDay,
-            onMonthYearClick = openMonthYearPicker,
-            onOpenMenu = onOpenMenu,
-            onPreviousMonth = {},
-            onNextMonth = {},
-            onToday = {
-                pagerBaseEpoch = today.toEpochDay()
-                anchorEpoch = today.toEpochDay()
-                weekAligned = true
-                onDateChanged(today)
-                pagerGeneration += 1
-            },
-            showToday = today !in visibleDays,
-            subtitleContent = {
-                RangeSubtitle(
-                    pager = pager,
-                    dayCount = mode.dayCount,
-                    sliding = headerSliding,
-                    firstDayNow = { liveFirstDay },
-                    firstDayOf = ::pageFirstDay,
-                )
-            },
-            showNavigationArrows = false,
-            showTodayButton = true,
-            trailingContent = {
-                CompactSegmentedControl(
-                    options = listOf("1", "3", "7"),
-                    selectedIndex = CalinoRangeMode.entries.indexOf(mode),
-                    onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
-                    semanticLabel = stringResource(R.string.cal_range_size_days),
-                    modifier = Modifier.width(144.dp),
-                )
-            },
-        )
+        Box {
+            CalinoMonthHeading(
+                day = liveFirstDay,
+                onMonthYearClick = openMonthYearPicker,
+                onOpenMenu = onOpenMenu,
+                onPreviousMonth = {},
+                onNextMonth = {},
+                onToday = {
+                    pagerBaseEpoch = today.toEpochDay()
+                    anchorEpoch = today.toEpochDay()
+                    weekAligned = true
+                    onDateChanged(today)
+                    pagerGeneration += 1
+                },
+                showToday = today !in visibleDays,
+                subtitleContent = {
+                    RangeSubtitle(
+                        pager = pager,
+                        dayCount = mode.dayCount,
+                        sliding = headerSliding,
+                        firstDayNow = { liveFirstDay },
+                        firstDayOf = ::pageFirstDay,
+                    )
+                },
+                showNavigationArrows = false,
+                showTodayButton = true,
+                trailingContent = {
+                    CompactSegmentedControl(
+                        options = listOf("1", "3", "7"),
+                        selectedIndex = CalinoRangeMode.entries.indexOf(mode),
+                        onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
+                        semanticLabel = stringResource(R.string.cal_range_size_days),
+                        modifier = Modifier.width(144.dp),
+                    )
+                },
+            )
+            WeekTaskScrim(
+                visible = popoverOpen,
+                onDismiss = { changePopoverVisibility(false) },
+                modifier = Modifier.matchParentSize(),
+            )
+        }
         AnimatedContent(
             targetState = mode,
             transitionSpec = { fadeIn(androidx.compose.animation.core.tween(CalinoMotion.ContentEnterMillis)) togetherWith fadeOut(androidx.compose.animation.core.tween(CalinoMotion.FadeThroughMillis)) },
@@ -294,6 +313,8 @@ fun RangeScreen(
             RangePagerSurface(
                 pager = pager,
                 activeMode = activeMode,
+                popoverOpen = popoverOpen,
+                onPopoverOpenChange = ::changePopoverVisibility,
                 base = base,
                 weekStart = weekStart,
                 weekAligned = weekAligned,
@@ -406,6 +427,8 @@ private fun RangeLabelPart(page: Int, text: String, slide: Int, style: androidx.
 private fun RangePagerSurface(
     pager: androidx.compose.foundation.pager.PagerState,
     activeMode: CalinoRangeMode,
+    popoverOpen: Boolean,
+    onPopoverOpenChange: (Boolean) -> Unit,
     base: LocalDate,
     weekStart: calino.malinov.ski.util.CalinoWeekStart,
     weekAligned: Boolean,
@@ -475,7 +498,6 @@ private fun RangePagerSurface(
     // Measured bounds of the docked week-task strip.
     var shelfRect by remember { mutableStateOf(Rect.Zero) }
     var popoverRect by remember { mutableStateOf(Rect.Zero) }
-    var popoverOpen by remember { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
     // The week a new week task, a "this week" drop and the menu's "Move to this
     // week" target. Seven days show their own window (stepped ones included);
@@ -501,7 +523,8 @@ private fun RangePagerSurface(
     val weekDropBand = WeekDropZoneHeight + navInset
     // Only the week-task surfaces are live while an overlay is open.
     val overlayOpen = popoverOpen && badgeShown
-    LaunchedEffect(badgeShown) { if (!badgeShown) popoverOpen = false }
+    LaunchedEffect(badgeShown) { if (!badgeShown) onPopoverOpenChange(false) }
+    LaunchedEffect(popoverOpen) { if (!popoverOpen) weekComposer.adding = false }
     var taskMenu by remember { mutableStateOf<CalTask?>(null) }
     var scheduling by remember { mutableStateOf<CalTask?>(null) }
     var schedulingDay by remember { mutableStateOf(visibleDragDays.first()) }
@@ -657,7 +680,7 @@ private fun RangePagerSurface(
                     }
                 }?.value?.first },
                 onLift = { task, pointer -> taskDrag = task to pointer },
-                onDragStart = { taskDragging = true; taskMenu = null; popoverOpen = false },
+                onDragStart = { taskDragging = true; taskMenu = null; onPopoverOpenChange(false) },
                 onDrag = { _, pointer ->
                     taskDrag = taskDrag?.let { it.first to pointer }
                     autoScrollDirection = if (pointer.y >= hostHeight - with(density) { weekDropBand.toPx() } || pointer.y < with(density) { stripHeight.toPx() }) 0
@@ -914,18 +937,18 @@ private fun RangePagerSurface(
         if (badgeShown) {
             WeekTaskPopover(
                 visible = popoverOpen,
-                onDismiss = { popoverOpen = false; weekComposer.adding = false },
+                onDismiss = { onPopoverOpenChange(false); weekComposer.adding = false },
                 first = weekFirst, last = weekLast, tasks = weekTasks, composer = weekComposer,
                 anchorTop = ((headerHeight + 48.dp) / 2 + 2.dp).coerceAtLeast(0.dp),
-                onOpen = { popoverOpen = false; onTaskClick(it) }, onDone = onTaskDone, onLongClick = { taskMenu = it },
+                onOpen = { onPopoverOpenChange(false); onTaskClick(it) }, onDone = onTaskDone, onLongClick = { taskMenu = it },
                 taskModifier = { task -> taskModifier(task, "shelf") },
-                onDetails = { title -> popoverOpen = false; onWeekTaskDetails(title, weekFirst, weekLast) },
+                onDetails = { title -> onPopoverOpenChange(false); onWeekTaskDetails(title, weekFirst, weekLast) },
                 onBounds = { popoverRect = it },
             )
             // Last, so the badge stays lit above the popover's scrim.
             WeekTaskBadge(
                 openTasks = weekTasks.count { !it.done }, expanded = popoverOpen,
-                onClick = { popoverOpen = !popoverOpen; if (!popoverOpen) weekComposer.adding = false },
+                onClick = { onPopoverOpenChange(!popoverOpen); if (popoverOpen) weekComposer.adding = false },
                 modifier = Modifier.align(Alignment.TopStart)
                     .padding(start = 2.dp, top = ((headerHeight - 48.dp) / 2).coerceAtLeast(0.dp)),
             )

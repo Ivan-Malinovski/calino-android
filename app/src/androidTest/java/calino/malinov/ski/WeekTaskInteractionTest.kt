@@ -38,9 +38,34 @@ class WeekTaskInteractionTest : CalinoUiTest() {
     @Test fun badgeOpensPopoverAndScrimDismissesIt() {
         openWeek()
         compose.onAllNodesWithText("Call the plumber").assertCountEquals(0)
-        openShelf()
+        val header = compose.onNodeWithContentDescription("Range size in days: 3").fetchSemanticsNode().boundsInRoot
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        val before = automation.takeScreenshot()
+        compose.mainClock.autoAdvance = false
+        compose.onNode(hasContentDescription("Sometime this week", substring = true)).performClick()
+        compose.mainClock.advanceTimeBy(80)
+        capture("week-popover-enter")
+        compose.mainClock.advanceTimeBy(1000)
         capture("week-popover")
+        val after = automation.takeScreenshot()
+        // Sample empty background in both the system bar and month heading:
+        // semantics alone cannot detect a veil that starts below the heading.
+        for ((x, y) in listOf(before.width / 4 to 5, 5 to header.center.y.toInt())) {
+            assertTrue("The popup should dim the background at ($x, $y)",
+                android.graphics.Color.red(after.getPixel(x, y)) < android.graphics.Color.red(before.getPixel(x, y)))
+        }
+        before.recycle()
+        after.recycle()
         compose.onNodeWithText("Call the plumber").assertIsDisplayed()
+        // A tap on the covered day-count selector dismisses instead of
+        // reaching the control underneath it.
+        compose.onRoot().performTouchInput { click(header.center) }
+        compose.mainClock.advanceTimeBy(80)
+        capture("week-popover-exit")
+        compose.mainClock.autoAdvance = true
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Call the plumber").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithContentDescription("Range size in days: 7").assertIsSelected()
+        openShelf()
         compose.onNodeWithContentDescription("Close week tasks").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Call the plumber").fetchSemanticsNodes().isEmpty() }
     }
@@ -63,7 +88,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
         openShelf()
         compose.onNodeWithContentDescription("Add week task").performClick()
         compose.onNodeWithContentDescription("Week task title").performTextInput("Check the garden")
-        compose.onNodeWithText("Add", substring = false).performClick()
+        compose.onNodeWithContentDescription("Add task").performClick()
         compose.waitUntil(5000) { repository.tasks().any { it.title == "Check the garden" } }
         val added = repository.tasks().first { it.title == "Check the garden" }
         assertEquals(LocalDate.of(2026, 5, 18), added.startDate)

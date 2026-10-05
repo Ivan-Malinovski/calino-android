@@ -76,6 +76,9 @@ data class CalinoPreferences(
      */
     val showZoomHandle: Boolean = true,
     val setShowZoomHandle: (Boolean) -> Unit = {},
+    /** Continue past the compact calendar endpoints to reveal Year or Agenda. */
+    val calendarEdgeSwipes: Boolean = true,
+    val setCalendarEdgeSwipes: (Boolean) -> Unit = {},
     /**
      * Whether an event's detail card grows out of the event that was tapped.
      * Off, it arrives with its surface's ordinary slide.
@@ -196,6 +199,8 @@ interface CalinoPreferenceStore {
     fun saveTimeFormat(format: CalinoTimeFormat)
     fun loadShowZoomHandle(): Boolean
     fun saveShowZoomHandle(show: Boolean)
+    fun loadCalendarEdgeSwipes(): Boolean
+    fun saveCalendarEdgeSwipes(enabled: Boolean)
     fun loadGrowDetailFromEvent(): Boolean
     fun saveGrowDetailFromEvent(grow: Boolean)
     fun loadMenuPill(): Boolean
@@ -297,6 +302,7 @@ interface CalinoPreferenceStore {
         private var themeChoice = CalinoThemeChoice.Default
         private var timeFormat = CalinoTimeFormat.Default
         private var zoomHandle = true
+        private var calendarEdgeSwipes = true
         private var growDetail = true
         private var menuPill = true
         private var pillDocked = false
@@ -321,6 +327,8 @@ interface CalinoPreferenceStore {
         override fun saveTimeFormat(format: CalinoTimeFormat) { timeFormat = format }
         override fun loadShowZoomHandle() = zoomHandle
         override fun saveShowZoomHandle(show: Boolean) { zoomHandle = show }
+        override fun loadCalendarEdgeSwipes() = calendarEdgeSwipes
+        override fun saveCalendarEdgeSwipes(enabled: Boolean) { calendarEdgeSwipes = enabled }
         override fun loadGrowDetailFromEvent() = growDetail
         override fun saveGrowDetailFromEvent(grow: Boolean) { growDetail = grow }
         override fun loadMenuPill() = menuPill
@@ -428,6 +436,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 
     override fun loadShowZoomHandle(): Boolean = prefs.getBoolean(ShowZoomHandleKey, true)
     override fun saveShowZoomHandle(show: Boolean) = putBoolean(ShowZoomHandleKey, show)
+    override fun loadCalendarEdgeSwipes(): Boolean = prefs.getBoolean(CalendarEdgeSwipesKey, true)
+    override fun saveCalendarEdgeSwipes(enabled: Boolean) = putBoolean(CalendarEdgeSwipesKey, enabled)
     override fun loadGrowDetailFromEvent(): Boolean = prefs.getBoolean(GrowDetailFromEventKey, true)
     override fun saveGrowDetailFromEvent(grow: Boolean) = putBoolean(GrowDetailFromEventKey, grow)
     override fun loadMenuPill(): Boolean = prefs.getBoolean(MenuPillKey, true)
@@ -539,6 +549,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ThemeChoiceKey = "theme_choice"
         const val TimeFormatKey = "time_format"
         const val ShowZoomHandleKey = "show_zoom_handle"
+        const val CalendarEdgeSwipesKey = "calendar_edge_swipes"
         const val GrowDetailFromEventKey = "grow_detail_from_event"
         const val MenuPillKey = "menu_pill"
         const val PillDockedKey = "pill_docked"
@@ -590,6 +601,7 @@ fun rememberCalinoPreferences(
     var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
     var timeFormatChoice by remember(store) { mutableStateOf(store.loadTimeFormat()) }
     var showZoomHandle by remember(store) { mutableStateOf(store.loadShowZoomHandle()) }
+    var calendarEdgeSwipes by remember(store) { mutableStateOf(store.loadCalendarEdgeSwipes()) }
     var growDetailFromEvent by remember(store) { mutableStateOf(store.loadGrowDetailFromEvent()) }
     var menuPill by remember(store) { mutableStateOf(store.loadMenuPill()) }
     var pillDocked by remember(store) { mutableStateOf(store.loadPillDocked()) }
@@ -626,6 +638,8 @@ fun rememberCalinoPreferences(
         setTimeFormat = { value -> timeFormatChoice = value; store.saveTimeFormat(value) },
         showZoomHandle = showZoomHandle,
         setShowZoomHandle = { value -> showZoomHandle = value; store.saveShowZoomHandle(value) },
+        calendarEdgeSwipes = calendarEdgeSwipes,
+        setCalendarEdgeSwipes = { value -> calendarEdgeSwipes = value; store.saveCalendarEdgeSwipes(value) },
         growDetailFromEvent = growDetailFromEvent,
         setGrowDetailFromEvent = { value -> growDetailFromEvent = value; store.saveGrowDetailFromEvent(value) },
         menuPill = menuPill,

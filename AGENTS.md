@@ -4,6 +4,10 @@ This is the standalone Kotlin/Jetpack Compose Android app. It does not use the p
 
 Before substantial work, read [`HANDOFF.md`](HANDOFF.md) for current behavior, architecture and known gaps. [`TODO.md`](TODO.md) is the priority-ordered backlog; unless the user specifies a task, take its next unfinished item and work one item at a time.
 
+## Local infrastructure TODO
+
+- [ ] Resume the authorized Bitwarden Secrets Manager migration for Asahi and Jankyboi. Read [the BWS handover](/home/ivan/reports/BWS-HANDOVER-2026-10-04.md) first: host projects and read-only machine accounts are created and tested, but no secrets are imported and no host integration is deployed. Reuse the recorded resources and follow the handover's resume steps. Keep credentials out of this repository.
+
 ## Scope and privacy
 
 - Keep the frozen May 2026 fixture contract. With no account connected, `FixtureRepository` remains the default.

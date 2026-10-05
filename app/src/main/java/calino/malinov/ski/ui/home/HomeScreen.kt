@@ -1716,7 +1716,8 @@ fun HomeScreen(
             Modifier.weight(1f).fillMaxWidth().clipToBounds()
                 .onGloballyPositioned { onZoomViewportBounds(it.boundsInRoot()) },
         ) {
-            val showZoomHandle = LocalCalinoPreferences.current.showZoomHandle
+            val showZoomHandle = preferences.showZoomHandle
+            val calendarEdgeSwipes = preferences.calendarEdgeSwipes
             val handleHeight = if (showZoomHandle) ZoomHandleHeight else 0.dp
 
             val splitGridHeight = 292.dp
@@ -1770,7 +1771,7 @@ fun HomeScreen(
             val edgeDrag by rememberUpdatedState(onEdgeDrag)
             val edgeRelease by rememberUpdatedState(onEdgeRelease)
             var gestureCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
-            val calendarZoomGesture = Modifier.pointerInput(handleHeight) {
+            val calendarZoomGesture = Modifier.pointerInput(handleHeight, calendarEdgeSwipes) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     // The rail is laid out underneath the compact strip and
@@ -1791,6 +1792,7 @@ fun HomeScreen(
                     var extendedZoom = zoomState.floatValue
                     var previousRoot = gestureCoordinates?.localToRoot(down.position) ?: down.position
                     var edge: CalendarEdge? = when {
+                        !calendarEdgeSwipes -> null
                         settledZoom >= 1.999f -> CalendarEdge.Year
                         settledZoom <= .001f -> CalendarEdge.Agenda
                         else -> null
@@ -1898,7 +1900,11 @@ fun HomeScreen(
                                 velocityTracker.addPosition(change.uptimeMillis, rootPosition)
                                 change.consume()
                                 val delta = with(density) { (if (claimed != 0f) claimed else rootDelta.y).toDp().value }
-                                extendedZoom = calendarZoomAfterDrag(extendedZoom, delta)
+                                extendedZoom = calendarZoomAfterDrag(extendedZoom, delta).let { next ->
+                                    // Clamp each sample when disabled, so reversing
+                                    // follows the finger without stored overscroll.
+                                    if (calendarEdgeSwipes) next else next.coerceIn(0f, 2f)
+                                }
                                 zoomState.floatValue = extendedZoom.coerceIn(0f, 2f)
                                 edge = when {
                                     extendedZoom > 2f -> CalendarEdge.Year
@@ -7319,10 +7325,11 @@ private fun ZoomHandle(
     onTap: () -> Unit,
 ) {
     val zoomAccessibilityLabel = stringResource(R.string.cal_change_zoom_level, zoomLevel + 1)
+    val calendarEdgeSwipes = LocalCalinoPreferences.current.calendarEdgeSwipes
     val pullLabel = stringResource(when (zoomBand) {
-        0 -> R.string.cal_zoom_week_edge_hint
+        0 -> if (calendarEdgeSwipes) R.string.cal_zoom_week_edge_hint else R.string.cal_zoom_week_only_hint
         1 -> R.string.cal_pull_again_for_detail
-        else -> R.string.cal_zoom_month_edge_hint
+        else -> if (calendarEdgeSwipes) R.string.cal_zoom_month_edge_hint else R.string.cal_zoom_month_only_hint
     })
     Row(
         Modifier.fillMaxWidth().requiredHeight(ZoomHandleTouchHeight).then(gestureModifier)

@@ -2,7 +2,14 @@ package calino.malinov.ski
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.swipeLeft
@@ -49,6 +56,68 @@ class CalendarEdgeGestureTest : CalinoUiTest() {
         val first = checkNotNull(headers.minByOrNull { it.boundsInRoot.top })
         val labels = first.config[androidx.compose.ui.semantics.SemanticsProperties.ContentDescription]
         org.junit.Assert.assertTrue("First visible agenda section: $labels", description in labels)
+    }
+
+    @Test fun disablingEdgeSwipesSurvivesRecreationAndPreservesCalendarZoom() {
+        compose.openRoute("Settings")
+        compose.onNodeWithContentDescription("Display settings").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Swipe to Year and Agenda toggle")
+            .performScrollTo().assertIsOn().performClick()
+        compose.waitForIdle()
+        compose.openRoute("Month")
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+
+        // Both a slow pull and an outward fling stop at the week endpoint.
+        for (duration in listOf(650L, 100L)) {
+            compose.onNodeWithContentDescription(CalinoTestActions.zoomHandleLabel(0)).performTouchInput {
+                swipe(center, center - Offset(0f, 390f), duration)
+            }
+            compose.waitForIdle()
+            assertEquals(0, currentZoomLevel())
+            compose.onNodeWithTag("agenda-month-list").assertDoesNotExist()
+        }
+        compose.onNodeWithText("↓ MONTH").assertIsDisplayed()
+        compose.assertDaySelected(CalinoTestActions.WeekPager, CalinoTestActions.FixtureDate)
+
+        zoomTo(2)
+        for (duration in listOf(650L, 100L)) {
+            pullMonth(400f, duration)
+            assertEquals(2, currentZoomLevel())
+            assertFalse(compose.hasDescribedNode("Previous year"))
+        }
+        compose.onNodeWithText("↑ COLLAPSE").assertIsDisplayed()
+        // Ordinary inward zoom and its reverse continue to work.
+        pullMonth(-500f)
+        assertEquals(1, currentZoomLevel())
+        pullMonth(500f)
+        assertEquals(2, currentZoomLevel())
+        compose.assertDaySelected(CalinoTestActions.MonthPager, CalinoTestActions.FixtureDate)
+
+        compose.openRoute("Settings")
+        compose.onNodeWithContentDescription("Display settings").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Swipe to Year and Agenda toggle")
+            .performScrollTo().assertIsOff().performClick()
+        compose.waitForIdle()
+        compose.openRoute("Month")
+        zoomTo(2)
+        pullMonth(400f)
+        awaitDescribed("Previous year")
+        compose.openRoute("Month")
+        zoomTo(0)
+        revealAgenda()
+        assertAgendaStartsOn("Add on May 18, 2026")
+    }
+
+    @Test fun settingsSearchFindsTheEnabledByDefaultEdgeSwipeSwitch() {
+        compose.openRoute("Settings")
+        compose.onNodeWithContentDescription("Search settings").performClick()
+        compose.onNodeWithTag("Search settings").performTextInput("Swipe to Year")
+        compose.onNodeWithContentDescription("Open Swipe to Year and Agenda in Display settings")
+            .performClick()
+        compose.onNodeWithContentDescription("Display settings").assertIsSelected()
+        compose.onNodeWithContentDescription("Swipe to Year and Agenda toggle")
+            .performScrollTo().assertIsOn()
     }
 
     @Test fun agendaRevealStartsOnTheSelectedMaySixth() {

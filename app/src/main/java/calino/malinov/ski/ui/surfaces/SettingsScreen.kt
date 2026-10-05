@@ -181,6 +181,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry(R.string.set_first_day_of_week, SettingsSection.Display, R.string.set_display, "calendar grid", R.string.set_search_terms_first_day),
     SettingsSearchEntry(R.string.set_show_week_numbers, SettingsSection.Display, R.string.set_display, "Show week numbers"),
     SettingsSearchEntry(R.string.set_show_pull_bar, SettingsSection.Display, R.string.set_display, "zoom", R.string.set_search_terms_pull_bar),
+    SettingsSearchEntry(R.string.set_calendar_edge_swipes, SettingsSection.Display, R.string.set_display, "calendar zoom gestures transitions swipe year agenda", R.string.set_calendar_edge_swipes_search),
     SettingsSearchEntry(R.string.set_menu_pill, SettingsSection.Display, R.string.set_display, "navigation", R.string.set_search_terms_menu_pill),
     SettingsSearchEntry(R.string.set_event_density, SettingsSection.Display, R.string.set_display, "month", R.string.set_search_terms_event_density),
     SettingsSearchEntry(R.string.set_sometime_this_week, SettingsSection.Display, R.string.set_display, "week tasks range badge sheet shelf", R.string.set_search_terms_sometime_this_week),
@@ -795,6 +796,12 @@ private fun CalendarSettings() {
                 t(R.string.set_the_zoom_bar_between_the_calendar_and_the_day),
                 preferences.showZoomHandle,
                 preferences.setShowZoomHandle,
+            )
+            SettingToggleRow(
+                t(R.string.set_calendar_edge_swipes),
+                t(R.string.set_calendar_edge_swipes_description),
+                preferences.calendarEdgeSwipes,
+                preferences.setCalendarEdgeSwipes,
             )
             SettingToggleRow(
                 t(R.string.set_menu_pill),

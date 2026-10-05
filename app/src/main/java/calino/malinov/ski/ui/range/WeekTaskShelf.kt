@@ -96,6 +96,7 @@ import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.EditorReveal
 import calino.malinov.ski.ui.components.TaskCheckbox
+import calino.malinov.ski.ui.components.StatusBarScrimExtension
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.ui.components.eventColor
 import kotlinx.coroutines.CoroutineScope
@@ -415,6 +416,47 @@ private fun WeekTaskHeader(
 
 // ─── Popover (corner badge) ──────────────────────────────────────────────────
 
+@Composable
+private fun weekTaskScrimColor(visible: Boolean): Color {
+    val progress by animateFloatAsState(
+        if (visible) 1f else 0f,
+        tween(if (visible) CalinoMotion.ContentEnterMillis else CalinoMotion.ContentExitMillis),
+        label = "week task scrim",
+    )
+    return CalinoColors.scrim(.22f * progress)
+}
+
+/** Hosted by the shell outside the root route's clipping boundary. */
+@Composable
+internal fun WeekTaskStatusBarScrim(visible: Boolean) {
+    // A fading graphics layer would clip the negatively offset slice.
+    StatusBarScrimExtension(weekTaskScrimColor(visible))
+}
+
+/** Matching veil for the Range heading and the popover's grid host. */
+@Composable
+internal fun WeekTaskScrim(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    dismissDescription: String? = null,
+) {
+    val color = weekTaskScrimColor(visible)
+    Box(modifier) {
+        if (visible || color.alpha > 0f) {
+            Box(
+                Modifier.fillMaxSize().background(color)
+                    .pointerInput(visible) { if (visible) detectTapGestures { onDismiss() } }
+                    .then(if (dismissDescription != null && visible) Modifier.semantics {
+                        contentDescription = dismissDescription
+                        role = Role.Button
+                        onClick { onDismiss(); true }
+                    } else Modifier),
+            )
+        }
+    }
+}
+
 /**
  * The badge's card: a scrim, a caret under the badge and the week's tasks. With
  * nothing listed it is only the title block and a focused input.
@@ -437,15 +479,7 @@ internal fun WeekTaskPopover(
     val closeDescription = stringResource(R.string.cal_close_week_tasks)
     BoxWithConstraints(modifier.fillMaxSize()) {
         val cardMaxHeight = maxHeight * .6f
-        AnimatedVisibility(
-            visible, enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)), exit = fadeOut(tween(CalinoMotion.ContentExitMillis)),
-        ) {
-            Box(
-                Modifier.fillMaxSize().background(CalinoColors.scrim(.22f))
-                    .pointerInput(Unit) { detectTapGestures { onDismiss() } }
-                    .semantics { contentDescription = closeDescription; role = Role.Button; onClick { onDismiss(); true } },
-            )
-        }
+        WeekTaskScrim(visible, onDismiss, Modifier.fillMaxSize(), dismissDescription = closeDescription)
         AnimatedVisibility(
             visible,
             enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) +
