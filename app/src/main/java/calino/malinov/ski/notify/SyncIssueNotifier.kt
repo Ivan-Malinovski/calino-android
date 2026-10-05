@@ -62,11 +62,11 @@ object SyncIssueNotifier {
 
         ensureChannel(context)
         val title = if (attention.size == 1) {
-            attention.single().displayTitle()?.let { "“$it” couldn’t sync" } ?: "A change couldn’t sync"
+            attention.single().displayTitle()?.let { context.getString(R.string.sys_sync_item, it) } ?: context.getString(R.string.sys_sync_change)
         } else {
-            "${attention.size} changes couldn’t sync"
+            context.getString(R.string.sys_sync_changes, attention.size)
         }
-        val body = fresh.first().lastFailure?.message ?: "Open Calino to retry or revert it."
+        val body = fresh.first().lastFailure?.message ?: context.getString(R.string.sys_sync_retry)
         val builder = NotificationCompat.Builder(context, Channel)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
@@ -76,7 +76,7 @@ object SyncIssueNotifier {
             .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .setContentIntent(openIntent(context))
-            .addAction(0, "Review", openIntent(context))
+            .addAction(0, context.getString(R.string.sys_review), openIntent(context))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -93,8 +93,8 @@ object SyncIssueNotifier {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(
-            NotificationChannel(Channel, "Sync problems", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "When a change you saved could not reach your calendar server."
+            NotificationChannel(Channel, context.getString(R.string.sys_sync_channel), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = context.getString(R.string.sys_sync_description)
                 setSound(null, null)
             },
         )

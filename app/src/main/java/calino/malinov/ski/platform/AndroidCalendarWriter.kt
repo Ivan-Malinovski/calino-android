@@ -1,5 +1,6 @@
 package calino.malinov.ski.platform
 
+import calino.malinov.ski.R
 import android.content.ContentProviderOperation
 import android.content.ContentUris
 import android.content.ContentValues
@@ -34,7 +35,7 @@ class AndroidCalendarWriter(private val context: Context) {
         validateCalendar(calendar, input.calendarId, writeOptIn)?.let { return@guarded it }
         unsupportedFields(input)?.let { return@guarded it }
         if (input.recurrence != null || input.recurrenceChanged) {
-            return@guarded rejected("Creating a repeating event in a device calendar is not supported yet.")
+            return@guarded rejected(context.getString(R.string.provider_create_repeat))
         }
 
         val modeled = input.reminders.map { it.minutesBefore }.filter { it >= 0 }.distinct()
@@ -50,8 +51,8 @@ class AndroidCalendarWriter(private val context: Context) {
         modeled.forEach { minutes -> operations += reminderInsertBackReference(0, minutes, AlertMethod) }
         val results = resolver.applyBatch(CalendarContract.AUTHORITY, operations)
         val uri = results.firstOrNull()?.uri
-            ?: error("The calendar provider did not return the new event identity.")
-        require(results.drop(1).all { it.uri != null }) { "The calendar provider did not save every reminder." }
+            ?: error(context.getString(R.string.provider_new_identity))
+        require(results.drop(1).all { it.uri != null }) { context.getString(R.string.provider_reminders) }
         val rowId = ContentUris.parseId(uri)
         WriteResult.Applied(input.toEvent(AndroidCalendarId.event(rowId, startMillis(input)), calendar.color))
     }
@@ -65,15 +66,15 @@ class AndroidCalendarWriter(private val context: Context) {
         validateRoute(route, input.calendarId, scope, writeOptIn)?.let { return@guarded it }
         unsupportedFields(input)?.let { return@guarded it }
         if (scope == RecurrenceEditScope.Future) {
-            return@guarded rejected("Device calendars support changing this event or the entire series, not future events.")
+            return@guarded rejected(context.getString(R.string.provider_update_future))
         }
         if (input.recurrenceChanged || input.recurrence != null) {
-            return@guarded rejected("Changing an existing device calendar recurrence rule is not supported yet.")
+            return@guarded rejected(context.getString(R.string.provider_update_repeat))
         }
 
         if (route.recurring && scope == RecurrenceEditScope.This && !route.existingException) {
             existingException(route)?.let {
-                return@guarded rejected("That occurrence already changed in its owning app. Refresh the calendar and try again.")
+                return@guarded rejected(context.getString(R.string.provider_exception_changed))
             }
             insertExceptionAtomic(route, input, canceled = false)
             return@guarded WriteResult.Applied(
@@ -104,13 +105,13 @@ class AndroidCalendarWriter(private val context: Context) {
     ): WriteResult<Unit> = guarded {
         validateRoute(route, route.calendarId, scope, writeOptIn)?.let { return@guarded it }
         if (scope == RecurrenceEditScope.Future) {
-            return@guarded rejected("Device calendars support deleting this event or the entire series, not future events.")
+            return@guarded rejected(context.getString(R.string.provider_delete_future))
         }
         when {
             !route.recurring || scope == RecurrenceEditScope.All -> {
                 val target = if (route.recurring) route.masterRowId else route.eventRowId
                 if (resolver.delete(eventUri(target), null, null) != 1) {
-                    return@guarded rejected("The event changed in its owning app. Refresh and try again.")
+                    return@guarded rejected(context.getString(R.string.provider_changed_refresh))
                 }
             }
             route.existingException -> {
@@ -122,7 +123,7 @@ class AndroidCalendarWriter(private val context: Context) {
             }
             else -> {
                 existingException(route)?.let {
-                    return@guarded rejected("That occurrence already changed in its owning app. Refresh the calendar and try again.")
+                    return@guarded rejected(context.getString(R.string.provider_exception_changed))
                 }
                 insertExceptionAtomic(route, input = null, canceled = true)
             }
@@ -137,21 +138,21 @@ class AndroidCalendarWriter(private val context: Context) {
         writeOptIn: Set<String>,
     ): WriteResult.Rejected? {
         if (destinationCalendarId != route.calendarId) {
-            return rejected("Events cannot be moved between device calendars or between device and CalDAV calendars.")
+            return rejected(context.getString(R.string.provider_move))
         }
         val calendar = AndroidCalendarSource.availableCalendars(context).firstOrNull { it.id == route.calendarId }
-            ?: return rejected("That device calendar is no longer available.")
+            ?: return rejected(context.getString(R.string.provider_missing_calendar))
         validateCalendar(calendar, route.calendarId, writeOptIn)?.let { return it }
         if (calendar.rowId != route.calendarRowId || calendar.accountName != route.accountName ||
             calendar.accountType != route.accountType || calendar.ownerAccount != route.ownerAccount
-        ) return rejected("That device calendar changed ownership. Turn editing off and on again before retrying.")
+        ) return rejected(context.getString(R.string.provider_ownership))
         val all = route.recurring && scope == RecurrenceEditScope.All
         val baseline = if (all) route.masterBaseline else route.baseline
         val checkedRow = if (all) route.masterRowId else route.eventRowId
         val current = AndroidCalendarSource.providerBaseline(context, checkedRow)
-            ?: return rejected("That event was removed by its owning app. Refresh the calendar.")
+            ?: return rejected(context.getString(R.string.provider_removed))
         if (current != baseline) {
-            return rejected("That event changed in its owning app. Refresh the calendar and try again.")
+            return rejected(context.getString(R.string.provider_changed))
         }
         return null
     }
@@ -162,16 +163,16 @@ class AndroidCalendarWriter(private val context: Context) {
         writeOptIn: Set<String>,
     ): WriteResult.Rejected? {
         if (destinationCalendarId != calendar.id || calendar.id !in writeOptIn) {
-            return rejected("Editing is not enabled for that device calendar.")
+            return rejected(context.getString(R.string.provider_editing_disabled))
         }
         val current = AndroidCalendarSource.availableCalendars(context).firstOrNull { it.id == calendar.id }
-            ?: return rejected("That device calendar is no longer available.")
+            ?: return rejected(context.getString(R.string.provider_missing_calendar))
         if (current.rowId != calendar.rowId || current.accountName != calendar.accountName ||
             current.accountType != calendar.accountType || current.ownerAccount != calendar.ownerAccount
-        ) return rejected("That device calendar changed ownership. Turn editing off and on again before retrying.")
-        if (!current.canWrite) return rejected("That device calendar is read-only or calendar write permission was revoked.")
+        ) return rejected(context.getString(R.string.provider_ownership))
+        if (!current.canWrite) return rejected(context.getString(R.string.provider_readonly))
         if (current.accountType.equals(CalinoAccounts.accountType(context), ignoreCase = true)) {
-            return rejected("Calino cannot import or edit its own Android projection.")
+            return rejected(context.getString(R.string.provider_own_projection))
         }
         return null
     }
@@ -179,14 +180,14 @@ class AndroidCalendarWriter(private val context: Context) {
     /** Reject fields CalendarContract write-back deliberately does not model. */
     private fun unsupportedFields(input: NewEvent): WriteResult.Rejected? {
         val changed = buildList {
-            if (input.attendees.isNotEmpty()) add("attendees")
-            if (input.categories.isNotEmpty()) add("categories")
-            if (input.relatedTo.isNotEmpty()) add("relationships")
-            if (input.travelTimeMinutes != null) add("travel time")
+            if (input.attendees.isNotEmpty()) add(context.getString(R.string.provider_attendees))
+            if (input.categories.isNotEmpty()) add(context.getString(R.string.provider_categories))
+            if (input.relatedTo.isNotEmpty()) add(context.getString(R.string.provider_relationships))
+            if (input.travelTimeMinutes != null) add(context.getString(R.string.provider_travel))
             if (input.url != null) add("URL")
         }
         return changed.takeIf { it.isNotEmpty() }?.let {
-            rejected("Device calendars do not support changing ${it.joinToString()}. Clear those fields and try again.")
+            rejected(context.getString(R.string.provider_unsupported, it.joinToString()))
         }
     }
 
@@ -246,8 +247,8 @@ class AndroidCalendarWriter(private val context: Context) {
         )
         reminders.forEach { row -> operations += reminderInsertBackReference(0, row.minutes, row.method) }
         val results = resolver.applyBatch(CalendarContract.AUTHORITY, operations)
-        val uri = results.firstOrNull()?.uri ?: error("The calendar provider did not return the exception identity.")
-        require(results.drop(1).all { it.uri != null }) { "The calendar provider did not save every exception reminder." }
+        val uri = results.firstOrNull()?.uri ?: error(context.getString(R.string.provider_exception_identity))
+        require(results.drop(1).all { it.uri != null }) { context.getString(R.string.provider_exception_reminders) }
         return ContentUris.parseId(uri)
     }
 
@@ -274,7 +275,7 @@ class AndroidCalendarWriter(private val context: Context) {
             .build()
         val results = resolver.applyBatch(CalendarContract.AUTHORITY, operations)
         require(modeled.indices.all { results[2 + it].uri != null }) {
-            "The calendar provider did not save every reminder."
+            context.getString(R.string.provider_reminders)
         }
     }
 
@@ -292,7 +293,7 @@ class AndroidCalendarWriter(private val context: Context) {
             null,
         )?.use { cursor ->
             while (cursor.moveToNext()) rows += ReminderRow(cursor.getInt(0), cursor.getInt(1))
-        } ?: error("The calendar provider did not return reminder state.")
+        } ?: error(context.getString(R.string.provider_reminder_state))
         return rows
     }
 
@@ -381,9 +382,9 @@ class AndroidCalendarWriter(private val context: Context) {
     private inline fun <T> guarded(block: () -> WriteResult<T>): WriteResult<T> = try {
         block()
     } catch (_: SecurityException) {
-        rejected("Calendar write permission is required to change that device calendar.")
+        rejected(context.getString(R.string.provider_permission))
     } catch (error: Exception) {
-        rejected(error.message?.takeIf { it.isNotBlank() } ?: "The calendar provider rejected that change.")
+        rejected(error.message?.takeIf { it.isNotBlank() } ?: context.getString(R.string.provider_rejected))
     }
 
     private fun rejected(reason: String) = WriteResult.Rejected(reason)

@@ -9,20 +9,28 @@ import calino.malinov.ski.data.model.placementDate
 import java.time.LocalDateTime
 
 /** Standards-safe recurring VTODO eligibility shared by both repositories. */
-fun recurringTaskValidation(input: NewTask, tasks: List<CalTask>, editingId: String? = null): String? {
+fun recurringTaskValidationCode(
+    input: NewTask,
+    tasks: List<CalTask>,
+    editingId: String? = null,
+): WriteRejectionCode? {
     if (input.recurrenceScope == RecurrenceEditScope.Future &&
         (input.recurrence != null || input.recurrenceId != null || input.recurrenceDate != null)
     ) {
-        return "Recurring tasks support this occurrence or the entire series, not this-and-future edits."
+        return WriteRejectionCode.RECURRING_TASK_SCOPE_UNSUPPORTED
     }
     if (input.recurrence == null) return null
-    if (input.due == null) return "A repeating task needs a due date."
-    if (input.parentTaskId != null) return "A subtask cannot repeat."
+    if (input.due == null) return WriteRejectionCode.REPEATING_TASK_NEEDS_DUE_DATE
+    if (input.parentTaskId != null) return WriteRejectionCode.SUBTASK_CANNOT_REPEAT
     if (editingId != null && tasks.any { it.parentTaskId == editingId }) {
-        return "A task with subtasks cannot repeat."
+        return WriteRejectionCode.TASK_WITH_SUBTASKS_CANNOT_REPEAT
     }
     return null
 }
+
+/** Existing string API remains stable for callers and repository tests. */
+fun recurringTaskValidation(input: NewTask, tasks: List<CalTask>, editingId: String? = null): String? =
+    recurringTaskValidationCode(input, tasks, editingId)?.englishFallback
 
 /** Builds a complete task update so a hierarchy edit cannot drop task fields. */
 fun CalTask.asUpdate(parentTaskId: String? = this.parentTaskId, due: java.time.LocalDate? = this.due): NewTask =
@@ -55,19 +63,19 @@ fun CalTask.asUpdate(parentTaskId: String? = this.parentTaskId, due: java.time.L
 
 suspend fun CalinoRepository.reparentTask(task: CalTask, parentTaskId: String?): WriteResult<CalTask> {
     if (TaskTreeValidation.wouldCycle(tasks(), task.id, parentTaskId)) {
-        return WriteResult.Rejected("A task cannot contain itself or one of its subtasks.")
+        return WriteResult.Rejected(WriteRejectionCode.TASK_CANNOT_CONTAIN_ITSELF)
     }
     if (task.parentTaskId == parentTaskId) return WriteResult.Applied(task)
     return updateTask(task.id, task.asUpdate(parentTaskId = parentTaskId), task.done)
 }
 
-suspend fun CalinoRepository.duplicateTask(task: CalTask): WriteResult<CalTask> = addTask(
-    task.asUpdate(parentTaskId = task.parentTaskId).copy(title = "${task.title} (copy)", uid = null, href = null, etag = null),
+suspend fun CalinoRepository.duplicateTask(task: CalTask, copySuffix: String = " (copy)"): WriteResult<CalTask> = addTask(
+    task.asUpdate(parentTaskId = task.parentTaskId).copy(title = "${task.title}$copySuffix", uid = null, href = null, etag = null),
 )
 
-suspend fun CalinoRepository.duplicateEvent(event: CalEvent): WriteResult<CalEvent> = addEvent(
+suspend fun CalinoRepository.duplicateEvent(event: CalEvent, copySuffix: String = " (copy)"): WriteResult<CalEvent> = addEvent(
     NewEvent(
-        title = "${event.title} (copy)",
+        title = "${event.title}$copySuffix",
         date = event.placementDate() ?: java.time.LocalDate.now(),
         startTime = event.start?.toLocalTime(),
         durationMinutes = event.durationMinutes,
@@ -91,7 +99,7 @@ suspend fun CalinoRepository.duplicateEvent(event: CalEvent): WriteResult<CalEve
 
 suspend fun CalinoRepository.moveEventToDate(event: CalEvent, date: java.time.LocalDate): WriteResult<CalEvent> {
     if (event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null) {
-        return WriteResult.Rejected("Recurring events cannot be moved from a single occurrence.")
+        return WriteResult.Rejected(WriteRejectionCode.RECURRING_EVENT_MOVE_SINGLE_OCCURRENCE)
     }
     return updateEvent(
         event.id,
@@ -131,7 +139,7 @@ suspend fun CalinoRepository.moveEventToDateTime(
     durationMinutes: Int? = event.durationMinutes,
 ): WriteResult<CalEvent> {
     if (event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null) {
-        return WriteResult.Rejected("Recurring events cannot be moved from a single occurrence.")
+        return WriteResult.Rejected(WriteRejectionCode.RECURRING_EVENT_MOVE_SINGLE_OCCURRENCE)
     }
     if (event.allDay || event.start == null) return moveEventToDate(event, start.toLocalDate())
     return updateEvent(
@@ -165,16 +173,16 @@ suspend fun CalinoRepository.moveEventToDateTime(
 /** Changes a timed event's length, keeping where it starts. */
 suspend fun CalinoRepository.resizeEvent(event: CalEvent, durationMinutes: Int): WriteResult<CalEvent> {
     val start = event.start
-    if (event.allDay || start == null) return WriteResult.Rejected("Only timed events can be resized.")
+    if (event.allDay || start == null) return WriteResult.Rejected(WriteRejectionCode.ONLY_TIMED_EVENTS_CAN_BE_RESIZED)
     return moveEventToDateTime(event, start, durationMinutes)
 }
 
 /** Converts through the repository so fixture and CalDAV surfaces share behavior. */
 suspend fun CalinoRepository.convertEventToTask(event: CalEvent): WriteResult<CalTask> {
     if (event.recurrence != null || event.recurrenceId != null || event.recurrenceDate != null) {
-        return WriteResult.Rejected("Recurring events must be edited from their detail surface.")
+        return WriteResult.Rejected(WriteRejectionCode.RECURRING_EVENT_EDIT_FROM_DETAIL)
     }
-    val date = event.placementDate() ?: return WriteResult.Rejected("That event has no date to use as a due date.")
+    val date = event.placementDate() ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_NO_DATE_FOR_DUE)
     val created = addTask(
         NewTask(
             title = event.title,
@@ -193,7 +201,7 @@ suspend fun CalinoRepository.convertEventToTask(event: CalEvent): WriteResult<Ca
 }
 
 suspend fun CalinoRepository.convertTaskToEvent(task: CalTask): WriteResult<CalEvent> {
-    val date = task.due ?: return WriteResult.Rejected("That task has no due date to use as an event date.")
+    val date = task.due ?: return WriteResult.Rejected(WriteRejectionCode.TASK_NO_DUE_DATE_FOR_EVENT)
     val created = addEvent(
         NewEvent(
             title = task.title,

@@ -338,6 +338,26 @@ class WidgetAgendaTest {
         assertTrue(agenda.days.all { it.rows.isEmpty() })
     }
 
+    @Test
+    fun `widget presentation inputs localize dates without changing record content`() {
+        val widget = build(
+            tasks = listOf(task("late", today.minusDays(1))),
+            options = options(content = WidgetContent.Tasks).copy(locale = java.util.Locale.GERMAN),
+        )
+        assertEquals("13. Sept.", widget.overdue.single().timeLabel)
+        assertEquals("Buy flowers", widget.overdue.single().title)
+        assertEquals("late", widget.overdue.single().recordId)
+    }
+
+    @Test
+    fun `an untitled widget row uses boundary copy instead of translating calendar titles`() {
+        val row = build(
+            events = listOf(event("empty", start = today.atTime(10, 0)).copy(title = "")),
+            options = options().copy(untitledLabel = "(Ohne Titel)"),
+        ).days.single().rows.single()
+        assertEquals("(Ohne Titel)", row.title)
+    }
+
     private fun build(
         calendars: List<CalinoCalendar> = this.calendars,
         events: List<CalEvent> = emptyList(),

@@ -1,5 +1,11 @@
 package calino.malinov.ski.ui.range
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
+
 import android.app.Activity
 import android.content.ContextWrapper
 import android.view.WindowManager
@@ -95,8 +101,6 @@ import calino.malinov.ski.ui.components.eventColor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import kotlin.math.roundToInt
 
 /** Height of the bottom zone a dragged task is released on; tall enough to clear the add pill with the label above it. */
@@ -111,10 +115,12 @@ private val BadgeTouch = 48.dp
  */
 private val PopoverRail = 20.dp
 
-private val MonthDay = DateTimeFormatter.ofPattern("MMM d")
-
-private fun weekRangeLabel(first: LocalDate, last: LocalDate, count: Int): String =
-    "${first.format(MonthDay)} – ${last.format(MonthDay)} · $count ${if (count == 1) "task" else "tasks"}".uppercase(Locale.getDefault())
+@Composable
+private fun weekRangeLabel(first: LocalDate, last: LocalDate, count: Int): String {
+    val monthDay = localizedDateFormatter("MMM d")
+    return pluralStringResource(R.plurals.cal_week_range_count, count, first.format(monthDay), last.format(monthDay), count)
+        .uppercase(LocalCalinoLocale)
+}
 
 /** Accent, darkened far enough to read on [CalinoColors.AccentSoft] (and lightened in dark themes). */
 private val AccentInk: Color @Composable get() = lerp(CalinoColors.Accent, CalinoColors.Ink, .32f)
@@ -165,13 +171,16 @@ internal fun rememberWeekTaskComposer(first: LocalDate, onAdd: suspend (String) 
 @Composable
 internal fun WeekTaskBadge(openTasks: Int, expanded: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val empty = openTasks == 0
+    val badgeDescription = if (empty) stringResource(R.string.cal_sometime_this_week_add_task)
+        else pluralStringResource(R.plurals.cal_sometime_this_week_open_count, openTasks, openTasks)
+    val expandedLabel = stringResource(R.string.cal_expanded)
+    val collapsedLabel = stringResource(R.string.cal_collapsed)
     Box(
         modifier.size(BadgeTouch)
             .calinoPressable(onClick = onClick)
             .semantics {
-                contentDescription = if (empty) "Sometime this week, add a task"
-                    else "Sometime this week, $openTasks open ${if (openTasks == 1) "task" else "tasks"}"
-                stateDescription = if (expanded) "Expanded" else "Collapsed"
+                contentDescription = badgeDescription
+                stateDescription = if (expanded) expandedLabel else collapsedLabel
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -268,6 +277,11 @@ private fun WeekTaskInput(composer: WeekTaskComposer, onDetails: (String) -> Uni
     BackHandler(enabled = composer.adding) { composer.adding = false }
     if (autofocus) LaunchedEffect(Unit) { focusRequester.requestFocus() }
     val accent = CalinoColors.Accent
+    val titleDescription = stringResource(R.string.cal_week_task_title)
+    val placeholder = stringResource(R.string.cal_week_task_placeholder)
+    val savingLabel = stringResource(R.string.cal_saving_ellipsis)
+    val addLabel = stringResource(R.string.cal_add)
+    val moreDetailsLabel = stringResource(R.string.cal_more_details)
     Column(modifier.padding(start = 18.dp, end = 12.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
@@ -275,7 +289,7 @@ private fun WeekTaskInput(composer: WeekTaskComposer, onDetails: (String) -> Uni
                 textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
                 cursorBrush = SolidColor(accent),
                 modifier = Modifier.weight(1f).heightIn(min = 44.dp).focusRequester(focusRequester)
-                    .semantics { contentDescription = "Week task title" },
+                    .semantics { contentDescription = titleDescription },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { composer.save() }),
                 decorationBox = { field ->
@@ -286,7 +300,7 @@ private fun WeekTaskInput(composer: WeekTaskComposer, onDetails: (String) -> Uni
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         if (composer.title.isEmpty()) Text(
-                            "What would you like to get done?", color = CalinoColors.Ink3,
+                            placeholder, color = CalinoColors.Ink3,
                             style = CalinoTypography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                         field()
@@ -294,10 +308,10 @@ private fun WeekTaskInput(composer: WeekTaskComposer, onDetails: (String) -> Uni
                 },
             )
             TextButton(onClick = { composer.save() }, enabled = composer.title.isNotBlank() && !composer.saving) {
-                Text(if (composer.saving) "Saving…" else "Add")
+                Text(if (composer.saving) savingLabel else addLabel)
             }
         }
-        TextButton(onClick = { onDetails(composer.title) }, enabled = !composer.saving) { Text("More details") }
+        TextButton(onClick = { onDetails(composer.title) }, enabled = !composer.saving) { Text(moreDetailsLabel) }
     }
 }
 
@@ -311,6 +325,11 @@ private fun WeekTaskPillInput(composer: WeekTaskComposer, onDetails: (String) ->
     BackHandler(enabled = composer.adding) { composer.adding = false }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     val canAdd = composer.title.isNotBlank() && !composer.saving
+    val titleDescription = stringResource(R.string.cal_week_task_title)
+    val placeholder = stringResource(R.string.cal_week_task_placeholder)
+    val savingTaskLabel = stringResource(R.string.cal_saving_task)
+    val addTaskLabel = stringResource(R.string.cal_add_task)
+    val moreDetailsLabel = stringResource(R.string.cal_more_details)
     val shape = RoundedCornerShape(CalinoShapes.Pill)
     val fill by animateColorAsState(if (canAdd) CalinoColors.Accent else CalinoColors.AccentSoft, tween(CalinoMotion.ContentEnterMillis), label = "add fill")
     val tint by animateColorAsState(if (canAdd) CalinoColors.OnAccent else CalinoColors.Ink3, tween(CalinoMotion.ContentEnterMillis), label = "add tint")
@@ -326,13 +345,13 @@ private fun WeekTaskPillInput(composer: WeekTaskComposer, onDetails: (String) ->
                 textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
                 cursorBrush = SolidColor(CalinoColors.Accent),
                 modifier = Modifier.weight(1f).focusRequester(focusRequester)
-                    .semantics { contentDescription = "Week task title" },
+                    .semantics { contentDescription = titleDescription },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { composer.save() }),
                 decorationBox = { field ->
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                         if (composer.title.isEmpty()) Text(
-                            "What would you like to get done?", color = CalinoColors.Ink3,
+                            placeholder, color = CalinoColors.Ink3,
                             style = CalinoTypography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                         field()
@@ -343,7 +362,7 @@ private fun WeekTaskPillInput(composer: WeekTaskComposer, onDetails: (String) ->
                 Modifier.size(44.dp)
                     .calinoPressable(enabled = canAdd) { composer.save() }
                     .semantics {
-                        contentDescription = if (composer.saving) "Saving task" else "Add task"
+                        contentDescription = if (composer.saving) savingTaskLabel else addTaskLabel
                         if (!canAdd) disabled()
                     },
                 contentAlignment = Alignment.Center,
@@ -359,7 +378,7 @@ private fun WeekTaskPillInput(composer: WeekTaskComposer, onDetails: (String) ->
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End,
         ) {
-            Text("More details", color = CalinoColors.Ink2, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(moreDetailsLabel, color = CalinoColors.Ink2, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
             Icon(CalinoIcons.ChevronRight, contentDescription = null, tint = CalinoColors.Ink2, modifier = Modifier.size(16.dp))
         }
     }
@@ -372,15 +391,18 @@ private fun WeekTaskHeader(
 ) {
     Row(modifier.fillMaxWidth().padding(start = PopoverRail, end = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(top = 14.dp, bottom = 8.dp)) {
-            Text("Sometime this week", style = CalinoTypography.titleSmall.copy(fontSize = 19.sp), color = CalinoColors.Ink)
+            Text(stringResource(R.string.cal_sometime_this_week), style = CalinoTypography.titleSmall.copy(fontSize = 19.sp), color = CalinoColors.Ink)
             Text(weekRangeLabel(first, last, count), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
         }
         if (showAdd) {
             // The plus turns to a cross while the composer is open, so it says what a second tap does.
             val turn by animateFloatAsState(if (composer.adding) 45f else 0f, tween(CalinoMotion.ContentEnterMillis), label = "add turn")
+            val addWeekTaskLabel = stringResource(R.string.cal_add_week_task)
+            val expandedLabel = stringResource(R.string.cal_expanded)
+            val collapsedLabel = stringResource(R.string.cal_collapsed)
             Box(
                 Modifier.size(44.dp).calinoPressable { composer.adding = !composer.adding }
-                    .semantics { contentDescription = "Add week task"; stateDescription = if (composer.adding) "Expanded" else "Collapsed" },
+                    .semantics { contentDescription = addWeekTaskLabel; stateDescription = if (composer.adding) expandedLabel else collapsedLabel },
                 contentAlignment = Alignment.Center,
             ) {
                 Box(Modifier.size(34.dp).background(CalinoColors.AccentSoft, CircleShape), contentAlignment = Alignment.Center) {
@@ -412,6 +434,7 @@ internal fun WeekTaskPopover(
     modifier: Modifier = Modifier,
 ) {
     BackHandler(enabled = visible) { onDismiss() }
+    val closeDescription = stringResource(R.string.cal_close_week_tasks)
     BoxWithConstraints(modifier.fillMaxSize()) {
         val cardMaxHeight = maxHeight * .6f
         AnimatedVisibility(
@@ -420,7 +443,7 @@ internal fun WeekTaskPopover(
             Box(
                 Modifier.fillMaxSize().background(CalinoColors.scrim(.22f))
                     .pointerInput(Unit) { detectTapGestures { onDismiss() } }
-                    .semantics { contentDescription = "Close week tasks"; role = Role.Button; onClick { onDismiss(); true } },
+                    .semantics { contentDescription = closeDescription; role = Role.Button; onClick { onDismiss(); true } },
             )
         }
         AnimatedVisibility(
@@ -510,6 +533,10 @@ internal fun WeekTaskStrip(
     val tablet = height >= 44.dp
     val chipHeight = if (tablet) 30.dp else 24.dp
     val panel = if (hovering) CalinoColors.AccentSoft else CalinoColors.Panel
+    val stripLabel = stringResource(if (hovering) R.string.cal_release_week_caps else R.string.cal_sometime_week_caps)
+    val addWeekTaskLabel = stringResource(R.string.cal_add_week_task)
+    val expandedLabel = stringResource(R.string.cal_expanded)
+    val collapsedLabel = stringResource(R.string.cal_collapsed)
     ImeResizeWhile(composer.adding)
     Column(
         modifier.fillMaxWidth().onGloballyPositioned { onBounds(it.boundsInRoot()) }.background(panel)
@@ -521,7 +548,7 @@ internal fun WeekTaskStrip(
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                if (hovering) "RELEASE TO PLAN FOR THIS WEEK" else "SOMETIME THIS WEEK",
+                stripLabel,
                 style = CalinoTypography.labelSmall, color = if (hovering) AccentInk else CalinoColors.Ink3, maxLines = 1, softWrap = false,
             )
             Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -544,7 +571,7 @@ internal fun WeekTaskStrip(
             val ring = if (tablet) 28.dp else 24.dp
             Box(
                 Modifier.size(height).calinoPressable { composer.adding = !composer.adding }
-                    .semantics { contentDescription = "Add week task"; stateDescription = if (composer.adding) "Expanded" else "Collapsed" },
+                    .semantics { contentDescription = addWeekTaskLabel; stateDescription = if (composer.adding) expandedLabel else collapsedLabel },
                 contentAlignment = Alignment.Center,
             ) {
                 Box(Modifier.size(ring).border(1.dp, CalinoColors.Ink.copy(alpha = .16f), CircleShape), contentAlignment = Alignment.Center) {
@@ -563,19 +590,22 @@ private fun WeekTaskChip(
 ) {
     val color = eventColor(task.color)
     val shape = RoundedCornerShape(CalinoShapes.Pill)
+    val completionState = stringResource(if (task.done) R.string.cal_completed else R.string.cal_open)
+    val checkboxDescription = stringResource(R.string.cal_checkbox_for_task, task.title)
+    val checkedState = stringResource(if (task.done) R.string.cal_checked else R.string.cal_not_checked)
     Row(
         Modifier.height(height).clip(shape).border(1.dp, CalinoColors.Ink.copy(alpha = .16f), shape)
             .combinedClickable(interactionSource = null, indication = null, onClick = { onOpen(task) }, onLongClick = { onLongClick(task) })
             .semantics(mergeDescendants = true) {
                 contentDescription = task.title
-                stateDescription = if (task.done) "Completed" else "Open"
+                stateDescription = completionState
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Completion keeps its own lane, like the list rows.
         Box(
             Modifier.fillMaxHeight().width(WeekChipCompletionLane).calinoPressable(role = Role.Checkbox) { onDone(task, !task.done) }
-                .semantics { contentDescription = "${task.title}, checkbox"; stateDescription = if (task.done) "Checked" else "Not checked" },
+                .semantics { contentDescription = checkboxDescription; stateDescription = checkedState },
             contentAlignment = Alignment.CenterEnd,
         ) { TaskCheckbox(task.done, color, Modifier.size(14.dp), circular = true) }
         Text(
@@ -598,6 +628,11 @@ private fun StripInput(composer: WeekTaskComposer, onDetails: (String) -> Unit) 
     BackHandler { composer.adding = false }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     val accent = CalinoColors.Accent
+    val titleDescription = stringResource(R.string.cal_week_task_title)
+    val placeholder = stringResource(R.string.cal_week_task_placeholder)
+    val detailsLabel = stringResource(R.string.cal_details)
+    val savingLabel = stringResource(R.string.cal_saving_ellipsis)
+    val addLabel = stringResource(R.string.cal_add)
     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
         BasicTextField(
             composer.title, { composer.title = it }, enabled = !composer.saving, singleLine = true,
@@ -608,18 +643,18 @@ private fun StripInput(composer: WeekTaskComposer, onDetails: (String) -> Unit) 
                     if (focused && !it.isFocused && composer.title.isBlank()) composer.adding = false
                     focused = it.isFocused
                 }
-                .semantics { contentDescription = "Week task title" },
+                .semantics { contentDescription = titleDescription },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { composer.save() }),
             decorationBox = { field ->
                 Box(Modifier.fillMaxWidth().drawBehind { drawLine(accent, Offset(0f, size.height - 2.dp.toPx()), Offset(size.width, size.height - 2.dp.toPx()), 1.5.dp.toPx()) }.padding(vertical = 4.dp)) {
-                    if (composer.title.isEmpty()) Text("What would you like to get done?", color = CalinoColors.Ink3, style = CalinoTypography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (composer.title.isEmpty()) Text(placeholder, color = CalinoColors.Ink3, style = CalinoTypography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     field()
                 }
             },
         )
-        if (composer.title.isNotBlank()) TextButton(onClick = { onDetails(composer.title) }, enabled = !composer.saving) { Text("Details") }
-        TextButton(onClick = { composer.save() }, enabled = composer.title.isNotBlank() && !composer.saving) { Text(if (composer.saving) "Saving…" else "Add") }
+        if (composer.title.isNotBlank()) TextButton(onClick = { onDetails(composer.title) }, enabled = !composer.saving) { Text(detailsLabel) }
+        TextButton(onClick = { composer.save() }, enabled = composer.title.isNotBlank() && !composer.saving) { Text(if (composer.saving) savingLabel else addLabel) }
     }
 }
 
@@ -635,15 +670,17 @@ internal fun WeekTaskDropZone(visible: Boolean, hovering: Boolean, height: Dp, m
         modifier = modifier,
     ) {
         val shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+        val releaseDescription = stringResource(R.string.cal_release_plan_week)
+        val releaseLabel = stringResource(R.string.cal_release_plan_week_caps)
         val accent = CalinoColors.Accent
         Box(
             Modifier.fillMaxWidth().height(height).clip(shape)
                 .background(if (hovering) CalinoColors.AccentSoft else CalinoColors.AccentSoft.copy(alpha = .86f))
                 .drawBehind { drawLine(accent, Offset(0f, 0.75.dp.toPx()), Offset(size.width, 0.75.dp.toPx()), 1.5.dp.toPx()) }
-                .semantics { contentDescription = "Release to plan for this week" },
+                .semantics { contentDescription = releaseDescription },
         ) {
             Box(Modifier.fillMaxSize().padding(top = 18.dp), contentAlignment = Alignment.TopCenter) {
-                Text("RELEASE TO PLAN FOR THIS WEEK", style = CalinoTypography.labelSmall, color = AccentInk, maxLines = 1)
+                Text(releaseLabel, style = CalinoTypography.labelSmall, color = AccentInk, maxLines = 1)
             }
         }
     }

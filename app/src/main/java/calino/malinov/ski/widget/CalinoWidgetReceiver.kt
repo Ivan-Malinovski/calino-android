@@ -14,10 +14,10 @@ import kotlinx.coroutines.launch
 /**
  * The widget's provider, plus the date-and-time broadcasts it cares about.
  *
- * The widget shows "today", so it has to redraw when today changes. The three
- * extra actions below are on the system's exemption list for Android 8's
+ * The widget shows "today", so it has to redraw when today changes. The date/time and locale
+ * actions below are on the system's exemption list for Android 8's
  * implicit-broadcast restrictions, which is what lets them be declared in the
- * manifest -- so a date roll costs one broadcast rather than a periodic
+ * manifest -- so a date roll or language change costs one broadcast rather than a periodic
  * `updatePeriodMillis` poll, which the backlog item rules out explicitly.
  */
 class CalinoWidgetReceiver : GlanceAppWidgetReceiver() {
@@ -29,6 +29,7 @@ class CalinoWidgetReceiver : GlanceAppWidgetReceiver() {
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_LOCALE_CHANGED,
             -> {
                 val pending = goAsync()
                 CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {

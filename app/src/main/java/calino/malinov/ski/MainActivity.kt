@@ -271,6 +271,7 @@ import calino.malinov.ski.ui.components.PillWriteKind
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoToast
 import calino.malinov.ski.ui.components.NavSidebar
+import calino.malinov.ski.util.localizedReason
 import calino.malinov.ski.ui.components.pockRouteLabel
 import calino.malinov.ski.ui.home.HomeScreen
 import calino.malinov.ski.ui.home.PillSwipeDays
@@ -309,8 +310,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -319,7 +318,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collect
 
-private val DateLabel = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
 private val PredictiveBackEasing = CubicBezierEasing(0f, 0f, 0f, 1f)
 private const val PredictiveBackFadeThreshold = .35f
 
@@ -1113,6 +1111,8 @@ private fun SystemBarAppearance(light: Boolean) {
 
 @Composable
 private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
+    val textContext = androidx.compose.ui.platform.LocalContext.current
+    val DateLabel = calino.malinov.ski.util.localizedDateFormatter("EEE, d MMM")
     val now = LocalCalinoNow.current
     val preferences = LocalCalinoPreferences.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1156,11 +1156,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
      */
     fun readOnlyRefusal(calendarId: String?): String =
         if (calendarId != null && WebcalSubscription.isWebcalCalendarId(calendarId)) {
-            "That calendar is a subscription. Calino can show what the " +
-                "publisher sends, but not change it."
+            textContext.getString(R.string.host_readonly_subscription)
         } else {
-            "That calendar belongs to another app on this device. " +
-                "Calino can show it, but not change it."
+            textContext.getString(R.string.host_readonly_device)
         }
     val calendarTasks = remember(snapshot.tasks, taskCalendarIds) {
         snapshot.tasks.filter { it.calendarId in taskCalendarIds }
@@ -1353,7 +1351,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var aiQueue by remember { mutableStateOf<List<AiEventCandidate>>(emptyList()) }
     var aiDraft by remember { mutableStateOf<EditorDraft?>(null) }
     var aiBusy by remember { mutableStateOf(false) }
-    var aiStage by remember { mutableStateOf("Sending photo…") }
+    var aiStage by remember { mutableStateOf(textContext.getString(R.string.host_ai_sending)) }
     var aiError by remember { mutableStateOf<String?>(null) }
     var aiErrorNeedsSettings by remember { mutableStateOf(false) }
     var showPhotoSource by remember { mutableStateOf(false) }
@@ -1377,7 +1375,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         val text = pendingExportText
         if (uri != null && text != null) {
             runCatching { activity.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(text) } }
-                .onFailure { writeError = "The calendar export could not be written." }
+                .onFailure { writeError = textContext.getString(R.string.host_export_write_error) }
         }
         pendingExportText = null
     }
@@ -1387,17 +1385,17 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         activity.consumeIncomingCalendar()
         runCatching {
             val bytes = activity.contentResolver.openInputStream(uri)?.use(IcsInterop::readLimited)
-                ?: error("That calendar file could not be read.")
+                ?: error(textContext.getString(R.string.host_import_read_error))
             IcsInterop.withDuplicates(IcsInterop.parseEvents(bytes.toString(Charsets.UTF_8)), snapshot.events)
         }.onSuccess { batch ->
             importBatch = batch
             importCalendarId = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VEVENT") }?.id
-        }.onFailure { writeError = it.message ?: "That calendar file could not be read." }
+        }.onFailure { writeError = it.message ?: textContext.getString(R.string.host_import_read_error) }
     }
 
     fun requestPhotoImport() {
         if (!aiSettingsStore.load().hasApiKey) {
-            aiError = "Set up AI Photo Import in Settings first."
+            aiError = textContext.getString(R.string.host_ai_setup)
             aiErrorNeedsSettings = true
             openAiSettingsRequest += 1
             route = PockRoute.Settings
@@ -1408,14 +1406,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         val uri = activity.incomingImage ?: return@LaunchedEffect
         activity.consumeIncomingImage()
         if (!aiSettingsStore.load().hasApiKey) {
-            aiError = "Set up AI Photo Import in Settings first."
+            aiError = textContext.getString(R.string.host_ai_setup)
             aiErrorNeedsSettings = true
             openAiSettingsRequest += 1
             route = PockRoute.Settings
             return@LaunchedEffect
         }
         val bytes = runCatching { activity.contentResolver.openInputStream(uri)?.use(java.io.InputStream::readBytes) }.getOrNull()
-        if (bytes == null) { aiErrorNeedsSettings = false; aiError = "Could not read the shared photo." }
+        if (bytes == null) { aiErrorNeedsSettings = false; aiError = textContext.getString(R.string.host_photo_read_error) }
         else pickedImage = bytes to (activity.contentResolver.getType(uri) ?: "image/jpeg")
     }
     LaunchedEffect(activity.aiShortcutRequest) { if (activity.aiShortcutRequest > 0) requestPhotoImport() }
@@ -1423,19 +1421,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         val image = pickedImage ?: return@LaunchedEffect
         val key = aiSettingsStore.apiKey() ?: return@LaunchedEffect
         aiBusy = true
-        aiStage = "Sending photo…"
-        val stageJob = launch { delay(1500); aiStage = "Reading details…"; delay(7500); aiStage = "Still working…" }
+        aiStage = textContext.getString(R.string.host_ai_sending)
+        val stageJob = launch { delay(1500); aiStage = textContext.getString(R.string.host_ai_reading); delay(7500); aiStage = textContext.getString(R.string.host_ai_working) }
         runCatching { aiClient.extract(aiSettingsStore.load(), key, image.first, image.second) }
-            .onSuccess { found -> if (found.any(AiEventCandidate::isUsable)) aiCandidates = found else { aiErrorNeedsSettings = false; aiError = "No event or task details were found. Try a clearer photo." } }
+            .onSuccess { found -> if (found.any(AiEventCandidate::isUsable)) aiCandidates = found else { aiErrorNeedsSettings = false; aiError = textContext.getString(R.string.host_ai_empty) } }
             .onFailure { error ->
                 aiErrorNeedsSettings = Regex("authentication|401|403", RegexOption.IGNORE_CASE).containsMatchIn(error.message.orEmpty())
                 android.util.Log.e("CalinoAiVision", "Photo extraction failed: ${error::class.java.simpleName}: ${error.message}")
                 aiError = if (aiErrorNeedsSettings) {
-                    "Your AI API key looks invalid or expired."
+                    textContext.getString(R.string.host_ai_key_invalid)
                 } else {
                     val detail = error.message?.trim()?.take(240).orEmpty()
-                    if (detail.isBlank()) "Could not read event details from that photo."
-                    else "Could not read event details: $detail"
+                    if (detail.isBlank()) textContext.getString(R.string.host_ai_read_error)
+                    else textContext.getString(R.string.host_ai_read_detail, detail)
                 }
             }
         stageJob.cancel()
@@ -1604,12 +1602,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 when (val result = operation()) {
                     is WriteResult.Applied -> { landed = true; onApplied(result.record) }
                     is WriteResult.Queued -> { landed = true; onApplied(result.record) }
-                    is WriteResult.Rejected -> writeError = result.reason
+                    is WriteResult.Rejected -> writeError = result.localizedReason(textContext)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                writeError = error.message ?: "That change could not be saved."
+                writeError = error.message ?: textContext.getString(R.string.host_write_error)
             } finally {
                 if (indicate != null) savePillLane.saveFinished(writeScope, success = landed)
             }
@@ -1619,19 +1617,19 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     suspend fun addWeekTask(title: String, first: LocalDate, last: LocalDate): Boolean {
         writeError = null
         val calendar = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VTODO") }
-        if (calendar == null) { writeError = "No writable calendar supports tasks"; return false }
+        if (calendar == null) { writeError = textContext.getString(R.string.host_tasks_no_calendar); return false }
         savePillLane.saveStarted(PillWriteKind.Save)
         var landed = false
         try {
             when (val result = repository.addTask(NewTask(title = title.trim(), due = last, startDate = first, calendarId = calendar.id, color = calendar.color))) {
-                is WriteResult.Rejected -> writeError = result.reason
+                is WriteResult.Rejected -> writeError = result.localizedReason(textContext)
                 else -> landed = true
             }
             return landed
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            writeError = error.message ?: "That task could not be saved."
+            writeError = error.message ?: textContext.getString(R.string.host_task_write_error)
             return false
         } finally {
             savePillLane.saveFinished(writeScope, success = landed)
@@ -1642,7 +1640,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         // Named on the add pill rather than a banner of its own: the pill
         // already narrates the deliberate saves it starts, and an undoable
         // change from elsewhere on screen is the same kind of outcome.
-        savePillLane.showUndo(change.description, writeScope) {
+        savePillLane.showUndo(calino.malinov.ski.util.localizedUndoDescription(textContext, change), writeScope) {
             launchWrite({ repository.undo(change) })
         }
     }
@@ -1793,7 +1791,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             TaskMenuAction.Tomorrow -> launchWrite({ repository.rescheduleTask(task.id, now.today.plusDays(1)) }) { showUndo(it) }
             TaskMenuAction.NextWeek -> launchWrite({ repository.rescheduleTask(task.id, now.today.plusDays(7)) }) { showUndo(it) }
             TaskMenuAction.ToggleDone -> setTaskDone(task, !task.done)
-            TaskMenuAction.Duplicate -> launchWrite({ repository.duplicateTask(task) })
+            TaskMenuAction.Duplicate -> launchWrite({ repository.duplicateTask(task, textContext.getString(R.string.host_copy_suffix)) })
             TaskMenuAction.ConvertToEvent -> launchWrite({ repository.convertTaskToEvent(task) })
             TaskMenuAction.Delete -> pendingTaskDelete = task
         }
@@ -1802,7 +1800,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     fun openAttachment(event: CalEvent, attachment: calino.malinov.ski.data.model.EventAttachment) {
         attachment.uri?.let { link ->
             runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link))) }
-                .onFailure { writeError = "No app here can open that attachment." }
+                .onFailure { writeError = textContext.getString(R.string.host_attachment_no_app) }
             return
         }
         writeScope.launch {
@@ -1822,7 +1820,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 })
                 true
             }.getOrDefault(false)
-            if (!opened) writeError = "That attachment could not be opened."
+            if (!opened) writeError = textContext.getString(R.string.host_attachment_error)
         }
     }
 
@@ -1843,11 +1841,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                     type = "text/calendar"
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    clipData = android.content.ClipData.newRawUri("Calendar event", uri)
+                    clipData = android.content.ClipData.newRawUri(textContext.getString(R.string.host_event_clip), uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }, "Share event"))
-            }.onFailure { writeError = "That event could not be shared." }
-            EventMenuAction.Duplicate -> launchWrite({ repository.duplicateEvent(event) })
+                }, textContext.getString(R.string.host_share_event)))
+            }.onFailure { writeError = textContext.getString(R.string.host_share_error) }
+            EventMenuAction.Duplicate -> launchWrite({ repository.duplicateEvent(event, textContext.getString(R.string.host_copy_suffix)) })
             EventMenuAction.ConvertToTask -> launchWrite({ repository.convertEventToTask(event) })
             EventMenuAction.Delete ->
                 if (event.calendarId in readOnlyCalendarIds) {
@@ -2353,7 +2351,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onAddWeekTask = ::addWeekTask,
                         onWeekTaskDetails = { title, first, last ->
                             val calendar = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VTODO") }
-                            if (calendar == null) writeError = "No writable calendar supports tasks"
+                            if (calendar == null) writeError = textContext.getString(R.string.host_tasks_no_calendar)
                             else {
                                 openQuickAdd(QuickAddKind.Task, PocReturnTarget.Range, date = first)
                                 externalDraft = blankEditorDraft(kind = PocQuickAddKind.Task, date = last, title = title)
@@ -2506,7 +2504,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 )
                                 landed = true
                             } catch (error: Throwable) {
-                                writeError = error.message ?: "That reminder could not be saved."
+                                writeError = error.message ?: textContext.getString(R.string.host_reminder_write_error)
                             } finally {
                                 savePillLane.saveFinished(writeScope, success = landed)
                             }
@@ -2897,7 +2895,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     onRespond = { target, status, scope ->
                         when (val result = repository.respondToEvent(target.id, status, scope)) {
                             is WriteResult.Applied, is WriteResult.Queued -> true
-                            is WriteResult.Rejected -> { writeError = result.reason; false }
+                            is WriteResult.Rejected -> { writeError = result.localizedReason(textContext); false }
                         }
                     },
                     localReminders = { pocViewModel.localReminders[localReminderKey(it)] },
@@ -2941,12 +2939,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             ))) {
                                 is WriteResult.Applied -> true.also { landed = true }
                                 is WriteResult.Queued -> true.also { landed = true }
-                                is WriteResult.Rejected -> { writeError = result.reason; false }
+                                is WriteResult.Rejected -> { writeError = result.localizedReason(textContext); false }
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Throwable) {
-                            writeError = error.message ?: "That change could not be saved."
+                            writeError = error.message ?: textContext.getString(R.string.host_write_error)
                             false
                         } finally {
                             savePillLane.saveFinished(writeScope, success = landed)
@@ -3001,14 +2999,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                     true
                                 }
                                 is WriteResult.Rejected -> {
-                                    writeError = result.reason
+                                    writeError = result.localizedReason(textContext)
                                     false
                                 }
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Throwable) {
-                            writeError = error.message ?: "That change could not be saved."
+                            writeError = error.message ?: textContext.getString(R.string.host_write_error)
                             false
                         } finally {
                             savePillLane.saveFinished(writeScope, success = landed)
@@ -3022,12 +3020,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             when (val result = repository.updateTask(task.id, input, done)) {
                                 is WriteResult.Applied -> true.also { landed = true }
                                 is WriteResult.Queued -> true.also { landed = true }
-                                is WriteResult.Rejected -> { writeError = result.reason; false }
+                                is WriteResult.Rejected -> { writeError = result.localizedReason(textContext); false }
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Throwable) {
-                            writeError = error.message ?: "That checklist change could not be saved."
+                            writeError = error.message ?: textContext.getString(R.string.host_checklist_write_error)
                             false
                         } finally {
                             savePillLane.saveFinished(writeScope, success = landed)
@@ -3052,14 +3050,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                     true
                                 }
                                 is WriteResult.Rejected -> {
-                                    writeError = result.reason
+                                    writeError = result.localizedReason(textContext)
                                     false
                                 }
                             }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Throwable) {
-                            writeError = error.message ?: "That task could not be deleted."
+                            writeError = error.message ?: textContext.getString(R.string.host_task_delete_error)
                             false
                         } finally {
                             savePillLane.saveFinished(writeScope, success = landed)
@@ -3245,10 +3243,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     fadeOut(tween(CalinoMotion.ContentExitMillis)),
             ) {
                 CalinoToast(
-                    message = "May 2026 sample calendar\nAdd a calendar for your dates",
+                    message = textContext.getString(R.string.host_sample_notice),
                     icon = CalinoIcon.Calendar,
                     onDismiss = { sampleNoticeDismissed = true },
-                    dismissDescription = "Dismiss sample calendar notice",
+                    dismissDescription = textContext.getString(R.string.host_sample_dismiss),
                 )
             }
             // A saved change that could not sync is raised once, wherever the
@@ -3268,23 +3266,23 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 val shown = remember { mutableStateOf("") }
                 if (syncAlertVisible) {
                     shown.value = if (writeHealth.needsAttention == 1) {
-                        writeHealth.firstAttentionTitle?.let { "“$it” couldn’t sync" } ?: "A change couldn’t sync"
+                        writeHealth.firstAttentionTitle?.let { textContext.getString(R.string.host_sync_item, it) } ?: textContext.getString(R.string.host_sync_change)
                     } else {
-                        "${writeHealth.needsAttention} changes couldn’t sync"
+                        textContext.getString(R.string.host_sync_changes, writeHealth.needsAttention)
                     }
                 }
                 CalinoToast(
                     message = shown.value,
                     icon = CalinoIcon.Bell,
                     accent = CalinoColors.Rose,
-                    actionLabel = "Review",
-                    actionDescription = "Review changes that could not sync",
+                    actionLabel = textContext.getString(R.string.host_review),
+                    actionDescription = textContext.getString(R.string.host_review_sync),
                     onAction = {
                         acknowledgedSyncIssues = writeHealth.attentionIds.toList()
                         openSyncDetail()
                     },
                     onDismiss = { acknowledgedSyncIssues = writeHealth.attentionIds.toList() },
-                    dismissDescription = "Dismiss sync problem",
+                    dismissDescription = textContext.getString(R.string.host_dismiss_sync),
                 )
             }
             androidx.compose.animation.AnimatedVisibility(
@@ -3297,7 +3295,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         message = message,
                         icon = CalinoIcon.Bell,
                         accent = CalinoColors.Rose,
-                        actionLabel = "Dismiss",
+                        actionLabel = textContext.getString(R.string.host_dismiss),
                         onAction = { writeError = null },
                     )
                 }
@@ -3363,11 +3361,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         val rangeSpansDays = rootRoute == PockRoute.Range && preferences.rangeMode.dayCount > 1
         val monthNamesNoDay = rootRoute == PockRoute.Day && !calendarDayInFocus
         val addPillLabel = when {
-            rootRoute == PockRoute.Tasks -> "New task"
-            rootRoute == PockRoute.Journal -> "New entry"
-            rootRoute == PockRoute.Contacts -> "New contact"
-            rangeSpansDays || monthNamesNoDay -> "New event"
-            else -> "Add on ${selectedDate.format(DateLabel)}"
+            rootRoute == PockRoute.Tasks -> textContext.getString(R.string.host_new_task)
+            rootRoute == PockRoute.Journal -> textContext.getString(R.string.host_new_entry)
+            rootRoute == PockRoute.Contacts -> textContext.getString(R.string.host_new_contact)
+            rangeSpansDays || monthNamesNoDay -> textContext.getString(R.string.host_new_event)
+            else -> textContext.getString(R.string.host_add_on, selectedDate.format(DateLabel))
         }
         val addPillLeadingIcon = if (preferences.menuPill && !preferences.pillDocked) pockRouteIcon(rootRoute) else null
         // Views the person moved to the sidebar only are left out here, and
@@ -3382,6 +3380,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             PockRoute.Contacts.takeIf { preferences.contactsEnabled },
         ).filter { it == PockRoute.Day || pockRouteKey(it) !in preferences.pillHiddenViews }
         // The calendar views, then the rest: the menu divides the two.
+        val pillRouteLabels = menuPillRoutes.map { pockRouteLabel(it) }
         val pillRouteItems = menuPillRoutes.map {
             PillRoute(
                 pockRouteLabel(it),
@@ -3467,7 +3466,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 backdropOrigin = { surfaceOrigin },
                 canSwipe = { direction -> pillIndex >= 0 && (pillIndex + direction) in pillRoutes.indices },
                 destinationLabel = { direction ->
-                    pillRoutes.getOrNull(pillIndex + direction)?.let(::pockRouteLabel)
+                    pillRouteLabels.getOrNull(pillIndex + direction)
                 },
                 onSwipe = { direction ->
                     pillRoutes.getOrNull(pillIndex + direction)?.let(::navigateRoot)
@@ -3524,7 +3523,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     rootRoute == PockRoute.Agenda -> agendaSwipeLabelDays
                     rootRoute == PockRoute.Day || rootRoute == PockRoute.Range -> swipeLabelDays
                     else -> null
-                }?.let { "Add on ${it.from.format(DateLabel)}" to "Add on ${it.to.format(DateLabel)}" },
+                }?.let { textContext.getString(R.string.host_add_on, it.from.format(DateLabel)) to textContext.getString(R.string.host_add_on, it.to.format(DateLabel)) },
                 swipeTravel = {
                     if (rootRoute == PockRoute.Agenda) agendaSwipeLabelTravel() else swipeLabelTravel()
                 },
@@ -3747,10 +3746,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         ) {
             update?.let {
                 CalinoToast(
-                    message = "Calino ${it.version} is ready",
+                    message = textContext.getString(R.string.host_update_ready, it.version),
                     icon = CalinoIcon.Repeat,
-                    actionLabel = "View",
-                    actionDescription = "View Calino ${it.version} update",
+                    actionLabel = textContext.getString(R.string.host_view),
+                    actionDescription = textContext.getString(R.string.host_view_update, it.version),
                     onAction = {
                         pocViewModel.dismissAppUpdate()
                         runCatching {
@@ -3758,7 +3757,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         }
                     },
                     onDismiss = pocViewModel::dismissAppUpdate,
-                    dismissDescription = "Dismiss update notice",
+                    dismissDescription = textContext.getString(R.string.host_dismiss_update),
                 )
             }
         }
@@ -3789,7 +3788,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 }) { changes ->
                     // One undo reopens the whole family, newest first.
                     val all = (listOfNotNull(parentChange) + changes).asReversed()
-                    savePillLane.showUndo("Completed ${all.size} tasks", writeScope) {
+                    savePillLane.showUndo(textContext.getString(R.string.host_completed_tasks, all.size), writeScope) {
                         launchWrite({
                             for (change in all) {
                                 val result = repository.undo(change)
@@ -3807,12 +3806,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         val writable = snapshot.calendars.filter { !it.readOnly && it.accepts("VEVENT") }
         AlertDialog(
             onDismissRequest = { importBatch = null },
-            title = { Text("Import ${batch.events.size} event${if (batch.events.size == 1) "" else "s"}?") },
+            title = { Text(textContext.resources.getQuantityString(R.plurals.host_import_events, batch.events.size, batch.events.size)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (batch.unsupportedComponents > 0) Text("${batch.unsupportedComponents} task or journal component(s) will be ignored.")
-                    if (batch.duplicateUids.isNotEmpty()) Text("${batch.duplicateUids.size} duplicate event(s) will be skipped.")
-                    Text("Choose a destination calendar:")
+                    if (batch.unsupportedComponents > 0) Text(textContext.getString(R.string.host_import_unsupported, batch.unsupportedComponents))
+                    if (batch.duplicateUids.isNotEmpty()) Text(textContext.getString(R.string.host_import_duplicates, batch.duplicateUids.size))
+                    Text(textContext.getString(R.string.host_choose_calendar))
                     writable.forEach { calendar ->
                         TextButton(onClick = { importCalendarId = calendar.id }) {
                             Text(if (importCalendarId == calendar.id) "✓ ${calendar.name}" else calendar.name)
@@ -3842,16 +3841,16 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 success = failed == 0 && imported + queued == candidates.size,
                             )
                         }
-                        writeError = "Imported $imported${if (queued > 0) ", queued $queued" else ""}${if (batch.duplicateUids.isNotEmpty()) ", skipped ${batch.duplicateUids.size}" else ""}${if (failed > 0) ", failed $failed" else ""}."
+                        writeError = textContext.getString(R.string.host_import_result, imported, queued, batch.duplicateUids.size, failed)
                     }
-                }) { Text("Import") }
+                }) { Text(textContext.getString(R.string.host_import)) }
             },
-            dismissButton = { TextButton(onClick = { importBatch = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { importBatch = null }) { Text(textContext.getString(R.string.host_cancel)) } },
         )
     }
     if (exportCalendarPicker) AlertDialog(
         onDismissRequest = { exportCalendarPicker = false },
-        title = { Text("Export calendar") },
+        title = { Text(textContext.getString(R.string.host_export_calendar)) },
         text = {
             Column {
                 snapshot.calendars.forEach { calendar ->
@@ -3864,14 +3863,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             }.onSuccess { text ->
                                 pendingExportText = text
                                 exportLauncher.launch("${calendar.name.replace(Regex("[^A-Za-z0-9._-]"), "-")}.ics")
-                            }.onFailure { writeError = it.message ?: "A complete calendar export could not be read." }
+                            }.onFailure { writeError = it.message ?: textContext.getString(R.string.host_export_read_error) }
                         }
                     }) { Text(calendar.name) }
                 }
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = { exportCalendarPicker = false }) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = { exportCalendarPicker = false }) { Text(textContext.getString(R.string.host_cancel)) } },
     )
 
     AiProcessingOverlay(aiBusy, aiStage)
@@ -3887,22 +3886,22 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     }
     if (showPhotoSource) AlertDialog(
         onDismissRequest = { showPhotoSource = false },
-        title = { Text("Import from photo") },
-        text = { Text("Take a photo or choose one already on this device.") },
-        confirmButton = { TextButton(onClick = { showPhotoSource = false; cameraLauncher.launch(null) }) { Text("Camera") } },
-        dismissButton = { TextButton(onClick = { showPhotoSource = false; galleryLauncher.launch("image/*") }) { Text("Photos") } },
+        title = { Text(textContext.getString(R.string.host_import_photo)) },
+        text = { Text(textContext.getString(R.string.host_photo_source)) },
+        confirmButton = { TextButton(onClick = { showPhotoSource = false; cameraLauncher.launch(null) }) { Text(textContext.getString(R.string.host_camera)) } },
+        dismissButton = { TextButton(onClick = { showPhotoSource = false; galleryLauncher.launch("image/*") }) { Text(textContext.getString(R.string.host_photos)) } },
     )
     aiError?.let { message ->
         AlertDialog(
             onDismissRequest = { aiError = null },
-            title = { Text("AI Photo Import") },
+            title = { Text(textContext.getString(R.string.host_ai_title)) },
             text = { Text(message) },
             confirmButton = { TextButton(onClick = {
                 aiError = null
                 if (aiErrorNeedsSettings) { openAiSettingsRequest += 1; route = PockRoute.Settings }
                 else openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar)
-            }) { Text(if (aiErrorNeedsSettings) "Open settings" else "Add manually") } },
-            dismissButton = { TextButton(onClick = { aiError = null }) { Text("Cancel") } },
+            }) { Text(if (aiErrorNeedsSettings) textContext.getString(R.string.host_open_settings) else textContext.getString(R.string.host_add_manually)) } },
+            dismissButton = { TextButton(onClick = { aiError = null }) { Text(textContext.getString(R.string.host_cancel)) } },
         )
     }
 
@@ -3945,13 +3944,15 @@ private fun rememberRepositorySnapshot(repository: CalinoRepository): CalinoSnap
 
 @Composable
 private fun JournalReviewDialog(journals: List<JournalEntry>, onDismiss: () -> Unit) {
+    val textContext = androidx.compose.ui.platform.LocalContext.current
+    val dateLabel = calino.malinov.ski.util.localizedDateFormatter("EEE, d MMM")
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(24.dp), color = CalinoColors.Panel, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp)) {
                 androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Journal", style = CalinoTypography.titleLarge)
-                        Text("Local entries", color = CalinoColors.Ink3, fontSize = 11.sp)
+                        Text(textContext.getString(R.string.host_journal), style = CalinoTypography.titleLarge)
+                        Text(textContext.getString(R.string.host_local_entries), color = CalinoColors.Ink3, fontSize = 11.sp)
                     }
                     IconButton(onClick = onDismiss) { Text("×", fontSize = 22.sp, color = CalinoColors.Ink2) }
                 }
@@ -3965,8 +3966,8 @@ private fun JournalReviewDialog(journals: List<JournalEntry>, onDismiss: () -> U
                                 .background(CalinoColors.Canvas, RoundedCornerShape(12.dp))
                                 .padding(12.dp),
                         ) {
-                            Text(journal.title.ifBlank { "Untitled note" }, style = CalinoTypography.bodyLarge)
-                            Text(journal.date.format(DateLabel), color = CalinoColors.Ink3, fontSize = 11.sp)
+                            Text(journal.title.ifBlank { textContext.getString(R.string.host_untitled_note) }, style = CalinoTypography.bodyLarge)
+                            Text(journal.date.format(dateLabel), color = CalinoColors.Ink3, fontSize = 11.sp)
                             Text(journal.body, color = CalinoColors.Ink2, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
                         }
                     }
@@ -3976,7 +3977,7 @@ private fun JournalReviewDialog(journals: List<JournalEntry>, onDismiss: () -> U
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
-                ) { Text("Done") }
+                ) { Text(textContext.getString(R.string.host_done)) }
             }
         }
     }
@@ -4019,4 +4020,3 @@ private fun aiDraftFor(candidate: AiEventCandidate, fallbackDate: LocalDate): Ed
         touched = calino.malinov.ski.data.model.EditorField.entries.toSet(),
     )
 }
-

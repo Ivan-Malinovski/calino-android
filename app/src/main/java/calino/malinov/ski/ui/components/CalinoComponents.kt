@@ -163,6 +163,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.Constraints
@@ -174,6 +176,7 @@ import androidx.compose.ui.zIndex
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.design.CalinoColors
+import calino.malinov.ski.R
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoSegmented
 import calino.malinov.ski.design.CalinoShapes
@@ -187,12 +190,13 @@ import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalCalinoSync
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.LocalCalinoLocale
+import calino.malinov.ski.util.localizedDateFormatter
 import calino.malinov.ski.state.SyncBadge
 import calino.malinov.ski.state.syncBadgeFor
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
@@ -202,7 +206,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.withTimeoutOrNull
 
 private val Mono = androidx.compose.ui.text.font.FontFamily.Monospace
-private val ShortDateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
 /**
  * One gesture for an actionable row: a normal tap opens it, a held tap opens
@@ -590,9 +593,10 @@ fun CalinoToast(
     actionDescription: String? = null,
     onAction: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
-    dismissDescription: String = "Dismiss notification",
+    dismissDescription: String? = null,
     modifier: Modifier = Modifier,
 ) {
+    val resolvedDismissDescription = dismissDescription ?: stringResource(R.string.cal_dismiss_notification)
     val tone = if (accent == Color.Unspecified) CalinoColors.Accent else accent
     val shape = RoundedCornerShape(16.dp)
     Surface(
@@ -648,7 +652,7 @@ fun CalinoToast(
                         onClick = onDismiss,
                         modifier = Modifier
                             .size(40.dp)
-                            .semantics { contentDescription = dismissDescription },
+                            .semantics { contentDescription = resolvedDismissDescription },
                     ) {
                         Text("×", color = CalinoColors.Ink2, fontSize = 20.sp)
                     }
@@ -725,6 +729,7 @@ private fun EventChipContent(
     accessibilityDescription: String,
 ) {
     val shape = RoundedCornerShape(CalinoShapes.Chip)
+    val disabledLabel = stringResource(R.string.cal_disabled)
     val fill by animateColorAsState(
         targetValue = if (variant == EventChipVariant.Task) Color.Transparent else eventTint(color, .10f),
         animationSpec = tween(CalinoMotion.FadeThroughMillis),
@@ -741,7 +746,7 @@ private fun EventChipContent(
             .then(pressModifier)
             .semantics(mergeDescendants = true) {
                 contentDescription = accessibilityDescription
-                if (!enabled) stateDescription = "Disabled"
+                if (!enabled) stateDescription = disabledLabel
             },
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -787,6 +792,8 @@ private fun EventChipContent(
 @Composable
 fun EventChip(event: CalEvent, modifier: Modifier = Modifier, variant: EventChipVariant = EventChipVariant.Rail, onClick: (() -> Unit)? = null) {
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
+    val allDayLabel = stringResource(R.string.cal_all_day_caps_label).lowercase(locale)
     EventChipContent(
         title = event.title,
         color = eventColor(event.color),
@@ -798,7 +805,7 @@ fun EventChip(event: CalEvent, modifier: Modifier = Modifier, variant: EventChip
         accessibilityDescription = buildString {
             append(event.title)
             append(", ")
-            append(event.start?.let { timeFormat.format(it) } ?: "all-day")
+            append(event.start?.let { timeFormat.format(it, locale) } ?: allDayLabel)
             event.location?.let { append(", ").append(it) }
             append(", ").append(event.calendarId)
         },
@@ -977,7 +984,7 @@ fun AgendaRow(
                 .background(color),
         )
         Spacer(Modifier.width(10.dp))
-        AgendaRowTime(time)
+        AgendaRowTime(time, stringResource(R.string.cal_all_day_caps_label))
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             // The checkbox beside this fades over ContentEnterMillis; a title
             // that snapped to grey on the same tap read as a separate change.
@@ -1024,12 +1031,12 @@ fun AgendaRow(
  * 12-hour clock was silently clipped down to its numerals.
  */
 @Composable
-private fun AgendaRowTime(time: String?) {
-    val (numerals, meridiem) = remember(time) { splitMeridiem(time ?: AllDayLabel) }
+private fun AgendaRowTime(time: String?, allDayLabel: String) {
+    val (numerals, meridiem) = remember(time, allDayLabel) { splitMeridiem(time ?: allDayLabel) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             numerals,
-            modifier = Modifier.width(AgendaTimeNumeralWidth),
+            modifier = if (meridiem == null) Modifier.widthIn(min = AgendaTimeNumeralWidth) else Modifier.width(AgendaTimeNumeralWidth),
             color = CalinoColors.Ink2,
             fontFamily = Mono,
             fontSize = 10.5.sp,
@@ -1040,7 +1047,7 @@ private fun AgendaRowTime(time: String?) {
         )
         Text(
             meridiem.orEmpty(),
-            modifier = Modifier.width(AgendaTimeMeridiemWidth).padding(start = 3.dp),
+            modifier = Modifier.widthIn(min = AgendaTimeMeridiemWidth).padding(start = 3.dp),
             color = CalinoColors.Ink3,
             fontFamily = Mono,
             fontSize = 8.5.sp,
@@ -1051,42 +1058,45 @@ private fun AgendaRowTime(time: String?) {
     }
 }
 
-private const val AllDayLabel = "ALL-DAY"
 private val AgendaTimeNumeralWidth = 34.dp
 private val AgendaTimeMeridiemWidth = 17.dp
 
 /**
  * Splits a formatted clock face into its numerals and its trailing meridiem.
  * A 24-hour face, or the all-day label, has no meridiem and keeps the whole
- * string in the numeral slot.
+ * string in the numeral slot. German's longer CLDR markers stay in the same
+ * trailing slot, which can grow beyond the compact AM/PM width.
  */
 internal fun splitMeridiem(time: String): Pair<String, String?> {
     val cut = time.lastIndexOf(' ')
     if (cut <= 0) return time to null
     val tail = time.substring(cut + 1)
-    val isMeridiem = tail.length == 2 &&
+    val isEnglishMeridiem = tail.length == 2 &&
         (tail[0] == 'A' || tail[0] == 'a' || tail[0] == 'P' || tail[0] == 'p') &&
         (tail[1] == 'M' || tail[1] == 'm')
-    return if (isMeridiem) time.substring(0, cut) to tail else time to null
+    val isGermanMeridiem = tail.lowercase(Locale.ROOT) in setOf("vorm.", "nachm.")
+    return if (isEnglishMeridiem || isGermanMeridiem) time.substring(0, cut) to tail else time to null
 }
 
 /** Screen-reader description shared by every rendering of an event: title, time, location. */
-fun eventDescription(event: CalEvent, timeFormat: CalinoTimeFormat): String = buildString {
+fun eventDescription(event: CalEvent, timeFormat: CalinoTimeFormat, locale: Locale = Locale.US): String = buildString {
     append(event.title)
-    event.start?.let { append(", ").append(timeFormat.format(it)) }
+    event.start?.let { append(", ").append(timeFormat.format(it, locale)) }
     event.location?.let { append(", ").append(it) }
 }
 
 @Composable
 fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRowVariant = AgendaRowVariant.Card, onClick: (() -> Unit)? = null) {
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
+    val weeklyLabel = stringResource(R.string.cal_repeats_weekly)
     val showLocations = LocalCalinoPreferences.current.showLocations
     AgendaRow(
         title = event.title,
         color = eventColor(event.color),
-        time = event.start?.let { timeFormat.format(it) },
+        time = event.start?.let { timeFormat.format(it, locale) },
         subtitle = event.location?.takeIf { showLocations }
-            ?: if (event.recurrence != null) "Repeats weekly" else null,
+            ?: if (event.recurrence != null) weeklyLabel else null,
         modifier = modifier,
         variant = variant,
         onClick = onClick,
@@ -1110,6 +1120,11 @@ fun AgendaTaskRow(
     onDragEnd: ((Offset) -> Unit)? = null,
 ) {
     val color = eventColor(task.color)
+    val completedLabel = stringResource(R.string.cal_completed).lowercase(LocalCalinoLocale)
+    val openLabel = stringResource(R.string.cal_open).lowercase(LocalCalinoLocale)
+    val checkedLabel = stringResource(R.string.cal_checked)
+    val notCheckedLabel = stringResource(R.string.cal_not_checked)
+    val taskCheckboxLabel = stringResource(R.string.cal_checkbox_for_task, task.title)
     AgendaRow(
         title = task.title,
         color = color,
@@ -1120,7 +1135,7 @@ fun AgendaTaskRow(
         onClick = onClick,
         onLongClick = onLongClick,
         onDragEnd = onDragEnd,
-        trailingDescription = if (task.done) "completed" else "open",
+        trailingDescription = if (task.done) completedLabel else openLabel,
         struck = task.done,
         trailing = {
             val checkboxPressModifier = if (onCheckedChange != null) {
@@ -1138,8 +1153,8 @@ fun AgendaTaskRow(
                     .size(width = 44.dp, height = 30.dp)
                     .then(checkboxPressModifier)
                     .semantics {
-                        contentDescription = "${task.title}, checkbox"
-                        stateDescription = if (task.done) "Checked" else "Not checked"
+                        contentDescription = taskCheckboxLabel
+                        stateDescription = if (task.done) checkedLabel else notCheckedLabel
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -1163,12 +1178,18 @@ fun AgendaRow(
 ) {
     val color = eventColor(task.color)
     val stripeColor = priorityStripeColor(task.priority)
+    val dateFormat = localizedDateFormatter("MMM d")
+    val priorityDescription = localizedPriorityLabel(task.priority)
+    val checkboxDescription = stringResource(R.string.cal_checkbox_for_task, task.title)
+    val checkedLabel = stringResource(R.string.cal_checked)
+    val notCheckedLabel = stringResource(R.string.cal_not_checked)
+    val completedLabel = stringResource(R.string.cal_completed)
+    val openLabel = stringResource(R.string.cal_open)
     var dragOffsetY by remember(task.id) { mutableFloatStateOf(0f) }
     val description = buildString {
-        append(task.title)
-        if (!compact) task.due?.let { append(", due ").append(it.format(ShortDateFormat)) }
+        append(if (!compact) task.due?.let { stringResource(R.string.cal_task_due_label, task.title, it.format(dateFormat)) } ?: task.title else task.title)
         task.category?.let { append(", ").append(it) }
-        priorityLabel(task.priority)?.let { append(", ").append(it) }
+        priorityDescription?.let { append(", ").append(it) }
     }
     val rowPressModifier = when {
         onClick != null && onLongClick != null -> Modifier.combinedClickable(
@@ -1201,7 +1222,7 @@ fun AgendaRow(
             .zIndex(if (abs(dragOffsetY) > .5f) 1f else 0f)
             .semantics(mergeDescendants = true) {
                 contentDescription = description
-                stateDescription = if (task.done) "Completed" else "Open"
+                stateDescription = if (task.done) completedLabel else openLabel
             }
             .padding(horizontal = 8.dp, vertical = if (compact) 0.dp else 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1226,8 +1247,8 @@ fun AgendaRow(
                 .size(checkboxTouchSize ?: if (compact) 36.dp else 44.dp)
                 .then(checkboxPressModifier)
                 .semantics {
-                    contentDescription = "${task.title}, checkbox"
-                    stateDescription = if (task.done) "Checked" else "Not checked"
+                    contentDescription = checkboxDescription
+                    stateDescription = if (task.done) checkedLabel else notCheckedLabel
                 },
             contentAlignment = Alignment.Center,
         ) {
@@ -1285,7 +1306,7 @@ fun AgendaRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        task.due?.let { Text(it.format(ShortDateFormat), color = CalinoColors.Ink3, fontSize = 12.sp, lineHeight = 18.sp) }
+                        task.due?.let { Text(it.format(dateFormat), color = CalinoColors.Ink3, fontSize = 12.sp, lineHeight = 18.sp) }
                         task.category?.let {
                             Box(
                                 Modifier
@@ -1327,6 +1348,11 @@ fun CalinoMonthHeading(
     showTodayButton: Boolean = true,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
+    val previousMonthLabel = stringResource(R.string.cal_previous_month)
+    val nextMonthLabel = stringResource(R.string.cal_next_month)
+    val chooseMonthLabel = stringResource(R.string.cal_calendar_choose_month_year)
+    val goToTodayLabel = stringResource(R.string.cal_go_to_today)
+    val todayLabel = stringResource(R.string.cal_today)
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1335,7 +1361,7 @@ fun CalinoMonthHeading(
         if (showNavigationArrows) {
             IconButton(
                 onClick = onPreviousMonth,
-                modifier = Modifier.semantics { contentDescription = "Previous month" },
+                modifier = Modifier.semantics { contentDescription = previousMonthLabel },
             ) { Icon(CalinoIcons.ChevronLeft, contentDescription = null, tint = CalinoColors.Ink2) }
         }
         // Compose centers the title's line box, but the display face has more
@@ -1348,7 +1374,7 @@ fun CalinoMonthHeading(
                     indication = null,
                     onClick = onMonthYearClick,
                 )
-                    .semantics { contentDescription = "Choose month and year"; role = Role.Button }
+                    .semantics { contentDescription = chooseMonthLabel; role = Role.Button }
                 else Modifier),
         ) {
             if (monthPagerState != null && monthForPage != null) {
@@ -1458,18 +1484,18 @@ fun CalinoMonthHeading(
                     .graphicsLayer { alpha = todayAlpha }
                     .then(
                         if (showToday) {
-                            Modifier.semantics { contentDescription = "Go to today" }
+                            Modifier.semantics { contentDescription = goToTodayLabel }
                         } else {
                             Modifier.clearAndSetSemantics { }
                         },
                     ),
-            ) { Text("Today", color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
+            ) { Text(todayLabel, color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
         }
         trailingContent?.invoke()
         if (showNavigationArrows) {
             IconButton(
                 onClick = onNextMonth,
-                modifier = Modifier.semantics { contentDescription = "Next month" },
+                modifier = Modifier.semantics { contentDescription = nextMonthLabel },
             ) { Icon(CalinoIcons.ChevronRight, contentDescription = null, tint = CalinoColors.Ink2) }
         }
     }
@@ -1502,16 +1528,12 @@ fun CalendarSyncBadge(modifier: Modifier = Modifier) {
     }
     val description = when (badge) {
         SyncBadge.None -> null
-        SyncBadge.Refreshing -> "Refreshing calendars"
-        SyncBadge.Stale -> "Calendar may be out of date. Open Calendars to refresh."
-        SyncBadge.Incomplete -> "Part of the calendar could not be read. Open Calendars for details."
-        SyncBadge.Failed -> "Calendar could not be updated. Open Calendars for details."
-        SyncBadge.WritesWaiting -> status.writes.waiting.let {
-            "$it saved change${if (it == 1) " is" else "s are"} waiting to sync. Open Calendars for details."
-        }
-        SyncBadge.WritesFailed -> status.writes.needsAttention.let {
-            "$it change${if (it == 1) "" else "s"} could not sync. Open Calendars to review."
-        }
+        SyncBadge.Refreshing -> stringResource(R.string.cal_sync_refreshing)
+        SyncBadge.Stale -> stringResource(R.string.cal_sync_stale)
+        SyncBadge.Incomplete -> stringResource(R.string.cal_sync_incomplete)
+        SyncBadge.Failed -> stringResource(R.string.cal_sync_failed)
+        SyncBadge.WritesWaiting -> pluralStringResource(R.plurals.cal_sync_waiting, status.writes.waiting, status.writes.waiting)
+        SyncBadge.WritesFailed -> pluralStringResource(R.plurals.cal_sync_could_not_sync, status.writes.needsAttention, status.writes.needsAttention)
     }
     // Fade and widen rather than appear: the heading must not jump a month
     // title sideways the instant a refresh starts.
@@ -1577,11 +1599,12 @@ private val SyncBadgeSlotWidth = 26.dp
 
 @Composable
 private fun MonthHeadingLabel(month: YearMonth, modifier: Modifier = Modifier) {
+    val locale = LocalCalinoLocale
     Row(modifier, verticalAlignment = Alignment.Bottom) {
         // The month name yields the space, not the year: a long name may
         // ellipsize, but "2026" must never break across two lines.
         Text(
-            month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).replaceFirstChar { it.uppercase() },
+            month.month.getDisplayName(TextStyle.FULL, locale).replaceFirstChar { it.uppercase(locale) },
             style = CalinoTypography.titleLarge.copy(fontSize = 27.sp, lineHeight = 30.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1602,6 +1625,16 @@ private fun MonthHeadingLabel(month: YearMonth, modifier: Modifier = Modifier) {
 fun DayGroupHeader(day: LocalDate, isToday: Boolean = false, eventCount: Int? = null, modifier: Modifier = Modifier, empty: Boolean = false) {
     // Hoisted: a draw scope cannot read the palette's composition local.
     val hairline = CalinoColors.Line2
+    val locale = LocalCalinoLocale
+    val dayFormat = localizedDateFormatter("EEEE, MMMM d")
+    val dayLabel = day.format(dayFormat).let { if (isToday) stringResource(R.string.cal_day_date_today, it) else it }
+    val description = when {
+        empty -> stringResource(R.string.cal_day_empty, dayLabel)
+        eventCount != null -> pluralStringResource(R.plurals.cal_day_event_count, eventCount, dayLabel, eventCount)
+        else -> dayLabel
+    }
+    val todayCaps = stringResource(R.string.cal_today_caps)
+    val nothingScheduled = stringResource(R.string.cal_nothing_scheduled)
     Row(
         modifier
             .fillMaxWidth()
@@ -1610,20 +1643,13 @@ fun DayGroupHeader(day: LocalDate, isToday: Boolean = false, eventCount: Int? = 
                 val y = size.height - 1.dp.toPx()
                 drawLine(hairline, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.dp.toPx())
             }
-            .semantics(mergeDescendants = true) {
-                contentDescription = buildString {
-                    append(day.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)))
-                    if (isToday) append(", today")
-                    eventCount?.let { append(", $it events") }
-                    if (empty) append(", nothing scheduled")
-                }
-            }
+            .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.width(58.dp)) {
             Text(
-                if (isToday) "TODAY" else day.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase(Locale.getDefault()),
+                if (isToday) todayCaps else day.dayOfWeek.getDisplayName(TextStyle.SHORT, locale).uppercase(locale),
                 color = if (isToday) CalinoColors.Accent else CalinoColors.Ink3,
                 fontFamily = Mono,
                 fontSize = 10.sp,
@@ -1632,7 +1658,7 @@ fun DayGroupHeader(day: LocalDate, isToday: Boolean = false, eventCount: Int? = 
             )
             Text(day.dayOfMonth.toString(), fontFamily = CalinoTypography.titleMedium.fontFamily, color = CalinoColors.Ink, fontSize = 27.sp, lineHeight = 27.sp)
         }
-        if (empty) Text("Nothing scheduled", color = CalinoColors.Ink3, fontSize = 13.sp, lineHeight = 19.5.sp, fontStyle = FontStyle.Italic)
+        if (empty) Text(nothingScheduled, color = CalinoColors.Ink3, fontSize = 13.sp, lineHeight = 19.5.sp, fontStyle = FontStyle.Italic)
         else eventCount?.let { Text(it.toString(), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 11.sp, lineHeight = 13.sp) }
     }
 }
@@ -1727,6 +1753,7 @@ fun CompactSegmentedControl(
         ) {
             options.forEachIndexed { index, option ->
                 val active = index == safeSelected
+                val optionDescription = semanticLabel?.let { stringResource(R.string.cal_segmented_option, it, option) } ?: option
                 val labelColor by animateColorAsState(
                     targetValue = if (active) CalinoColors.Ink else CalinoColors.Ink2,
                     animationSpec = tween(CalinoMotion.FadeThroughMillis),
@@ -1750,7 +1777,7 @@ fun CompactSegmentedControl(
                             onClick = { onSelected(index) },
                         )
                         .semantics(mergeDescendants = true) {
-                            contentDescription = semanticLabel?.let { "$it: $option" } ?: option
+                            contentDescription = optionDescription
                         },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -1782,12 +1809,13 @@ fun SegmentedControl(options: List<String>, selectedIndex: Int, onSelected: (Int
 
 @Composable
 fun SectionLabel(text: String, count: Int? = null, modifier: Modifier = Modifier) {
+    val locale = LocalCalinoLocale
     Row(
         modifier.fillMaxWidth().heightIn(min = 28.dp).padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        Text(text.uppercase(Locale.getDefault()), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+        Text(text.uppercase(locale), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
         Spacer(Modifier.weight(1f).height(1.dp).background(CalinoColors.Line2))
         count?.let { Text(it.toString(), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold) }
     }
@@ -1978,7 +2006,7 @@ private data class PillLabelState(
 /** The add pill's own text style, shared by the label and its swipe pair. */
 @Composable
 private fun PillLabelText(text: String, modifier: Modifier = Modifier) {
-    val addOnPrefix = "Add on "
+    val addOnPrefix = stringResource(R.string.cal_add_on_prefix)
     Text(
         // The plus already says "add"; the pill shows only the day. The
         // label keeps the words for the pill's spoken description.
@@ -2043,21 +2071,21 @@ fun AddPill(
     /** A rightward swipe on the dock: the sidebar it leads to sits on that side. */
     onOpenSidebar: () -> Unit = {},
     confirmationActive: Boolean = false,
-    confirmationLabel: String = "Are you sure?",
+    confirmationLabel: String? = null,
     onConfirmationExpired: () -> Unit = {},
     onConfirmed: () -> Unit = {},
     onClick: () -> Unit,
 ) {
-    val resolvedConfirmationLabel = confirmationLabel
-    val searchLabel = "Search"
-    val undoLabel = "Undo"
-    val savingLabel = "Saving"
-    val savedLabel = "Saved"
-    val removingLabel = "Removing"
-    val removedLabel = "Removed"
-    val confirmDeleteEventLabel = "Confirm delete event"
-    val swipeUpViewsDescription = "$label. Swipe up for views"
-    val swipeUpSearchDescription = "$label. Swipe up to search"
+    val resolvedConfirmationLabel = confirmationLabel ?: stringResource(R.string.cal_are_you_sure)
+    val searchLabel = stringResource(R.string.cal_search)
+    val undoLabel = stringResource(R.string.cal_undo)
+    val savingLabel = stringResource(R.string.cal_saving)
+    val savedLabel = stringResource(R.string.cal_saved)
+    val removingLabel = stringResource(R.string.cal_removing)
+    val removedLabel = stringResource(R.string.cal_removed)
+    val confirmDeleteEventLabel = stringResource(R.string.cal_confirm_delete_event)
+    val swipeUpViewsDescription = stringResource(R.string.cal_swipe_up_views, label)
+    val swipeUpSearchDescription = stringResource(R.string.cal_swipe_up_search, label)
     var dragX by remember { mutableFloatStateOf(0f) }
     var dragY by remember { mutableFloatStateOf(0f) }
     var suppressClickAfterDrag by remember { mutableStateOf(false) }
@@ -2640,7 +2668,7 @@ fun AddPill(
                             // first of them is the page the calendar is actually on -- so the
                             // pill never has to be told when to stop showing one day and start
                             // showing the other. It shows both, positioned by the page.
-                            val shownLabel = if (confirmationActive) resolvedConfirmationLabel else swipeLabels?.first ?: label
+        val shownLabel = if (confirmationActive) resolvedConfirmationLabel else swipeLabels?.first ?: label
                             val directionalLabel = saveState == PillSaveState.Idle &&
                                 !confirmationActive && swipeLabels == null && !undoActive && labelSlideDirection != 0
                             // Whether a swipe owns the label motion travels *in* the state,
@@ -2738,7 +2766,7 @@ fun AddPill(
                                         PillSaveState.Idle -> text
                                     }
                                     if (state == PillSaveState.Idle && undoMessage != null) {
-                                        val undoDescription = "Undo: $undoMessage"
+                                        val undoDescription = stringResource(R.string.cal_undo_message, undoMessage)
                                         PillLabelText(
                                             undoMessage,
                                             // Capped rather than weighted: this row is not
@@ -2768,7 +2796,7 @@ fun AddPill(
                                         // string sends "Add on" out of the pill and back for
                                         // a change it has no part in; kept still, it reads as
                                         // one sentence whose last words are being swapped.
-                                        val addOnPrefix = "Add on "
+                                        val addOnPrefix = stringResource(R.string.cal_add_on_prefix)
                                         val from = swipeLabels.first.removePrefix(addOnPrefix)
                                         val to = swipeLabels.second.removePrefix(addOnPrefix)
                                         val prefix = sharedLabelPrefix(from, to)
@@ -2939,9 +2967,9 @@ private fun PillViewButton(
     onOpenMenu: () -> Unit,
     onOpenDock: () -> Unit,
 ) {
-    val viewsLabel = "Views, current: ${route?.label.orEmpty()}"
-    val openViewsLabel = "Open views"
-    val openSwitcherLabel = "Open quick switcher"
+    val viewsLabel = stringResource(R.string.cal_views_current, route?.label.orEmpty())
+    val openViewsLabel = stringResource(R.string.cal_open_views)
+    val openSwitcherLabel = stringResource(R.string.cal_open_quick_switcher)
     val wash by animateColorAsState(
         if (pressed) CalinoColors.OnFloat.copy(alpha = .16f) else CalinoColors.OnFloat.copy(alpha = 0f),
         label = "pill view button press",
@@ -2976,8 +3004,8 @@ private fun PillViewMenu(
     onBounds: (Int, Rect) -> Unit,
     onPick: (Int) -> Unit,
 ) {
-    val viewsPaneTitle = "Views"
-    val searchLabel = "Search"
+    val viewsPaneTitle = stringResource(R.string.cal_views)
+    val searchLabel = stringResource(R.string.cal_search)
     // Opens at the end, so the nearest views stay under the thumb when it overflows.
     val scroll = rememberScrollState(Int.MAX_VALUE)
     DisposableEffect(scroll) {
@@ -3046,7 +3074,7 @@ private fun PillViewDock(
     /** False for the picture of the dock a modal pill morphs through. */
     interactive: Boolean = true,
 ) {
-    val addLabel = "Add"
+    val addLabel = stringResource(R.string.cal_add)
     Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
         routes.forEachIndexed { index, route ->
             // The calendar views and the rest, divided as in the menu.
@@ -3106,11 +3134,16 @@ private fun PillViewDock(
 /** The dock's add, opened: pick what to make. The editor pill morphs from here. */
 @Composable
 private fun PillCreateTypes(onPick: (AddPillCreate) -> Unit = {}, onClose: () -> Unit = {}, interactive: Boolean = true) {
-    val closeLabel = "Close"
+    val locale = LocalCalinoLocale
+    val closeLabel = stringResource(R.string.cal_close)
     Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
         AddPillCreate.entries.forEach { kind ->
-            val kindLabel = kind.label
-            val kindDescription = "New ${kind.label.lowercase()}"
+            val kindLabel = when (kind) {
+                AddPillCreate.Event -> stringResource(R.string.cal_event)
+                AddPillCreate.Task -> stringResource(R.string.cal_task)
+                AddPillCreate.Journal -> stringResource(R.string.cal_journal)
+            }
+            val kindDescription = stringResource(R.string.cal_new_item, kindLabel.lowercase(locale))
             Row(
                 Modifier
                     .height(44.dp)
@@ -3153,7 +3186,7 @@ private const val DirectionalPillLabelKey = "__directional_pill_label__"
 /** A settled Agenda relabel moves only the date. */
 @Composable
 private fun DirectionalPillLabel(label: String, direction: Int) {
-    val addOnPrefix = "Add on "
+    val addOnPrefix = stringResource(R.string.cal_add_on_prefix)
     Row(horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
         AnimatedContent(
             targetState = label.removePrefix(addOnPrefix),
@@ -3258,14 +3291,7 @@ private fun <S> AnimatedContentTransitionScope<S>.pillFaceTransition() =
         fadeOut(tween(CalinoMotion.FadeThroughMillis)) using
         SizeTransform(clip = false) { _, _ -> CalinoMotion.standardSpatial() }
 
-internal enum class ModalPillActionTone { Neutral, Save, Delete }
-
-private fun modalPillActionTone(label: String): ModalPillActionTone = when (label.lowercase(Locale.US)) {
-    "save" -> ModalPillActionTone.Save
-    "delete" -> ModalPillActionTone.Delete
-    else -> ModalPillActionTone.Neutral
-}
-
+enum class ModalPillActionTone { Neutral, Save, Delete }
 
 /**
  * The action pill shared by the root add affordance and every modal card.
@@ -3319,12 +3345,14 @@ fun ModalActionPill(
     primaryEnabled: Boolean = true,
     secondaryEnabled: Boolean = true,
     deleteEnabled: Boolean = true,
+    primaryTone: ModalPillActionTone = ModalPillActionTone.Neutral,
+    secondaryTone: ModalPillActionTone = ModalPillActionTone.Neutral,
     primaryDescription: String = primaryLabel,
     secondaryDescription: String = secondaryLabel ?: "",
-    deleteDescription: String = deleteLabel ?: "Delete",
-    cancelDescription: String = cancelLabel ?: "Cancel",
+    deleteDescription: String? = null,
+    cancelDescription: String? = null,
     deleteConfirmationActive: Boolean = false,
-    deleteConfirmationLabel: String = "Are you sure?",
+    deleteConfirmationLabel: String? = null,
     onDeleteConfirmationChange: (Boolean) -> Unit = {},
     deleteHoldToConfirm: Boolean = false,
     // What a completed hold removes, when that is deliberately less than what
@@ -3334,13 +3362,11 @@ fun ModalActionPill(
     // Null means the hold and the confirmed tap do the same thing.
     onDeleteHold: (() -> Unit)? = null,
 ) {
-    val resolvedDeleteDescription = deleteDescription
-    val resolvedCancelDescription = cancelDescription
-    val resolvedDeleteConfirmationLabel = deleteConfirmationLabel
-    val confirmDeleteDescription = "Confirm $resolvedDeleteDescription"
-    val defaultAddLabel = "Add"
-    val primaryTone = modalPillActionTone(primaryLabel)
-    val secondaryTone = modalPillActionTone(secondaryLabel.orEmpty())
+    val resolvedDeleteDescription = deleteDescription ?: stringResource(R.string.cal_delete)
+    val resolvedCancelDescription = cancelDescription ?: stringResource(R.string.cal_cancel)
+    val resolvedDeleteConfirmationLabel = deleteConfirmationLabel ?: stringResource(R.string.cal_are_you_sure)
+    val confirmDeleteDescription = stringResource(R.string.cal_confirm_delete, resolvedDeleteDescription)
+    val defaultAddLabel = stringResource(R.string.cal_add)
     val hasCancel = cancelLabel != null && onCancel != null
     val hasSecondary = secondaryLabel != null && onSecondary != null
     val hasDelete = deleteLabel != null && onDelete != null
@@ -3523,8 +3549,8 @@ fun ModalActionPill(
                         }
                         PillLabelText(when (state) {
                             PillSaveState.Idle -> text
-                            PillSaveState.Saving -> if (kind == PillWriteKind.Remove) "Removing" else "Saving"
-                            PillSaveState.Saved -> if (kind == PillWriteKind.Remove) "Removed" else "Saved"
+                            PillSaveState.Saving -> stringResource(if (kind == PillWriteKind.Remove) R.string.cal_removing else R.string.cal_saving)
+                            PillSaveState.Saved -> stringResource(if (kind == PillWriteKind.Remove) R.string.cal_removed else R.string.cal_saved)
                         })
                     }
                 }
@@ -3599,12 +3625,12 @@ fun ModalActionPill(
                 )
                 if (reporting) {
                     val removing = lane.writeKind == PillWriteKind.Remove
-                    val resultLabel = when {
-                        writing && removing -> "Removing"
-                        writing -> "Saving"
-                        removing -> "Removed"
-                        else -> "Saved"
-                    }
+                    val resultLabel = stringResource(when {
+                        writing && removing -> R.string.cal_removing
+                        writing -> R.string.cal_saving
+                        removing -> R.string.cal_removed
+                        else -> R.string.cal_saved
+                    })
                     add(ModalPillAction(
                         label = resultLabel, onClick = {}, enabled = false,
                         description = resultLabel,
@@ -3879,6 +3905,7 @@ private fun SwipeDestinationChip(
 /** The hamburger that opens the root navigation sidebar from a screen header. */
 @Composable
 fun MenuButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val openNavigationLabel = stringResource(R.string.cal_open_navigation)
     Box(
         modifier
             // 44dp, not the 40dp this used to be: the UI requirements ask every
@@ -3887,7 +3914,7 @@ fun MenuButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .size(44.dp)
             .clip(RoundedCornerShape(CalinoShapes.Button))
             .calinoPressable(onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = "Open navigation" },
+            .semantics(mergeDescendants = true) { contentDescription = openNavigationLabel },
         contentAlignment = Alignment.Center,
     ) {
         Icon(CalinoIcons.Menu, contentDescription = null, tint = CalinoColors.Ink2, modifier = Modifier.size(21.dp))
@@ -3897,6 +3924,9 @@ fun MenuButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 @Composable
 fun ZoomHandle(level: Int, caption: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val safeLevel = level.coerceIn(0, 2)
+    val locale = LocalCalinoLocale
+    val zoomDescription = stringResource(R.string.cal_change_calendar_zoom)
+    val levelDescription = stringResource(R.string.cal_level_of_three, safeLevel + 1)
     val pressModifier = if (onClick != null) Modifier.calinoPressable(onClick = onClick) else Modifier
     Row(
         modifier
@@ -3904,15 +3934,15 @@ fun ZoomHandle(level: Int, caption: String, modifier: Modifier = Modifier, onCli
             .heightIn(min = 44.dp)
             .then(pressModifier)
             .semantics(mergeDescendants = true) {
-                contentDescription = "Change calendar zoom"
-                stateDescription = "Level ${safeLevel + 1} of 3"
+                contentDescription = zoomDescription
+                stateDescription = levelDescription
             },
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(26.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(CalinoColors.Ink.copy(alpha = .14f)))
         Spacer(Modifier.width(10.dp))
-        Text(caption.uppercase(Locale.getDefault()), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 9.5.sp, lineHeight = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+        Text(caption.uppercase(locale), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 9.5.sp, lineHeight = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
         Spacer(Modifier.width(10.dp))
         Box(Modifier.width(26.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(CalinoColors.Ink.copy(alpha = .14f)))
         Spacer(Modifier.width(10.dp))
@@ -3928,6 +3958,8 @@ fun ZoomHandle(level: Int, caption: String, modifier: Modifier = Modifier, onCli
 @Composable
 fun DetailRow(icon: CalinoIcon, label: String, value: String?, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     if (value.isNullOrBlank()) return
+    val locale = LocalCalinoLocale
+    val description = stringResource(R.string.cal_label_value, label, value)
     val pressModifier = if (onClick != null) Modifier.calinoPressable(onClick = onClick) else Modifier
     // Hoisted: a draw scope cannot read the palette's composition local.
     val hairline = CalinoColors.Line2
@@ -3940,7 +3972,7 @@ fun DetailRow(icon: CalinoIcon, label: String, value: String?, modifier: Modifie
                 val y = size.height - 1.dp.toPx()
                 drawLine(hairline, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.dp.toPx())
             }
-            .semantics(mergeDescendants = true) { contentDescription = "$label: $value" }
+            .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(vertical = 15.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -3949,7 +3981,7 @@ fun DetailRow(icon: CalinoIcon, label: String, value: String?, modifier: Modifie
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(label.uppercase(Locale.getDefault()), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 9.5.sp, lineHeight = 11.5.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
+            Text(label.uppercase(locale), color = CalinoColors.Ink3, fontFamily = Mono, fontSize = 9.5.sp, lineHeight = 11.5.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp)
             Text(value, color = CalinoColors.Ink, fontSize = 14.5.sp, lineHeight = 21.75.sp)
         }
     }
@@ -3966,6 +3998,7 @@ fun DetailRows(rows: List<Triple<CalinoIcon, String, String>>, modifier: Modifie
 
 @Composable
 fun CalinoScrim(visible: Boolean, modifier: Modifier = Modifier, onDismiss: (() -> Unit)? = null) {
+    val dismissLabel = stringResource(R.string.cal_dismiss)
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(CalinoMotion.SurfaceFadeMillis)),
@@ -3992,13 +4025,14 @@ fun CalinoScrim(visible: Boolean, modifier: Modifier = Modifier, onDismiss: (() 
                         Modifier
                     },
                 )
-                .semantics { contentDescription = "Dismiss" },
+                .semantics { contentDescription = dismissLabel },
         )
     }
 }
 
 @Composable
 fun CalinoSheet(visible: Boolean, onDismiss: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val dismissSheetLabel = stringResource(R.string.cal_dismiss_sheet)
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(animationSpec = spring(dampingRatio = .85f, stiffness = 380f), initialOffsetY = { it }) + fadeIn(tween(CalinoMotion.ContentEnterMillis)),
@@ -4016,7 +4050,7 @@ fun CalinoSheet(visible: Boolean, onDismiss: () -> Unit, modifier: Modifier = Mo
                         .align(Alignment.CenterHorizontally)
                         .heightIn(min = 44.dp)
                         .fillMaxWidth()
-                        .semantics { contentDescription = "Dismiss sheet" }
+                        .semantics { contentDescription = dismissSheetLabel }
                         .clickable(role = Role.Button, onClick = onDismiss),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -4029,7 +4063,7 @@ fun CalinoSheet(visible: Boolean, onDismiss: () -> Unit, modifier: Modifier = Mo
 }
 
 @Composable
-fun CalinoIcon(icon: CalinoIcon, tint: Color = LocalContentColor.current, modifier: Modifier = Modifier, contentDescription: String? = icon.name.lowercase()) {
+fun CalinoIcon(icon: CalinoIcon, tint: Color = LocalContentColor.current, modifier: Modifier = Modifier, contentDescription: String? = null) {
     Icon(
         imageVector = when (icon) {
             CalinoIcon.Back -> CalinoIcons.ChevronLeft

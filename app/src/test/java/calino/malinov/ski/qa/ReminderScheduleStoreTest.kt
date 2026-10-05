@@ -65,6 +65,28 @@ class ReminderScheduleStoreTest {
     )
 
     @Test
+    fun `structured reminder labels survive process death without freezing the locale`() {
+        val original = firing("localized", now.plusSeconds(3600)).copy(
+            displayAllDay = false,
+            displayDate = java.time.LocalDate.of(2026, 9, 12),
+            displayTime = java.time.LocalTime.of(10, 30),
+            displayCategory = "Personal",
+        )
+        store().replace(listOf(original), now, zone)
+        assertEquals(original, store().load().firings.single())
+    }
+
+    @Test
+    fun `an older schedule retains its fallback subtitle`() {
+        val original = firing("legacy", now.plusSeconds(3600))
+        val encoded = ReminderScheduleJson.encode(ReminderSchedule(now, zone.id, listOf(original)))
+        val decoded = ReminderScheduleJson.decode(encoded)!!.firings.single()
+        assertNull(decoded.displayAllDay)
+        assertNull(decoded.displayDate)
+        assertEquals("10:00 · Studio", decoded.subtitle)
+    }
+
+    @Test
     fun `a plan round trips through the file`() {
         val firings = listOf(
             firing("a", now.plusSeconds(3600)),

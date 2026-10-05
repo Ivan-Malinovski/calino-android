@@ -3,13 +3,27 @@ package calino.malinov.ski.util
 import java.time.DateTimeException
 import java.time.LocalDate
 import java.time.LocalTime
+import java.text.DateFormatSymbols
+import java.util.Locale
 
 /**
  * Reads a time typed by hand: "14", "1400", "14:00", "930", "9.30",
  * "2pm", "2:30 PM". Null when it is not a time.
  */
-fun parseTypedTime(input: String): LocalTime? {
-    val text = input.trim().lowercase().replace(" ", "")
+fun parseTypedTime(input: String, locale: Locale = Locale.US): LocalTime? {
+    fun normalized(value: String) = value.lowercase(Locale.ROOT)
+        .filterNot { it.isWhitespace() || Character.isSpaceChar(it) }
+    var text = normalized(input.trim())
+    val localizedMeridiems = DateFormatSymbols.getInstance(locale).amPmStrings
+        .mapIndexed { index, label -> normalized(label) to if (index == 0) "am" else "pm" }
+        .filter { it.first.isNotEmpty() }
+        .toMutableList()
+    if (locale.language == "de") {
+        localizedMeridiems += listOf("vorm." to "am", "nachm." to "pm")
+    }
+    localizedMeridiems.sortedByDescending { it.first.length }.firstOrNull {
+        text.endsWith(it.first)
+    }?.let { (suffix, meridiem) -> text = text.dropLast(suffix.length) + meridiem }
     val match = Regex("""^(\d{1,4})(?:[:.h](\d{1,2}))?(am|pm|a|p)?$""").matchEntire(text) ?: return null
     val (lead, tail, meridiem) = match.destructured
     val (hour, minute) = when {
@@ -31,8 +45,11 @@ fun parseTypedTime(input: String): LocalTime? {
     return LocalTime.of(hour24, minute)
 }
 
+// Accept the abbreviated and full month names shown by all supported UI languages.
 private val MonthNames = listOf(
-    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    listOf("jan"), listOf("feb"), listOf("mar", "mär", "maer"), listOf("apr"),
+    listOf("may", "maj", "mai"), listOf("jun"), listOf("jul"), listOf("aug"),
+    listOf("sep"), listOf("oct", "okt"), listOf("nov"), listOf("dec", "dez"),
 )
 
 /**
@@ -41,12 +58,12 @@ private val MonthNames = listOf(
  * from [reference]. Null when it is not a date.
  */
 fun parseTypedDate(input: String, reference: LocalDate): LocalDate? {
-    val text = input.trim().lowercase().replace(",", " ")
+    val text = input.trim().lowercase(Locale.ROOT).replace(",", " ")
     if (text.isEmpty()) return null
     val words = text.split(Regex("""[\s/.\-]+""")).filter { it.isNotEmpty() }
     val month = words.firstNotNullOfOrNull { word ->
         if (word.first().isLetter() && word.length >= 3) {
-            MonthNames.indexOfFirst { word.startsWith(it) }.takeIf { it >= 0 }?.plus(1)
+            MonthNames.indexOfFirst { aliases -> aliases.any { word.startsWith(it) } }.takeIf { it >= 0 }?.plus(1)
         } else {
             null
         }

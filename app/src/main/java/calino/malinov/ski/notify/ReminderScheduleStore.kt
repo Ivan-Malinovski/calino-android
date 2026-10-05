@@ -242,6 +242,10 @@ internal object ReminderScheduleJson {
         .putNullable("occurrenceDay", firing.occurrenceDay)
         .put("title", firing.title)
         .put("subtitle", firing.subtitle)
+        .putNullable("displayAllDay", firing.displayAllDay)
+        .putNullable("displayDate", firing.displayDate?.toString())
+        .putNullable("displayTime", firing.displayTime?.toString())
+        .putNullable("displayCategory", firing.displayCategory)
         .putNullable("location", firing.location)
         .putNullable("meetingUrl", firing.meetingUrl)
         .put("minutesBefore", firing.minutesBefore)
@@ -257,6 +261,10 @@ internal object ReminderScheduleJson {
             occurrenceDay = if (json.isNull("occurrenceDay")) null else json.getLong("occurrenceDay"),
             title = json.getString("title"),
             subtitle = json.optString("subtitle", ""),
+            displayAllDay = if (json.has("displayAllDay") && !json.isNull("displayAllDay")) json.getBoolean("displayAllDay") else null,
+            displayDate = json.optString("displayDate", "").takeIf { it.isNotBlank() }?.let(java.time.LocalDate::parse),
+            displayTime = json.optString("displayTime", "").takeIf { it.isNotBlank() }?.let(java.time.LocalTime::parse),
+            displayCategory = json.optString("displayCategory", "").takeIf { it.isNotBlank() },
             location = json.optionalString("location"),
             meetingUrl = json.optionalString("meetingUrl"),
             minutesBefore = json.getInt("minutesBefore"),

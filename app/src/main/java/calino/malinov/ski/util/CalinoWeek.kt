@@ -5,6 +5,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.IsoFields
 import java.time.temporal.TemporalAdjusters
+import java.util.Locale
 
 /**
  * The day a week begins on. Every grid, strip and pager that has to know where
@@ -75,8 +76,12 @@ fun dayOfWeekForColumn(column: Int, weekStart: CalinoWeekStart): DayOfWeek =
  * contain two Ts and two Ss, so a rotation reads correct whether or not it is:
  * this way both the code and its test say which day each column holds.
  */
-fun weekdayLetters(weekStart: CalinoWeekStart): List<String> =
-    List(7) { column -> WeekdayLetterByDay.getValue(dayOfWeekForColumn(column, weekStart)) }
+fun weekdayLetters(weekStart: CalinoWeekStart, locale: Locale = Locale.US): List<String> =
+    List(7) { column ->
+        val day = dayOfWeekForColumn(column, weekStart)
+        if (locale.language == "en") WeekdayLetterByDay.getValue(day)
+        else day.getDisplayName(java.time.format.TextStyle.NARROW_STANDALONE, locale)
+    }
 
 /**
  * The ISO week number of the grid row beginning on [rowStart].

@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -65,6 +66,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.pluralStringResource
+import calino.malinov.ski.R
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.Contact
 import calino.malinov.ski.data.model.ContactAddressBook
@@ -98,14 +101,14 @@ import calino.malinov.ski.ui.components.CalinoTextField
 import calino.malinov.ski.ui.components.DetailCardSurface
 import calino.malinov.ski.ui.components.DetailRow
 import calino.malinov.ski.ui.components.MenuButton
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
 import calino.malinov.ski.ui.components.BottomDetailCard
 import calino.malinov.ski.ui.components.ModalActionPill
+import calino.malinov.ski.ui.components.ModalPillActionTone
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.util.Locale
 
-private val ContactDateFormat = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.US)
 
 /** Adaptive contact directory. Selection is hoisted so rotation never loses it. */
 @Composable
@@ -334,17 +337,17 @@ private fun ContactDirectory(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             onOpenMenu?.let { MenuButton(onClick = it, modifier = Modifier.padding(end = 6.dp)) }
-            Text("Contacts", style = CalinoTypography.displayLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.ed_contacts_title), style = CalinoTypography.displayLarge, modifier = Modifier.weight(1f))
         }
         CalinoSearchField(
             query = query,
             onQueryChanged = onQueryChanged,
-            placeholder = "Search people, numbers, tags…",
-            contentDescription = "Search contacts",
+            placeholder = stringResource(R.string.ed_contacts_search_hint),
+            contentDescription = stringResource(R.string.ed_contacts_search_description),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
         )
         if (addressBooks.size > 1) {
-            ContactFilterRow("Address books", addressBooks.map { it.id to it.name }, bookFilter, onBookFilterChanged)
+            ContactFilterRow(stringResource(R.string.ed_contacts_address_books), addressBooks.map { it.id to it.name }, bookFilter, onBookFilterChanged)
         }
         if (tags.isNotEmpty()) {
             ContactTagRow(tags, tagFilter, onTagFilterChanged)
@@ -382,8 +385,8 @@ private fun ContactFilterRow(
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label.uppercase(), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(end = 8.dp))
         androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp), contentPadding = PaddingValues(end = 20.dp)) {
-            item { CalinoChip("All", selected == null, "show every address book", { onSelected(null) }) }
-            items(options, key = { it.first }) { (id, name) -> CalinoChip(name, selected == id, "filter by $name", { onSelected(id) }) }
+            item { CalinoChip(stringResource(R.string.ed_contacts_all), selected == null, stringResource(R.string.ed_contacts_show_all_books), { onSelected(null) }) }
+            items(options, key = { it.first }) { (id, name) -> CalinoChip(name, selected == id, stringResource(R.string.ed_contacts_filter_book, name), { onSelected(id) }) }
         }
     }
 }
@@ -395,12 +398,17 @@ private fun ContactTagRow(tags: List<String>, selected: String?, onSelected: (St
         horizontalArrangement = Arrangement.spacedBy(7.dp),
         contentPadding = PaddingValues(horizontal = 20.dp),
     ) {
-        items(tags, key = { it }) { tag -> CalinoChip("#$tag", selected == tag, "filter contacts by $tag", { onSelected(if (selected == tag) null else tag) }) }
+        items(tags, key = { it }) { tag -> CalinoChip("#$tag", selected == tag, stringResource(R.string.ed_contacts_filter_tag, tag), { onSelected(if (selected == tag) null else tag) }) }
     }
 }
 
 @Composable
 private fun ContactCard(contact: Contact, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val contactName = contact.displayNameForUi(context)
+    val fallbackContact = stringResource(R.string.ed_contact_fallback)
+    val groupLabel = stringResource(R.string.ed_contact_group)
+    val openDescription = stringResource(R.string.ed_contact_open, contactName)
     val background by animateColorAsState(if (selected) CalinoColors.AccentSoft else CalinoColors.Panel, tween(170), label = "contact selection")
     Row(
         modifier
@@ -411,7 +419,7 @@ private fun ContactCard(contact: Contact, selected: Boolean, onClick: () -> Unit
             .border(1.dp, if (selected) CalinoColors.Accent.copy(.25f) else CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = "Open contact ${contact.derivedDisplayName()}"
+                contentDescription = openDescription
                 role = Role.Button
                 this.selected = selected
             }
@@ -421,9 +429,9 @@ private fun ContactCard(contact: Contact, selected: Boolean, onClick: () -> Unit
     ) {
         ContactAvatar(contact)
         Column(Modifier.weight(1f)) {
-            Text(contact.derivedDisplayName(), style = CalinoTypography.titleSmall.copy(fontWeight = FontWeight.Medium), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(contactName, style = CalinoTypography.titleSmall.copy(fontWeight = FontWeight.Medium), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                contact.organization.ifBlank { contact.emails.primaryContactEmail()?.value ?: contact.phones.firstOrNull()?.value ?: "Contact" },
+                contact.organization.ifBlank { contact.emails.primaryContactEmail()?.value ?: contact.phones.firstOrNull()?.value ?: fallbackContact },
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink2,
                 maxLines = 1,
@@ -431,13 +439,14 @@ private fun ContactCard(contact: Contact, selected: Boolean, onClick: () -> Unit
                 modifier = Modifier.padding(top = 3.dp),
             )
         }
-        if (contact.isGroup) Text("GROUP", style = CalinoTypography.labelSmall, color = CalinoColors.Accent, fontSize = 9.sp)
+        if (contact.isGroup) Text(groupLabel, style = CalinoTypography.labelSmall, color = CalinoColors.Accent, fontSize = 9.sp)
     }
 }
 
 @Composable
 private fun ContactAvatar(contact: Contact, modifier: Modifier = Modifier) {
-    val name = contact.derivedDisplayName()
+    val context = LocalContext.current
+    val name = contact.displayNameForUi(context)
     val palette = listOf(
         CalinoColors.AccentSoft,
         CalinoColors.Blue.copy(.14f),
@@ -453,12 +462,18 @@ private fun ContactAvatar(contact: Contact, modifier: Modifier = Modifier) {
         }
     }
     Box(modifier.size(46.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
-        if (bitmap != null) Image(bitmap, contentDescription = "Photo of $name", modifier = Modifier.fillMaxSize())
-        else Text(initials(name), style = CalinoTypography.titleMedium, color = CalinoColors.Ink)
+        if (bitmap != null) Image(bitmap, contentDescription = stringResource(R.string.ed_contact_photo_of, name), modifier = Modifier.fillMaxSize())
+        else Text(initials(name, LocalCalinoLocale), style = CalinoTypography.titleMedium, color = CalinoColors.Ink)
     }
 }
 
-private fun initials(name: String): String = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() }
+private fun Contact.displayNameForUi(context: android.content.Context): String {
+    val hasName = displayName.isNotBlank() || givenName.isNotBlank() || familyName.isNotBlank() ||
+        organization.isNotBlank() || emails.any { it.value.isNotBlank() }
+    return if (hasName) derivedDisplayName() else context.getString(R.string.ed_contact_unknown)
+}
+
+private fun initials(name: String, locale: Locale): String = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase(locale) }
 
 @Composable
 private fun ContactDetailPane(
@@ -474,6 +489,7 @@ private fun ContactDetailPane(
     pillInLane: Boolean = false,
 ) {
     val context = LocalContext.current
+    val backToContacts = stringResource(R.string.ed_contact_back)
     fun openContactLink(action: String, value: String) {
         runCatching { context.startActivity(Intent(action, Uri.parse(value))) }
     }
@@ -491,10 +507,10 @@ private fun ContactDetailPane(
         ) {
             item(key = "contact-heading") {
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp).semantics { contentDescription = "Back to contacts" }) { Icon(CalinoIcons.ChevronLeft, null, tint = CalinoColors.Ink) }
+                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp).semantics { contentDescription = backToContacts }) { Icon(CalinoIcons.ChevronLeft, null, tint = CalinoColors.Ink) }
                     ContactAvatar(contact, Modifier.padding(start = 2.dp))
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(contact.derivedDisplayName(), style = CalinoTypography.headlineMedium)
+                        Text(contact.displayNameForUi(context), style = CalinoTypography.headlineMedium)
                         contact.organization.takeIf(String::isNotBlank)?.let { Text(it, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2) }
                     }
                 }
@@ -503,45 +519,45 @@ private fun ContactDetailPane(
                 contact.emails.forEach { email ->
                     DetailRow(
                         CalinoIcon.Note,
-                        "Email${if (email.isPrimary) " · primary" else ""}",
+                        if (email.isPrimary) stringResource(R.string.ed_contact_email_primary) else stringResource(R.string.ed_contact_email),
                         email.value,
                         onClick = { openContactLink(Intent.ACTION_SENDTO, "mailto:${email.value}") },
                     )
                 }
                 contact.phones.forEach { phone ->
-                    DetailRow(CalinoIcon.Users, phone.type.label(), phone.value, onClick = { openContactLink(Intent.ACTION_DIAL, "tel:${phone.value}") })
+                    DetailRow(CalinoIcon.Users, contactPhoneTypeLabel(phone.type), phone.value, onClick = { openContactLink(Intent.ACTION_DIAL, "tel:${phone.value}") })
                 }
                 contact.urls.forEach { url ->
                     val target = if (url.value.contains("://")) url.value else "https://${url.value}"
-                    DetailRow(CalinoIcon.Pin, "Website", url.value, onClick = { openContactLink(Intent.ACTION_VIEW, target) })
+                    DetailRow(CalinoIcon.Pin, stringResource(R.string.ed_contact_website), url.value, onClick = { openContactLink(Intent.ACTION_VIEW, target) })
                 }
                 contact.ims.forEach { im ->
                     DetailRow(CalinoIcon.Users, im.protocol, im.value, onClick = { openContactLink(Intent.ACTION_VIEW, im.value) })
                 }
             }
             contact.addresses.forEachIndexed { index, address ->
-                item(key = "address:$index") { DetailRow(CalinoIcon.Pin, "Address", listOf(address.street, address.city, address.region, address.postalCode, address.country).filter(String::isNotBlank).joinToString(", ")) }
+                item(key = "address:$index") { DetailRow(CalinoIcon.Pin, stringResource(R.string.ed_contact_address), listOf(address.street, address.city, address.region, address.postalCode, address.country).filter(String::isNotBlank).joinToString(", ")) }
             }
-            contact.langs.forEachIndexed { index, lang -> item(key = "language:$index") { DetailRow(CalinoIcon.Note, "Language", lang.value) } }
+            contact.langs.forEachIndexed { index, lang -> item(key = "language:$index") { DetailRow(CalinoIcon.Note, stringResource(R.string.ed_contact_language), lang.value) } }
             contact.related.forEachIndexed { index, relation -> item(key = "related:$index") { DetailRow(CalinoIcon.Users, relation.type.name, relation.value) } }
-            if (contact.isGroup) item(key = "members") { DetailRow(CalinoIcon.Users, "Members", "${contact.memberUids.size} contacts") }
+            if (contact.isGroup) item(key = "members") { DetailRow(CalinoIcon.Users, stringResource(R.string.ed_contact_members), pluralStringResource(R.plurals.ed_contact_member_count, contact.memberUids.size, contact.memberUids.size)) }
             contact.birthday?.let { date ->
-                item(key = "birthday") { ContactDateRow("🎂", "Birthday", date, contact, events, today, false, onAddDate) }
+                item(key = "birthday") { ContactDateRow("🎂", stringResource(R.string.ed_contact_birthday), date, contact, events, today, false, onAddDate) }
             }
             contact.anniversary?.let { date ->
-                item(key = "anniversary") { ContactDateRow("♥", "Anniversary", date, contact, events, today, true, onAddDate) }
+                item(key = "anniversary") { ContactDateRow("♥", stringResource(R.string.ed_contact_anniversary), date, contact, events, today, true, onAddDate) }
             }
             if (contact.categories.isNotEmpty()) {
                 item(key = "tags") {
                     Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp)) {
-                        Text("TAGS", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                        Text(stringResource(R.string.ed_contact_tags), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                         androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(top = 7.dp)) {
-                            items(contact.categories, key = { it }) { tag -> CalinoChip("#$tag", false, "filter by $tag", { onTag(tag) }) }
+                            items(contact.categories, key = { it }) { tag -> CalinoChip("#$tag", false, stringResource(R.string.ed_contacts_filter_tag, tag), { onTag(tag) }) }
                         }
                     }
                 }
             }
-            if (contact.note.isNotBlank()) item(key = "notes") { DetailRow(CalinoIcon.Note, "Notes", contact.note) }
+            if (contact.note.isNotBlank()) item(key = "notes") { DetailRow(CalinoIcon.Note, stringResource(R.string.ed_contact_notes), contact.note) }
         }
         if (!pillInLane) {
             // The split layout has no card and no lane: the pane keeps its
@@ -570,19 +586,19 @@ private fun ContactDetailPill(
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
     ModalActionPill(
-        addLabel = "New contact",
+        addLabel = stringResource(R.string.ed_contact_new),
         morphFromAddPill = true,
         inPillLane = inPillLane,
         expanded = expanded,
-        cancelLabel = "Cancel",
+        cancelLabel = stringResource(R.string.ed_contact_cancel),
         onCancel = onBack,
-        cancelDescription = "Close contact details",
-        primaryLabel = "Edit",
+        cancelDescription = stringResource(R.string.ed_contact_close_details),
+        primaryLabel = stringResource(R.string.ed_contact_edit),
         onPrimary = onEdit,
-        primaryDescription = "Edit contact",
-        deleteLabel = "Delete",
+        primaryDescription = stringResource(R.string.ed_contact_edit_description),
+        deleteLabel = stringResource(R.string.ed_contact_delete),
         onDelete = onDelete,
-        deleteDescription = "Delete contact",
+        deleteDescription = stringResource(R.string.ed_contact_delete_description),
         deleteConfirmationActive = confirmingDelete,
         onDeleteConfirmationChange = { confirmingDelete = it },
         deleteHoldToConfirm = true,
@@ -601,6 +617,8 @@ private fun ContactDateRow(
     anniversary: Boolean,
     onAddDate: (LocalDate, Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
+    val dateFormat = localizedDateFormatter("d MMM yyyy")
     val days = daysUntilNextContactDate(date, today)
     val onCalendar = hasContactEvent(contact.id, events, anniversary)
     Column(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp).clip(RoundedCornerShape(CalinoShapes.Card)).background(CalinoColors.Panel).border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card)).padding(14.dp)) {
@@ -608,14 +626,22 @@ private fun ContactDateRow(
             Text(emoji, fontSize = 22.sp)
             Column(Modifier.weight(1f).padding(start = 11.dp)) {
                 Text(label, style = CalinoTypography.labelLarge)
-                Text(date.format(ContactDateFormat), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 2.dp))
-                Text(if (days == 0L) "Today" else "In $days days · ${contactAge(date, today)} years old", style = CalinoTypography.bodySmall, color = CalinoColors.Accent, modifier = Modifier.padding(top = 2.dp))
+                Text(date.format(dateFormat), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 2.dp))
+                val age = contactAge(date, today)
+                val dateLabel = if (days == 0L) {
+                    stringResource(R.string.ed_contact_today)
+                } else {
+                    val until = context.resources.getQuantityString(R.plurals.ed_contact_days_until, days.toInt(), days.toInt())
+                    val ageLabel = context.resources.getQuantityString(R.plurals.ed_contact_age_years, age, age)
+                    stringResource(R.string.ed_contact_upcoming_age, until, ageLabel)
+                }
+                Text(dateLabel, style = CalinoTypography.bodySmall, color = CalinoColors.Accent, modifier = Modifier.padding(top = 2.dp))
             }
             TextButton(onClick = { if (!onCalendar) onAddDate(date, anniversary) }, enabled = !onCalendar, modifier = Modifier.heightIn(min = 44.dp)) {
-                Text(if (onCalendar) "✓ On calendar" else "Add to calendar", color = if (onCalendar) CalinoColors.Ink3 else CalinoColors.Accent)
+                Text(if (onCalendar) stringResource(R.string.ed_contact_on_calendar) else stringResource(R.string.ed_contact_add_to_calendar), color = if (onCalendar) CalinoColors.Ink3 else CalinoColors.Accent)
             }
         }
-        if (!onCalendar) Text("Saved in this app only; it will not sync to the server.", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 34.dp, top = 5.dp))
+        if (!onCalendar) Text(stringResource(R.string.ed_contact_local_only), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 34.dp, top = 5.dp))
     }
 }
 
@@ -642,6 +668,7 @@ private fun ContactEditor(
     var closeAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val dirty = displayName != contact.displayName || givenName != contact.givenName || familyName != contact.familyName || organization != contact.organization || email != contact.emails.firstOrNull()?.value.orEmpty() || phone != contact.phones.firstOrNull()?.value.orEmpty() || birthdayText != contact.birthday?.toString().orEmpty() || anniversaryText != contact.anniversary?.toString().orEmpty() || note != contact.note
     val canSave = listOf(displayName, givenName, familyName, organization, email, phone, birthdayText, anniversaryText, note).any { it.isNotBlank() }
+    val backToContacts = stringResource(R.string.ed_contact_back)
 
     fun closeAnimated(action: () -> Unit) {
         if (shown) { closeAction = action; shown = false }
@@ -668,47 +695,48 @@ private fun ContactEditor(
         resetKey = showDiscard,
         pill = {
             ModalActionPill(
-                addLabel = if (isNew) "New contact" else "Edit contact",
+                addLabel = if (isNew) stringResource(R.string.ed_contact_new) else stringResource(R.string.ed_contact_edit_title),
                 morphFromAddPill = true,
                 inPillLane = true,
                 expanded = shown,
-                cancelLabel = "Cancel",
+                cancelLabel = stringResource(R.string.ed_contact_cancel),
                 onCancel = ::dismiss,
-                cancelDescription = "Cancel contact editing",
-                deleteLabel = onDelete?.let { "Delete" },
+                cancelDescription = stringResource(R.string.ed_contact_cancel_editing),
+                deleteLabel = onDelete?.let { stringResource(R.string.ed_contact_delete) },
                 onDelete = onDelete?.let { delete -> { showDelete = false; closeAnimated(delete) } },
-                deleteDescription = "Delete contact",
+                deleteDescription = stringResource(R.string.ed_contact_delete_description),
                 deleteConfirmationActive = showDelete,
                 onDeleteConfirmationChange = { showDelete = it },
                 deleteHoldToConfirm = true,
-                primaryLabel = "Save",
+                primaryLabel = stringResource(R.string.ed_contact_save),
+                primaryTone = ModalPillActionTone.Save,
                 onPrimary = ::saveContact,
                 primaryVisible = isNew || dirty,
                 primaryEnabled = canSave,
-                primaryDescription = "Save contact",
+                primaryDescription = stringResource(R.string.ed_contact_save_description),
             )
         },
         content = { modifier ->
             Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
                 Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = ::dismiss, modifier = Modifier.size(48.dp).semantics { contentDescription = "Back to contacts" }) { Icon(CalinoIcons.ChevronLeft, null, tint = CalinoColors.Ink) }
-                    Text(if (isNew) "New contact" else "Edit contact", style = CalinoTypography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
+                    IconButton(onClick = ::dismiss, modifier = Modifier.size(48.dp).semantics { contentDescription = backToContacts }) { Icon(CalinoIcons.ChevronLeft, null, tint = CalinoColors.Ink) }
+                    Text(if (isNew) stringResource(R.string.ed_contact_new) else stringResource(R.string.ed_contact_edit_title), style = CalinoTypography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line))
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, top = 15.dp, end = 20.dp, bottom = CalinoSpacing.PillClearance), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { CalinoTextField(displayName, { displayName = it }, "Display name", placeholder = "Full name") }
-                    item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { CalinoTextField(givenName, { givenName = it }, "Given", Modifier.weight(1f)); CalinoTextField(familyName, { familyName = it }, "Family", Modifier.weight(1f)) } }
-                    item { CalinoTextField(organization, { organization = it }, "Organization", placeholder = "Where they work") }
-                    item { CalinoTextField(email, { email = it }, "Email", placeholder = "name@example.com") }
-                    item { CalinoTextField(phone, { phone = it }, "Phone", placeholder = "+45 …") }
-                    item { CalinoTextField(birthdayText, { birthdayText = it }, "Birthday", placeholder = "YYYY-MM-DD") }
-                    item { CalinoTextField(anniversaryText, { anniversaryText = it }, "Anniversary", placeholder = "YYYY-MM-DD") }
-                    item { CalinoTextField(note, { note = it }, "Notes", singleLine = false, minLines = 4, maxLines = 8) }
+                    item { CalinoTextField(displayName, { displayName = it }, stringResource(R.string.ed_contact_display_name), placeholder = stringResource(R.string.ed_contact_full_name)) }
+                    item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { CalinoTextField(givenName, { givenName = it }, stringResource(R.string.ed_contact_given), Modifier.weight(1f)); CalinoTextField(familyName, { familyName = it }, stringResource(R.string.ed_contact_family), Modifier.weight(1f)) } }
+                    item { CalinoTextField(organization, { organization = it }, stringResource(R.string.ed_contact_organization), placeholder = stringResource(R.string.ed_contact_where_work)) }
+                    item { CalinoTextField(email, { email = it }, stringResource(R.string.ed_contact_email), placeholder = stringResource(R.string.ed_contact_email_example)) }
+                    item { CalinoTextField(phone, { phone = it }, stringResource(R.string.ed_contact_phone), placeholder = stringResource(R.string.ed_contact_phone_example)) }
+                    item { CalinoTextField(birthdayText, { birthdayText = it }, stringResource(R.string.ed_contact_birthday), placeholder = stringResource(R.string.ed_contact_date_example)) }
+                    item { CalinoTextField(anniversaryText, { anniversaryText = it }, stringResource(R.string.ed_contact_anniversary), placeholder = stringResource(R.string.ed_contact_date_example)) }
+                    item { CalinoTextField(note, { note = it }, stringResource(R.string.ed_contact_notes), singleLine = false, minLines = 4, maxLines = 8) }
                     if (showDiscard) item {
                         Row(Modifier.fillMaxWidth().background(CalinoColors.Ink).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Discard your changes?", color = CalinoColors.Panel, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { showDiscard = false }) { Text("Keep editing", color = CalinoColors.Panel) }
-                            TextButton(onClick = { closeAnimated(onDismiss) }) { Text("Discard", color = CalinoColors.AccentSoft) }
+                            Text(stringResource(R.string.ed_contact_discard_question), color = CalinoColors.Panel, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { showDiscard = false }) { Text(stringResource(R.string.ed_contact_keep_editing), color = CalinoColors.Panel) }
+                            TextButton(onClick = { closeAnimated(onDismiss) }) { Text(stringResource(R.string.ed_contact_discard), color = CalinoColors.AccentSoft) }
                         }
                     }
                 }
@@ -721,28 +749,29 @@ private fun ContactEditor(
 
 private fun parseContactDate(value: String): LocalDate? = runCatching { LocalDate.parse(value.trim()) }.getOrNull()
 
-private fun ContactPhoneType.label(): String = when (this) {
-    ContactPhoneType.Cell -> "Mobile"
-    ContactPhoneType.Fax -> "Fax"
-    ContactPhoneType.Home -> "Home phone"
-    ContactPhoneType.Work -> "Work phone"
-    ContactPhoneType.Pref -> "Primary phone"
-    ContactPhoneType.Other -> "Phone"
+@Composable
+private fun contactPhoneTypeLabel(type: ContactPhoneType): String = when (type) {
+    ContactPhoneType.Cell -> stringResource(R.string.ed_contact_phone_mobile)
+    ContactPhoneType.Fax -> stringResource(R.string.ed_contact_phone_fax)
+    ContactPhoneType.Home -> stringResource(R.string.ed_contact_phone_home)
+    ContactPhoneType.Work -> stringResource(R.string.ed_contact_phone_work)
+    ContactPhoneType.Pref -> stringResource(R.string.ed_contact_phone_primary)
+    ContactPhoneType.Other -> stringResource(R.string.ed_contact_phone)
 }
 
 @Composable
 private fun ContactPaneEmpty() {
     Column(Modifier.fillMaxSize().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Box(Modifier.size(56.dp).clip(CircleShape).background(CalinoColors.AccentSoft), contentAlignment = Alignment.Center) { Icon(CalinoIcons.Users, null, tint = CalinoColors.Accent) }
-        Text("Choose a contact", style = CalinoTypography.titleMedium, modifier = Modifier.padding(top = 14.dp))
-        Text("Their details will stay beside the directory.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 4.dp))
+        Text(stringResource(R.string.ed_contact_choose), style = CalinoTypography.titleMedium, modifier = Modifier.padding(top = 14.dp))
+        Text(stringResource(R.string.ed_contact_details_hint), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
 @Composable
 private fun ContactEmptySearch(query: String) {
     Column(Modifier.fillMaxSize().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text(if (query.isBlank()) "No contacts yet" else "No contacts found", style = CalinoTypography.titleMedium)
-        Text(if (query.isBlank()) "Add someone to your directory." else "Try a name, number, or tag.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 4.dp))
+        Text(if (query.isBlank()) stringResource(R.string.ed_contacts_empty) else stringResource(R.string.ed_contacts_no_match), style = CalinoTypography.titleMedium)
+        Text(if (query.isBlank()) stringResource(R.string.ed_contacts_empty_hint) else stringResource(R.string.ed_contacts_no_match_hint), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 4.dp))
     }
 }

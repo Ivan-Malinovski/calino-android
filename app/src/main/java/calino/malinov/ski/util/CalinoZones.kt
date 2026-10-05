@@ -86,8 +86,9 @@ object CalinoZones {
         device: ZoneId,
         zone: ZoneId,
         format: calino.malinov.ski.util.CalinoTimeFormat,
+        locale: Locale = Locale.US,
     ): String {
         val local = day.atTime(hour, 0).atZone(device).withZoneSameInstant(zone).toLocalTime()
-        return if (local.minute == 0) format.formatHour(local.hour) else format.format(local)
+        return if (local.minute == 0) format.formatHour(local.hour, locale) else format.format(local, locale)
     }
 }

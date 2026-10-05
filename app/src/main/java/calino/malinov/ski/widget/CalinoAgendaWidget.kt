@@ -1,5 +1,6 @@
 package calino.malinov.ski.widget
 
+import calino.malinov.ski.R
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -49,8 +50,6 @@ import calino.malinov.ski.state.CalinoDeviceDefaults
 import calino.malinov.ski.util.CalinoTimeFormat
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * The home screen agenda: the shell both widgets share.
@@ -102,6 +101,8 @@ abstract class CalinoAgendaWidget internal constructor(
             journalEnabled = preferences.loadJournalEnabled(),
             contactsEnabled = preferences.loadContactsEnabled(),
             content = content,
+            locale = context.resources.configuration.locales[0],
+            untitledLabel = context.getString(R.string.sys_no_title),
         )
 
         provideContent {
@@ -137,7 +138,10 @@ abstract class CalinoAgendaWidget internal constructor(
     private fun Body(snapshot: CalinoSnapshot?, options: WidgetAgendaOptions) {
         val size = LocalSize.current
         val today = WidgetClock.today
+        val context = androidx.glance.LocalContext.current
         val shaped = options.copy(
+            locale = context.resources.configuration.locales[0],
+            untitledLabel = context.getString(R.string.sys_no_title),
             dayCount = style.dayCountFor(size),
             maxRows = style.maxRowsFor(size),
         )
@@ -163,7 +167,7 @@ abstract class CalinoAgendaWidget internal constructor(
             Header(today, style.headerIndent)
             Spacer(GlanceModifier.height(8.dp))
             when {
-                agenda == null -> Notice("No calendar connected", "Tap to set one up")
+                agenda == null -> Notice(androidx.glance.LocalContext.current.getString(R.string.sys_widget_connect), androidx.glance.LocalContext.current.getString(R.string.sys_widget_setup))
                 agenda.empty -> Notice(emptyText, null)
                 else -> Agenda(agenda, today, size, shaped.timeFormat)
             }
@@ -177,7 +181,7 @@ abstract class CalinoAgendaWidget internal constructor(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = if (content == WidgetContent.Tasks) "Tasks" else "Today",
+                text = if (content == WidgetContent.Tasks) androidx.glance.LocalContext.current.getString(R.string.sys_tasks) else androidx.glance.LocalContext.current.getString(R.string.sys_today),
                 style = TextStyle(
                     color = CalinoWidgetColors.ink,
                     fontSize = 15.sp,
@@ -186,7 +190,7 @@ abstract class CalinoAgendaWidget internal constructor(
             )
             Spacer(GlanceModifier.width(8.dp))
             Text(
-                text = today.format(HeaderFormat),
+                text = today.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", androidx.glance.LocalContext.current.resources.configuration.locales[0])),
                 style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
             )
         }
@@ -251,8 +255,8 @@ abstract class CalinoAgendaWidget internal constructor(
             items(entries.size) { position ->
                 when (val entry = entries[position]) {
                     is WidgetEntry.Heading -> DayHeading(entry.date)
-                    is WidgetEntry.Overdue -> SectionHeading("Overdue")
-                    is WidgetEntry.Today -> SectionHeading("Today")
+                    is WidgetEntry.Overdue -> SectionHeading(androidx.glance.LocalContext.current.getString(R.string.sys_overdue))
+                    is WidgetEntry.Today -> SectionHeading(androidx.glance.LocalContext.current.getString(R.string.sys_today))
                     is WidgetEntry.Empty -> Text(
                         text = emptyText,
                         modifier = GlanceModifier.padding(vertical = 4.dp),
@@ -299,7 +303,7 @@ abstract class CalinoAgendaWidget internal constructor(
     @Composable
     private fun DayHeading(date: LocalDate) {
         Text(
-            text = date.format(HeaderFormat),
+            text = date.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", androidx.glance.LocalContext.current.resources.configuration.locales[0])),
             modifier = GlanceModifier
                 .fillMaxWidth()
                 .padding(top = 8.dp, bottom = 2.dp)
@@ -346,7 +350,9 @@ abstract class CalinoAgendaWidget internal constructor(
     }
 
     private val emptyText: String
-        get() = if (content == WidgetContent.Tasks) WidgetNothingDue else WidgetNothingScheduled
+        @Composable get() = androidx.glance.LocalContext.current.getString(
+            if (content == WidgetContent.Tasks) R.string.sys_nothing_due else R.string.sys_nothing_scheduled,
+        )
 
     companion object {
         // Roughly 4x2, 4x3 and 5x4 launcher cells. Responsive picks the largest
@@ -355,7 +361,6 @@ abstract class CalinoAgendaWidget internal constructor(
         private val MediumSize = DpSize(240.dp, 180.dp)
         private val LargeSize = DpSize(300.dp, 280.dp)
 
-        private val HeaderFormat = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
     }
 }
 

@@ -1,5 +1,6 @@
 package calino.malinov.ski.notify
 
+import calino.malinov.ski.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -31,8 +32,8 @@ object ReminderChannels {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         manager.createNotificationChannel(
-            NotificationChannel(Events, "Events reminders", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "A quiet nudge before an event begins."
+            NotificationChannel(Events, context.getString(R.string.sys_events_channel), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = context.getString(R.string.sys_events_description)
                 // Deliberately silent: the app's whole posture is calm, and a
                 // person who wants a sound can set one per channel in Android.
                 setSound(null, null)
@@ -40,8 +41,8 @@ object ReminderChannels {
             },
         )
         manager.createNotificationChannel(
-            NotificationChannel(Tasks, "Tasks due", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "A reminder when a task reaches its date."
+            NotificationChannel(Tasks, context.getString(R.string.sys_tasks_channel), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = context.getString(R.string.sys_tasks_description)
                 setSound(null, null)
             },
         )
@@ -53,8 +54,8 @@ object ReminderChannels {
         val appEnabled = compat.areNotificationsEnabled()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return listOf(
-                ReminderChannelState(Events, "Events reminders", appEnabled, "Default"),
-                ReminderChannelState(Tasks, "Tasks due", appEnabled, "Default"),
+                ReminderChannelState(Events, context.getString(R.string.sys_events_channel), appEnabled, context.getString(R.string.sys_default)),
+                ReminderChannelState(Tasks, context.getString(R.string.sys_tasks_channel), appEnabled, context.getString(R.string.sys_default)),
             )
         }
         return listOf(Events, Tasks).mapNotNull { id ->
@@ -63,17 +64,17 @@ object ReminderChannels {
                 id = id,
                 name = channel.name?.toString() ?: id,
                 enabled = appEnabled && channel.importance != NotificationManager.IMPORTANCE_NONE,
-                importanceLabel = importanceLabel(channel.importance),
+                importanceLabel = importanceLabel(context, channel.importance),
             )
         }
     }
 
-    private fun importanceLabel(importance: Int): String = when {
-        importance == NotificationManager.IMPORTANCE_NONE -> "Off"
-        importance <= NotificationManager.IMPORTANCE_MIN -> "Minimum"
-        importance <= NotificationManager.IMPORTANCE_LOW -> "Low importance"
-        importance <= NotificationManager.IMPORTANCE_DEFAULT -> "Default"
-        else -> "High · may peek"
+    private fun importanceLabel(context: Context, importance: Int): String = when {
+        importance == NotificationManager.IMPORTANCE_NONE -> context.getString(R.string.sys_off)
+        importance <= NotificationManager.IMPORTANCE_MIN -> context.getString(R.string.sys_minimum)
+        importance <= NotificationManager.IMPORTANCE_LOW -> context.getString(R.string.sys_low)
+        importance <= NotificationManager.IMPORTANCE_DEFAULT -> context.getString(R.string.sys_default)
+        else -> context.getString(R.string.sys_high)
     }
 }
 

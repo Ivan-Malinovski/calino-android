@@ -64,8 +64,13 @@ class CalinoTileService : TileService() {
             if (snapshot == null) {
                 return@materialScope primaryLayout(
                     titleSlot = { text("Calino".layoutString) },
-                    mainSlot = { text("Open Calino on your phone to sync".layoutString, maxLines = 3) },
-                    bottomSlot = { textEdgeButton(onClick = openApp(), labelContent = { text("Open".layoutString) }) },
+                    mainSlot = { text(this@CalinoTileService.getString(R.string.wear_open_calino_on_phone_to_sync).layoutString, maxLines = 3) },
+                    bottomSlot = {
+                        textEdgeButton(
+                            onClick = openApp(),
+                            labelContent = { text(this@CalinoTileService.getString(R.string.wear_open).layoutString) },
+                        )
+                    },
                 )
             }
             val today = WearFormatting.today(snapshot, atMillis)
@@ -77,7 +82,7 @@ class CalinoTileService : TileService() {
                 titleSlot = { text(title(rows.firstOrNull(), today).layoutString) },
                 mainSlot = {
                     if (rows.isEmpty()) {
-                        text("Nothing else planned".layoutString, maxLines = 2)
+                        text(this@CalinoTileService.getString(R.string.wear_nothing_else_planned).layoutString, maxLines = 2)
                     } else {
                         val column = LayoutElementBuilders.Column.Builder().setWidth(expand())
                         rows.forEachIndexed { index, row ->
@@ -90,7 +95,19 @@ class CalinoTileService : TileService() {
                 bottomSlot = {
                     textEdgeButton(
                         onClick = openApp(),
-                        labelContent = { text((if (more > 0) "+$more more" else "Open").layoutString) },
+                        labelContent = {
+                            text(
+                                (if (more > 0) {
+                                    this@CalinoTileService.resources.getQuantityString(
+                                        R.plurals.wear_more_items,
+                                        more,
+                                        more,
+                                    )
+                                } else {
+                                    this@CalinoTileService.getString(R.string.wear_open)
+                                }).layoutString,
+                            )
+                        },
                     )
                 },
             )
@@ -100,7 +117,12 @@ class CalinoTileService : TileService() {
         onClick = openApp(rowId(row)),
         width = expand(),
         // One line per row: two-line buttons do not fit twice on a 192dp (Pixel Watch 2) tile.
-        labelContent = { text("${schedule(row, snapshot, today)}  ${rowTitle(row)}".layoutString, maxLines = 1) },
+        labelContent = {
+            text(
+                this@CalinoTileService.getString(R.string.wear_tile_row, schedule(row, snapshot, today), rowTitle(row)).layoutString,
+                maxLines = 1,
+            )
+        },
         iconContent = { dot(rowColor(row)) },
     )
 
@@ -118,9 +140,9 @@ class CalinoTileService : TileService() {
         .build()
 
     private fun title(first: Any?, today: Long) = when (val day = first?.let(::rowDay)) {
-        null, today -> "Today"
-        today + 1 -> "Tomorrow"
-        else -> WearFormatting.date(day)
+        null, today -> getString(R.string.wear_today)
+        today + 1 -> getString(R.string.wear_tomorrow)
+        else -> wearDate(day)
     }
 
     /** Terse lead-in: a start time today, otherwise the weekday; untimed rows say what they are. */
@@ -133,10 +155,13 @@ class CalinoTileService : TileService() {
         }
         if (day != today) {
             return java.time.LocalDate.ofEpochDay(day).dayOfWeek
-                .getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
+                .getDisplayName(
+                    java.time.format.TextStyle.SHORT,
+                    resources.configuration.locales[0] ?: java.util.Locale.getDefault(),
+                )
         }
-        return minute?.let { WearFormatting.time(it, snapshot.timeFormat, compact = true) }
-            ?: if (row is WearTask) "Task" else "All day"
+        return minute?.let { wearTime(it, snapshot.timeFormat, compact = true) }
+            ?: if (row is WearTask) getString(R.string.wear_task) else getString(R.string.wear_all_day)
     }
 
     private fun rowDay(row: Any): Long = when (row) {
@@ -160,7 +185,7 @@ class CalinoTileService : TileService() {
     }
 
     private companion object {
-        const val RESOURCES_VERSION = "2"
+        const val RESOURCES_VERSION = "3"
         const val FRESHNESS_MILLIS = 6 * 60 * 60 * 1000L
         const val MAX_ENTRIES = 40
         const val LARGE_SCREEN_DP = 225

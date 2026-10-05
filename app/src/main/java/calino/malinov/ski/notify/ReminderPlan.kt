@@ -50,6 +50,11 @@ data class ReminderFiring(
     val occurrenceDay: Long? = null,
     val title: String,
     val subtitle: String,
+    /** Structured display facts; null in schedules written before localization. */
+    val displayAllDay: Boolean? = null,
+    val displayDate: LocalDate? = null,
+    val displayTime: LocalTime? = null,
+    val displayCategory: String? = null,
     /** Event LOCATION, retained so a receiver can offer directions after process death. */
     val location: String? = null,
     /** Meeting link, retained so the notification can offer Join after process death. */
@@ -206,6 +211,9 @@ object ReminderPlanner {
                     occurrenceDay = start.toLocalDate().toEpochDay(),
                     title = title,
                     subtitle = eventSubtitle(start, zone),
+                    displayAllDay = allDay,
+                    displayDate = start.toLocalDate(),
+                    displayTime = start.toLocalTime(),
                     location = location?.trim()?.takeIf { it.isNotEmpty() },
                     meetingUrl = meetingLink(this@firings)?.url,
                     minutesBefore = reminder.minutesBefore,
@@ -290,6 +298,10 @@ object ReminderPlanner {
             occurrenceDay = anchorDate?.toEpochDay(),
             title = title,
             subtitle = dueDate?.let { taskSubtitle(it, now, zone) } ?: "Task reminder",
+            displayAllDay = dueTime == null,
+            displayDate = dueDate,
+            displayTime = dueTime,
+            displayCategory = category,
             minutesBefore = reminder.minutesBefore,
             anchor = anchor,
         ) }.filter { it.at > now && it.at <= until }

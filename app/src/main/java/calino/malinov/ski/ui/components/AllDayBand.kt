@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -51,8 +53,8 @@ import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoSpacing
+import calino.malinov.ski.R
 import calino.malinov.ski.design.eventTint
-import calino.malinov.ski.design.priorityLabel
 import calino.malinov.ski.design.priorityStripeColor
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.ui.surfaces.EventMenuAction
@@ -61,10 +63,20 @@ import calino.malinov.ski.util.AllDayBandLayout
 import calino.malinov.ski.util.AllDayItem
 import calino.malinov.ski.util.AllDayPlacement
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.LocalCalinoLocale
+import calino.malinov.ski.util.localizedDateFormatter
 import java.time.LocalDate
 
 /** Narrow: the range surfaces, 3-7 columns share the width. Wide: the single-day rail. */
 enum class AllDayBandDensity { Narrow, Wide }
+
+@Composable
+internal fun localizedPriorityLabel(priority: Int): String? = when (priority) {
+    in 1..3 -> stringResource(R.string.cal_high_priority)
+    in 4..6 -> stringResource(R.string.cal_medium_priority)
+    in 7..9 -> stringResource(R.string.cal_low_priority)
+    else -> null
+}
 
 // Range view only: keep the all-day/task shelf subordinate to the timed grid.
 // 20dp is ~30% shorter than the old 28dp lanes; the wide day rail retains its
@@ -236,6 +248,7 @@ private fun AllDayEventChip(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val locale = LocalCalinoLocale
     val rawColor = Color(event.color)
     val edgeColor = CalinoColors.forEvent(rawColor)
     val chipRadius = CalinoShapes.Chip
@@ -246,12 +259,17 @@ private fun AllDayEventChip(
         bottomEnd = if (placement.continuesAfter) 0.dp else chipRadius,
     )
     val fontSize = if (density == AllDayBandDensity.Narrow) NarrowChipFontSize else WideChipFontSize
+    val totalDays = (event.spanLengthDays() + 1L)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
+        .toInt()
+    val spanDescription = if (totalDays > 1) pluralStringResource(R.plurals.cal_day_span_count, totalDays, totalDays) else null
+    val continuesBefore = stringResource(R.string.cal_continues_before)
+    val continuesAfter = stringResource(R.string.cal_continues_after)
     val description = buildString {
-        append(eventDescription(event, timeFormat))
-        val totalDays = event.spanLengthDays() + 1
-        if (totalDays > 1) append(", ").append(totalDays).append(" days")
-        if (placement.continuesBefore) append(", continues before")
-        if (placement.continuesAfter) append(", continues after")
+        append(eventDescription(event, timeFormat, locale))
+        spanDescription?.let { append(", ").append(it) }
+        if (placement.continuesBefore) append(", ").append(continuesBefore)
+        if (placement.continuesAfter) append(", ").append(continuesAfter)
     }
     Row(
         Modifier
@@ -339,6 +357,12 @@ private fun AllDayTaskChip(
     onDone: (Boolean) -> Unit,
 ) {
     val color = eventColor(task.color)
+    val dueFormat = localizedDateFormatter("EEE, d MMM")
+    val priorityDescription = localizedPriorityLabel(task.priority)
+    val completionDescription = stringResource(
+        if (task.done) R.string.cal_mark_named_task_open else R.string.cal_complete_named_task,
+        task.title,
+    )
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val checkColor = CalinoColors.OnAccent
     val stripeColor = priorityStripeColor(task.priority)
@@ -367,9 +391,8 @@ private fun AllDayTaskChip(
     // independently queryable description and click target rather than being
     // folded into this row's.
     val description = buildString {
-        append(task.title)
-        task.due?.let { append(", due ").append(it) }
-        priorityLabel(task.priority)?.let { append(", ").append(it) }
+        append(task.due?.let { stringResource(R.string.cal_task_due_label, task.title, it.format(dueFormat)) } ?: task.title)
+        priorityDescription?.let { append(", ").append(it) }
     }
     Row(
         modifier
@@ -404,7 +427,7 @@ private fun AllDayTaskChip(
             Modifier
                 .size(glyphSize)
                 .clickable { onDone(!task.done) }
-                .semantics { contentDescription = if (task.done) "Mark ${task.title} open" else "Complete ${task.title}" },
+                .semantics { contentDescription = completionDescription },
             contentAlignment = Alignment.Center,
         ) {
             val dotSize = if (narrow) 7.dp else 12.dp
@@ -457,12 +480,15 @@ private fun AllDayOverflowRow(
         label = "all-day band overflow chevron",
     )
     val overflowTotal = overflowEventCount + overflowTaskCount
+    val labelShowLess = stringResource(R.string.cal_show_less)
+    val showMoreDescription = pluralStringResource(R.plurals.cal_show_more_all_day_count, overflowTotal, overflowTotal)
+    val fewerDescription = stringResource(R.string.cal_show_fewer_all_day)
     val summary = buildList {
-        if (overflowEventCount > 0) add("$overflowEventCount ${if (overflowEventCount == 1) "event" else "events"}")
-        if (overflowTaskCount > 0) add("$overflowTaskCount ${if (overflowTaskCount == 1) "task" else "tasks"}")
+        if (overflowEventCount > 0) add(pluralStringResource(R.plurals.cal_overflow_event_count, overflowEventCount, overflowEventCount))
+        if (overflowTaskCount > 0) add(pluralStringResource(R.plurals.cal_overflow_task_count, overflowTaskCount, overflowTaskCount))
     }.joinToString(", ")
-    val label = if (expanded) "Show less" else "$overflowTotal more · $summary"
-    val description = if (expanded) "Show fewer all-day items" else "Show $overflowTotal more all-day items"
+    val label = if (expanded) labelShowLess else stringResource(R.string.cal_overflow_more, overflowTotal, summary)
+    val description = if (expanded) fewerDescription else showMoreDescription
     val rowHeight = if (density == AllDayBandDensity.Narrow) NarrowOverflowHeight else WideOverflowHeight
 
     Row(

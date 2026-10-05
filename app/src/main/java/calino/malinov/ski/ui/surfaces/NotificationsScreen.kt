@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.surfaces
 
+import androidx.compose.ui.res.stringResource
+import calino.malinov.ski.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -145,24 +148,23 @@ fun NotificationsSurface(
             .padding(20.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Notifications", modifier = Modifier.weight(1f), style = CalinoTypography.displayLarge)
+            Text(t(R.string.set_notifications), modifier = Modifier.weight(1f), style = CalinoTypography.displayLarge)
         }
 
         if (!state.permissionGranted) {
             Notice(
-                title = "Notifications are off",
-                body = "Calino can schedule reminders but Android will not show them.",
-                action = if (state.permissionRequestable) "Allow" else "Open settings",
+                title = t(R.string.set_notifications_are_off),
+                body = t(R.string.set_calino_can_schedule_reminders_but_android_will_not_show_them),
+                action = if (state.permissionRequestable) t(R.string.set_allow) else t(R.string.set_open_settings),
                 onAction = {
                     if (state.permissionRequestable) permission.request() else permission.openSystemSettings()
                 },
             )
         } else if (!state.exactAlarmsAllowed) {
             Notice(
-                title = "Exact timing is off",
-                body = "Reminders may arrive up to about 15 minutes late, and later while the " +
-                    "phone is dozing. Allowing exact alarms fixes the timing.",
-                action = "Allow",
+                title = t(R.string.set_exact_timing_is_off),
+                body = t(R.string.set_reminders_may_arrive_up_to_about_15_minutes_late_and_later_w),
+                action = t(R.string.set_allow),
                 onAction = {
                     Reminders.scheduler(context).exactAlarmSettingsIntent()?.let(context::startActivity)
                 },
@@ -171,22 +173,21 @@ fun NotificationsSurface(
 
         if (state.providerOwnedCalendars > 0) {
             Text(
-                "Your calendar app is delivering event reminders for " +
-                    "${state.providerOwnedCalendars} calendar" +
-                    (if (state.providerOwnedCalendars == 1) "" else "s") +
-                    " Calino publishes to Android, so they do not appear below. " +
-                    "Task reminders are still Calino's.",
+                t(
+                    if (state.providerOwnedCalendars == 1) R.string.set_1_calendar_published_to_android
+                    else R.string.set_1_d_calendars_published_to_android,
+                    state.providerOwnedCalendars,
+                ),
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink3,
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
 
-        SectionLabel("Next reminders")
+        SectionLabel(t(R.string.set_next_reminders))
         if (state.upcoming.isEmpty()) {
             Text(
-                "Nothing scheduled in the next week. A reminder set on an event or a task " +
-                    "appears here once it syncs.",
+                t(R.string.set_nothing_scheduled_in_the_next_week_a_reminder_set_on_an_even),
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink3,
                 modifier = Modifier.padding(top = 4.dp),
@@ -201,7 +202,7 @@ fun NotificationsSurface(
             }
             if (state.remindersScheduled > state.upcoming.size) {
                 Text(
-                    "and ${state.remindersScheduled - state.upcoming.size} more",
+                    t(R.string.set_and_1_d_more, state.remindersScheduled - state.upcoming.size),
                     style = CalinoTypography.bodySmall,
                     color = CalinoColors.Ink3,
                     modifier = Modifier.padding(top = 6.dp),
@@ -209,18 +210,20 @@ fun NotificationsSurface(
             }
         }
 
-        SectionLabel("Channels")
+        SectionLabel(t(R.string.set_channels))
         state.channels.forEach { channel ->
+            val channelDescription = t(
+                R.string.set_1_s_2_s_3_s,
+                channel.name,
+                channel.importanceLabel,
+                if (channel.enabled) t(R.string.set_on) else t(R.string.set_off_da7a687),
+            )
             Row(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 44.dp)
                     .clickable { context.startActivity(channelSettingsIntent(context, channel.id)) }
-                    .semantics {
-                        contentDescription =
-                            "${channel.name}, ${channel.importanceLabel}, " +
-                                if (channel.enabled) "on" else "off"
-                    }
+                    .semantics { contentDescription = channelDescription }
                     .padding(vertical = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -233,7 +236,7 @@ fun NotificationsSurface(
                 Column(Modifier.padding(start = 12.dp)) {
                     Text(channel.name, style = CalinoTypography.bodyLarge)
                     Text(
-                        if (channel.enabled) channel.importanceLabel else "Turned off in Android",
+                        if (channel.enabled) channel.importanceLabel else t(R.string.set_turned_off_in_android),
                         style = CalinoTypography.bodySmall,
                         color = CalinoColors.Ink3,
                     )
@@ -241,38 +244,37 @@ fun NotificationsSurface(
             }
         }
 
-        SectionLabel("If a reminder never arrives")
+        SectionLabel(t(R.string.set_if_a_reminder_never_arrives))
         Text(
-            "Some phones shut background apps down to save battery, which stops alarms firing " +
-                "at all. Samsung, Xiaomi, Huawei and OnePlus are the usual ones. If reminders go " +
-                "missing, exempt Calino from battery optimisation; dontkillmyapp.com has the " +
-                "exact steps for each manufacturer.",
+            t(R.string.set_some_phones_shut_background_apps_down_to_save_battery_which),
             style = CalinoTypography.bodySmall,
             color = CalinoColors.Ink3,
             modifier = Modifier.padding(top = 4.dp),
         )
 
-        SectionLabel("Preview")
+        SectionLabel(t(R.string.set_preview))
         Text(
-            "An illustration of how a reminder looks and how few actions it offers.",
+            t(R.string.set_an_illustration_of_how_a_reminder_looks_and_how_few_actions),
             style = CalinoTypography.bodySmall,
             color = CalinoColors.Ink3,
         )
-        NotificationCardPreview("Design review", "10:00 · Studio", ReminderKind.Event)
-        NotificationCardPreview("Buy flowers", "Due today · Personal", ReminderKind.Task)
+        NotificationCardPreview(t(R.string.set_design_review), t(R.string.set_10_00_studio), ReminderKind.Event)
+        NotificationCardPreview(t(R.string.set_buy_flowers), t(R.string.set_due_today_personal), ReminderKind.Task)
         Spacer(Modifier.height(24.dp))
     }
 }
 
+@Composable
 private fun firingLabel(firing: ReminderFiring, zone: ZoneId, format: calino.malinov.ski.util.CalinoTimeFormat): String {
+    val locale = calino.malinov.ski.util.LocalCalinoLocale
     val at = firing.at.atZone(zone).toLocalDateTime()
     val today = LocalDate.now(zone)
     val dayLabel = when (at.toLocalDate()) {
-        today -> "Today"
-        today.plusDays(1) -> "Tomorrow"
-        else -> formatCalinoDate(at.toLocalDate())
+        today -> t(R.string.set_today)
+        today.plusDays(1) -> t(R.string.set_tomorrow)
+        else -> at.toLocalDate().format(calino.malinov.ski.util.localizedDateFormatter("EEE, MMM d"))
     }
-    return "$dayLabel · ${format.format(at.toLocalTime())}"
+    return t(R.string.set_1_s_2_s, dayLabel, format.format(at.toLocalTime(), locale))
 }
 
 @Composable
@@ -305,12 +307,13 @@ private fun Notice(title: String, body: String, action: String, onAction: () -> 
 
 @Composable
 private fun UpcomingRow(firing: ReminderFiring, label: String, onClick: () -> Unit) {
+    val rowDescription = t(R.string.set_1_s_2_s, firing.title, label)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
             .clickable(onClick = onClick)
-            .semantics { contentDescription = "${firing.title}, $label" }
+            .semantics { contentDescription = rowDescription }
             .padding(vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -345,11 +348,13 @@ private fun NotificationCardPreview(title: String, body: String, kind: ReminderK
             Modifier.fillMaxWidth().padding(top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Text("Snooze 5 min", style = CalinoTypography.bodySmall, color = CalinoColors.Accent)
+            Text(t(R.string.set_snooze_5_min), style = CalinoTypography.bodySmall, color = CalinoColors.Accent)
             if (kind == ReminderKind.Task) {
-                Text("Mark done", style = CalinoTypography.bodySmall, color = CalinoColors.Accent)
-                Text("Tomorrow", style = CalinoTypography.bodySmall, color = CalinoColors.Accent)
+                Text(t(R.string.set_mark_done), style = CalinoTypography.bodySmall, color = CalinoColors.Accent)
+                Text(t(R.string.set_tomorrow), style = CalinoTypography.bodySmall, color = CalinoColors.Accent)
             }
         }
     }
 }
+@Composable
+private fun t(id: Int, vararg args: Any): String = stringResource(id, *args)

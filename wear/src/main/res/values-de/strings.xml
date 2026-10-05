@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wear_agenda">Agenda</string>
+    <string name="wear_tasks">Aufgaben</string>
+    <string name="wear_nothing_planned">Nichts geplant</string>
+    <string name="wear_no_open_tasks">Keine offenen Aufgaben</string>
+    <string name="wear_watch_action">Aktion auf der Uhr</string>
+    <string name="wear_set_up_on_phone">Richte Calino auf deinem Smartphone ein</string>
+    <string name="wear_sync_automatically">Die Uhr synchronisiert automatisch</string>
+    <string name="wear_cached_calendar">Zwischengespeicherter Kalender</string>
+    <string name="wear_ended">beendet</string>
+    <string name="wear_open_details">Details öffnen</string>
+    <string name="wear_pending">Ausstehend · %1$s</string>
+    <string name="wear_phone">Telefon</string>
+    <string name="wear_task">Aufgabe</string>
+    <string name="wear_event">Termin</string>
+    <string name="wear_complete">Erledigen</string>
+    <string name="wear_mark_task_done">Diese Aufgabe als erledigt markieren</string>
+    <string name="wear_completed">Erledigt</string>
+    <string name="wear_tomorrow">Morgen</string>
+    <string name="wear_move_due_date">Fälligkeitsdatum verschieben</string>
+    <string name="wear_moved">Verschoben</string>
+    <string name="wear_phone_unreachable">Telefon nicht erreichbar</string>
+    <string name="wear_group_overdue">Überfällig</string>
+    <string name="wear_group_today">Heute</string>
+    <string name="wear_group_upcoming">Demnächst</string>
+    <string name="wear_group_undated">Ohne Datum</string>
+    <string name="wear_saved_on_phone">Auf dem Telefon gespeichert</string>
+    <string name="wear_saved_waiting_to_sync">Gespeichert · wartet auf Synchronisierung</string>
+    <string name="wear_already_up_to_date">Bereits aktuell</string>
+    <string name="wear_conflict">Konflikt</string>
+    <string name="wear_not_found">Nicht gefunden</string>
+    <string name="wear_rejected">Abgelehnt</string>
+    <string name="wear_expired">Abgelaufen</string>
+    <string name="wear_no_account">Kein Konto</string>
+    <string name="wear_unsupported">Nicht unterstützt</string>
+    <string name="wear_updated_ago">Aktualisiert %1$s</string>
+    <string name="wear_some_items_hidden">Einige Einträge sind ausgeblendet</string>
+    <string name="wear_just_now">gerade eben</string>
+    <plurals name="wear_minutes_ago">
+        <item quantity="one">vor %1$d Min.</item>
+        <item quantity="other">vor %1$d Min.</item>
+    </plurals>
+    <plurals name="wear_hours_ago">
+        <item quantity="one">vor %1$d Std.</item>
+        <item quantity="other">vor %1$d Std.</item>
+    </plurals>
+    <plurals name="wear_days_ago">
+        <item quantity="one">vor %1$d Tagen</item>
+        <item quantity="other">vor %1$d Tagen</item>
+    </plurals>
+    <string name="wear_today">Heute</string>
+    <string name="wear_all_day">Ganztägig</string>
+    <string name="wear_time_unavailable">Uhrzeit nicht verfügbar</string>
+    <string name="wear_no_due_date">Kein Fälligkeitsdatum</string>
+    <string name="wear_due_1_s">Fällig %1$s</string>
+    <string name="wear_progress_percent">%1$d%% erledigt</string>
+    <string name="wear_open">Offen</string>
+    <string name="wear_late">Spät</string>
+    <string name="wear_overdue_task">Überfällige Aufgabe</string>
+    <string name="wear_next_1_s">Als Nächstes · %1$s</string>
+    <string name="wear_now_until_1_s">Jetzt · bis %1$s</string>
+    <string name="wear_task_with_schedule">Aufgabe · %1$s</string>
+    <string name="wear_free">Frei</string>
+    <string name="wear_no_plans">Keine Pläne</string>
+    <string name="wear_open_calino_on_phone_to_sync">Öffne Calino auf deinem Telefon zum Synchronisieren</string>
+    <string name="wear_nothing_else_planned">Sonst nichts geplant</string>
+    <plurals name="wear_more_items">
+        <item quantity="one">+%1$d weitere</item>
+        <item quantity="other">+%1$d weitere</item>
+    </plurals>
+    <string name="wear_tile_row">%1$s  %2$s</string>
+    <string name="wear_accessibility_title_and_description">%1$s: %2$s</string>
+    <string name="wear_complication_name_and_time">%1$s · ^1</string>
+    <string name="wear_complication_name_and_short">%1$s · %2$s</string>
+    <string name="wear_design_review">Designbesprechung</string>
+    <string name="wear_ack_command_expired">Befehl abgelaufen</string>
+    <string name="wear_ack_connect_calino_on_phone">Calino auf dem Telefon verbinden</string>
+    <string name="wear_ack_watch_data_no_longer_current">Die Uhrdaten sind nicht mehr aktuell</string>
+    <string name="wear_ack_unsupported_command">Nicht unterstützter Befehl</string>
+    <string name="wear_ack_missing_target_day">Zieldatum fehlt</string>
+    <string name="wear_ack_task_changed_or_removed">Aufgabe geändert oder entfernt</string>
+    <string name="wear_ack_task_changed_on_phone">Aufgabe auf dem Telefon geändert</string>
+</resources>

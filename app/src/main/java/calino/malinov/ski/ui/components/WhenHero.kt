@@ -41,6 +41,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,19 +57,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoTypography
+import calino.malinov.ski.R
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.util.formatCalinoDuration
+import calino.malinov.ski.util.LocalCalinoLocale
+import calino.malinov.ski.util.localizedDateFormatter
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 
-private val HeroDayFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
-private val HeroAllDayFormat = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.US)
-private val HeroMonthFormat = DateTimeFormatter.ofPattern("MMM", Locale.US)
 
 /**
  * The when-block, given the weight the thing it says deserves.
@@ -144,6 +145,7 @@ private fun TimedHero(
     onSlide: ((Int, Int) -> Unit)?,
 ) {
     val finish = endDate ?: startDate
+    val context = LocalContext.current
     // Both faces are hung from the top rather than centred, so a day line that
     // wraps on one side cannot slide the numerals out of line with each other.
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -151,8 +153,8 @@ private fun TimedHero(
             time = startTime,
             date = startDate,
             align = Alignment.Start,
-            label = "Start",
-            placeholder = "Add time",
+            label = stringResource(R.string.cal_start),
+            placeholder = stringResource(R.string.cal_add_time),
             onTime = onStartTime,
             onDate = onStartDate,
             onTimeTyped = onStartTimeTyped,
@@ -162,7 +164,7 @@ private fun TimedHero(
         )
         SpanRule(
             label = startTime?.let { from ->
-                endTime?.let { formatCalinoDuration(span ?: spanMinutes(startDate, from, finish, it)) }
+                endTime?.let { formatCalinoDuration(context, span ?: spanMinutes(startDate, from, finish, it)) }
             } ?: "—",
             accent = accent,
             onAllDay = onAllDay,
@@ -172,7 +174,7 @@ private fun TimedHero(
             time = endTime,
             date = finish,
             align = Alignment.End,
-            label = "End",
+            label = stringResource(R.string.cal_end),
             onTime = onEndTime,
             onDate = onEndDate,
             onTimeTyped = onEndTimeTyped.takeIf { onEndTime != null },
@@ -206,12 +208,15 @@ private fun RowScope.HeroClock(
     onDateTyped: ((LocalDate) -> Unit)? = null,
     onSlide: ((Int) -> Unit)? = null,
 ) {
+    val locale = LocalCalinoLocale
+    val dayFormat = localizedDateFormatter("EEE, d MMM")
     var typingTime by remember { mutableStateOf(false) }
     var typingDate by remember { mutableStateOf(false) }
     val format = LocalTimeFormat
     // The 12-hour clock's meridiem is not part of the numeral: at display size
     // it doubles the column's width and pulls the two faces out of alignment.
-    val text = time?.let { format.format(it) } ?: placeholder
+    val text = time?.let { format.format(it, locale) } ?: placeholder
+    val timeDescription = stringResource(R.string.cal_time_value_description, label, text)
     val split = if (time == null) -1 else text.lastIndexOf(' ')
     val numerals = if (split > 0) text.take(split) else text
     val meridiem = if (split > 0) text.drop(split + 1) else null
@@ -220,12 +225,12 @@ private fun RowScope.HeroClock(
         if (typingTime && onTimeTyped != null) {
             InlineEntry(
                 style = clockStyle,
-                placeholder = time?.let { format.format(it) } ?: if (format == CalinoTimeFormat.TwentyFourHour) "14:00" else "2:00 PM",
+                placeholder = time?.let { format.format(it, locale) } ?: format.format(LocalTime.of(14, 0), locale),
                 keyboardType = if (format == CalinoTimeFormat.TwentyFourHour) KeyboardType.Number else KeyboardType.Ascii,
                 align = align,
-                label = "$label time",
+                label = stringResource(R.string.cal_time_value_label, label),
                 minHeight = 40.dp,
-                commit = { typed -> parseTypedTime(typed)?.also(onTimeTyped) != null },
+                commit = { typed -> parseTypedTime(typed, locale)?.also(onTimeTyped) != null },
                 onClose = { typingTime = false },
             )
         } else {
@@ -234,7 +239,7 @@ private fun RowScope.HeroClock(
                     .heightIn(min = 40.dp)
                     .quarterSwipe(time, onSlide)
                     .pressable(onTime, onTimeTyped?.let { { typingTime = true } })
-                    .semantics { contentDescription = "$label time, $text" },
+                    .semantics { contentDescription = timeDescription },
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Text(
@@ -263,17 +268,18 @@ private fun RowScope.HeroClock(
         if (typingDate && onDateTyped != null && date != null) {
             InlineEntry(
                 style = CalinoTypography.labelSmall,
-                placeholder = date.format(HeroDayFormat).uppercase(Locale.US),
+                placeholder = date.format(dayFormat).uppercase(locale),
                 keyboardType = KeyboardType.Ascii,
                 align = align,
-                label = "$label date",
+                label = stringResource(R.string.cal_date_value_label, label),
                 minHeight = 28.dp,
                 commit = { typed -> parseTypedDate(typed, date)?.also(onDateTyped) != null },
                 onClose = { typingDate = false },
             )
         } else date?.let {
+            val dateDescription = stringResource(R.string.cal_date_value_description, label, it.format(dayFormat))
             Text(
-                it.format(HeroDayFormat).uppercase(Locale.US),
+                it.format(dayFormat).uppercase(locale),
                 style = CalinoTypography.labelSmall,
                 color = CalinoColors.Ink3,
                 textAlign = if (align == Alignment.End) TextAlign.End else TextAlign.Start,
@@ -281,7 +287,7 @@ private fun RowScope.HeroClock(
                     .heightIn(min = 28.dp)
                     .pressable(onDate, onDateTyped?.let { { typingDate = true } })
                     .padding(top = 2.dp)
-                    .semantics { contentDescription = "$label date, ${it.format(HeroDayFormat)}" },
+                    .semantics { contentDescription = dateDescription },
             )
         }
     }
@@ -299,17 +305,19 @@ private fun SpanRule(
     accent: Color,
     onAllDay: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    action: String = "Make all day",
+    action: String? = null,
     // Nudges the rule down against faces that are hung from the top. A row
     // that centres its anchors instead needs none, or the rule drifts below
     // them and lands on the block's bottom edge.
     topPadding: Dp = 12.dp,
 ) {
+    val actionLabel = action ?: stringResource(R.string.cal_make_all_day)
+    val durationDescription = stringResource(R.string.cal_duration_label, label)
     Column(
         modifier
             .width(72.dp)
             .then(if (onAllDay != null) Modifier.clickable(role = Role.Button, onClick = onAllDay) else Modifier)
-            .semantics { contentDescription = if (onAllDay != null) action else "Duration, $label" }
+            .semantics { contentDescription = if (onAllDay != null) actionLabel else durationDescription }
             .padding(top = topPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(5.dp),
@@ -352,10 +360,14 @@ private fun DayAnchor(
     // edge every other element on the card lines up with.
     align: Alignment.Horizontal = Alignment.Start,
 ) {
+    val locale = LocalCalinoLocale
+    val allDayFormat = localizedDateFormatter("EEEE d MMMM")
+    val shortMonthFormat = localizedDateFormatter("MMM")
+    val dateDescription = stringResource(R.string.cal_date_value_description, label, date.format(allDayFormat))
     Row(
         modifier
             .then(if (onDate != null) Modifier.clickable(role = Role.Button, onClick = onDate) else Modifier)
-            .semantics { contentDescription = "$label date, ${date.format(HeroAllDayFormat)}" },
+            .semantics { contentDescription = dateDescription },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (align == Alignment.End) {
             Arrangement.spacedBy(11.dp, Alignment.End)
@@ -375,14 +387,14 @@ private fun DayAnchor(
             // day line uses, and the only one that fits two anchors and a rule
             // inside the card's text measure without breaking a word in half.
             Text(
-                date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.US).uppercase(Locale.US),
+                date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale).uppercase(locale),
                 style = CalinoTypography.labelSmall,
                 color = CalinoColors.Ink2,
                 maxLines = 1,
                 softWrap = false,
             )
             Text(
-                date.format(HeroMonthFormat).uppercase(Locale.US),
+                date.format(shortMonthFormat).uppercase(locale),
                 style = CalinoTypography.labelSmall,
                 color = CalinoColors.Ink3,
                 maxLines = 1,
@@ -403,43 +415,44 @@ private fun AllDayHero(
     onAllDay: (() -> Unit)?,
 ) {
     val finish = endDate?.takeIf { it != startDate }
+    val allDayActionLabel = stringResource(R.string.cal_all_day_give_it_time)
     if (finish != null) {
         // A span takes the timed hero's silhouette exactly -- anchor, rule,
         // anchor -- so the two cards read as one component in two states.
         val days = ChronoUnit.DAYS.between(startDate, finish).toInt() + 1
         Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            DayAnchor(startDate, "Start", onStartDate, Modifier.weight(1f))
+            DayAnchor(startDate, stringResource(R.string.cal_start), onStartDate, Modifier.weight(1f))
             // Both day anchors lead with their numeral, so the rule needs its
             // own gutter; the timed row gets this for free from the end face
             // being right-aligned.
             SpanRule(
-                "$days days",
+                pluralStringResource(R.plurals.cal_day_span_count, days, days),
                 accent,
                 onAllDay,
                 modifier = Modifier.padding(horizontal = 12.dp),
-                action = "All day, give it a time",
+                action = allDayActionLabel,
                 topPadding = 0.dp,
             )
-            DayAnchor(finish, "End", onEndDate, Modifier.weight(1f), align = Alignment.End)
+            DayAnchor(finish, stringResource(R.string.cal_end), onEndDate, Modifier.weight(1f), align = Alignment.End)
         }
     } else {
         // One day has nothing to put in a second column, so it does not pretend
         // to: the cluster stays left and the all-day tag rides the numeral's
         // own line rather than stacking another mono kicker under the title.
         Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            DayAnchor(startDate, "Start", onStartDate)
+            DayAnchor(startDate, stringResource(R.string.cal_start), onStartDate)
             if (onAllDay != null) {
                 Row(
                     Modifier
                         .padding(start = 16.dp)
                         .heightIn(min = 44.dp)
                         .clickable(role = Role.Button, onClick = onAllDay)
-                        .semantics { contentDescription = "All day, give it a time" },
+                        .semantics { contentDescription = allDayActionLabel },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     Box(Modifier.size(5.dp).background(accent, CircleShape))
-                    Text("ALL DAY", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                    Text(stringResource(R.string.cal_all_day_caps), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                 }
             }
         }
@@ -468,10 +481,11 @@ fun HeroMasthead(
 
 /** A tap opens the picker; a long press, where typing is offered, types in place. */
 @OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun Modifier.pressable(onClick: (() -> Unit)?, onLongClick: (() -> Unit)?): Modifier = when {
     onClick == null -> this
     onLongClick == null -> clickable(role = Role.Button, onClick = onClick)
-    else -> combinedClickable(role = Role.Button, onLongClickLabel = "Type", onLongClick = onLongClick, onClick = onClick)
+    else -> combinedClickable(role = Role.Button, onLongClickLabel = stringResource(R.string.cal_type), onLongClick = onLongClick, onClick = onClick)
 }
 
 /**

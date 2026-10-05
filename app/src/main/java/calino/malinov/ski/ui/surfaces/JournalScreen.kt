@@ -59,6 +59,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -80,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.model.JournalEntry
 import calino.malinov.ski.data.model.JournalDraft
+import calino.malinov.ski.R
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.design.CalinoMotion
@@ -87,6 +91,8 @@ import calino.malinov.ski.design.CalinoSegmented
 import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.ui.components.CalinoMarkdown
+import calino.malinov.ski.util.LocalCalinoLocale
+import calino.malinov.ski.util.localizedDateFormatter
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.CalinoIcon
@@ -100,6 +106,7 @@ import calino.malinov.ski.ui.components.calinoSurfaceShadowBleed
 import calino.malinov.ski.ui.components.rememberDatePicker
 import calino.malinov.ski.ui.components.CalinoMonthCalendar
 import calino.malinov.ski.ui.components.ModalActionPill
+import calino.malinov.ski.ui.components.ModalPillActionTone
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
 import calino.malinov.ski.state.LocalCalinoNow
@@ -110,9 +117,7 @@ import calino.malinov.ski.util.weekdayLetters
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
-import java.util.Locale
 import kotlinx.coroutines.launch
 
 /** The overview handle's touch lane, matching [ZoomHandleTouchHeight] on the calendar. */
@@ -124,12 +129,6 @@ private val JournalHandleDragRange = 160.dp
 /** The read modal's entry pager, driven directly in the device tests. */
 const val JournalEntryPagerTag = "journal-entry-pager"
 
-private val JournalDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
-private val JournalEditorialDateFormat = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.US)
-private val JournalMonthFormat = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
-
-private val JournalShortMonthFormat = DateTimeFormatter.ofPattern("MMM", Locale.US)
-private val JournalSelectedMonthFormat = DateTimeFormatter.ofPattern("MMM yy", Locale.US)
 private fun YearMonth.journalEpochMonth(): Long = year.toLong() * 12L + monthValue - 1L
 private fun journalMonthFromEpoch(epochMonth: Long): YearMonth =
     YearMonth.of(Math.floorDiv(epochMonth, 12L).toInt(), Math.floorMod(epochMonth, 12L).toInt() + 1)
@@ -150,6 +149,8 @@ fun JournalSurface(
     onOpenSearch: (() -> Unit)? = null,
     startEntryRequest: Int = 0,
 ) {
+    val monthFormat = localizedDateFormatter("MMMM yyyy")
+    val journalSearchDescription = stringResource(R.string.ed_journal_search)
     var overviewLevel by rememberSaveable { mutableStateOf(0) }
     var draftSequence by rememberSaveable { mutableStateOf(0) }
     var draftId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -221,19 +222,18 @@ fun JournalSurface(
                     MenuButton(onClick = it, modifier = Modifier.padding(end = 6.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text("Journal", style = CalinoTypography.displayLarge)
+                    Text(stringResource(R.string.ed_journal_title), style = CalinoTypography.displayLarge)
                     val oldest = sorted.lastOrNull()?.date
                     val subtitle = when (sorted.size) {
-                        0 -> "No entries yet"
-                        1 -> "1 entry since ${oldest!!.format(JournalMonthFormat)}"
-                        else -> "${sorted.size} entries since ${oldest!!.format(JournalMonthFormat)}"
+                        0 -> stringResource(R.string.ed_journal_no_entries_yet)
+                        else -> pluralStringResource(R.plurals.ed_journal_entries_since, sorted.size, sorted.size, oldest!!.format(monthFormat))
                     }
                     Text(subtitle, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
                 }
                 onOpenSearch?.let { openSearch ->
                     IconButton(
                         onClick = openSearch,
-                        modifier = Modifier.size(JournalTouchLane).semantics { contentDescription = "Search journal" },
+                        modifier = Modifier.size(JournalTouchLane).semantics { contentDescription = journalSearchDescription },
                     ) {
                         CalinoIcon(CalinoIcon.Search, tint = CalinoColors.Ink2, modifier = Modifier.size(20.dp), contentDescription = null)
                     }
@@ -448,6 +448,10 @@ private fun JournalMonthScrubber(
     modifier: Modifier = Modifier,
     onMonth: (YearMonth) -> Unit,
 ) {
+    val monthFormat = localizedDateFormatter("MMMM yyyy")
+    val shortMonthFormat = localizedDateFormatter("MMM")
+    val selectedMonthFormat = localizedDateFormatter("MMM yy")
+    val context = LocalContext.current
     LazyRow(
         state = state,
         modifier = modifier.fillMaxWidth().height(CalinoSegmented.LaneHeight),
@@ -459,19 +463,24 @@ private fun JournalMonthScrubber(
             val selected = month == visibleMonth
             val count = counts[month] ?: 0
             val distance = kotlin.math.abs(ChronoUnit.MONTHS.between(month, visibleMonth).toInt())
+            val monthDescription = if (count == 0) {
+                context.getString(R.string.ed_journal_month_empty, month.format(monthFormat))
+            } else {
+                context.resources.getQuantityString(R.plurals.ed_journal_month_entries, count, count, month.format(monthFormat))
+            }
             Column(
                 Modifier
                     .heightIn(min = JournalTouchLane)
                     .alpha(if (distance > 2) .55f else 1f)
                     .semantics(mergeDescendants = true) {
-                        contentDescription = "${month.format(JournalMonthFormat)}, ${if (count == 0) "no entries" else "$count ${if (count == 1) "entry" else "entries"}"}"
+                        contentDescription = monthDescription
                     }
                     .clickable { onMonth(month) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    (if (selected) month.format(JournalSelectedMonthFormat) else month.format(JournalShortMonthFormat)).uppercase(),
+                    (if (selected) month.format(selectedMonthFormat) else month.format(shortMonthFormat)).uppercase(LocalCalinoLocale),
                     style = CalinoTypography.labelSmall,
                     color = when { selected -> CalinoColors.OnSelection; count > 0 -> CalinoColors.Ink2; else -> CalinoColors.Ink3 },
                     modifier = Modifier
@@ -541,6 +550,11 @@ private fun JournalOverviewHandle(
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
 ) {
+    val description = stringResource(R.string.ed_journal_overview_level, level + 1)
+    val pullUp = stringResource(R.string.ed_journal_pull_up_collapse)
+    val releaseCollapse = stringResource(R.string.ed_journal_release_collapse)
+    val releaseMonth = stringResource(R.string.ed_journal_release_month)
+    val pullMonth = stringResource(R.string.ed_journal_pull_month)
     val dragRange = JournalHandleDragRange
     val gesture = Modifier.pointerInput(dragRange) {
         detectVerticalDragGestures(
@@ -553,7 +567,7 @@ private fun JournalOverviewHandle(
     Row(
         Modifier.fillMaxWidth().requiredHeight(JournalTouchLane).then(gesture)
             .clickable(onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = "Change journal overview, level ${level + 1} of 2" }
+            .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(horizontal = CalinoSpacing.Screen),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -561,10 +575,10 @@ private fun JournalOverviewHandle(
         Box(Modifier.width(26.dp).height(3.dp).background(CalinoColors.Ink.copy(.25f)))
         Text(
             when {
-                level == 1 && progress >= .5f -> "PULL UP TO COLLAPSE"
-                level == 1 -> "RELEASE TO COLLAPSE"
-                progress >= .5f -> "RELEASE FOR MONTH"
-                else -> "PULL FOR MONTH"
+                level == 1 && progress >= .5f -> pullUp
+                level == 1 -> releaseCollapse
+                progress >= .5f -> releaseMonth
+                else -> pullMonth
             },
             style = CalinoTypography.labelSmall.copy(letterSpacing = 1.sp),
             color = CalinoColors.Ink3,
@@ -579,31 +593,35 @@ private fun JournalOverviewHandle(
 
 @Composable
 private fun JournalMonthRule(month: YearMonth, count: Int, level: Int) {
+    val monthFormat = localizedDateFormatter("MMMM yyyy")
+    val shortMonthFormat = localizedDateFormatter("MMM")
     Row(
         Modifier.fillMaxWidth().background(CalinoColors.Canvas).padding(horizontal = CalinoSpacing.Screen, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            if (level == 1) "$count ${if (count == 1) "ENTRY" else "ENTRIES"} IN ${month.format(JournalShortMonthFormat).uppercase()}" else month.format(JournalMonthFormat).uppercase(),
+            if (level == 1) pluralStringResource(R.plurals.ed_journal_entries_in_month, count, count, month.format(shortMonthFormat)).uppercase(LocalCalinoLocale) else month.format(monthFormat).uppercase(LocalCalinoLocale),
             style = CalinoTypography.labelSmall,
             color = CalinoColors.Ink,
         )
         Box(Modifier.weight(1f).height(1.dp).background(CalinoColors.Line))
-        if (level == 0) Text("$count ${if (count == 1) "ENTRY" else "ENTRIES"}", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+        if (level == 0) Text(pluralStringResource(R.plurals.ed_journal_entries_count, count, count).uppercase(LocalCalinoLocale), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
     }
 }
 
 @Composable
 private fun JournalCard(entry: JournalEntry, mostRecent: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val dayName = entry.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.US)
+    val dayName = entry.date.dayOfWeek.getDisplayName(TextStyle.SHORT, LocalCalinoLocale)
+    val title = entry.title.ifBlank { stringResource(R.string.ed_journal_untitled_note) }
+    val openDescription = stringResource(R.string.ed_journal_open_entry, title)
     Box(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(CalinoShapes.Card))
             .background(CalinoColors.Panel)
             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Card))
-            .semantics(mergeDescendants = true) { contentDescription = "Open journal entry ${entry.title.ifBlank { "Untitled note" }}" }
+            .semantics(mergeDescendants = true) { contentDescription = openDescription }
             .calinoPressable(onClick = onClick),
     ) {
         val spineColor = if (mostRecent) CalinoColors.Accent else CalinoColors.AccentSoft
@@ -618,7 +636,7 @@ private fun JournalCard(entry: JournalEntry, mostRecent: Boolean, modifier: Modi
                 Text(entry.date.dayOfMonth.toString(), style = CalinoTypography.titleLarge, color = CalinoColors.Accent, modifier = Modifier.padding(top = 2.dp))
             }
             Column(Modifier.weight(1f).padding(start = 13.dp)) {
-                Text(entry.title.ifBlank { "Untitled note" }, style = CalinoTypography.titleSmall.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(title, style = CalinoTypography.titleSmall.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(entry.body, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             }
         }
@@ -629,8 +647,8 @@ private fun JournalCard(entry: JournalEntry, mostRecent: Boolean, modifier: Modi
 private fun JournalEmptyState() {
     Column(Modifier.fillMaxSize().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Box(Modifier.size(48.dp).clip(CircleShape).background(CalinoColors.AccentSoft), contentAlignment = Alignment.Center) { Text("✦", color = CalinoColors.Accent, fontSize = 22.sp) }
-        Text("Nothing written yet", style = CalinoTypography.titleMedium, modifier = Modifier.padding(top = 14.dp))
-        Text("Your first note will appear here.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 4.dp))
+        Text(stringResource(R.string.ed_journal_nothing_written), style = CalinoTypography.titleMedium, modifier = Modifier.padding(top = 14.dp))
+        Text(stringResource(R.string.ed_journal_first_note_hint), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -730,6 +748,11 @@ private fun JournalEditor(
         derivedStateOf { pager.isScrollInProgress || pager.currentPageOffsetFraction != 0f }
     }
     val mode = LocalCalinoSurfaceMode.current
+    val cancelEditLabel = stringResource(R.string.ed_journal_cancel_editing)
+    val closeEntryLabel = stringResource(R.string.ed_journal_close_entry)
+    val saveEntryLabel = stringResource(R.string.ed_journal_save)
+    val editEntryLabel = stringResource(R.string.ed_journal_edit)
+    val deleteEntryLabel = stringResource(R.string.ed_journal_delete)
 
     BottomDetailOverlay(
         visible = shown,
@@ -738,14 +761,15 @@ private fun JournalEditor(
         surfaceKind = CalinoSurfaceKind.Editor,
         pill = {
             ModalActionPill(
-                addLabel = if (focusTitle) "New entry" else "Edit entry",
+                addLabel = if (focusTitle) stringResource(R.string.ed_journal_new_entry) else stringResource(R.string.ed_journal_edit_entry),
                 morphFromAddPill = true,
                 inPillLane = true,
                 expanded = shown,
-                cancelLabel = "Cancel",
+                cancelLabel = stringResource(R.string.ed_journal_cancel),
                 onCancel = if (isEditing) ::cancelEditing else ::dismissEditor,
-                cancelDescription = if (isEditing) "Cancel journal editing" else "Close journal entry",
-                primaryLabel = if (isEditing) "Save" else "Edit",
+                cancelDescription = if (isEditing) cancelEditLabel else closeEntryLabel,
+                primaryLabel = if (isEditing) saveEntryLabel else editEntryLabel,
+                primaryTone = if (isEditing) ModalPillActionTone.Save else ModalPillActionTone.Neutral,
                 onPrimary = {
                     if (isEditing) closeAnimated { onSave(entry.copy(date = date, title = title.trim(), body = body.text.trim())) }
                     else isEditing = true
@@ -754,10 +778,10 @@ private fun JournalEditor(
                 // appears only once there is a change to write.
                 primaryVisible = !isEditing || dirty || isNewEntry,
                 primaryEnabled = !isEditing || canSave,
-                primaryDescription = if (isEditing) "Save journal entry" else "Edit journal entry",
-                deleteLabel = "Delete",
+                primaryDescription = if (isEditing) stringResource(R.string.ed_journal_save_entry_description) else stringResource(R.string.ed_journal_edit_entry_description),
+                deleteLabel = deleteEntryLabel,
                 onDelete = { confirmDelete = false; closeAnimated { onDelete(entry) } },
-                deleteDescription = "Delete journal entry",
+                deleteDescription = stringResource(R.string.ed_journal_delete_entry_description),
                 deleteConfirmationActive = confirmDelete,
                 onDeleteConfirmationChange = { confirmDelete = it },
                 deleteHoldToConfirm = true,
@@ -867,6 +891,9 @@ private fun ColumnScope.JournalEditorContent(
     onKeepEditing: () -> Unit,
     onDiscard: () -> Unit,
 ) {
+    val discardQuestion = stringResource(R.string.ed_journal_discard_question)
+    val keepEditingDescription = stringResource(R.string.ed_journal_keep_editing)
+    val discardDescription = stringResource(R.string.ed_journal_discard_changes)
     AnimatedContent(
         targetState = isEditing,
         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -910,15 +937,15 @@ private fun ColumnScope.JournalEditorContent(
             Modifier.fillMaxWidth().background(CalinoColors.Ink).padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Discard your changes?", style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
+            Text(discardQuestion, style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
             TextButton(
                 onClick = onKeepEditing,
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Keep editing journal entry" },
-            ) { Text("Keep editing", color = CalinoColors.Panel) }
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = keepEditingDescription },
+            ) { Text(stringResource(R.string.ed_journal_keep_editing_short), color = CalinoColors.Panel) }
             TextButton(
                 onClick = onDiscard,
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Discard journal changes" },
-            ) { Text("Discard", color = CalinoColors.AccentSoft) }
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = discardDescription },
+            ) { Text(stringResource(R.string.ed_journal_discard), color = CalinoColors.AccentSoft) }
         }
     }
 
@@ -942,6 +969,9 @@ private fun JournalEditPane(
     focusTitle: Boolean,
     titleFocusRequester: FocusRequester,
 ) {
+    val titleDescription = stringResource(R.string.ed_journal_title_semantics)
+    val bodyDescription = stringResource(R.string.ed_journal_body_semantics)
+    val wordCountText = pluralStringResource(R.plurals.ed_journal_words, wordCount, wordCount)
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 78.dp).background(headerTint).padding(horizontal = 20.dp),
@@ -953,12 +983,12 @@ private fun JournalEditPane(
                 onValueChange = onTitleChange,
                 modifier = Modifier.weight(1f).padding(start = 14.dp)
                     .then(if (focusTitle) Modifier.focusRequester(titleFocusRequester) else Modifier)
-                    .semantics { contentDescription = "Journal title" },
+                    .semantics { contentDescription = titleDescription },
                 textStyle = CalinoTypography.headlineSmall.copy(color = CalinoColors.Ink),
                 maxLines = 2,
                 decorationBox = { innerTextField ->
                     Box {
-                        if (title.isBlank()) Text("Add note title", style = CalinoTypography.headlineSmall, color = CalinoColors.Ink3)
+                        if (title.isBlank()) Text(stringResource(R.string.ed_journal_add_title), style = CalinoTypography.headlineSmall, color = CalinoColors.Ink3)
                         innerTextField()
                     }
                 },
@@ -981,7 +1011,7 @@ private fun JournalEditPane(
                 ) {
                     JournalDateChip(date = date, onDateChange = onDateChange)
                     Text(
-                        "$wordCount ${if (wordCount == 1) "word" else "words"}",
+                        wordCountText,
                         modifier = Modifier.clip(RoundedCornerShape(50)).background(CalinoColors.Panel)
                             .padding(horizontal = 9.dp, vertical = 4.dp),
                         style = CalinoTypography.labelSmall,
@@ -989,10 +1019,10 @@ private fun JournalEditPane(
                     )
                     Spacer(Modifier.weight(1f))
                     CompactSegmentedControl(
-                        options = listOf("Write", "Preview"),
+                        options = listOf(stringResource(R.string.ed_journal_write), stringResource(R.string.ed_journal_preview)),
                         selectedIndex = mode,
                         onSelected = onModeChange,
-                        semanticLabel = "Journal editor mode",
+                        semanticLabel = stringResource(R.string.ed_journal_editor_mode),
                         maxControlWidth = 168.dp,
                     )
                 }
@@ -1016,17 +1046,17 @@ private fun JournalEditPane(
                             value = body,
                             onValueChange = onBodyChange,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 224.dp)
-                                .semantics { contentDescription = "Journal body" },
+                                .semantics { contentDescription = bodyDescription },
                             textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink, lineHeight = 25.sp),
                             decorationBox = { innerTextField ->
                                 Box {
-                                    if (body.text.isBlank()) Text("What is on your mind?", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                                    if (body.text.isBlank()) Text(stringResource(R.string.ed_journal_body_prompt), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
                                     innerTextField()
                                 }
                             },
                         )
                     } else if (body.text.isBlank()) {
-                        Text("No note text", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                        Text(stringResource(R.string.ed_journal_no_note_text), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
                     } else {
                         CalinoMarkdown(body.text)
                     }
@@ -1046,7 +1076,9 @@ private fun JournalEditPane(
 @Composable
 private fun JournalDateChip(date: LocalDate, onDateChange: (LocalDate) -> Unit) {
     val pickDate = rememberDatePicker({ date }, onDateChange)
-    val description = "Date: ${date.format(JournalEditorialDateFormat)}"
+    val dateFormat = localizedDateFormatter("EEE, d MMM")
+    val fullDateFormat = localizedDateFormatter("EEEE d MMMM yyyy")
+    val description = stringResource(R.string.ed_journal_date_description, date.format(fullDateFormat))
     Box(
         Modifier.heightIn(min = 44.dp)
             .clip(RoundedCornerShape(50))
@@ -1058,7 +1090,7 @@ private fun JournalDateChip(date: LocalDate, onDateChange: (LocalDate) -> Unit) 
         Row(verticalAlignment = Alignment.CenterVertically) {
             CalinoIcon(CalinoIcon.Calendar, tint = CalinoColors.Ink3, modifier = Modifier.size(16.dp), contentDescription = null)
             Text(
-                date.format(JournalDateFormat),
+                date.format(dateFormat),
                 modifier = Modifier.padding(start = 7.dp),
                 style = CalinoTypography.labelSmall,
                 color = CalinoColors.Ink2,
@@ -1079,6 +1111,9 @@ private fun JournalReadPane(
     // make the title ambiguous to a screen reader and to the tests.
     labelTitle: Boolean = true,
 ) {
+    val fullDateFormat = localizedDateFormatter("EEEE d MMMM yyyy")
+    val titleDescription = stringResource(R.string.ed_journal_title_semantics)
+    val untitledNote = stringResource(R.string.ed_journal_untitled_note)
     val wordCount = remember(body) { body.trim().let { if (it.isEmpty()) 0 else it.split(WordBoundaryPattern).size } }
     val readingMinutes = maxOf(1, (wordCount + 199) / 200)
     LazyColumn(
@@ -1087,35 +1122,35 @@ private fun JournalReadPane(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item(key = "read-date") {
-            Text(entry.date.format(JournalEditorialDateFormat).uppercase(), style = CalinoTypography.labelSmall, color = CalinoColors.Accent)
+            Text(entry.date.format(fullDateFormat).uppercase(LocalCalinoLocale), style = CalinoTypography.labelSmall, color = CalinoColors.Accent)
         }
         item(key = "read-title") {
             Text(
-                title.ifBlank { "Untitled note" },
+                title.ifBlank { untitledNote },
                 style = CalinoTypography.headlineLarge,
                 color = if (title.isBlank()) CalinoColors.Ink3 else CalinoColors.Ink,
-                modifier = if (labelTitle) Modifier.semantics { contentDescription = "Journal title" } else Modifier,
+                modifier = if (labelTitle) Modifier.semantics { contentDescription = titleDescription } else Modifier,
             )
         }
         if (wordCount > 0) {
             item(key = "read-meta") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("$wordCount ${if (wordCount == 1) "WORD" else "WORDS"}", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                    Text(pluralStringResource(R.plurals.ed_journal_words, wordCount, wordCount).uppercase(LocalCalinoLocale), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                     Box(Modifier.padding(horizontal = 8.dp).size(3.dp).clip(CircleShape).background(CalinoColors.Ink3))
-                    Text("$readingMinutes MIN READ", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                    Text(pluralStringResource(R.plurals.ed_journal_minutes_read, readingMinutes, readingMinutes).uppercase(LocalCalinoLocale), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                 }
             }
         }
         item(key = "read-rule") { Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line)) }
         item(key = "read-preview") {
-            if (body.isBlank()) Text("No note text", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+            if (body.isBlank()) Text(stringResource(R.string.ed_journal_no_note_text), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
             else CalinoMarkdown(body)
         }
     }
 }
 
-private enum class JournalFormat(val description: String, val prefix: String? = null) {
-    Heading("Heading", "## "), Bold("Bold"), Italic("Italic"), Bullet("Bullet list", "- "), Checklist("Checklist", "- [ ] "), Quote("Quote", "> ")
+private enum class JournalFormat(val descriptionResId: Int, val prefix: String? = null) {
+    Heading(R.string.ed_journal_format_heading, "## "), Bold(R.string.ed_journal_format_bold), Italic(R.string.ed_journal_format_italic), Bullet(R.string.ed_journal_format_bullet, "- "), Checklist(R.string.ed_journal_format_checklist, "- [ ] "), Quote(R.string.ed_journal_format_quote, "> ")
 }
 
 @Composable
@@ -1127,9 +1162,10 @@ private fun JournalFormattingToolbar(value: TextFieldValue, enabled: Boolean, on
     ) {
         JournalFormat.entries.forEach { format ->
             val active = journalFormatActive(value, format)
+            val description = stringResource(format.descriptionResId)
             Box(
                 Modifier.size(44.dp).alpha(if (enabled) 1f else .4f)
-                    .semantics { contentDescription = format.description; if (!enabled) disabled() }
+                    .semantics { contentDescription = description; if (!enabled) disabled() }
                     .then(if (enabled) Modifier.clickable { onValueChange(applyJournalFormat(value, format)) } else Modifier),
                 contentAlignment = Alignment.Center,
             ) {

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="provider_create_repeat">Oprettelse af gentagne begivenheder i enhedskalendere understøttes endnu ikke.</string>
+    <string name="provider_update_future">I enhedskalendere kan denne begivenhed eller hele serien ændres, men ikke fremtidige begivenheder.</string>
+    <string name="provider_update_repeat">Ændring af en eksisterende gentagelsesregel i enhedskalendere understøttes endnu ikke.</string>
+    <string name="provider_exception_changed">Forekomsten er allerede ændret i den tilknyttede app. Opdatér kalenderen, og prøv igen.</string>
+    <string name="provider_delete_future">I enhedskalendere kan denne begivenhed eller hele serien slettes, men ikke fremtidige begivenheder.</string>
+    <string name="provider_changed_refresh">Begivenheden blev ændret i den tilknyttede app. Opdatér, og prøv igen.</string>
+    <string name="provider_move">Begivenheder kan ikke flyttes mellem enhedskalendere eller mellem enheds- og CalDAV-kalendere.</string>
+    <string name="provider_missing_calendar">Enhedskalenderen er ikke længere tilgængelig.</string>
+    <string name="provider_ownership">Enhedskalenderens ejerskab er ændret. Slå redigering fra og til igen, før du prøver igen.</string>
+    <string name="provider_removed">Begivenheden blev fjernet af den tilknyttede app. Opdatér kalenderen.</string>
+    <string name="provider_changed">Begivenheden blev ændret i den tilknyttede app. Opdatér kalenderen, og prøv igen.</string>
+    <string name="provider_editing_disabled">Redigering er ikke aktiveret for enhedskalenderen.</string>
+    <string name="provider_readonly">Enhedskalenderen er skrivebeskyttet, eller skrivetilladelsen er tilbagekaldt.</string>
+    <string name="provider_own_projection">Calino kan ikke importere eller redigere sin egen Android-projektion.</string>
+    <string name="provider_new_identity">Kalenderudbyderen returnerede ikke den nye begivenheds identitet.</string>
+    <string name="provider_reminders">Kalenderudbyderen gemte ikke alle påmindelser.</string>
+    <string name="provider_exception_identity">Kalenderudbyderen returnerede ikke undtagelsens identitet.</string>
+    <string name="provider_exception_reminders">Kalenderudbyderen gemte ikke alle undtagelsespåmindelser.</string>
+    <string name="provider_reminder_state">Kalenderudbyderen returnerede ikke påmindelsesstatus.</string>
+    <string name="provider_permission">Skrivetilladelse til kalenderen kræves for at ændre enhedskalenderen.</string>
+    <string name="provider_rejected">Kalenderudbyderen afviste ændringen.</string>
+    <string name="provider_unsupported">Enhedskalendere understøtter ikke ændring af %1$s. Ryd felterne, og prøv igen.</string>
+    <string name="provider_attendees">deltagere</string>
+    <string name="provider_categories">kategorier</string>
+    <string name="provider_relationships">relationer</string>
+    <string name="provider_travel">rejsetid</string>
+    <string name="provider_account_properties">Calino-konti har ingen egenskaber, der kan redigeres</string>
+    <string name="provider_auth_tokens">Calino udsteder ikke godkendelsestokens</string>
+    <string name="provider_password_change">Skift adgangskoden i Calinos kontoliste</string>
+</resources>

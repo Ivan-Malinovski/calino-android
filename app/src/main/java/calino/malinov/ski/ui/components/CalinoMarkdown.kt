@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.components
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -161,6 +164,36 @@ fun parseCalinoMarkdown(markdown: String): CalinoMarkdownDocument {
 
 private class MarkdownParseState(var nextTaskIndex: Int = 0)
 
+/** Resolve the renderer's missing-image alt label in the active app locale. */
+private fun List<CalinoMarkdownBlock>.withImageFallback(fallback: String): List<CalinoMarkdownBlock> = map { block ->
+    when (block) {
+        is CalinoMarkdownBlock.Paragraph -> block.copy(content = block.content.withImageFallback(fallback))
+        is CalinoMarkdownBlock.Heading -> block.copy(content = block.content.withImageFallback(fallback))
+        is CalinoMarkdownBlock.Quote -> block.copy(blocks = block.blocks.withImageFallback(fallback))
+        is CalinoMarkdownBlock.ListBlock -> block.copy(items = block.items.map { it.copy(blocks = it.blocks.withImageFallback(fallback)) })
+        is CalinoMarkdownBlock.Table -> block.copy(
+            header = block.header.withImageFallback(fallback),
+            rows = block.rows.map { it.withImageFallback(fallback) },
+        )
+        is CalinoMarkdownBlock.CodeBlock, CalinoMarkdownBlock.ThematicBreak -> block
+    }
+}
+
+private fun CalinoMarkdownTableRow.withImageFallback(fallback: String): CalinoMarkdownTableRow =
+    copy(cells = cells.map { it.withImageFallback(fallback) })
+
+@JvmName("withInlineImageFallback")
+private fun List<CalinoMarkdownInline>.withImageFallback(fallback: String): List<CalinoMarkdownInline> = map { inline ->
+    when (inline) {
+        is CalinoMarkdownInline.Image -> inline.copy(alt = inline.alt.ifEmpty { fallback })
+        is CalinoMarkdownInline.Strong -> inline.copy(content = inline.content.withImageFallback(fallback))
+        is CalinoMarkdownInline.Emphasis -> inline.copy(content = inline.content.withImageFallback(fallback))
+        is CalinoMarkdownInline.Strikethrough -> inline.copy(content = inline.content.withImageFallback(fallback))
+        is CalinoMarkdownInline.Link -> inline.copy(content = inline.content.withImageFallback(fallback))
+        is CalinoMarkdownInline.Text, is CalinoMarkdownInline.Code, CalinoMarkdownInline.LineBreak -> inline
+    }
+}
+
 private fun parseBlocks(parent: Node, state: MarkdownParseState): List<CalinoMarkdownBlock> = childrenOf(parent).flatMap { node ->
     when (node) {
         is Paragraph -> listOf(CalinoMarkdownBlock.Paragraph(parseInline(node)))
@@ -228,7 +261,7 @@ private fun parseInline(parent: Node): List<CalinoMarkdownInline> = childrenOf(p
         is Link -> listOf(CalinoMarkdownInline.Link(node.destination.orEmpty(), parseInline(node)))
         is Image -> listOf(
             CalinoMarkdownInline.Image(
-                alt = inlinePlainText(node).ifEmpty { "Image" },
+                alt = inlinePlainText(node),
                 destination = node.destination.orEmpty(),
             ),
         )
@@ -271,20 +304,23 @@ private fun childrenOf(node: Node): List<Node> = buildList {
 fun CalinoMarkdown(
     markdown: String,
     modifier: Modifier = Modifier,
-    emptyText: String = "Nothing to preview yet.",
+    emptyText: String? = null,
     onTaskCheckedChange: ((taskIndex: Int, checked: Boolean) -> Unit)? = null,
 ) {
+    val previewEmptyText = emptyText ?: stringResource(R.string.cal_nothing_to_preview)
     if (markdown.isBlank()) {
-        Text(emptyText, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = modifier)
+        Text(previewEmptyText, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = modifier)
         return
     }
     val document = remember(markdown) { parseCalinoMarkdown(markdown) }
-    if (document.blocks.isEmpty()) {
-        Text(emptyText, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = modifier)
+    val imageFallback = stringResource(R.string.cal_image)
+    val blocks = remember(document, imageFallback) { document.blocks.withImageFallback(imageFallback) }
+    if (blocks.isEmpty()) {
+        Text(previewEmptyText, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, modifier = modifier)
         return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        document.blocks.forEachIndexed { index, block ->
+        blocks.forEachIndexed { index, block ->
             CalinoMarkdownBlockView(block, isFirst = index == 0, onTaskCheckedChange = onTaskCheckedChange)
         }
     }
@@ -296,32 +332,36 @@ fun CalinoMarkdownEditor(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    label: String = "Markdown",
-    placeholder: String = "Add more detail",
+    label: String? = null,
+    placeholder: String? = null,
     minLines: Int = 4,
     maxLines: Int = 8,
     showLabel: Boolean = true,
 ) {
+    val editorLabel = label ?: stringResource(R.string.cal_markdown)
+    val editorPlaceholder = placeholder ?: stringResource(R.string.cal_add_more_detail)
+    val modeDescription = stringResource(R.string.cal_mode, editorLabel)
+    val editableDescription = stringResource(R.string.cal_editable_label, editorLabel)
     var preview by rememberSaveable { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(
-            Modifier.fillMaxWidth().semantics { contentDescription = "$label mode" },
+            Modifier.fillMaxWidth().semantics { contentDescription = modeDescription },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (showLabel) {
-                Text(label, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                Text(editorLabel, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
             }
             Spacer(Modifier.weight(1f))
             TextButton(
                 onClick = { preview = false },
                 modifier = Modifier.height(40.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp),
-            ) { Text("Write", color = if (!preview) CalinoColors.Accent else CalinoColors.Ink3) }
+             ) { Text(stringResource(R.string.cal_write), color = if (!preview) CalinoColors.Accent else CalinoColors.Ink3) }
             TextButton(
                 onClick = { preview = true },
                 modifier = Modifier.height(40.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp),
-            ) { Text("Preview", color = if (preview) CalinoColors.Accent else CalinoColors.Ink3) }
+             ) { Text(stringResource(R.string.cal_preview), color = if (preview) CalinoColors.Accent else CalinoColors.Ink3) }
         }
         if (preview) {
             CalinoMarkdown(
@@ -335,14 +375,14 @@ fun CalinoMarkdownEditor(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = (minLines * 25).dp)
-                    .semantics { contentDescription = "$label, editable" },
+                    .semantics { contentDescription = editableDescription },
                 textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink, lineHeight = 25.sp),
                 cursorBrush = SolidColor(CalinoColors.Accent),
                 minLines = minLines,
                 maxLines = maxLines,
                 decorationBox = { innerTextField ->
                     Box(Modifier.fillMaxWidth()) {
-                        if (value.isBlank()) Text(placeholder, color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge)
+                        if (value.isBlank()) Text(editorPlaceholder, color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge)
                         innerTextField()
                     }
                 },
@@ -415,6 +455,7 @@ private fun MarkdownListView(
                     )
                     else -> {
                         val taskIndex = item.taskIndex
+                        val checklistLabel = stringResource(if (item.checked) R.string.cal_mark_checklist_open else R.string.cal_mark_checklist_done)
                         Checkbox(
                             checked = item.checked,
                             onCheckedChange = if (taskIndex != null && onTaskCheckedChange != null) {
@@ -435,9 +476,7 @@ private fun MarkdownListView(
                                 .checklistTouchLane()
                                 .size(44.dp)
                                 .padding(end = 8.dp)
-                                .semantics {
-                                contentDescription = if (item.checked) "Mark checklist item open" else "Mark checklist item done"
-                            },
+                                .semantics { contentDescription = checklistLabel },
                         )
                     }
                 }
@@ -588,7 +627,7 @@ private fun AnnotatedString.Builder.appendCalinoMarkdownInline(
         }
         is CalinoMarkdownInline.Image -> withStyle(
             SpanStyle(color = ink2, fontStyle = FontStyle.Italic),
-        ) { append("[${inline.alt}]") }
+        ) { append("["); append(inline.alt); append("]") }
         CalinoMarkdownInline.LineBreak -> append('\n')
     }
 }

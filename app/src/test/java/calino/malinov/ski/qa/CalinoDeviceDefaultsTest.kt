@@ -14,6 +14,15 @@ import java.util.Locale
 class CalinoDeviceDefaultsTest {
 
     @Test
+    fun `region label uses the device region even when app language has no country`() {
+        val defaults = calino.malinov.ski.state.CalinoDeviceDefaults.Fallback.copy(
+            locale = Locale.GERMAN,
+            region = "DK",
+        )
+        assertEquals("Dänemark", defaults.regionDisplayName)
+    }
+
+    @Test
     fun `system time format resolves to the device format while overrides win`() {
         assertEquals(
             CalinoTimeFormat.TwentyFourHour,

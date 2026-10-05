@@ -81,12 +81,14 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp as lerpDp
 import calino.malinov.ski.design.CalinoColors
+import calino.malinov.ski.R
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.LocalHingeOpenness
@@ -210,7 +212,7 @@ fun AdaptiveSurfaceHost(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     scrimAlpha: Float = .28f,
-    contentDescription: String = "Dismiss surface",
+    contentDescription: String? = null,
     preferredSurfaceHeight: Dp? = null,
     pill: (@Composable () -> Unit)? = null,
     // Where the record this surface shows was touched. When given, the panel
@@ -218,6 +220,7 @@ fun AdaptiveSurfaceHost(
     origin: SurfaceOriginBounds? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
+    val dismissDescription = contentDescription ?: stringResource(R.string.cal_dismiss_surface)
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
     PredictiveBackHandler(enabled = visible) { events ->
         try {
@@ -496,7 +499,7 @@ fun AdaptiveSurfaceHost(
                     enabled = visible,
                     onClick = onDismiss,
                 )
-                .semantics { this.contentDescription = contentDescription },
+                .semantics { this.contentDescription = dismissDescription },
         )
 
         // Only the card is recorded for the pill's blur. Transparent space in

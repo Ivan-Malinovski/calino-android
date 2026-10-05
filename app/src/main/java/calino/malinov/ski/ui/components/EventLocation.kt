@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.components
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -64,10 +67,10 @@ private fun percentEncodeGeoQuery(value: String): String = buildString {
 }
 
 /** Starts a user-selectable map handler, or safely does nothing if none exists. */
-internal fun openEventLocation(context: Context, location: String?): Boolean {
+internal fun openEventLocation(context: Context, location: String?, chooserTitle: String): Boolean {
     val viewIntent = eventLocationIntent(location) ?: return false
     return try {
-        val chooser = Intent.createChooser(viewIntent, "Open location in maps")
+        val chooser = Intent.createChooser(viewIntent, chooserTitle)
         if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(chooser)
         true
@@ -91,6 +94,8 @@ fun EventLocationButton(
 ) {
     val normalized = location?.trim().orEmpty()
     val context = LocalContext.current
+    val mapChooserTitle = stringResource(R.string.cal_open_location_maps)
+    val openLocationLabel = stringResource(R.string.cal_open_event_location_maps)
     AnimatedVisibility(
         visible = normalized.isNotEmpty(),
         modifier = modifier,
@@ -105,9 +110,9 @@ fun EventLocationButton(
                 .clip(CircleShape)
                 .calinoPressable(onClick = {
                     if (onOpen != null) onOpen(normalized)
-                    else openEventLocation(context, normalized)
+                    else openEventLocation(context, normalized, mapChooserTitle)
                 })
-                .semantics { contentDescription = "Open event location in maps" },
+                .semantics { contentDescription = openLocationLabel },
             contentAlignment = Alignment.Center,
         ) {
             CalinoIcon(

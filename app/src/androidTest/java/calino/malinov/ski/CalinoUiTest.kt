@@ -44,9 +44,10 @@ abstract class CalinoUiTest(
     defaultView: CalinoDefaultView = CalinoDefaultView.Default,
     menuPill: Boolean = true,
     theme: CalinoThemeChoice = CalinoThemeChoice.Default,
+    localeTag: String = "en",
 ) {
 
-    private val reset = CalinoResetRule(defaultView, menuPill, theme)
+    private val reset = CalinoResetRule(defaultView, menuPill, theme, localeTag)
 
     protected val compose: AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity> =
         createAndroidComposeRule()
@@ -124,9 +125,17 @@ class CalinoResetRule(
     private val defaultView: CalinoDefaultView = CalinoDefaultView.Default,
     private val menuPill: Boolean = true,
     private val theme: CalinoThemeChoice = CalinoThemeChoice.Default,
+    private val localeTag: String = "en",
 ) : ExternalResource() {
+    private var previousLocales: android.os.LocaleList? = null
+
     override fun before() {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val manager = context.getSystemService(android.app.LocaleManager::class.java)
+            previousLocales = manager.applicationLocales
+            manager.applicationLocales = android.os.LocaleList.forLanguageTags(localeTag)
+        }
         listOf(PreferencesFile, AccountsFile, BackgroundSyncPreferencesFile).forEach { name ->
             // commit, not apply: the Activity launches on the next statement.
             context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit()
@@ -146,6 +155,13 @@ class CalinoResetRule(
             saveWeekStart(CalinoWeekStart.Monday)
         }
         CalinoContainer.get(context).fixtureRepository.resetToFixtures()
+    }
+
+    override fun after() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            previousLocales?.let { context.getSystemService(android.app.LocaleManager::class.java).applicationLocales = it }
+        }
     }
 
     private companion object {

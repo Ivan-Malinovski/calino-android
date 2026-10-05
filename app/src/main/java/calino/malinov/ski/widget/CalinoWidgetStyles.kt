@@ -150,7 +150,7 @@ internal fun LedgerRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = row.timeLabel ?: if (row.allDay) "All day" else "Due",
+                text = row.timeLabel ?: if (row.allDay) androidx.glance.LocalContext.current.getString(R.string.sys_all_day) else androidx.glance.LocalContext.current.getString(R.string.sys_due),
                 // Fixed width plus end alignment is what a proportional font
                 // gives instead of tabular figures: the column has one edge
                 // even though "9:30" and "11:00" are different widths.
@@ -248,7 +248,7 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
             // word adds nothing next to it. A real due *time* still shows.
             if (row.kind != WidgetRowKind.Task || row.timeLabel != null) {
                 Text(
-                    text = row.timeLabel ?: if (row.allDay) "All day" else "Due",
+                    text = row.timeLabel ?: if (row.allDay) androidx.glance.LocalContext.current.getString(R.string.sys_all_day) else androidx.glance.LocalContext.current.getString(R.string.sys_due),
                     style = TextStyle(
                         color = if (row.isNext) CalinoWidgetColors.accent else CalinoWidgetColors.ink2,
                         fontSize = 10.5.sp,
@@ -313,7 +313,7 @@ internal fun TaskMarker(row: WidgetAgendaRow) {
             provider = ImageProvider(
                 if (row.done) R.drawable.ic_widget_task_done else R.drawable.ic_widget_task_open,
             ),
-            contentDescription = if (row.done) "Reopen ${row.title}" else "Complete ${row.title}",
+            contentDescription = if (row.done) androidx.glance.LocalContext.current.getString(R.string.sys_reopen, row.title) else androidx.glance.LocalContext.current.getString(R.string.sys_complete, row.title),
             modifier = GlanceModifier.size(14.dp),
             colorFilter = ColorFilter.tint(
                 if (row.done) CalinoWidgetColors.ink3 else CalinoWidgetColors.record(row.color),

@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.surfaces
 
+import androidx.compose.ui.res.stringResource
+import calino.malinov.ski.R
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -44,6 +47,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.repository.PENDING_CHANGE_MAX_RETRIES
@@ -63,6 +67,8 @@ import calino.malinov.ski.ui.components.EditorSection
 import calino.malinov.ski.ui.components.SectionLabel
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.LocalCalinoLocale
+import calino.malinov.ski.util.localizedPendingFailure
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -137,12 +143,16 @@ internal fun PendingWritesCard(
         if (problems.isNotEmpty()) {
             HorizontalDivider(color = CalinoColors.Line)
             DisclosureRow(
-                text = "${queued.size} more waiting to sync",
+                text = t(
+                    if (queued.size == 1) R.string.set_1_more_waiting_to_sync
+                    else R.string.set_1_d_more_waiting_to_sync,
+                    queued.size,
+                ),
                 expanded = showQueued,
                 onToggle = { showQueued = !showQueued },
             )
         } else {
-            SectionLabel("Waiting", count = queued.size)
+            SectionLabel(t(R.string.set_waiting), count = queued.size)
         }
         AnimatedVisibility(
             visible = open,
@@ -175,14 +185,18 @@ private fun PendingHeader(needsYou: Int, retrying: Int, queued: Int, onRetryAll:
         else -> CalinoIcons.Clock
     }
     val title = when {
-        needsYou > 0 -> "$needsYou change${plural(needsYou)} need${if (needsYou == 1) "s" else ""} you"
-        retrying > 0 -> "$retrying change${plural(retrying)} retrying"
-        else -> "$queued change${plural(queued)} waiting to sync"
+        needsYou == 1 -> t(R.string.set_1_d_change_needs_you, needsYou)
+        needsYou > 0 -> t(R.string.set_1_d_changes_need_you, needsYou)
+        retrying == 1 -> t(R.string.set_1_d_change_retrying, retrying)
+        retrying > 0 -> t(R.string.set_1_d_changes_retrying, retrying)
+        queued == 1 -> t(R.string.set_1_d_change_waiting_to_sync, queued)
+        else -> t(R.string.set_1_d_changes_waiting_to_sync, queued)
     }
     val subtitle = when {
-        needsYou > 0 -> "The server refused ${if (needsYou == 1) "it" else "them"}. Everything else keeps syncing."
-        retrying > 0 -> "Calino will try again on its own. Nothing is lost."
-        else -> "They sync on their own once the server is reachable."
+        needsYou == 1 -> t(R.string.set_the_server_refused_it_everything_else_keeps_syncing)
+        needsYou > 0 -> t(R.string.set_the_server_refused_them_everything_else_keeps_syncing)
+        retrying > 0 -> t(R.string.set_calino_will_try_again_on_its_own_nothing_is_lost)
+        else -> t(R.string.set_they_sync_on_their_own_once_the_server_is_reachable)
     }
     val tint by animateColorAsState(tone, tween(CalinoMotion.SurfaceFadeMillis), label = "pending tone")
     Row(
@@ -211,9 +225,9 @@ private fun PendingHeader(needsYou: Int, retrying: Int, queued: Int, onRetryAll:
     }
     onRetryAll?.let {
         CalinoChip(
-            text = "Retry all now",
+            text = t(R.string.set_retry_all_now),
             selected = true,
-            description = "try every failed change again",
+            description = t(R.string.set_try_every_failed_change_again),
             onClick = it,
         )
     }
@@ -228,6 +242,8 @@ private fun ProblemRow(
     onRetry: () -> Unit,
     onDiscard: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val locale = LocalCalinoLocale
     var expanded by rememberSaveable(change.id) { mutableStateOf(initiallyExpanded) }
     var confirming by rememberSaveable(change.id) { mutableStateOf(false) }
     val dead = change.state == PendingChangeState.DEAD_LETTER
@@ -238,6 +254,7 @@ private fun ProblemRow(
         tween(CalinoMotion.ContentEnterMillis),
         label = "problem chevron",
     )
+    val rowStateDescription = if (expanded) t(R.string.set_expanded) else t(R.string.set_collapsed)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             Modifier
@@ -246,7 +263,7 @@ private fun ProblemRow(
                 .clip(RoundedCornerShape(CalinoShapes.Row))
                 .calinoPressable(role = Role.Button) { expanded = !expanded }
                 .semantics(mergeDescendants = true) {
-                    stateDescription = if (expanded) "Expanded" else "Collapsed"
+                    stateDescription = rowStateDescription
                 },
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -268,9 +285,9 @@ private fun ProblemRow(
             }
             StatusTag(
                 text = if (dead) {
-                    "Needs you"
+                    t(R.string.set_needs_you)
                 } else {
-                    change.nextAttemptAt?.let { "Retry ${formatStamp(it, timeFormat)}" } ?: "Retrying"
+                    change.nextAttemptAt?.let { t(R.string.set_retry_1_s, formatStamp(it, timeFormat, locale)) } ?: t(R.string.set_retrying)
                 },
                 tone = tone,
             )
@@ -298,7 +315,7 @@ private fun ProblemRow(
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(failure.message, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
+                        Text(localizedPendingFailure(context, failure.message), style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
                         failureDetail(change, timeFormat)?.let {
                             Text(it, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                         }
@@ -315,15 +332,15 @@ private fun ProblemRow(
                     if (!asking) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CalinoChip(
-                                text = if (dead) "Try again" else "Retry now",
+                                text = if (dead) t(R.string.set_try_again) else t(R.string.set_retry_now),
                                 selected = true,
-                                description = "send $title to the server again",
+                                description = t(R.string.set_send_1_s_to_the_server_again, title),
                                 onClick = onRetry,
                             )
                             CalinoChip(
                                 text = revertLabel(change),
                                 selected = false,
-                                description = "undo this unsynced change to $title",
+                                description = t(R.string.set_undo_this_unsynced_change_to_1_s, title),
                                 onClick = { confirming = true },
                             )
                         }
@@ -338,16 +355,16 @@ private fun ProblemRow(
                                 CalinoChip(
                                     text = revertLabel(change),
                                     selected = false,
-                                    description = "confirm, this cannot be undone",
+                                    description = t(R.string.set_confirm_this_cannot_be_undone),
                                     onClick = {
                                         confirming = false
                                         onDiscard()
                                     },
                                 )
                                 CalinoChip(
-                                    text = "Keep it",
+                                    text = t(R.string.set_keep_it),
                                     selected = true,
-                                    description = "keep the change queued",
+                                    description = t(R.string.set_keep_the_change_queued),
                                     onClick = { confirming = false },
                                 )
                             }
@@ -369,14 +386,18 @@ private fun QueuedRow(change: PendingChange, collection: CollectionLabel?, waiti
         Column(Modifier.weight(1f).padding(start = 11.dp)) {
             Text(itemTitle(change), style = CalinoTypography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                if (waitingBehind) "${metaLine(change, collection)} · after the change above" else metaLine(change, collection),
+                if (waitingBehind) t(
+                    R.string.set_1_s_2_s,
+                    metaLine(change, collection),
+                    t(R.string.set_after_the_change_above),
+                ) else metaLine(change, collection),
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        StatusTag("Queued", CalinoColors.Ink3)
+        StatusTag(t(R.string.set_queued), CalinoColors.Ink3)
     }
 }
 
@@ -387,6 +408,7 @@ private fun DisclosureRow(text: String, expanded: Boolean, onToggle: () -> Unit)
         tween(CalinoMotion.ContentEnterMillis),
         label = "queued chevron",
     )
+    val rowStateDescription = if (expanded) t(R.string.set_expanded) else t(R.string.set_collapsed)
     Row(
         Modifier
             .fillMaxWidth()
@@ -395,7 +417,7 @@ private fun DisclosureRow(text: String, expanded: Boolean, onToggle: () -> Unit)
             .calinoPressable(role = Role.Button, onClick = onToggle)
             .semantics(mergeDescendants = true) {
                 contentDescription = text
-                stateDescription = if (expanded) "Expanded" else "Collapsed"
+                stateDescription = rowStateDescription
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -434,59 +456,66 @@ private fun StatusTag(text: String, tone: Color) {
 private fun collection(collections: Map<String, CollectionLabel>, change: PendingChange): CollectionLabel? =
     change.calendarUrl?.let(collections::get) ?: collections[change.calendarId]
 
+@Composable
 private fun itemTitle(change: PendingChange): String =
-    change.displayTitle() ?: "Untitled ${kindLabel(change)}"
+    change.displayTitle() ?: t(R.string.set_untitled_1_s, kindLabel(change))
 
-private fun plural(count: Int) = if (count == 1) "" else "s"
-
+@Composable
 private fun kindLabel(change: PendingChange): String = when (change.component.uppercase()) {
-    "VEVENT" -> "event"
-    "VTODO" -> "task"
-    "VJOURNAL" -> "journal entry"
-    "VCARD" -> "contact"
-    else -> "item"
+    "VEVENT" -> t(R.string.set_event)
+    "VTODO" -> t(R.string.set_task)
+    "VJOURNAL" -> t(R.string.set_journal_entry)
+    "VCARD" -> t(R.string.set_contact)
+    else -> t(R.string.set_item)
 }
 
+@Composable
 private fun metaLine(change: PendingChange, collection: CollectionLabel?): String {
     val kind = kindLabel(change)
     val action = when (change.type) {
-        PendingChangeType.CREATE -> "New $kind"
-        PendingChangeType.UPDATE -> "Edited $kind"
-        PendingChangeType.DELETE -> "Deleted $kind"
-        PendingChangeType.MOVE -> "Moved $kind"
-        PendingChangeType.DELETE_HREF -> "Finishing a move"
+        PendingChangeType.CREATE -> t(R.string.set_new_1_s, kind)
+        PendingChangeType.UPDATE -> t(R.string.set_edited_1_s, kind)
+        PendingChangeType.DELETE -> t(R.string.set_deleted_1_s, kind)
+        PendingChangeType.MOVE -> t(R.string.set_moved_1_s, kind)
+        PendingChangeType.DELETE_HREF -> t(R.string.set_finishing_a_move)
     }
     return listOfNotNull(action, collection?.name).joinToString(" · ")
 }
 
 /** e.g. "HTTP 415 · ATTEMPT 3 OF 10 · LAST TRIED 17:52", set in the mono label face. */
+@Composable
 private fun failureDetail(change: PendingChange, timeFormat: CalinoTimeFormat): String? {
+    val locale = LocalCalinoLocale
     val parts = buildList {
-        change.lastFailure?.statusCode?.let { add("HTTP $it") }
+        change.lastFailure?.statusCode?.let { add(t(R.string.set_http_1_d, it)) }
         if (change.retryCount > 0 && change.state == PendingChangeState.RETRY) {
-            add("attempt ${change.retryCount} of $PENDING_CHANGE_MAX_RETRIES")
+            add(t(R.string.set_attempt_1_d_of_2_d, change.retryCount, PENDING_CHANGE_MAX_RETRIES))
         }
-        change.lastFailure?.let { add("last tried ${formatStamp(it.at, timeFormat)}") }
+        change.lastFailure?.let { add(t(R.string.set_last_tried_1_s, formatStamp(it.at, timeFormat, locale))) }
     }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")?.uppercase()
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")?.uppercase(locale)
 }
 
-private fun formatStamp(instant: Instant, timeFormat: CalinoTimeFormat): String {
+private fun formatStamp(instant: Instant, timeFormat: CalinoTimeFormat, locale: java.util.Locale): String {
     val local = LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
-    val time = timeFormat.format(local.toLocalTime())
+    val time = timeFormat.format(local.toLocalTime(), locale)
     return if (local.toLocalDate() == LocalDate.now()) time else "${local.toLocalDate()} $time"
 }
 
+@Composable
 private fun revertLabel(change: PendingChange): String = when (change.type) {
-    PendingChangeType.CREATE -> "Delete it"
-    else -> "Revert"
+    PendingChangeType.CREATE -> t(R.string.set_delete_it)
+    else -> t(R.string.set_revert)
 }
 
+@Composable
 private fun discardWarning(change: PendingChange): String = when (change.type) {
-    PendingChangeType.CREATE -> "The new ${kindLabel(change)} is removed from this device. It was never saved on the server."
-    PendingChangeType.DELETE -> "The ${kindLabel(change)} comes back as it is on the server."
+    PendingChangeType.CREATE -> t(R.string.set_the_new_1_s_is_removed_from_this_device_it_was_never_saved_o, kindLabel(change))
+    PendingChangeType.DELETE -> t(R.string.set_the_1_s_comes_back_as_it_is_on_the_server, kindLabel(change))
     PendingChangeType.DELETE_HREF ->
-        "The copy in the old calendar stays on the server, so the item may appear twice until you delete one."
-    PendingChangeType.MOVE -> "The ${kindLabel(change)} stays in its original calendar."
-    PendingChangeType.UPDATE -> "Your unsynced edits are lost and the server version comes back."
+        t(R.string.set_the_copy_in_the_old_calendar_stays_on_the_server_so_the_item)
+    PendingChangeType.MOVE -> t(R.string.set_the_1_s_stays_in_its_original_calendar, kindLabel(change))
+    PendingChangeType.UPDATE -> t(R.string.set_your_unsynced_edits_are_lost_and_the_server_version_comes_ba)
 }
+@Composable
+private fun t(id: Int, vararg args: Any): String = stringResource(id, *args)

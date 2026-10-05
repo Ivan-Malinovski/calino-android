@@ -2,4 +2,9 @@
 <resources>
     <string name="cal_zoom_week_edge_hint">↑ AGENDA · ↓ MONTH</string>
     <string name="cal_zoom_month_edge_hint">↑ COLLAPSE · ↓ YEAR</string>
+    <string name="set_calendar_edge_swipes">Swipe to Year and Agenda</string>
+    <string name="set_calendar_edge_swipes_description">Swipe down past the full month to open Year, or up past the week to open Agenda.</string>
+    <string name="set_calendar_edge_swipes_search">calendar zoom gestures transitions swipe year agenda</string>
+    <string name="cal_zoom_week_only_hint">↓ MONTH</string>
+    <string name="cal_zoom_month_only_hint">↑ COLLAPSE</string>
 </resources>

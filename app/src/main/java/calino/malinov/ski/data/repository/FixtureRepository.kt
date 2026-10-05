@@ -156,7 +156,7 @@ interface CalinoRepository {
         id: String,
         status: String,
         scope: RecurrenceEditScope = RecurrenceEditScope.All,
-    ): WriteResult<CalEvent> = WriteResult.Rejected("Invitations require a connected scheduling calendar.")
+    ): WriteResult<CalEvent> = WriteResult.Rejected(WriteRejectionCode.INVITATIONS_REQUIRE_SCHEDULING_CALENDAR)
     /**
      * [occurrenceDate] is the occurrence the person was actually looking at,
      * and it is what makes [RecurrenceEditScope.This] and
@@ -191,7 +191,12 @@ interface CalinoRepository {
 sealed interface WriteResult<out T> {
     data class Applied<T>(val record: T) : WriteResult<T>
     data class Queued<T>(val record: T) : WriteResult<T>
-    data class Rejected(val reason: String) : WriteResult<Nothing>
+    data class Rejected(
+        val reason: String,
+        val presentationCode: WriteRejectionCode? = null,
+    ) : WriteResult<Nothing> {
+        constructor(code: WriteRejectionCode) : this(code.englishFallback, code)
+    }
 }
 
 enum class ChangeKind { Task }
@@ -249,7 +254,7 @@ class FixtureRepository : CalinoRepository {
         val existing = snapshot().events.firstOrNull { it.id == id } ?: error("Unknown fixture event: $id")
         if (existing.recurrence != null && input.recurrenceScope == RecurrenceEditScope.This) {
             val occurrence = input.recurrenceDate ?: input.date
-            if (!existing.occursOn(occurrence)) return WriteResult.Rejected("That occurrence is no longer in the series.")
+            if (!existing.occursOn(occurrence)) return WriteResult.Rejected(WriteRejectionCode.OCCURRENCE_NO_LONGER_IN_SERIES)
             val detached = eventFromInput("local-event-${nextEventId++}", input.copy(recurrence = null))
                 .copy(conferenceUrl = existing.conferenceUrl)
                 .let { if (input.attachments == null) it.copy(attachments = existing.attachments) else it }
@@ -262,7 +267,7 @@ class FixtureRepository : CalinoRepository {
             return WriteResult.Applied(detached)
         }
         if (existing.recurrence != null && input.recurrenceScope == RecurrenceEditScope.Future) {
-            return WriteResult.Rejected("Editing future fixture occurrences is not supported yet.")
+            return WriteResult.Rejected(WriteRejectionCode.FUTURE_FIXTURE_OCCURRENCES_UNSUPPORTED)
         }
         val event = eventFromInput(id, input)
             .copy(conferenceUrl = existing.conferenceUrl)
@@ -328,14 +333,14 @@ class FixtureRepository : CalinoRepository {
         )
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
-        recurringTaskValidation(input, tasks())?.let { return WriteResult.Rejected(it) }
+        recurringTaskValidationCode(input, tasks())?.let { return WriteResult.Rejected(it) }
         val task = taskFromInput("local-task-${nextTaskId++}", input, done = false)
         update { it.copy(tasks = it.tasks + task) }
         return WriteResult.Applied(task)
     }
 
     override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> {
-        recurringTaskValidation(input, tasks(), id)?.let { return WriteResult.Rejected(it) }
+        recurringTaskValidationCode(input, tasks(), id)?.let { return WriteResult.Rejected(it) }
         task(id)
         val updated = taskFromInput(id, input, done)
         replaceTask(updated)
@@ -486,14 +491,14 @@ class FixtureRepository : CalinoRepository {
     }
 
     override suspend fun undo(change: UndoableChange): WriteResult<Unit> {
-        if (change.kind != ChangeKind.Task) return WriteResult.Rejected("That change cannot be undone.")
+        if (change.kind != ChangeKind.Task) return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         val current = snapshot().tasks.firstOrNull { it.id == change.id }
-            ?: return WriteResult.Rejected("That task is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.TASK_UNAVAILABLE)
         val expected = (change.after as? ChangeValue.Task)?.value
-            ?: return WriteResult.Rejected("That change cannot be undone.")
-        if (current != expected) return WriteResult.Rejected("That task changed, so the change was not undone.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+        if (current != expected) return WriteResult.Rejected(WriteRejectionCode.TASK_CHANGE_NOT_UNDONE)
         val before = (change.before as? ChangeValue.Task)?.value
-            ?: return WriteResult.Rejected("That change cannot be undone.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         replaceTask(before)
         return WriteResult.Applied(Unit)
     }

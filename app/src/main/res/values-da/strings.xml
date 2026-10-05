@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="calino_widget_description">Dagens begivenheder og opgaver, én linje hver</string>
+    <string name="calino_cards_widget_description">Dagens begivenheder og opgaver som kort med placeringer</string>
+    <string name="calino_tasks_widget_description">Opgaver med kommende frister og forfaldne opgaver</string>
+    <string name="app_function_display_description">Læs dine begivenheder og opgaver, åbn dem i Calino, og forbered nye, som du selv gemmer</string>
+    <string name="phone_search_hint">Søg i Calino</string>
+    <string name="phone_search_settings_description">Begivenheder og opgaver</string>
+</resources>

@@ -1,5 +1,7 @@
 package calino.malinov.ski.notify
 
+import calino.malinov.ski.R
+import calino.malinov.ski.util.localizedReason
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -57,15 +59,15 @@ class ReminderActionReceiver : BroadcastReceiver() {
                     applyToTask(container, action, firing)
                 }
                 val message = when (result) {
-                    is WriteResult.Applied<*> -> appliedMessage(action)
-                    is WriteResult.Queued<*> -> "${appliedMessage(action)} · will sync"
-                    is WriteResult.Rejected -> result.reason
+                    is WriteResult.Applied<*> -> appliedMessage(app, action)
+                    is WriteResult.Queued<*> -> app.getString(R.string.sys_will_sync, appliedMessage(app, action))
+                    is WriteResult.Rejected -> result.localizedReason(app)
                     // Nothing resolved in time: park it rather than lose it.
                     null -> {
                         Reminders.actionQueue(app).enqueue(
                             ReminderAction(action, firing.key, firing.recordId, firing.kind, now),
                         )
-                        "Saved · will apply when Calino next opens"
+                        app.getString(R.string.sys_saved_deferred)
                     }
                 }
                 store.markDelivered(key, now)
@@ -117,10 +119,10 @@ class ReminderActionReceiver : BroadcastReceiver() {
         return null
     }
 
-    private fun appliedMessage(action: String): String = when (action) {
-        ReminderActions.MarkDone -> "Marked done"
-        ReminderActions.Tomorrow -> "Moved to tomorrow"
-        else -> "Done"
+    private fun appliedMessage(app: Context, action: String): String = when (action) {
+        ReminderActions.MarkDone -> app.getString(R.string.sys_marked_done)
+        ReminderActions.Tomorrow -> app.getString(R.string.sys_moved_tomorrow)
+        else -> app.getString(R.string.sys_done)
     }
 
     private companion object {

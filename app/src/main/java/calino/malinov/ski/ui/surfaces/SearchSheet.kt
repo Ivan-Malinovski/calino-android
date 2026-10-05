@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.surfaces
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -82,15 +85,17 @@ import calino.malinov.ski.state.calinoWindowClassFor
 import calino.malinov.ski.state.LocalFoldPosture
 import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.LocalCalinoPreferences
+import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.data.repository.SyncState
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
 
-private val SearchDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM yyyy")
 
 /** Floating capsule which grows from, and reverses back into, the add pill. */
 @Composable
@@ -474,6 +479,8 @@ private fun SearchField(
     val borderWidth by animateDpAsState(if (active) 1.5.dp else 1.dp, tween(CalinoMotion.ContentEnterMillis), label = "search field border width")
     val filterFill by animateColorAsState(if (filtersVisible) CalinoColors.AccentSoft else Color.Transparent, tween(CalinoMotion.ContentEnterMillis), label = "filter fill")
     val fieldShape = RoundedCornerShape(CalinoShapes.Pill)
+    val searchDescription = stringResource(R.string.cal_search_calino)
+    val filterDescription = stringResource(if (filtersVisible) R.string.cal_hide_search_filters else R.string.cal_show_search_filters)
     Row(
         Modifier.fillMaxWidth().padding(start = 14.dp, end = 12.dp, top = 14.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -491,7 +498,7 @@ private fun SearchField(
             Icon(CalinoIcons.Search, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(20.dp))
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 if (query.isEmpty()) {
-                    Text("Search or jump to a date", style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                    Text(stringResource(R.string.cal_search_or_jump), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
                 }
                 BasicTextField(
                     value = query,
@@ -499,7 +506,7 @@ private fun SearchField(
                     modifier = Modifier.fillMaxWidth()
                         .focusRequester(focusRequester)
                         .onFocusChanged { focused = it.isFocused }
-                        .semantics { contentDescription = "Search Calino" },
+                        .semantics { contentDescription = searchDescription },
                     singleLine = true,
                     textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
                     cursorBrush = SolidColor(CalinoColors.Accent),
@@ -510,7 +517,7 @@ private fun SearchField(
                 Modifier.size(44.dp)
                     .clip(CircleShape)
                     .clickable(interactionSource = null, indication = null, role = Role.Button, onClick = onToggleFilters)
-                    .semantics { contentDescription = if (filtersVisible) "Hide search filters" else "Show search filters" },
+                    .semantics { contentDescription = filterDescription },
                 contentAlignment = Alignment.Center,
             ) {
                 Box(Modifier.size(36.dp).clip(CircleShape).background(filterFill), contentAlignment = Alignment.Center) {
@@ -536,6 +543,8 @@ private fun SearchFilters(
     downloadedOnly: Boolean,
     onChange: (CalinoSearchOptions) -> Unit,
 ) {
+    val locale = LocalCalinoLocale
+    val searchDateFormat = localizedDateFormatter("EEE, d MMM yyyy")
     val pickStart = rememberDatePicker({ options.customStart ?: baseDate }) { picked ->
         onChange(options.copy(dateMode = CalinoSearchDateMode.Custom, customStart = picked, customEnd = options.customEnd?.coerceAtLeast(picked) ?: picked))
     }
@@ -543,45 +552,51 @@ private fun SearchFilters(
         onChange(options.copy(dateMode = CalinoSearchDateMode.Custom, customStart = options.customStart?.coerceAtMost(picked) ?: picked, customEnd = picked))
     }
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        SearchFilterLabel("TYPE")
+        SearchFilterLabel(stringResource(R.string.cal_search_type))
         SearchFilterRow {
             CalinoSearchRecordType.entries.filter {
                 (contactsEnabled || it != CalinoSearchRecordType.Contacts) &&
                     (journalsEnabled || it != CalinoSearchRecordType.Journal)
             }.forEach { type ->
-                SearchFilterChip(type.name, type in options.recordTypes, "filter search by ${type.name.lowercase()}") {
+                val typeLabel = when (type) {
+                    CalinoSearchRecordType.Events -> stringResource(R.string.cal_event_type)
+                    CalinoSearchRecordType.Tasks -> stringResource(R.string.cal_task_type)
+                    CalinoSearchRecordType.Journal -> stringResource(R.string.cal_journal_type)
+                    CalinoSearchRecordType.Contacts -> stringResource(R.string.cal_contact_type)
+                }
+                SearchFilterChip(typeLabel, type in options.recordTypes, stringResource(R.string.cal_filter_by_type, typeLabel.lowercase(locale))) {
                     onChange(options.copy(recordTypes = if (type in options.recordTypes) options.recordTypes - type else options.recordTypes + type))
                 }
             }
         }
-        SearchFilterLabel("CALENDAR · EVENTS & TASKS")
+        SearchFilterLabel(stringResource(R.string.cal_search_calendar))
         SearchFilterRow {
-            SearchFilterChip("All", options.calendarIds.isEmpty(), "search every calendar") { onChange(options.copy(calendarIds = emptySet())) }
+            SearchFilterChip(stringResource(R.string.cal_all), options.calendarIds.isEmpty(), stringResource(R.string.cal_search_every_calendar)) { onChange(options.copy(calendarIds = emptySet())) }
             calendars.forEach { (id, name) ->
-                SearchFilterChip(name, id in options.calendarIds, "filter events and tasks by $name") {
+                SearchFilterChip(name, id in options.calendarIds, stringResource(R.string.cal_filter_calendar, name)) {
                     val selected = if (id in options.calendarIds) options.calendarIds - id else options.calendarIds + id
                     onChange(options.copy(calendarIds = selected))
                 }
             }
         }
-        SearchFilterLabel("DATE")
+        SearchFilterLabel(stringResource(R.string.cal_search_date))
         SearchFilterRow {
             listOf(
-                CalinoSearchDateMode.AnyTime to "Any time",
-                CalinoSearchDateMode.Past to "Past",
-                CalinoSearchDateMode.Upcoming to "Upcoming",
+                CalinoSearchDateMode.AnyTime to stringResource(R.string.cal_any_time),
+                CalinoSearchDateMode.Past to stringResource(R.string.cal_past),
+                CalinoSearchDateMode.Upcoming to stringResource(R.string.cal_upcoming),
             ).forEach { (mode, label) ->
-                SearchFilterChip(label, options.dateMode == mode, "filter search by ${label.lowercase()}") { onChange(options.copy(dateMode = mode)) }
+                SearchFilterChip(label, options.dateMode == mode, stringResource(R.string.cal_filter_by_type, label.lowercase(locale))) { onChange(options.copy(dateMode = mode)) }
             }
-            SearchFilterChip("Custom", options.dateMode == CalinoSearchDateMode.Custom, "choose a custom date range", pickStart)
+            SearchFilterChip(stringResource(R.string.cal_custom), options.dateMode == CalinoSearchDateMode.Custom, stringResource(R.string.cal_choose_custom_range), pickStart)
             if (options.dateMode == CalinoSearchDateMode.Custom) {
-                SearchFilterChip(options.customStart?.format(SearchDateFormat) ?: "Start", false, "choose range start", pickStart)
-                SearchFilterChip(options.customEnd?.format(SearchDateFormat) ?: "End", false, "choose range end", pickEnd)
+                SearchFilterChip(options.customStart?.format(searchDateFormat) ?: stringResource(R.string.cal_start), false, stringResource(R.string.cal_choose_range_start), pickStart)
+                SearchFilterChip(options.customEnd?.format(searchDateFormat) ?: stringResource(R.string.cal_end), false, stringResource(R.string.cal_choose_range_end), pickEnd)
             }
         }
         if (downloadedOnly) {
             Text(
-                "Search covers downloaded data.",
+                stringResource(R.string.cal_search_downloaded_data),
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink3,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
@@ -617,12 +632,14 @@ private fun SearchFilterChip(text: String, selected: Boolean, description: Strin
     val edge by animateColorAsState(if (selected) CalinoColors.Accent else Color.Transparent, fade, label = "filter chip edge")
     val ink by animateColorAsState(if (selected) CalinoColors.Ink else CalinoColors.Ink2, fade, label = "filter chip ink")
     val shape = RoundedCornerShape(CalinoShapes.Pill)
+    val chipDescription = stringResource(R.string.cal_search_selected, text, description)
+    val stateLabel = stringResource(if (selected) R.string.cal_selected_state else R.string.cal_not_selected_state)
     Box(
         Modifier.height(44.dp)
             .calinoPressable(onClick = onClick)
             .semantics {
-                contentDescription = "$text, $description"
-                stateDescription = if (selected) "Selected" else "Not selected"
+                contentDescription = chipDescription
+                stateDescription = stateLabel
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -650,6 +667,11 @@ private fun SearchResults(
     onClearRecents: () -> Unit,
     onSelect: (CalinoSearchResult) -> Unit,
 ) {
+    val actionsHeading = stringResource(R.string.cal_search_group_actions)
+    val eventsHeading = stringResource(R.string.cal_search_group_events)
+    val tasksHeading = stringResource(R.string.cal_search_group_tasks)
+    val journalHeading = stringResource(R.string.cal_search_group_journal)
+    val contactsHeading = stringResource(R.string.cal_search_group_contacts)
     LazyColumn(
         modifier = Modifier.fillMaxWidth().then(if (query.isBlank()) Modifier else Modifier.heightIn(min = 160.dp)).padding(top = 4.dp),
         state = state,
@@ -664,7 +686,7 @@ private fun SearchResults(
                 } else {
                     item("hint") {
                         Text(
-                            "Or type an event to add it — “lunch tue 12:30”.",
+                            stringResource(R.string.cal_search_hint),
                             style = CalinoTypography.bodySmall,
                             color = CalinoColors.Ink3,
                             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
@@ -673,12 +695,12 @@ private fun SearchResults(
                 }
             }
         } else {
-            resultGroup("ACTIONS", groups.actions, onSelect)
-            if (!groups.hasRecordMatches) item { SearchMessage("No matching records for “${query.trim()}”") }
-            resultGroup("EVENTS", groups.events, onSelect)
-            resultGroup("TASKS", groups.tasks, onSelect)
-            resultGroup("JOURNAL", groups.journals, onSelect)
-            resultGroup("CONTACTS", groups.contacts, onSelect)
+            resultGroup(actionsHeading, groups.actions, onSelect)
+            if (!groups.hasRecordMatches) item { SearchMessage(stringResource(R.string.cal_no_matching_records, query.trim())) }
+            resultGroup(eventsHeading, groups.events, onSelect)
+            resultGroup(tasksHeading, groups.tasks, onSelect)
+            resultGroup(journalHeading, groups.journals, onSelect)
+            resultGroup(contactsHeading, groups.contacts, onSelect)
         }
         item { Spacer(Modifier.height(20.dp)) }
     }
@@ -687,7 +709,7 @@ private fun SearchResults(
 @Composable
 private fun SearchJumpTo(baseDate: LocalDate, onSelect: (CalinoSearchResult) -> Unit) {
     val pickDate = rememberDatePicker({ baseDate }) { picked -> onSelect(CalinoSearchResult.NavigateDate(picked)) }
-    SectionLabel("JUMP TO", Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp))
+    SectionLabel(stringResource(R.string.cal_search_jump_to), Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp))
     // Each chip keeps a 44dp lane around its 40dp body; the row's padding is trimmed to match.
     Row(
         Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
@@ -695,16 +717,21 @@ private fun SearchJumpTo(baseDate: LocalDate, onSelect: (CalinoSearchResult) -> 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         listOf(
-            "Today" to baseDate,
-            "Tomorrow" to baseDate.plusDays(1),
-            "Next week" to baseDate.plusWeeks(1),
+            stringResource(R.string.cal_today) to baseDate,
+            stringResource(R.string.cal_tomorrow) to baseDate.plusDays(1),
+            stringResource(R.string.cal_next_week) to baseDate.plusWeeks(1),
         ).forEach { (label, date) ->
-            SearchJumpChip(Modifier, "$label, go to ${label.lowercase()}", { onSelect(CalinoSearchResult.NavigateDate(date)) }) {
+            val jumpDescription = when (date) {
+                baseDate -> stringResource(R.string.cal_go_today)
+                baseDate.plusDays(1) -> stringResource(R.string.cal_go_tomorrow)
+                else -> stringResource(R.string.cal_go_next_week)
+            }
+            SearchJumpChip(Modifier, jumpDescription, { onSelect(CalinoSearchResult.NavigateDate(date)) }) {
                 Text(label, style = CalinoTypography.labelMedium, color = CalinoColors.Ink, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = 13.dp))
             }
         }
         Spacer(Modifier.weight(1f))
-        SearchJumpChip(Modifier, "pick a date to go to", pickDate) {
+        SearchJumpChip(Modifier, stringResource(R.string.cal_choose_date), pickDate) {
             Icon(CalinoIcons.Calendar, contentDescription = null, tint = CalinoColors.Ink, modifier = Modifier.size(18.dp))
         }
     }
@@ -726,21 +753,23 @@ private fun SearchJumpChip(modifier: Modifier, description: String, onClick: () 
 
 @Composable
 private fun SearchRecentsHeader(onClear: () -> Unit) {
+    val clearDescription = stringResource(R.string.cal_clear_recent_searches)
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        SectionLabel("RECENT", Modifier.weight(1f))
+        SectionLabel(stringResource(R.string.cal_search_recent), Modifier.weight(1f))
         Box(
             Modifier.heightIn(min = 44.dp)
                 .clickable(role = Role.Button, onClick = onClear)
-                .semantics { contentDescription = "Clear recent searches" },
+                .semantics { contentDescription = clearDescription },
             contentAlignment = Alignment.CenterEnd,
-        ) { SectionLabel("CLEAR", color = CalinoColors.Ink2) }
+        ) { SectionLabel(stringResource(R.string.cal_search_clear), color = CalinoColors.Ink2) }
     }
 }
 
 @Composable
 private fun SearchRecentRow(recent: String, onClick: () -> Unit) {
+    val recentDescription = stringResource(R.string.cal_search_again, recent)
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).semantics { contentDescription = "Search again: $recent" }
+        Modifier.fillMaxWidth().clickable(onClick = onClick).semantics { contentDescription = recentDescription }
             .padding(horizontal = 20.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -758,25 +787,29 @@ private fun androidx.compose.foundation.lazy.LazyListScope.resultGroup(heading: 
 
 @Composable
 private fun SearchResultRow(result: CalinoSearchResult, onSelect: (CalinoSearchResult) -> Unit) {
+    val searchDateFormat = localizedDateFormatter("EEE, d MMM yyyy")
+    val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     val (title, detail) = when (result) {
-        is CalinoSearchResult.NavigateDate -> "Go to ${result.date.format(SearchDateFormat)}" to "Open Month on this date"
-        is CalinoSearchResult.AddEvent -> "Add event · ${result.parsed.title}" to parsedDetail(result)
+        is CalinoSearchResult.NavigateDate -> stringResource(R.string.cal_search_result_date, result.date.format(searchDateFormat)) to stringResource(R.string.cal_search_open_month_date)
+        is CalinoSearchResult.AddEvent -> stringResource(R.string.cal_add_event_title, result.parsed.title) to parsedDetail(result, searchDateFormat)
         is CalinoSearchResult.Event -> result.event.title to buildString {
-            append(result.event.placementDate()?.format(SearchDateFormat) ?: "No date")
-            result.event.start?.let { append(" · ${it.toLocalTime()}") }
+            append(result.event.placementDate()?.format(searchDateFormat) ?: stringResource(R.string.cal_no_date))
+            result.event.start?.let { append(" · ").append(timeFormat.format(it.toLocalTime(), locale)) }
             result.event.location?.let { append(" · $it") }
             result.calendarName?.let { append(" · $it") }
         }
         is CalinoSearchResult.Task -> result.task.title to buildString {
-            append(result.task.due?.format(SearchDateFormat) ?: "No due date")
+            append(result.task.due?.format(searchDateFormat) ?: stringResource(R.string.cal_no_due_date))
             result.task.category?.let { append(" · $it") }
         }
-        is CalinoSearchResult.Journal -> result.journal.title.ifBlank { "Untitled note" } to result.journal.date.format(SearchDateFormat)
+        is CalinoSearchResult.Journal -> result.journal.title.ifBlank { stringResource(R.string.cal_untitled_note) } to result.journal.date.format(searchDateFormat)
         is CalinoSearchResult.Contact -> result.contact.derivedDisplayName() to
-            (result.contact.organization.ifBlank { result.contact.emails.firstOrNull()?.value ?: "Contact" })
+            (result.contact.organization.ifBlank { result.contact.emails.firstOrNull()?.value ?: stringResource(R.string.cal_contact) })
     }
+    val resultDescription = stringResource(R.string.cal_result_title_detail, title, detail)
     Row(
-        Modifier.fillMaxWidth().testTag(result.searchTestTag()).clickable { onSelect(result) }.semantics { contentDescription = "$title, $detail" }
+        Modifier.fillMaxWidth().testTag(result.searchTestTag()).clickable { onSelect(result) }.semantics { contentDescription = resultDescription }
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -805,11 +838,14 @@ private fun CalinoSearchResult.searchTestTag(): String = when (this) {
     else -> CalinoColors.Accent
 }
 
-private fun parsedDetail(result: CalinoSearchResult.AddEvent): String = buildString {
-    append(result.parsed.date.format(SearchDateFormat))
-    result.parsed.time?.let { append(" · $it") }
-    result.parsed.durationMinutes?.let { append(" · ${it}m") }
-    result.parsed.recurrence?.let { append(" · Repeats") }
+@Composable
+private fun parsedDetail(result: CalinoSearchResult.AddEvent, dateFormat: DateTimeFormatter): String = buildString {
+    val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
+    append(result.parsed.date.format(dateFormat))
+    result.parsed.time?.let { append(" · ").append(timeFormat.format(it, locale)) }
+    result.parsed.durationMinutes?.let { append(" · ").append(stringResource(R.string.cal_duration_minutes, it)) }
+    result.parsed.recurrence?.let { append(" · ").append(stringResource(R.string.cal_repeats)) }
 }
 
 @Composable private fun SearchMessage(text: String) {

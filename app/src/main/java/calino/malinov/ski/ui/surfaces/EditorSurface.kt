@@ -1,6 +1,7 @@
 package calino.malinov.ski.ui.surfaces
 
 import calino.malinov.ski.data.caldav.uriFileName
+import calino.malinov.ski.R
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -57,6 +58,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -90,6 +93,10 @@ import calino.malinov.ski.ui.components.CalinoColorSwatchRow
 import calino.malinov.ski.ui.components.CalinoSearchField
 import calino.malinov.ski.ui.components.CalinoToggleRow
 import calino.malinov.ski.util.CalinoZones
+import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.localizedDisplayFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
 import calino.malinov.ski.util.startOfWeek
 import java.time.Instant
 import calino.malinov.ski.ui.components.CalinoIcon
@@ -100,6 +107,7 @@ import calino.malinov.ski.ui.components.CompactSegmentedControl
 import calino.malinov.ski.ui.components.EditorLabel
 import calino.malinov.ski.ui.components.EditorReveal
 import calino.malinov.ski.ui.components.ModalActionPill
+import calino.malinov.ski.ui.components.ModalPillActionTone
 import calino.malinov.ski.ui.components.rememberDatePicker
 import calino.malinov.ski.ui.components.rememberTimePicker
 import calino.malinov.ski.ui.components.WhenHero
@@ -109,15 +117,14 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.util.formatCalinoDuration
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-private val EditorDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
 /** Matches the shared detail card's own removal timing. */
 private const val EditorExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
 private val TravelTimeChoices = listOf<Int?>(null, 5, 15, 30, 60)
@@ -153,6 +160,7 @@ fun EditorSurface(
     visible: Boolean = true,
     morphFromAddPill: Boolean = false,
 ) {
+    val context = LocalContext.current
     // The length a line with no stated end falls back to, which the parser
     // re-applies on every keystroke.
     val defaultDurationMinutes = LocalCalinoPreferences.current.defaultDuration.minutes
@@ -194,14 +202,14 @@ fun EditorSurface(
         draft = draft.copy(date = it, taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
             touched = draft.touched + EditorField.Date)
     }
-    val pickStartTime = rememberTimePicker({ draft.startTime }, title = if (draft.kind == PocQuickAddKind.Task) "Due" else "Starts") {
+    val pickStartTime = rememberTimePicker({ draft.startTime }, title = if (draft.kind == PocQuickAddKind.Task) stringResource(R.string.ed_editor_due) else stringResource(R.string.ed_editor_starts)) {
         draft = draft.copy(startTime = it, taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
             touched = draft.touched + EditorField.Time)
     }
     val pickEndDate = rememberDatePicker({ draft.endDate }) { picked ->
         draft.endTime?.let { draft = draft.withEnd(picked, it) }
     }
-    val pickEndTime = rememberTimePicker({ draft.endTime }, title = "Ends") { picked ->
+    val pickEndTime = rememberTimePicker({ draft.endTime }, title = stringResource(R.string.ed_editor_ends)) { picked ->
         draft = draft.withEnd(draft.endDate, picked)
     }
     val pickUntil = rememberDatePicker({ draft.date.plusMonths(3) }) { picked ->
@@ -220,16 +228,17 @@ fun EditorSurface(
         surfaceKind = CalinoSurfaceKind.Editor,
         pill = {
             ModalActionPill(
-                addLabel = addLabelFor(draft),
+                addLabel = addLabelFor(draft, context, localizedDateFormatter("EEE, d MMM")),
                 morphFromAddPill = morphFromAddPill,
                 // The same flag that widened the add pill on the way in runs
                 // the move backwards here, so closing returns the pill to the
                 // shape it came from instead of taking it away with the card.
                 inPillLane = true,
                 expanded = shown,
-                cancelLabel = "Cancel",
+                cancelLabel = stringResource(R.string.ed_editor_cancel),
                 onCancel = dismiss,
-                primaryLabel = "Save",
+                primaryLabel = stringResource(R.string.ed_editor_save),
+                primaryTone = ModalPillActionTone.Save,
                 onPrimary = {
                     // A second press while the card is already leaving would
                     // start another write report that no write ever finishes,
@@ -243,8 +252,8 @@ fun EditorSurface(
                 // to save; the pill then offers only the way out.
                 primaryVisible = !draft.isEditing || draft != initial,
                 primaryEnabled = draft.canSave(),
-                primaryDescription = "Save editor",
-                cancelDescription = "Cancel editor",
+                primaryDescription = stringResource(R.string.ed_editor_save_description),
+                cancelDescription = stringResource(R.string.ed_editor_cancel_description),
             )
         },
     ) { detailModifier ->
@@ -344,14 +353,14 @@ fun EditorSurface(
     }
 }
 
-private fun addLabelFor(draft: EditorDraft): String = when (draft.kind) {
+private fun addLabelFor(draft: EditorDraft, context: android.content.Context, dateFormat: java.time.format.DateTimeFormatter): String = when (draft.kind) {
     PocQuickAddKind.Event -> if (draft.isEditing) {
-        "Edit event"
+        context.getString(R.string.ed_editor_edit_event)
     } else {
-        "Add on ${draft.date.format(EditorDateFormat)}"
+        context.getString(R.string.ed_editor_add_on_date, draft.date.format(dateFormat))
     }
-    PocQuickAddKind.Task -> "New task"
-    PocQuickAddKind.Journal -> "New entry"
+    PocQuickAddKind.Task -> context.getString(R.string.ed_editor_new_task)
+    PocQuickAddKind.Journal -> context.getString(R.string.ed_editor_new_entry)
 }
 
 @Composable
@@ -361,6 +370,8 @@ private fun EditorHeader(
     onDismiss: () -> Unit,
     onPhoto: (() -> Unit)?,
 ) {
+    val importPhotoDescription = stringResource(R.string.ed_editor_import_event_photo)
+    val closeDescription = stringResource(R.string.ed_editor_close)
     Row(
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -372,7 +383,7 @@ private fun EditorHeader(
                     .size(44.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onPhoto)
-                    .semantics { contentDescription = "Import event from photo" },
+                    .semantics { contentDescription = importPhotoDescription },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(CalinoIcons.Camera, contentDescription = null, tint = CalinoColors.Ink2, modifier = Modifier.size(20.dp))
@@ -383,7 +394,7 @@ private fun EditorHeader(
                 .size(44.dp)
                 .clip(CircleShape)
                 .clickable(onClick = onDismiss)
-                .semantics { contentDescription = "Close editor" },
+                .semantics { contentDescription = closeDescription },
             contentAlignment = Alignment.Center,
         ) { Text("×", fontSize = 24.sp, color = CalinoColors.Ink2) }
     }
@@ -395,6 +406,11 @@ private fun EditorTitleField(
     onInput: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val titleDescription = when (draft.kind) {
+        PocQuickAddKind.Event -> stringResource(R.string.ed_editor_title_event)
+        PocQuickAddKind.Task -> stringResource(R.string.ed_editor_title_task)
+        PocQuickAddKind.Journal -> stringResource(R.string.ed_editor_title_journal)
+    }
     Row(
         modifier.heightIn(min = 70.dp).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -405,7 +421,7 @@ private fun EditorTitleField(
             value = draft.rawInput,
             onValueChange = onInput,
             modifier = Modifier.fillMaxWidth().semantics {
-                contentDescription = "Title, ${draft.kind.name.lowercase(Locale.US)}"
+                contentDescription = titleDescription
             },
             textStyle = CalinoTypography.titleMedium.copy(
                 fontFamily = FontFamily.SansSerif,
@@ -421,9 +437,9 @@ private fun EditorTitleField(
                     if (draft.rawInput.isBlank()) {
                         Text(
                             when (draft.kind) {
-                                PocQuickAddKind.Event -> "Add event title"
-                                PocQuickAddKind.Task -> "Add task title"
-                                PocQuickAddKind.Journal -> "Add note title"
+                                PocQuickAddKind.Event -> stringResource(R.string.ed_editor_add_event_title)
+                                PocQuickAddKind.Task -> stringResource(R.string.ed_editor_add_task_title)
+                                PocQuickAddKind.Journal -> stringResource(R.string.ed_editor_add_note_title)
                             },
                             style = CalinoTypography.titleMedium.copy(
                                 fontFamily = FontFamily.SansSerif,
@@ -449,11 +465,11 @@ private fun PocQuickAddKind.editorIcon() = when (this) {
 @Composable
 private fun KindSelector(selected: PocQuickAddKind, onSelect: (PocQuickAddKind) -> Unit) {
     CompactSegmentedControl(
-        options = PocQuickAddKind.entries.map { it.name },
+        options = listOf(stringResource(R.string.ed_editor_kind_event), stringResource(R.string.ed_editor_kind_task), stringResource(R.string.ed_editor_kind_journal)),
         selectedIndex = PocQuickAddKind.entries.indexOf(selected),
         onSelected = { onSelect(PocQuickAddKind.entries[it]) },
         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-        semanticLabel = "Entry kind",
+        semanticLabel = stringResource(R.string.ed_editor_entry_kind),
     )
 }
 
@@ -485,7 +501,9 @@ private fun EventEditorFields(
     pickEndTime: () -> Unit,
     pickUntil: () -> Unit,
 ) {
-    EditorSwitchRow(CalinoIcon.Clock, "All day", draft.allDay) { onDraft(draft.copy(allDay = it)) }
+    val context = LocalContext.current
+    val allDay = stringResource(R.string.ed_editor_all_day)
+    EditorSwitchRow(CalinoIcon.Clock, allDay, draft.allDay) { onDraft(draft.copy(allDay = it)) }
     EditorDivider()
     EventDateTimeSection(draft, onDraft, pickStartDate, pickStartTime, pickEndDate, pickEndTime)
     // A zone is a property of a time; an all-day event has none to carry.
@@ -493,9 +511,9 @@ private fun EventEditorFields(
     EditorDivider()
     EditorTextRow(
         icon = CalinoIcon.Pin,
-        label = "Location",
+        label = stringResource(R.string.ed_editor_location),
         value = draft.location.orEmpty(),
-        placeholder = "Add location",
+        placeholder = stringResource(R.string.ed_editor_add_location),
         onValueChange = { onDraft(draft.copy(location = it, touched = draft.touched + EditorField.Location)) },
     )
     EditorDivider()
@@ -505,8 +523,8 @@ private fun EventEditorFields(
     }
     EditorValueRow(
         icon = CalinoIcon.Bell,
-        label = "Reminder",
-        value = reminderSummary(draft.reminders),
+        label = stringResource(R.string.ed_editor_reminder),
+        value = reminderSummary(draft.reminders, context, LocalTimeFormat, LocalCalinoLocale),
         onClick = onRemindersOpen,
     )
     EditorReveal(remindersOpen) {
@@ -515,8 +533,8 @@ private fun EventEditorFields(
     EditorDivider()
     if (calino.malinov.ski.platform.AndroidCalendarId.isImported(draft.calendarId)) {
         Text(
-            if (draft.providerRecurring) "Repeats · rule managed by the owning calendar"
-            else "Repeat rules are managed by the owning calendar",
+            if (draft.providerRecurring) stringResource(R.string.ed_editor_provider_repeats)
+            else stringResource(R.string.ed_editor_repeat_managed),
             style = CalinoTypography.bodySmall,
             color = CalinoColors.Ink3,
             modifier = Modifier.padding(vertical = 10.dp),
@@ -524,8 +542,8 @@ private fun EventEditorFields(
     } else {
         EditorValueRow(
             icon = CalinoIcon.Repeat,
-            label = "Repeat",
-            value = draft.recurrence?.let { formatRecurrenceRule(it, draft.date) } ?: "Don't repeat",
+            label = stringResource(R.string.ed_editor_repeat),
+            value = draft.recurrence?.let { formatRecurrenceRule(context, it, draft.date) } ?: stringResource(R.string.ed_editor_dont_repeat),
             onClick = onRecurrenceOpen,
         )
         EditorReveal(recurrenceOpen) {
@@ -571,6 +589,12 @@ private fun TaskEditorFields(
     pickStartTime: () -> Unit,
     pickUntil: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val editorDateFormat = localizedDateFormatter("EEE, d MMM")
+    val priorityLabels = listOf(
+        0 to stringResource(R.string.ed_priority_none), 1 to stringResource(R.string.ed_priority_high),
+        5 to stringResource(R.string.ed_priority_medium), 9 to stringResource(R.string.ed_priority_low),
+    )
     val weekStart = calino.malinov.ski.state.LocalCalinoPreferences.current.weekStart
     val recurring = draft.recurrence != null || draft.recurrenceId != null || draft.recurrenceDate != null
     val pickTaskStart = rememberDatePicker({ draft.taskStartDate ?: draft.date.minusDays(1) }) {
@@ -601,8 +625,8 @@ private fun TaskEditorFields(
         dueRow = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
-                    EditorValueRow(CalinoIcon.Calendar, "Due date",
-                        if (due == null) "Add due date" else draft.date.format(EditorDateFormat),
+                    EditorValueRow(CalinoIcon.Calendar, stringResource(R.string.ed_editor_due_date),
+                        if (due == null) stringResource(R.string.ed_editor_add_due_date) else draft.date.format(editorDateFormat),
                         pickStartDate)
                 }
                 DueTimeAction(draft.startTime, pickStartTime)
@@ -613,8 +637,8 @@ private fun TaskEditorFields(
         EditorDivider()
         EditorValueRow(
             icon = CalinoIcon.Clock,
-            label = "Due time",
-            value = draft.startTime?.let { LocalTimeFormat.format(it) } ?: "Add time",
+            label = stringResource(R.string.ed_editor_due_time),
+            value = draft.startTime?.let { LocalTimeFormat.format(it, LocalCalinoLocale) } ?: stringResource(R.string.ed_editor_add_time),
             onClick = pickStartTime,
         )
     }
@@ -622,13 +646,13 @@ private fun TaskEditorFields(
     TaskCalendarRow(draft, calendars, onDraft)
     EditorDivider()
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        EditorLabel("Priority")
+        EditorLabel(stringResource(R.string.ed_editor_priority))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            listOf(0 to "None", 1 to "High", 5 to "Medium", 9 to "Low").forEach { (value, label) ->
+            priorityLabels.forEach { (value, label) ->
                 CalinoChip(
                     text = label,
                     selected = draft.priority == value,
-                    description = "Set task priority to ${label.lowercase(Locale.US)}",
+                    description = stringResource(R.string.ed_editor_set_priority, label.lowercase(LocalCalinoLocale)),
                     semanticsRole = Role.RadioButton,
                     onClick = { onDraft(draft.copy(priority = value)) },
                 )
@@ -637,7 +661,7 @@ private fun TaskEditorFields(
     }
     EditorDivider()
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        EditorLabel("Progress · ${draft.percentComplete}%")
+        EditorLabel(stringResource(R.string.ed_editor_progress, draft.percentComplete))
         calino.malinov.ski.ui.components.CalinoProgressSlider(
             percent = draft.percentComplete,
             onPercentChange = { onDraft(draft.copy(percentComplete = it, taskStatus = if (it > 0) "IN-PROCESS" else "NEEDS-ACTION")) },
@@ -646,12 +670,12 @@ private fun TaskEditorFields(
     }
     EditorDivider()
     if (draft.parentTaskId == null) {
-        EditorValueRow(CalinoIcon.Repeat, "Repeat",
-            draft.recurrence?.let { formatRecurrenceRule(it, draft.date) } ?: "Don't repeat", onRecurrenceOpen)
+        EditorValueRow(CalinoIcon.Repeat, stringResource(R.string.ed_editor_repeat),
+            draft.recurrence?.let { formatRecurrenceRule(context, it, draft.date) } ?: stringResource(R.string.ed_editor_dont_repeat), onRecurrenceOpen)
         EditorReveal(recurrenceOpen) { RecurrenceEditor(draft, onDraft, pickUntil) }
     } else {
         Text(
-            "Subtasks cannot repeat.",
+            stringResource(R.string.ed_editor_subtasks_no_repeat),
             modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(vertical = 12.dp),
             color = CalinoColors.Ink3,
             style = CalinoTypography.bodySmall,
@@ -665,7 +689,7 @@ private fun TaskEditorFields(
         CategoriesSection(draft, categories, single = true, onDraft = onDraft)
         EditorDivider()
     }
-    EditorValueRow(CalinoIcon.Bell, "Reminder", reminderSummary(draft.reminders), onRemindersOpen)
+    EditorValueRow(CalinoIcon.Bell, stringResource(R.string.ed_editor_reminder), reminderSummary(draft.reminders, context, LocalTimeFormat, LocalCalinoLocale), onRemindersOpen)
     EditorReveal(remindersOpen) {
         EditorChoiceBlock { ReminderChips(draft.reminders, single = true) { onDraft(draft.copy(reminders = it)) } }
     }
@@ -679,20 +703,21 @@ private fun TaskEditorFields(
 
 @Composable
 private fun JournalEditorFields(draft: EditorDraft, onBody: (String) -> Unit) {
+    val bodyDescription = stringResource(R.string.ed_journal_body_semantics)
     Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.Top) {
         CalinoIcon(CalinoIcon.Note, tint = CalinoColors.Ink3, modifier = Modifier.size(20.dp), contentDescription = null)
         Spacer(Modifier.size(14.dp))
         BasicTextField(
             value = draft.body,
             onValueChange = onBody,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp).semantics { contentDescription = "Journal note" },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp).semantics { contentDescription = bodyDescription },
             textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
             cursorBrush = SolidColor(CalinoColors.Accent),
             minLines = 6,
             maxLines = 12,
             decorationBox = { innerTextField ->
                 Box(Modifier.fillMaxWidth()) {
-                    if (draft.body.isBlank()) Text("What is on your mind?", color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge)
+                    if (draft.body.isBlank()) Text(stringResource(R.string.ed_journal_body_prompt), color = CalinoColors.Ink3, style = CalinoTypography.bodyLarge)
                     innerTextField()
                 }
             },
@@ -765,7 +790,7 @@ private fun EventZoneSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit)
         EditorDivider()
         EditorValueRow(
             icon = CalinoIcon.Globe,
-            label = if (endSeparate) "Start time zone" else "Time zone",
+            label = if (endSeparate) stringResource(R.string.ed_zone_start) else stringResource(R.string.ed_zone),
             value = CalinoZones.label(draft.frameZone(), startAt),
             onClick = { target = if (target == ZoneTarget.Start) null else ZoneTarget.Start },
         )
@@ -775,7 +800,7 @@ private fun EventZoneSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit)
                     onDraft(draft.withZone(zone))
                     target = null
                 }
-                CalinoToggleRow("Separate end time zone", endSeparate) { on ->
+                CalinoToggleRow(stringResource(R.string.ed_zone_separate_end), endSeparate) { on ->
                     endSeparate = on
                     if (on) {
                         target = ZoneTarget.End
@@ -789,7 +814,7 @@ private fun EventZoneSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit)
             Column(Modifier.fillMaxWidth()) {
                 EditorValueRow(
                     icon = CalinoIcon.Globe,
-                    label = "End time zone",
+                    label = stringResource(R.string.ed_zone_end),
                     value = CalinoZones.label(draft.endFrameZone(), endAt),
                     onClick = { target = if (target == ZoneTarget.End) null else ZoneTarget.End },
                 )
@@ -816,8 +841,8 @@ internal fun ZonePicker(selected: ZoneId, at: Instant, onPick: (ZoneId) -> Unit)
     CalinoSearchField(
         query = query,
         onQueryChanged = { query = it },
-        placeholder = "Search city or zone",
-        contentDescription = "Search time zones",
+        placeholder = stringResource(R.string.ed_zone_search_hint),
+        contentDescription = stringResource(R.string.ed_zone_search),
         modifier = Modifier.fillMaxWidth(),
     )
     Column(Modifier.fillMaxWidth()) {
@@ -826,7 +851,7 @@ internal fun ZonePicker(selected: ZoneId, at: Instant, onPick: (ZoneId) -> Unit)
         }
         if (results.isEmpty()) {
             Text(
-                "No matching time zone",
+                stringResource(R.string.ed_zone_no_match),
                 style = CalinoTypography.bodySmall,
                 color = CalinoColors.Ink3,
                 modifier = Modifier.heightIn(min = 44.dp).padding(vertical = 12.dp),
@@ -839,23 +864,28 @@ internal fun ZonePicker(selected: ZoneId, at: Instant, onPick: (ZoneId) -> Unit)
 private fun ZoneOption(zone: ZoneId, at: Instant, selected: Boolean, device: Boolean, onClick: () -> Unit) {
     val city = CalinoZones.city(zone)
     val offset = CalinoZones.offsetLabel(zone, at)
+    val deviceZone = stringResource(R.string.ed_zone_device)
+    val selectedDescription = stringResource(R.string.ed_selected)
+    val notSelectedDescription = stringResource(R.string.ed_not_selected)
+    val thisDevice = stringResource(R.string.ed_this_device)
+    val utc = stringResource(R.string.ed_utc)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = listOfNotNull(city, CalinoZones.longName(zone, at), offset, "device zone".takeIf { device })
+                contentDescription = listOfNotNull(city, CalinoZones.longName(zone, at), offset, deviceZone.takeIf { device })
                     .joinToString(", ")
-                stateDescription = if (selected) "Selected" else "Not selected"
+                stateDescription = if (selected) selectedDescription else notSelectedDescription
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(city, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink, maxLines = 1)
             Text(
-                listOfNotNull(zone.id.substringBefore('/').takeIf { zone.id.contains('/') }, "This device".takeIf { device })
-                    .joinToString(" · ").ifEmpty { "Coordinated Universal Time" },
+                listOfNotNull(zone.id.substringBefore('/').takeIf { zone.id.contains('/') }, thisDevice.takeIf { device })
+                    .joinToString(" · ").ifEmpty { utc },
                 style = CalinoTypography.labelSmall,
                 color = CalinoColors.Ink3,
                 maxLines = 1,
@@ -886,6 +916,8 @@ private fun EditorValueRow(
     enabled: Boolean = true,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val unavailable = stringResource(R.string.ed_unavailable)
     val pressModifier = if (onClick != null) {
         Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick)
     } else {
@@ -897,8 +929,8 @@ private fun EditorValueRow(
             .heightIn(min = 58.dp)
             .then(pressModifier)
             .semantics(mergeDescendants = true) {
-                contentDescription = if (label == value) label else "$label: $value"
-                if (!enabled) stateDescription = "Unavailable"
+                contentDescription = if (label == value) label else context.getString(R.string.ed_labeled_value, label, value)
+                if (!enabled) stateDescription = unavailable
             }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -920,13 +952,15 @@ private fun EditorValueRow(
 
 @Composable
 private fun EditorSwitchRow(icon: calino.malinov.ski.ui.components.CalinoIcon, label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val onLabel = stringResource(R.string.ed_on)
+    val offLabel = stringResource(R.string.ed_off)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 58.dp)
             .semantics(mergeDescendants = true) {
                 contentDescription = label
-                stateDescription = if (checked) "On" else "Off"
+                stateDescription = if (checked) onLabel else offLabel
                 role = Role.Switch
             }
             .padding(vertical = 5.dp),
@@ -959,6 +993,7 @@ private fun EditorTextRow(
     placeholder: String,
     onValueChange: (String) -> Unit,
 ) {
+    val editableDescription = stringResource(R.string.ed_editable_field, label)
     Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(28.dp), contentAlignment = Alignment.CenterStart) {
             CalinoIcon(icon, tint = CalinoColors.Ink3, modifier = Modifier.size(19.dp), contentDescription = null)
@@ -967,7 +1002,7 @@ private fun EditorTextRow(
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "$label, editable" },
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = editableDescription },
             textStyle = CalinoTypography.bodyLarge.copy(fontSize = 15.5.sp, color = CalinoColors.Ink),
             cursorBrush = SolidColor(CalinoColors.Accent),
             singleLine = true,
@@ -987,7 +1022,7 @@ private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onD
     var open by remember { mutableStateOf(false) }
     val current = calendars.firstOrNull { it.id == draft.calendarId } ?: calendars.first()
     Box(Modifier.fillMaxWidth()) {
-        EditorValueRow(CalinoIcon.Calendar, "Calendar", current.name, onClick = { open = true })
+        EditorValueRow(CalinoIcon.Calendar, stringResource(R.string.ed_editor_calendar), current.name, onClick = { open = true })
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             calendars.forEach { calendar ->
                 DropdownMenuItem(
@@ -1012,13 +1047,15 @@ private fun CalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>, onD
 /** The due time as a quiet action at the end of the date line. */
 @Composable
 private fun DueTimeAction(time: LocalTime?, onClick: () -> Unit) {
-    val text = time?.let { LocalTimeFormat.format(it) } ?: "Add time"
+    val context = LocalContext.current
+    val text = time?.let { LocalTimeFormat.format(it, LocalCalinoLocale) } ?: stringResource(R.string.ed_editor_add_time)
+    val changeDueTime = stringResource(R.string.ed_editor_change_due_time)
     Row(
         Modifier
             .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(CalinoShapes.Row))
-            .clickable(role = Role.Button, onClickLabel = "Change due time", onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = "Due time: $text" }
+            .clickable(role = Role.Button, onClickLabel = changeDueTime, onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = context.getString(R.string.ed_editor_due_time_description, text) }
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1051,24 +1088,34 @@ private fun TaskCalendarRow(draft: EditorDraft, calendars: List<CalinoCalendar>,
     }
     if (fixed) {
         val current = calendars.firstOrNull { it.id == draft.calendarId } ?: return
-        EditorValueRow(CalinoIcon.Calendar, "Calendar", current.name)
+        EditorValueRow(CalinoIcon.Calendar, stringResource(R.string.ed_editor_calendar), current.name)
     } else if (eligible.size > 1) {
         CalendarRow(draft, eligible, onDraft)
     } else if (eligible.size == 1) {
-        EditorValueRow(CalinoIcon.Calendar, "Calendar", eligible.first().name)
+        EditorValueRow(CalinoIcon.Calendar, stringResource(R.string.ed_editor_calendar), eligible.first().name)
     }
 }
 
-private fun reminderSummary(reminders: List<Reminder>): String = when {
-    reminders.isEmpty() -> "Add reminder"
+private fun reminderSummary(
+    reminders: List<Reminder>,
+    context: android.content.Context,
+    timeFormat: CalinoTimeFormat,
+    locale: Locale,
+): String = when {
+    reminders.isEmpty() -> context.getString(R.string.ed_editor_add_reminder)
     reminders.size == 1 -> reminders.first().let { reminder ->
-        (reminder.absoluteAt?.atZone(ZoneId.systemDefault())
-            ?.format(DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US))
-            ?: formatReminder(reminder.minutesBefore)) +
-            (if (reminder.relativeToStart) " · from start" else "") +
-            (if (reminder.repeatCount > 0) " · repeats ${reminder.repeatCount}× every ${reminder.repeatIntervalMinutes} min" else "")
+        (reminder.absoluteAt?.atZone(ZoneId.systemDefault())?.let { dateTime ->
+            context.getString(
+                R.string.ed_datetime_date_time,
+                dateTime.format(localizedDisplayFormatter("MMM d", locale)),
+                timeFormat.format(dateTime.toLocalDateTime(), locale),
+            )
+        }
+            ?: formatReminder(reminder.minutesBefore, context)) +
+            (if (reminder.relativeToStart) " · ${context.getString(R.string.ed_reminder_from_start)}" else "") +
+            (if (reminder.repeatCount > 0) " · ${context.getString(R.string.ed_reminder_repeats_every, reminder.repeatCount, context.getString(R.string.fmt_minutes, reminder.repeatIntervalMinutes))}" else "")
     }
-    else -> "${reminders.size} reminders"
+    else -> context.resources.getQuantityString(R.plurals.ed_reminder_count, reminders.size, reminders.size)
 }
 
 @Composable
@@ -1078,7 +1125,7 @@ private fun DescriptionSection(
     onOpen: () -> Unit,
     onDraft: (EditorDraft) -> Unit,
 ) {
-    val fieldLabel = if (draft.kind == PocQuickAddKind.Task) "Notes" else "Description"
+    val fieldLabel = if (draft.kind == PocQuickAddKind.Task) stringResource(R.string.ed_editor_notes) else stringResource(R.string.ed_editor_description)
     EditorValueRow(
         icon = calino.malinov.ski.ui.components.CalinoIcon.Note,
         label = fieldLabel,
@@ -1087,7 +1134,7 @@ private fun DescriptionSection(
         value = if (open) {
             fieldLabel
         } else {
-            draft.description?.takeIf { it.isNotBlank() } ?: "Add ${fieldLabel.lowercase(Locale.US)}"
+            draft.description?.takeIf { it.isNotBlank() } ?: stringResource(R.string.ed_editor_add_field, fieldLabel.lowercase(LocalCalinoLocale))
         },
         onClick = onOpen,
     )
@@ -1097,7 +1144,7 @@ private fun DescriptionSection(
             onValueChange = { onDraft(draft.copy(description = it)) },
             modifier = Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 12.dp),
             label = fieldLabel,
-            placeholder = "Add more detail",
+            placeholder = stringResource(R.string.ed_editor_more_detail),
             // The expanded row immediately above already names this field.
             showLabel = false,
         )
@@ -1107,23 +1154,25 @@ private fun DescriptionSection(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit, pickUntil: () -> Unit) {
+    val context = LocalContext.current
+    val editorDateFormat = localizedDateFormatter("EEE, d MMM")
     val freq = recurrenceFreqOf(draft.recurrence) ?: RecurrenceFreq.Weekly
     val days = recurrenceDaysOf(draft.recurrence)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        EditorLabel("Repeat")
+        EditorLabel(stringResource(R.string.ed_editor_repeat))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             CalinoChip(
-                text = "Never",
+                text = stringResource(R.string.ed_repeat_never),
                 selected = draft.recurrence == null,
-                description = "Do not repeat",
+                description = stringResource(R.string.ed_repeat_do_not),
                 semanticsRole = Role.RadioButton,
                 onClick = { onDraft(draft.copy(recurrence = null, recurrenceChanged = true)) },
             )
             RecurrenceFreq.entries.forEach { entry ->
                 CalinoChip(
-                    text = entry.name,
+                    text = recurrenceFrequencyName(entry),
                     selected = entry == freq,
-                    description = "Repeat ${entry.name.lowercase(Locale.US)}",
+                    description = stringResource(R.string.ed_repeat_frequency_description, recurrenceFrequencyName(entry).lowercase(LocalCalinoLocale)),
                     semanticsRole = Role.RadioButton,
                     onClick = {
                         onDraft(
@@ -1141,9 +1190,9 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
                 DayOfWeek.entries.forEach { day ->
                     val on = day in days
                     CalinoChip(
-                        text = day.getDisplayName(TextStyle.SHORT, Locale.US),
+                        text = day.getDisplayName(TextStyle.SHORT, LocalCalinoLocale),
                         selected = on,
-                        description = "Repeat on ${day.getDisplayName(TextStyle.FULL, Locale.US)}",
+                        description = stringResource(R.string.ed_repeat_on_day, day.getDisplayName(TextStyle.FULL, LocalCalinoLocale)),
                         semanticsRole = Role.Checkbox,
                         onClick = {
                             val next = if (on) days - day else days + day
@@ -1164,22 +1213,31 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
         }
         EditorValueRow(
             icon = calino.malinov.ski.ui.components.CalinoIcon.Calendar,
-            label = "Ends",
-            value = untilOf(draft.recurrence)?.format(EditorDateFormat) ?: "Never",
+            label = stringResource(R.string.ed_repeat_ends),
+            value = untilOf(draft.recurrence)?.format(editorDateFormat) ?: stringResource(R.string.ed_repeat_never),
             onClick = pickUntil,
         )
-        Text(formatRecurrenceRule(draft.recurrence, draft.date), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+        Text(formatRecurrenceRule(context, draft.recurrence, draft.date), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
     }
+}
+
+@Composable
+private fun recurrenceFrequencyName(frequency: RecurrenceFreq): String = when (frequency) {
+    RecurrenceFreq.Daily -> stringResource(R.string.ed_repeat_daily)
+    RecurrenceFreq.Weekly -> stringResource(R.string.ed_repeat_weekly)
+    RecurrenceFreq.Monthly -> stringResource(R.string.ed_repeat_monthly)
+    RecurrenceFreq.Yearly -> stringResource(R.string.ed_repeat_yearly)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -> Unit) {
+    val context = LocalContext.current
     Column(
         Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        EditorLabel("Apply changes to")
+        EditorLabel(stringResource(R.string.ed_repeat_apply_changes))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -1191,14 +1249,14 @@ private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -
             }
             scopes.forEach { scope ->
                 val label = when (scope) {
-                    RecurrenceEditScope.This -> if (draft.kind == PocQuickAddKind.Task) "This task" else "This event"
-                    RecurrenceEditScope.Future -> "This and future"
-                    RecurrenceEditScope.All -> "Entire series"
+                    RecurrenceEditScope.This -> if (draft.kind == PocQuickAddKind.Task) stringResource(R.string.ed_repeat_this_task) else stringResource(R.string.ed_repeat_this_event)
+                    RecurrenceEditScope.Future -> stringResource(R.string.ed_repeat_this_and_future)
+                    RecurrenceEditScope.All -> stringResource(R.string.ed_repeat_entire_series)
                 }
                 CalinoChip(
                     text = label,
                     selected = draft.recurrenceScope == scope,
-                    description = "Apply recurrence edit to $label",
+                    description = context.getString(R.string.ed_repeat_apply_description, label),
                     semanticsRole = Role.RadioButton,
                     onClick = { onDraft(draft.copy(recurrenceScope = scope)) },
                 )
@@ -1206,9 +1264,9 @@ private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -
         }
         Text(
             when (draft.recurrenceScope) {
-                RecurrenceEditScope.This -> "Only this occurrence changes."
-                RecurrenceEditScope.Future -> "This occurrence and later occurrences change."
-                RecurrenceEditScope.All -> "Every occurrence in the series changes."
+                RecurrenceEditScope.This -> stringResource(R.string.ed_repeat_scope_this_hint)
+                RecurrenceEditScope.Future -> stringResource(R.string.ed_repeat_scope_future_hint)
+                RecurrenceEditScope.All -> stringResource(R.string.ed_repeat_scope_all_hint)
             },
             style = CalinoTypography.bodySmall,
             color = CalinoColors.Ink3,
@@ -1224,15 +1282,16 @@ private fun CategoriesSection(
     single: Boolean,
     onDraft: (EditorDraft) -> Unit,
 ) {
+    val label = if (single) stringResource(R.string.ed_editor_category) else stringResource(R.string.ed_editor_categories)
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        EditorLabel(if (single) "Category" else "Categories")
+        EditorLabel(label)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             categories.forEach { category ->
                 val on = category in draft.categories
                 CalinoChip(
                     text = category,
                     selected = on,
-                    description = if (single) "Choose category" else "Toggle category",
+                    description = if (single) stringResource(R.string.ed_editor_choose_category) else stringResource(R.string.ed_editor_toggle_category),
                     semanticsRole = if (single) Role.RadioButton else Role.Checkbox,
                     onClick = { onDraft(draft.withCategoryToggled(category, single)) },
                 )
@@ -1254,10 +1313,13 @@ private fun MoreSection(
     onDraft: (EditorDraft) -> Unit,
     providerOwned: Boolean,
 ) {
+    val context = LocalContext.current
+    val more = stringResource(R.string.ed_editor_more_options)
+    val fewer = stringResource(R.string.ed_editor_fewer_options)
     EditorValueRow(
         icon = calino.malinov.ski.ui.components.CalinoIcon.More,
-        label = "More options",
-        value = if (open) "Fewer options" else "More options",
+        label = more,
+        value = if (open) fewer else more,
         onClick = onToggle,
     )
     EditorReveal(open) {
@@ -1265,23 +1327,23 @@ private fun MoreSection(
             Modifier.fillMaxWidth().padding(start = 40.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            EditorSwitchRow(CalinoIcon.Clock, "Available", draft.availability == Availability.Free) { free ->
+            EditorSwitchRow(CalinoIcon.Clock, stringResource(R.string.ed_editor_available), draft.availability == Availability.Free) { free ->
                 onDraft(draft.copy(availability = if (free) Availability.Free else Availability.Busy))
             }
             if (providerOwned) {
                 Text(
-                    "Travel time, categories, task relationships, attendees, and event color are managed by the owning app.",
+                    stringResource(R.string.ed_editor_provider_owned_options),
                     style = CalinoTypography.bodySmall,
                     color = CalinoColors.Ink3,
                 )
             } else {
-                EditorLabel("Travel time")
+                EditorLabel(stringResource(R.string.ed_editor_travel_time))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     TravelTimeChoices.forEach { minutes ->
                         CalinoChip(
-                            text = minutes?.let(::formatEditorDuration) ?: "None",
+                            text = minutes?.let { calino.malinov.ski.util.formatCalinoDuration(context, it) } ?: stringResource(R.string.ed_editor_none),
                             selected = draft.travelTimeMinutes == minutes,
-                            description = "Travel time",
+                            description = stringResource(R.string.ed_editor_travel_time),
                             semanticsRole = Role.RadioButton,
                             onClick = { onDraft(draft.copy(travelTimeMinutes = minutes)) },
                         )
@@ -1289,14 +1351,14 @@ private fun MoreSection(
                 }
                 if (categories.isNotEmpty()) CategoriesSection(draft, categories, single = false, onDraft = onDraft)
                 if (relatedCandidates.isNotEmpty()) {
-                    EditorLabel("Related to")
+                    EditorLabel(stringResource(R.string.ed_editor_related_to))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         relatedCandidates.forEach { (id, label) ->
                             val on = id in draft.relatedTo
                             CalinoChip(
                                 text = label,
                                 selected = on,
-                                description = "Attach task",
+                                description = stringResource(R.string.ed_editor_attach_task),
                                 semanticsRole = Role.Checkbox,
                                 onClick = {
                                     onDraft(draft.copy(relatedTo = if (on) draft.relatedTo - id else draft.relatedTo + id))
@@ -1305,7 +1367,7 @@ private fun MoreSection(
                         }
                     }
                 }
-                EditorLabel("Attendees")
+                EditorLabel(stringResource(R.string.ed_editor_attendees))
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1314,8 +1376,8 @@ private fun MoreSection(
                     CalinoTextField(
                         value = attendeeInput,
                         onValueChange = onAttendeeInput,
-                        label = "Attendee email",
-                        placeholder = "Add attendee email…",
+                        label = stringResource(R.string.ed_editor_attendee_email),
+                        placeholder = stringResource(R.string.ed_editor_add_attendee_email),
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(
@@ -1325,14 +1387,14 @@ private fun MoreSection(
                             onDraft(draft.copy(attendees = draft.attendees + Attendee(email.substringBefore('@'), email)))
                             onAttendeeInput("")
                         },
-                    ) { Text("Add") }
+                    ) { Text(stringResource(R.string.ed_editor_add)) }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     draft.attendees.forEach { attendee ->
                         CalinoChip(
                             text = attendee.name,
                             selected = true,
-                            description = "Remove ${attendee.email}",
+                            description = stringResource(R.string.ed_editor_remove_attendee, attendee.email),
                             onClick = { onDraft(draft.copy(attendees = draft.attendees - attendee)) },
                         )
                     }
@@ -1351,13 +1413,15 @@ private fun MoreSection(
 internal fun EventReminderChips(reminders: List<Reminder>, onChange: (List<Reminder>) -> Unit) =
     ReminderChips(reminders, single = false, onChange = onChange)
 
-internal fun eventReminderSummary(reminders: List<Reminder>): String = reminderSummary(reminders)
+internal fun eventReminderSummary(context: android.content.Context, reminders: List<Reminder>, timeFormat: CalinoTimeFormat, locale: Locale): String =
+    reminderSummary(reminders, context, timeFormat, locale)
 
 @Composable
 internal fun TaskReminderChips(reminder: Reminder?, onChange: (Reminder?) -> Unit) =
     ReminderChips(listOfNotNull(reminder), single = true, singleLine = true) { onChange(it.firstOrNull()) }
 
-internal fun taskReminderSummary(reminder: Reminder?): String = reminderSummary(listOfNotNull(reminder))
+internal fun taskReminderSummary(context: android.content.Context, reminder: Reminder?, timeFormat: CalinoTimeFormat, locale: Locale): String =
+    reminderSummary(listOfNotNull(reminder), context, timeFormat, locale)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1367,6 +1431,9 @@ private fun ReminderChips(
     singleLine: Boolean = false,
     onChange: (List<Reminder>) -> Unit,
 ) {
+    val context = LocalContext.current
+    val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     // A card that is already tall gets one scrolling strip rather than a
     // block of wrapped chips.
     val chips: @Composable () -> Unit = {
@@ -1374,9 +1441,9 @@ private fun ReminderChips(
             val reminder = Reminder(minutes)
             val on = reminders.any { it.absoluteAt == null && it.minutesBefore == minutes }
             CalinoChip(
-                text = formatReminder(minutes),
+                text = formatReminder(minutes, context),
                 selected = on,
-                description = "Reminder",
+                description = stringResource(R.string.ed_editor_reminder),
                 semanticsRole = if (single) Role.RadioButton else Role.Checkbox,
                 onClick = {
                     onChange(
@@ -1391,9 +1458,9 @@ private fun ReminderChips(
         }
         if (single && reminders.firstOrNull()?.absoluteAt != null) {
             CalinoChip(
-                text = "At ${reminderSummary(reminders).substringBefore(" · repeats")}",
+                text = context.getString(R.string.ed_reminder_at, reminderSummary(reminders, context, timeFormat, locale).substringBefore(" ·")),
                 selected = true,
-                description = "Remove exact-time reminder",
+                description = stringResource(R.string.ed_reminder_remove_exact),
                 semanticsRole = Role.Checkbox,
                 onClick = { onChange(emptyList()) },
             )
@@ -1401,9 +1468,9 @@ private fun ReminderChips(
         if (single && reminders.isNotEmpty()) {
             val current = reminders.first()
             CalinoChip(
-                text = if (current.repeatCount > 0) "Repeat ${current.repeatCount}× / ${current.repeatIntervalMinutes} min" else "Repeat once / 10 min",
+                text = if (current.repeatCount > 0) stringResource(R.string.ed_reminder_repeat_count, current.repeatCount, context.getString(R.string.fmt_minutes, current.repeatIntervalMinutes)) else stringResource(R.string.ed_reminder_repeat_once),
                 selected = current.repeatCount > 0,
-                description = "Repeat task reminder",
+                description = stringResource(R.string.ed_reminder_repeat_task),
                 semanticsRole = Role.Checkbox,
                 onClick = {
                     onChange(listOf(if (current.repeatCount > 0) current.copy(repeatCount = 0, repeatIntervalMinutes = 0)
@@ -1431,10 +1498,10 @@ private fun untilOf(rule: String?): LocalDate? = rule
 
 internal fun formatEditorDuration(minutes: Int): String = formatCalinoDuration(minutes)
 
-private fun formatReminder(minutes: Int): String = when {
-    minutes == 0 -> "At time"
-    minutes >= 24 * 60 -> "1 day before"
-    else -> "${formatEditorDuration(minutes)} before"
+private fun formatReminder(minutes: Int, context: android.content.Context): String = when {
+    minutes == 0 -> context.getString(R.string.ed_reminder_at_time)
+    minutes >= 24 * 60 -> context.getString(R.string.ed_reminder_one_day_before)
+    else -> context.getString(R.string.ed_reminder_before, calino.malinov.ski.util.formatCalinoDuration(context, minutes))
 }
 
 /** Re-runs the keyword rules only when this edit changed the title. */
@@ -1457,6 +1524,7 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
     val link = input.trim()
     val valid = attachmentLinkValid(link) && attachments.none { it.uri == link }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val fileReadError = stringResource(R.string.ed_attachment_read_error)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // The launcher's callback outlives this composition's draft; read the latest.
     val latestDraft by androidx.compose.runtime.rememberUpdatedState(draft)
@@ -1467,16 +1535,18 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val picked = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { readPickedFile(context.contentResolver, uri) }.getOrNull()
+                runCatching {
+                    readPickedFile(context.contentResolver, uri, context.getString(R.string.ed_attachment_fallback))
+                }.getOrNull()
             }
             note = when (picked) {
-                null -> "That file could not be read."
-                is PickedFile.TooLarge -> "${picked.name} is over ${AttachmentMaxBytes / MiB} MB, too large to keep with the event."
+                null -> fileReadError
+                is PickedFile.TooLarge -> context.getString(R.string.ed_attachment_too_large, picked.name, AttachmentMaxBytes / MiB)
                 is PickedFile.Read -> {
                     val current = latestDraft
                     latestOnDraft(current.copy(attachments = current.attachments.orEmpty() + picked.attachment))
                     if (picked.attachment.data!!.size > AttachmentWarnBytes) {
-                        "${picked.attachment.fileName} is large; every sync of this event carries it."
+                        context.getString(R.string.ed_attachment_large_sync, picked.attachment.fileName)
                     } else {
                         null
                     }
@@ -1484,7 +1554,7 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
             }
         }
     }
-    EditorLabel("Attachments")
+    EditorLabel(stringResource(R.string.ed_attachment_section))
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -1493,8 +1563,8 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
         CalinoTextField(
             value = input,
             onValueChange = { input = it },
-            label = "Attachment link",
-            placeholder = "Add a link…",
+            label = stringResource(R.string.ed_attachment_link_field),
+            placeholder = stringResource(R.string.ed_attachment_add_link),
             modifier = Modifier.weight(1f),
         )
         TextButton(
@@ -1503,12 +1573,12 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
                 onDraft(draft.copy(attachments = attachments + EventAttachment(uri = link, fileName = uriFileName(link))))
                 input = ""
             },
-        ) { Text("Add") }
+        ) { Text(stringResource(R.string.ed_editor_add)) }
     }
     TextButton(
         onClick = { note = null; picker.launch(arrayOf("*/*")) },
         modifier = Modifier.heightIn(min = 44.dp),
-    ) { Text("Attach a file") }
+    ) { Text(stringResource(R.string.ed_attachment_add_file)) }
     androidx.compose.animation.AnimatedVisibility(
         visible = note != null,
         enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + androidx.compose.animation.expandVertically(tween(CalinoMotion.ContentEnterMillis)),
@@ -1522,11 +1592,11 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
     if (attachments.isNotEmpty()) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             attachments.forEach { attachment ->
-                val name = attachmentLabel(attachment)
+                val name = attachmentLabel(attachment, stringResource(R.string.ed_attachment_fallback))
                 CalinoChip(
                     text = name,
                     selected = true,
-                    description = "Remove attachment $name",
+                    description = stringResource(R.string.ed_attachment_remove, name),
                     onClick = {
                         note = null
                         onDraft(draft.copy(attachments = attachments.filterNot { it === attachment }))
@@ -1554,7 +1624,11 @@ internal sealed interface PickedFile {
  * Reads a picked document, stopping one byte past [AttachmentMaxBytes] so a huge
  * file is refused without being loaded whole.
  */
-private fun readPickedFile(resolver: android.content.ContentResolver, uri: android.net.Uri): PickedFile {
+private fun readPickedFile(
+    resolver: android.content.ContentResolver,
+    uri: android.net.Uri,
+    fallbackName: String,
+): PickedFile {
     var name: String? = null
     var declaredSize: Long? = null
     resolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -1565,7 +1639,7 @@ private fun readPickedFile(resolver: android.content.ContentResolver, uri: andro
                 ?.let { declaredSize = cursor.getLong(it) }
         }
     }
-    val fileName = name?.takeIf(String::isNotBlank) ?: "attachment"
+    val fileName = name?.takeIf(String::isNotBlank) ?: fallbackName
     if ((declaredSize ?: 0) > AttachmentMaxBytes) return PickedFile.TooLarge(fileName)
     val bytes = resolver.openInputStream(uri)?.use { stream ->
         val out = java.io.ByteArrayOutputStream()

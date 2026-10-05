@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fmt_minutes">%1$d Min.</string>
+    <string name="fmt_hours">%1$d Std.</string>
+    <string name="fmt_days">%1$d T.</string>
+    <string name="fmt_every_day">Jeden Tag</string>
+    <string name="fmt_every_week">Jede Woche</string>
+    <string name="fmt_every_weekdays">Jeden %1$s</string>
+    <string name="fmt_every_month">Jeden Monat</string>
+    <string name="fmt_month_day">Jeden Monat am %1$d.</string>
+    <string name="fmt_every_year">Jedes Jahr</string>
+    <string name="fmt_year_date">Jedes Jahr am %1$s</string>
+    <string name="fmt_repeating_event">Wiederkehrender Termin</string>
+    <string name="fmt_until">%1$s bis %2$s</string>
+    <string name="fmt_completed">%1$s erledigt</string>
+    <string name="fmt_reopened">%1$s wieder geöffnet</string>
+    <string name="fmt_rescheduled">%1$s auf %2$s verschoben</string>
+    <string name="fmt_no_date">kein Datum</string>
+</resources>

@@ -1,5 +1,10 @@
 package calino.malinov.ski.ui.components
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
+
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -96,8 +101,6 @@ import calino.malinov.ski.util.leadingCells
 import calino.malinov.ski.util.weekdayLetters
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
@@ -138,21 +141,23 @@ fun NavSidebar(
     modifier: Modifier = Modifier,
 ) {
     val preferences = LocalCalinoPreferences.current
+    val routeLabel: @Composable (PockRoute) -> String = { pockRouteLabel(it) }
+    val updateAvailableLabel = stringResource(R.string.cal_update_available)
     // The calendar views come first as a group; the rule separates them from
     // the other surfaces.
     val calendarItems = listOf(
-        NavItem(pockRouteLabel(PockRoute.Day), PockRoute.Day, pockRouteIcon(PockRoute.Day)),
-        NavItem(pockRouteLabel(PockRoute.Year), PockRoute.Year, pockRouteIcon(PockRoute.Year)),
-        NavItem(pockRouteLabel(PockRoute.Range), PockRoute.Range, pockRouteIcon(PockRoute.Range)),
-        NavItem(pockRouteLabel(PockRoute.Agenda), PockRoute.Agenda, pockRouteIcon(PockRoute.Agenda)),
+        NavItem(routeLabel(PockRoute.Day), PockRoute.Day, pockRouteIcon(PockRoute.Day)),
+        NavItem(routeLabel(PockRoute.Year), PockRoute.Year, pockRouteIcon(PockRoute.Year)),
+        NavItem(routeLabel(PockRoute.Range), PockRoute.Range, pockRouteIcon(PockRoute.Range)),
+        NavItem(routeLabel(PockRoute.Agenda), PockRoute.Agenda, pockRouteIcon(PockRoute.Agenda)),
     )
     val items = listOfNotNull(
-        NavItem(pockRouteLabel(PockRoute.Tasks), PockRoute.Tasks, pockRouteIcon(PockRoute.Tasks)),
-        NavItem(pockRouteLabel(PockRoute.Journal), PockRoute.Journal, pockRouteIcon(PockRoute.Journal))
+        NavItem(routeLabel(PockRoute.Tasks), PockRoute.Tasks, pockRouteIcon(PockRoute.Tasks)),
+        NavItem(routeLabel(PockRoute.Journal), PockRoute.Journal, pockRouteIcon(PockRoute.Journal))
             .takeIf { preferences.journalEnabled },
-        NavItem(pockRouteLabel(PockRoute.Contacts), PockRoute.Contacts, pockRouteIcon(PockRoute.Contacts))
+        NavItem(routeLabel(PockRoute.Contacts), PockRoute.Contacts, pockRouteIcon(PockRoute.Contacts))
             .takeIf { preferences.contactsEnabled },
-        NavItem(pockRouteLabel(PockRoute.Settings), PockRoute.Settings, pockRouteIcon(PockRoute.Settings)),
+        NavItem(routeLabel(PockRoute.Settings), PockRoute.Settings, pockRouteIcon(PockRoute.Settings)),
     )
     val settingsItem = items.first { it.route == PockRoute.Settings }
     val mainItems = items.filterNot { it.route == PockRoute.Settings }
@@ -313,11 +318,11 @@ fun NavSidebar(
                                     onClick = onUpdateClick,
                                     modifier = Modifier
                                         .heightIn(min = 44.dp)
-                                        .semantics { contentDescription = "Update available" },
+                                        .semantics { contentDescription = updateAvailableLabel },
                                     contentPadding = PaddingValues(horizontal = 4.dp),
                                 ) {
                                     Text(
-                                        "Update available",
+                                        updateAvailableLabel,
                                         color = CalinoColors.Accent,
                                         style = CalinoTypography.labelSmall,
                                     )
@@ -334,7 +339,7 @@ fun NavSidebar(
                             onTaskComplete = onTaskComplete,
                             onTaskAction = onTaskAction,
                         )
-                        SidebarSectionLabel("VIEWS")
+                        SidebarSectionLabel(stringResource(R.string.cal_views_group))
                         SidebarNavGroup {
                             calendarItems.forEach { item ->
                                 NavRow(item, selected = selectedRoute == item.route) {
@@ -344,7 +349,7 @@ fun NavSidebar(
                             }
                         }
                         SidebarSectionDivider()
-                        SidebarSectionLabel("ORGANIZE")
+                        SidebarSectionLabel(stringResource(R.string.cal_organize_group))
                         SidebarNavGroup {
                             mainItems.forEach { item ->
                                 NavRow(item, selected = selectedRoute == item.route) {
@@ -459,14 +464,23 @@ private fun SidebarMiniCalendar(
     val preferences = LocalCalinoPreferences.current
     val today = LocalCalinoNow.current.today
     val weekStart = preferences.weekStart
+    val locale = LocalCalinoLocale
     val expanded = preferences.sidebarCalendarExpanded
     var miniMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     val cardShape = RoundedCornerShape(12.dp)
+    val monthYearFormatter = localizedDateFormatter("MMMM yyyy")
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 90f else 0f,
         animationSpec = tween(CalinoMotion.ContentEnterMillis),
         label = "sidebar calendar chevron",
     )
+    val calendarSidebarLabel = stringResource(R.string.cal_sidebar_calendar)
+    val collapsedLabel = stringResource(R.string.cal_collapsed)
+    val previousMonthLabel = stringResource(R.string.cal_previous_month_in_sidebar)
+    val todaySidebarLabel = stringResource(R.string.cal_today_in_sidebar)
+    val nextMonthLabel = stringResource(R.string.cal_next_month_in_sidebar)
+    val collapseCalendarLabel = stringResource(R.string.cal_collapse_calendar)
+    val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d, yyyy")
     Column(
         Modifier
             .fillMaxWidth()
@@ -487,15 +501,15 @@ private fun SidebarMiniCalendar(
                         .clip(RoundedCornerShape(7.dp))
                         .clickable { preferences.setSidebarCalendarExpanded(true) }
                         .semantics {
-                            contentDescription = "Calendar in sidebar"
-                            stateDescription = "Collapsed"
+                            contentDescription = calendarSidebarLabel
+                            stateDescription = collapsedLabel
                             role = Role.Button
                         }
                         .padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "CALENDAR",
+                        stringResource(R.string.cal_calendar_caps),
                         style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
                         modifier = Modifier.weight(1f),
                     )
@@ -516,7 +530,7 @@ private fun SidebarMiniCalendar(
                     IconButton(
                         onClick = { miniMonth = miniMonth.minusMonths(1) },
                         modifier = Modifier.size(44.dp).clearAndSetSemantics {
-                            contentDescription = "Previous month in sidebar"
+                            contentDescription = previousMonthLabel
                             role = Role.Button
                         },
                     ) { Text("‹", fontSize = 22.sp, color = CalinoColors.Ink2) }
@@ -527,18 +541,18 @@ private fun SidebarMiniCalendar(
                             .clip(RoundedCornerShape(7.dp))
                             .clickable { onDateChanged(today); miniMonth = YearMonth.from(today) }
                             .semantics {
-                                contentDescription = "Go to today in sidebar"
+                                contentDescription = todaySidebarLabel
                                 role = Role.Button
                             },
                         contentAlignment = Alignment.Center,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                "CALENDAR",
+                                stringResource(R.string.cal_calendar_caps),
                                 style = CalinoTypography.labelSmall.copy(fontSize = 8.sp, letterSpacing = .9.sp, color = CalinoColors.Ink3),
                             )
                             Text(
-                                miniMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)),
+                                miniMonth.format(monthYearFormatter),
                                 style = CalinoTypography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
                             )
                         }
@@ -546,14 +560,14 @@ private fun SidebarMiniCalendar(
                     IconButton(
                         onClick = { miniMonth = miniMonth.plusMonths(1) },
                         modifier = Modifier.size(44.dp).clearAndSetSemantics {
-                            contentDescription = "Next month in sidebar"
+                            contentDescription = nextMonthLabel
                             role = Role.Button
                         },
                     ) { Text("›", fontSize = 22.sp, color = CalinoColors.Ink2) }
                     IconButton(
                         onClick = { preferences.setSidebarCalendarExpanded(false) },
                         modifier = Modifier.size(44.dp).clearAndSetSemantics {
-                            contentDescription = "Collapse calendar in sidebar"
+                            contentDescription = collapseCalendarLabel
                             role = Role.Button
                         },
                     ) {
@@ -574,7 +588,7 @@ private fun SidebarMiniCalendar(
         ) {
             Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth()) {
-            weekdayLetters(weekStart).forEach {
+            weekdayLetters(weekStart, locale).forEach {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Text(it, color = CalinoColors.Ink3, fontSize = 10.sp)
                 }
@@ -594,7 +608,7 @@ private fun SidebarMiniCalendar(
                                             .clip(CircleShape)
                                             .calinoPressable { onDateChanged(date) }
                                             .semantics {
-                                                contentDescription = date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.US))
+                                                contentDescription = date.format(fullDateFormatter)
                                                 this.selected = date == selectedDate
                                             }
                                     } else Modifier
@@ -648,6 +662,9 @@ private fun SidebarUpcomingTasks(
         .sortedBy { it.due ?: LocalDate.MAX }
         .take(10)
     val cardShape = RoundedCornerShape(12.dp)
+    val upcomingTasksLabel = stringResource(R.string.cal_upcoming_tasks_sidebar)
+    val expandedLabel = stringResource(R.string.cal_expanded)
+    val collapsedLabel = stringResource(R.string.cal_collapsed)
 
     Column(
         Modifier
@@ -664,15 +681,15 @@ private fun SidebarUpcomingTasks(
                 .clip(RoundedCornerShape(7.dp))
                 .clickable { expanded = !expanded }
                 .semantics {
-                    contentDescription = "Upcoming tasks in sidebar"
-                    stateDescription = if (expanded) "Expanded" else "Collapsed"
+                    contentDescription = upcomingTasksLabel
+                    stateDescription = if (expanded) expandedLabel else collapsedLabel
                     role = Role.Button
                 }
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "UPCOMING TASKS",
+                stringResource(R.string.cal_upcoming_tasks_caps),
                 style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
                 modifier = Modifier.weight(1f),
             )
@@ -713,7 +730,7 @@ private fun SidebarUpcomingTasks(
                 }
                 if (upcoming.isEmpty()) {
                     Text(
-                        "No upcoming tasks",
+                        stringResource(R.string.cal_no_upcoming_tasks),
                         color = CalinoColors.Ink3,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
@@ -751,6 +768,12 @@ private fun SidebarExtras(
         fixtureCalendarColors = fixtureCalendarColors,
     )
 
+    val calendarsLabel = stringResource(R.string.cal_calendars_caps)
+    val visibleCount = rows.count { row ->
+        if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
+    }
+    val visibleCountLabel = stringResource(R.string.cal_visible_count, visibleCount, rows.size)
+    val syncAllLabel = stringResource(R.string.cal_sync_all_calendars)
     Row(
         Modifier
             .fillMaxWidth()
@@ -758,14 +781,11 @@ private fun SidebarExtras(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "CALENDARS",
+            calendarsLabel,
             style = CalinoTypography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.1.sp, color = CalinoColors.Ink3),
             modifier = Modifier.weight(1f),
         )
-        val visibleCount = rows.count { row ->
-            if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
-        }
-        Text("$visibleCount of ${rows.size} visible", color = CalinoColors.Ink3, fontSize = 12.sp)
+        Text(visibleCountLabel, color = CalinoColors.Ink3, fontSize = 12.sp)
         // One sync control for the section, and it says what it does. A bare
         // accent glyph floating at the end of the header read as a stray mark
         // rather than a button; the same chrome the rest of the sidebar uses --
@@ -777,7 +797,7 @@ private fun SidebarExtras(
                 .background(CalinoColors.Side)
                 .clickable(role = Role.Button, onClick = onSyncAll)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
-                .semantics(mergeDescendants = true) { contentDescription = "Sync all calendars" },
+                .semantics(mergeDescendants = true) { contentDescription = syncAllLabel },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -788,7 +808,7 @@ private fun SidebarExtras(
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                "Sync",
+                stringResource(R.string.cal_sync),
                 style = CalinoTypography.labelSmall.copy(fontSize = 11.sp, letterSpacing = .4.sp, color = CalinoColors.Ink2),
             )
         }
@@ -807,6 +827,15 @@ private fun SidebarExtras(
         val visible = if (row.accountId == null) row.calendar.id !in fixtureHiddenCalendarIds else row.calendar.visible
         val tasksVisible = if (row.accountId == null) row.calendar.id !in fixtureHiddenTaskCalendarIds else row.calendar.showTasksInViews
         var menuOpen by remember(key) { mutableStateOf(false) }
+        val showCalendarLabel = stringResource(R.string.cal_show_calendar, row.calendar.name)
+        val visibilityState = stringResource(if (visible) R.string.cal_visible else R.string.cal_hidden)
+        val saveLabel = stringResource(R.string.cal_save)
+        val moreOptionsLabel = stringResource(R.string.cal_more_options_for, row.calendar.name)
+        val syncNowLabel = stringResource(R.string.cal_sync_now)
+        val renameCalendarLabel = stringResource(R.string.cal_rename_calendar)
+        val hideTasksLabel = stringResource(R.string.cal_hide_calendar_tasks)
+        val showTasksLabel = stringResource(R.string.cal_show_calendar_tasks)
+        val exportIcsLabel = stringResource(R.string.cal_export_ics)
         Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier
@@ -825,8 +854,8 @@ private fun SidebarExtras(
                             else onToggleCalendar(row.accountId, row.calendar.id, !visible)
                         }
                         .semantics {
-                            contentDescription = "Show ${row.calendar.name}"
-                            stateDescription = if (visible) "Visible" else "Hidden"
+                            contentDescription = showCalendarLabel
+                            stateDescription = visibilityState
                             role = Role.Checkbox
                         },
                     contentAlignment = Alignment.Center,
@@ -864,7 +893,7 @@ private fun SidebarExtras(
                             }
                         },
                         modifier = Modifier.heightIn(min = 44.dp),
-                    ) { Text("Save", color = CalinoColors.Accent) }
+                    ) { Text(saveLabel, color = CalinoColors.Accent) }
                 } else {
                     Text(
                         row.calendar.name,
@@ -883,7 +912,7 @@ private fun SidebarExtras(
                     )
                 }
                 IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(CalinoIcons.More, contentDescription = "More options for ${row.calendar.name}", tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp))
+                    Icon(CalinoIcons.More, contentDescription = moreOptionsLabel, tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp))
                 }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -893,7 +922,7 @@ private fun SidebarExtras(
                 // it lives where the other per-calendar actions live.
                 if (row.accountId != null) {
                     DropdownMenuItem(
-                        text = { Text("Sync now") },
+                        text = { Text(syncNowLabel) },
                         onClick = {
                             menuOpen = false
                             onSyncCalendar(row.accountId, row.calendar.id)
@@ -901,7 +930,7 @@ private fun SidebarExtras(
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("Rename calendar") },
+                    text = { Text(renameCalendarLabel) },
                     onClick = {
                         menuOpen = false
                         editingCalendarKey = key
@@ -909,7 +938,7 @@ private fun SidebarExtras(
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text(if (tasksVisible) "Hide tasks in calendar" else "Show tasks in calendar") },
+                    text = { Text(if (tasksVisible) hideTasksLabel else showTasksLabel) },
                     onClick = {
                         menuOpen = false
                         if (row.accountId == null) onToggleFixtureCalendarTasks(row.calendar.id, !tasksVisible)
@@ -917,13 +946,14 @@ private fun SidebarExtras(
                     },
                 )
                 listOf(
-                    0xFFC2697F to "Rose",
-                    0xFF5B7FB5 to "Blue",
-                    0xFF5D9A78 to "Green",
-                    0xFFBF944E to "Gold",
-                ).forEach { (color, name) ->
+                    0xFFC2697F to R.string.cal_color_rose,
+                    0xFF5B7FB5 to R.string.cal_color_blue,
+                    0xFF5D9A78 to R.string.cal_color_green,
+                    0xFFBF944E to R.string.cal_color_gold,
+                ).forEach { (color, nameResource) ->
+                    val name = stringResource(nameResource)
                     DropdownMenuItem(
-                        text = { Text("Use $name color") },
+                        text = { Text(stringResource(R.string.cal_use_color, name)) },
                         onClick = {
                             menuOpen = false
                             if (row.accountId == null) {
@@ -934,7 +964,7 @@ private fun SidebarExtras(
                         },
                     )
                 }
-                DropdownMenuItem(text = { Text("Export ICS") }, onClick = { menuOpen = false })
+                DropdownMenuItem(text = { Text(exportIcsLabel) }, onClick = { menuOpen = false })
             }
         }
     }
@@ -946,21 +976,22 @@ private fun SidebarExtras(
  * preview both point at the same views, so they read from one list rather than
  * drifting apart.
  */
-fun pockRouteLabel(route: PockRoute): String = when (route) {
-    PockRoute.Day -> "Month"
-    PockRoute.Year -> "Year"
-    PockRoute.Range -> "Range"
-    PockRoute.Agenda -> "Agenda"
-    PockRoute.Accounts -> "Calendars"
-    PockRoute.Tasks -> "Tasks"
-    PockRoute.Journal -> "Journal"
-    PockRoute.Contacts -> "Contacts"
-    PockRoute.Settings -> "Settings"
-    PockRoute.Detail -> "Event"
-    PockRoute.TaskDetail -> "Task"
-    PockRoute.QuickAdd -> "Quick add"
-    PockRoute.Notifications -> "Notifications"
-}
+@Composable
+fun pockRouteLabel(route: PockRoute): String = stringResource(when (route) {
+    PockRoute.Day -> R.string.cal_route_month
+    PockRoute.Year -> R.string.cal_route_year
+    PockRoute.Range -> R.string.cal_route_range
+    PockRoute.Agenda -> R.string.cal_route_agenda
+    PockRoute.Accounts -> R.string.cal_route_calendars
+    PockRoute.Tasks -> R.string.cal_route_tasks
+    PockRoute.Journal -> R.string.cal_route_journal
+    PockRoute.Contacts -> R.string.cal_route_contacts
+    PockRoute.Settings -> R.string.cal_route_settings
+    PockRoute.Detail -> R.string.cal_route_event
+    PockRoute.TaskDetail -> R.string.cal_route_task
+    PockRoute.QuickAdd -> R.string.cal_route_quick_add
+    PockRoute.Notifications -> R.string.cal_route_notifications
+})
 
 /**
  * The stable name a route is stored under (a data object prints as its own
@@ -1037,6 +1068,9 @@ private fun NavRow(item: NavItem, selected: Boolean, onClick: () -> Unit) {
         animationSpec = tween(CalinoMotion.ContentEnterMillis),
         label = "nav row rail",
     )
+    val selectedLabel = stringResource(R.string.cal_selected)
+    val notSelectedLabel = stringResource(R.string.cal_not_selected_state)
+    val rowDescription = if (selected) stringResource(R.string.cal_selected_value, item.label, selectedLabel) else item.label
     Row(
         Modifier
             .fillMaxWidth()
@@ -1044,8 +1078,8 @@ private fun NavRow(item: NavItem, selected: Boolean, onClick: () -> Unit) {
             .background(background)
             .calinoPressable(onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = "${item.label}${if (selected) ", selected" else ""}"
-                stateDescription = if (selected) "Selected" else "Not selected"
+                contentDescription = rowDescription
+                stateDescription = if (selected) selectedLabel else notSelectedLabel
                 role = Role.Tab
                 this.selected = selected
             }

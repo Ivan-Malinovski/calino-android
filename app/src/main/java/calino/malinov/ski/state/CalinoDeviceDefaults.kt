@@ -87,7 +87,7 @@ data class CalinoDeviceDefaults(
 
     /** A compact display label suitable for a future regional setting row. */
     val regionDisplayName: String?
-        get() = region?.takeIf { it.isNotBlank() }?.let { locale.getDisplayCountry(locale) }
+        get() = region?.takeIf { it.isNotBlank() }?.let { Locale("", it).getDisplayCountry(locale) }
 
     /** Formats a date with Android's locale-generated pattern for future UI. */
     fun formatDate(date: LocalDate): String = runCatching {

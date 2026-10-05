@@ -1,5 +1,11 @@
 package calino.malinov.ski.ui.range
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -140,8 +146,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-private val RangeDate = DateTimeFormatter.ofPattern("MMM d", Locale.US)
-private val RangeMonth = DateTimeFormatter.ofPattern("MMM", Locale.US)
 
 /** The range pager, addressed by tag the way the calendar pagers are. */
 const val RangePagerTag = "range-pager"
@@ -274,7 +278,7 @@ fun RangeScreen(
                     options = listOf("1", "3", "7"),
                     selectedIndex = CalinoRangeMode.entries.indexOf(mode),
                     onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
-                    semanticLabel = "Range size in days",
+                    semanticLabel = stringResource(R.string.cal_range_size_days),
                     modifier = Modifier.width(144.dp),
                 )
             },
@@ -322,9 +326,9 @@ fun RangeScreen(
     }
 }
 
-private fun rangeLabel(first: LocalDate, dayCount: Int): String =
-    if (dayCount == 1) first.format(RangeDate)
-    else "${first.format(RangeDate)} – ${first.plusDays(dayCount - 1L).format(RangeDate)}"
+private fun rangeLabel(first: LocalDate, dayCount: Int, dateFormat: java.time.format.DateTimeFormatter): String =
+    if (dayCount == 1) first.format(dateFormat)
+    else "${first.format(dateFormat)} – ${first.plusDays(dayCount - 1L).format(dateFormat)}"
 
 /**
  * The date range under the month title. It names the page the pager is headed
@@ -344,12 +348,15 @@ private fun RangeSubtitle(
 ) {
     val slide = with(LocalDensity.current) { 8.dp.roundToPx() }
     val style = CalinoTypography.labelSmall
+    val rangeDateFormatter = localizedDateFormatter("MMM d")
+    val rangeMonthFormatter = localizedDateFormatter("MMM")
     val describedFirst = if (sliding) firstDayNow() else firstDayOf(pager.targetPage)
+    val rangeDescription = stringResource(R.string.cal_range_dates_accessibility, rangeLabel(describedFirst, dayCount, rangeDateFormatter))
     Box(Modifier.padding(top = 1.dp).clearAndSetSemantics {
-        contentDescription = "Range dates, ${rangeLabel(describedFirst, dayCount)}"
+        contentDescription = rangeDescription
     }) {
         if (sliding) {
-            Text(rangeLabel(firstDayNow(), dayCount), style = style, color = CalinoColors.Ink3, maxLines = 1)
+            Text(rangeLabel(firstDayNow(), dayCount, rangeDateFormatter), style = style, color = CalinoColors.Ink3, maxLines = 1)
         } else {
             val target by remember(pager) { derivedStateOf { pager.targetPage } }
             val first = firstDayOf(target)
@@ -357,12 +364,12 @@ private fun RangeSubtitle(
             // Each part animates on its own, so a week that stays in the same
             // month changes only its day numbers.
             Row {
-                RangeLabelPart(target, first.format(RangeMonth), slide, style)
+                RangeLabelPart(target, first.format(rangeMonthFormatter), slide, style)
                 Text(" ", style = style)
                 RangeLabelPart(target, first.dayOfMonth.toString(), slide, style)
                 if (dayCount > 1) {
                     Text(" – ", style = style, color = CalinoColors.Ink3, maxLines = 1)
-                    RangeLabelPart(target, last.format(RangeMonth), slide, style)
+                    RangeLabelPart(target, last.format(rangeMonthFormatter), slide, style)
                     Text(" ", style = style)
                     RangeLabelPart(target, last.dayOfMonth.toString(), slide, style)
                 }
@@ -423,6 +430,8 @@ private fun RangePagerSurface(
     taskIsWritable: (CalTask) -> Boolean,
 ) {
     val density = LocalDensity.current
+    val locale = LocalCalinoLocale
+    val rangeDateFormatter = localizedDateFormatter("MMM d")
     val haptics = LocalHapticFeedback.current
     val timeFormat = LocalTimeFormat
     val taskToday = LocalCalinoNow.current.today
@@ -496,7 +505,7 @@ private fun RangePagerSurface(
     var schedulingDay by remember { mutableStateOf(visibleDragDays.first()) }
     var scheduleChoice by remember { mutableStateOf(false) }
     val pickScheduleDay = rememberDatePicker({ schedulingDay }) { schedulingDay = it; scheduleChoice = true }
-    val pickScheduleTime = rememberTimePicker({ scheduling?.dueTime }, title = "Due") { time ->
+    val pickScheduleTime = rememberTimePicker({ scheduling?.dueTime }, title = stringResource(R.string.cal_due)) { time ->
         scheduling?.let { onTaskSchedule(it, schedulingDay, time) }; scheduling = null
     }
     fun taskAction(action: TaskMenuAction, task: CalTask) {
@@ -512,14 +521,18 @@ private fun RangePagerSurface(
             else -> onTaskAction(action, task)
         }
     }
+    val reopenTaskLabel = stringResource(R.string.cal_reopen_task)
+    val completeTaskLabel = stringResource(R.string.cal_complete_task)
+    val scheduleTaskLabel = stringResource(R.string.cal_schedule_task)
+    val moveTaskThisWeekLabel = stringResource(R.string.cal_move_to_week)
     val taskModifier: @Composable (CalTask, String) -> Modifier = { task, source ->
         val key = "$source:${task.id}"
         DisposableEffect(key) { onDispose { taskBounds.remove(key) } }
         Modifier.onGloballyPositioned { taskBounds[key] = task to it.boundsInRoot() }
             .semantics { customActions = listOf(
-                CustomAccessibilityAction(if (task.done) "Reopen task" else "Complete task") { onTaskDone(task, !task.done); true },
-                CustomAccessibilityAction("Schedule task") { taskAction(TaskMenuAction.Schedule, task); true },
-                CustomAccessibilityAction("Move to this week") { if (!task.isRecurringTask() && taskIsWritable(task)) { onTaskWeek(task, weekFirst, weekLast); true } else false },
+                CustomAccessibilityAction(if (task.done) reopenTaskLabel else completeTaskLabel) { onTaskDone(task, !task.done); true },
+                CustomAccessibilityAction(scheduleTaskLabel) { taskAction(TaskMenuAction.Schedule, task); true },
+                CustomAccessibilityAction(moveTaskThisWeekLabel) { if (!task.isRecurringTask() && taskIsWritable(task)) { onTaskWeek(task, weekFirst, weekLast); true } else false },
             ) }
     }
     fun taskDestination(pointer: Offset): TaskDropDestination? {
@@ -843,9 +856,9 @@ private fun RangePagerSurface(
         }
         if (scheduleChoice) AlertDialog(
             onDismissRequest = { scheduleChoice = false; scheduling = null },
-            title = { Text("Schedule task") }, text = { Text(schedulingDay.format(RangeDate)) },
-            confirmButton = { TextButton(onClick = { scheduleChoice = false; scheduling?.let { onTaskSchedule(it, schedulingDay, null) }; scheduling = null }) { Text("All day") } },
-            dismissButton = { TextButton(onClick = { scheduleChoice = false; pickScheduleTime() }) { Text("Choose time") } },
+            title = { Text(stringResource(R.string.cal_schedule_task)) }, text = { Text(schedulingDay.format(rangeDateFormatter)) },
+            confirmButton = { TextButton(onClick = { scheduleChoice = false; scheduling?.let { onTaskSchedule(it, schedulingDay, null) }; scheduling = null }) { Text(stringResource(R.string.cal_all_day)) } },
+            dismissButton = { TextButton(onClick = { scheduleChoice = false; pickScheduleTime() }) { Text(stringResource(R.string.cal_choose_time)) } },
         )
         WeekTaskDropZone(
             visible = taskDragging, hovering = taskOverShelf, height = weekDropBand,
@@ -855,9 +868,9 @@ private fun RangePagerSurface(
         if (taskDragging && visibleTaskDrag != null) {
             val destination = taskDestination
             val label = when (destination) {
-                TaskDropDestination.Week -> "Sometime this week"
-                is TaskDropDestination.Day -> "${destination.day.format(RangeDate)} · ${destination.time?.let { timeFormat.format(it) } ?: "all day"}"
-                null -> "Drag to a day or this week"
+                TaskDropDestination.Week -> stringResource(R.string.cal_sometime_this_week)
+                is TaskDropDestination.Day -> if (destination.time != null) stringResource(R.string.cal_day_with_time, destination.day.format(rangeDateFormatter), timeFormat.format(destination.time, locale)) else stringResource(R.string.cal_day_all_day, destination.day.format(rangeDateFormatter))
+                null -> stringResource(R.string.cal_drag_to_day_or_week)
             }
             if (destination is TaskDropDestination.Day && destination.time != null) {
                 val gutter = with(density) { CalinoSpacing.RailGutter.toPx() }
@@ -868,13 +881,14 @@ private fun RangePagerSurface(
                     (minute / 60f * hourHeightPx - timelineScroll.value + with(density) { stripHeight.toPx() }).toInt()) }
                     .width(with(density) { columnWidth.toDp() }).height(2.dp).background(CalinoColors.Accent))
             }
+            val dropPreviewDescription = stringResource(R.string.cal_task_drop_preview, label)
             Column(Modifier.align(Alignment.TopStart).offset {
                 val x = (visibleTaskDrag.second.x - with(density) { 110.dp.toPx() }).toInt()
                     .coerceIn(0, (hostWidth - with(density) { 220.dp.toPx() }).toInt().coerceAtLeast(0))
                 androidx.compose.ui.unit.IntOffset(x, (visibleTaskDrag.second.y - with(density) { 72.dp.toPx() }).toInt().coerceAtLeast(0))
             }.width(220.dp).background(CalinoColors.Panel.copy(alpha = .96f), RoundedCornerShape(12.dp))
                 .border(1.dp, CalinoColors.Accent.copy(alpha = .6f), RoundedCornerShape(12.dp)).padding(12.dp)
-                .semantics { contentDescription = "Task drop preview, $label" }) {
+                .semantics { contentDescription = dropPreviewDescription }) {
                 Text(visibleTaskDrag.first.title, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(label, style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
             }
@@ -924,8 +938,10 @@ private fun RangePagerSurface(
             val previewLeft = gutterPx + gapPx + dayIndex.coerceAtLeast(0) * (columnWidth + gapPx)
             val previewTop = (dragTarget.hour * 60 + dragTarget.minute) / 60f * hourHeightPx - timelineScroll.value +
                 with(density) { stripHeight.toPx() }
+            val dropStartDescription = stringResource(R.string.cal_drop_start_time, timeFormat.format(dragTarget.toLocalTime(), locale))
+            val dropPreviewDescription = stringResource(R.string.cal_drop_preview, dragTarget.toLocalDate().format(rangeDateFormatter), timeFormat.format(dragTarget.toLocalTime(), locale))
             Text(
-                text = timeFormat.format(dragTarget.toLocalTime()),
+                text = timeFormat.format(dragTarget.toLocalTime(), locale),
                 modifier = Modifier
                     .width(CalinoSpacing.RailGutter - 6.dp)
                     .graphicsLayer {
@@ -937,7 +953,7 @@ private fun RangePagerSurface(
                     .border(1.dp, CalinoColors.Accent.copy(alpha = .7f), RoundedCornerShape(7.dp))
                     .padding(horizontal = 3.dp, vertical = 2.dp)
                     .semantics {
-                        contentDescription = "Drop start time, ${timeFormat.format(dragTarget.toLocalTime())}"
+                        contentDescription = dropStartDescription
                     },
                 color = CalinoColors.Accent,
                 fontSize = 10.sp,
@@ -955,7 +971,7 @@ private fun RangePagerSurface(
                         alpha = .34f
                     }
                     .semantics {
-                        contentDescription = "Drop preview, ${dragTarget.toLocalDate()}, ${timeFormat.format(dragTarget.toLocalTime())}"
+                        contentDescription = dropPreviewDescription
                     },
                 event = session.card.event,
                 showMetadata = session.card.showMetadata,
@@ -1026,12 +1042,14 @@ private fun RangePage(
 ) {
     val density = LocalDensity.current
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
+    val locale = LocalCalinoLocale
+    val dayCalendarDescription = stringResource(R.string.cal_day_calendar, days.size)
     val railLayer = rememberGraphicsLayer()
     // The date bar's height is already animated by the all-day band, so the
     // measured value is per-frame; a second spring here would lag it and let the
     // gutter's header line drift from the page's.
     var stripHeight by remember { mutableStateOf(0.dp) }
-    Box(Modifier.fillMaxSize().semantics { contentDescription = "${days.size}-day calendar" }) {
+    Box(Modifier.fillMaxSize().semantics { contentDescription = dayCalendarDescription }) {
         Row(
             Modifier.fillMaxSize()
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
@@ -1126,7 +1144,7 @@ private fun RangePage(
                             else -> TextStyle.NARROW
                         }
                         Text(
-                            day.dayOfWeek.getDisplayName(weekdayStyle, Locale.getDefault()).uppercase(),
+                            day.dayOfWeek.getDisplayName(weekdayStyle, locale).uppercase(locale),
                             fontSize = 10.sp,
                             color = CalinoColors.Ink3,
                             maxLines = 1,
@@ -1212,12 +1230,14 @@ private fun RangeDateBarSwipe(
         scope.launch { settle(startPage, 0f, steps) }
     }
 
+    val previousDayActionLabel = stringResource(R.string.cal_previous_day)
+    val nextDayActionLabel = stringResource(R.string.cal_next_day)
     Box(
         modifier
             .semantics {
                 customActions = listOf(
-                    CustomAccessibilityAction("Previous day") { stepBy(-1); true },
-                    CustomAccessibilityAction("Next day") { stepBy(1); true },
+                    CustomAccessibilityAction(previousDayActionLabel) { stepBy(-1); true },
+                    CustomAccessibilityAction(nextDayActionLabel) { stepBy(1); true },
                 )
             }
             .pointerInput(dayCount) {
@@ -1282,6 +1302,7 @@ private fun RangeResizePreview(
 ) {
     val density = LocalDensity.current
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     val preferences = LocalCalinoPreferences.current
     val rect = session.card.rootRect
     val event = session.card.event
@@ -1296,7 +1317,9 @@ private fun RangeResizePreview(
         .coerceIn(cardHeight(RangeMinResizeMinutes), cardHeight(24 * 60 - startMinute))
     val snappedHeight = cardHeight(durationMinutes)
     val end = start.plusMinutes(durationMinutes.toLong())
-    val endLabel = timeFormat.format(end.toLocalTime())
+    val endLabel = timeFormat.format(end.toLocalTime(), locale)
+    val resizePreviewDescription = stringResource(R.string.cal_resize_preview, endLabel)
+    val resizeEndDescription = stringResource(R.string.cal_resize_end_time, endLabel)
     val width = with(density) { rect.width.toDp() }
     TimelineEventCard(
         modifier = Modifier
@@ -1307,7 +1330,7 @@ private fun RangeResizePreview(
                 translationY = top
                 alpha = .34f
             }
-            .semantics { contentDescription = "Resize preview, ends $endLabel" },
+            .semantics { contentDescription = resizePreviewDescription },
         event = event,
         showMetadata = session.card.showMetadata,
         timeFormat = timeFormat,
@@ -1327,7 +1350,7 @@ private fun RangeResizePreview(
             .background(CalinoColors.Canvas.copy(alpha = .94f))
             .border(1.dp, CalinoColors.Accent.copy(alpha = .7f), RoundedCornerShape(7.dp))
             .padding(horizontal = 3.dp, vertical = 2.dp)
-            .semantics { contentDescription = "Resize end time, $endLabel" },
+            .semantics { contentDescription = resizeEndDescription },
         color = CalinoColors.Accent,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
@@ -1562,6 +1585,7 @@ private fun Modifier.rangePinch(
 @Composable
 private fun RangeHourGutter(timelineScale: Float, modifier: Modifier = Modifier) {
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     val secondary = calino.malinov.ski.state.LocalCalinoPreferences.current.secondaryZoneId
         ?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() }
         ?.takeIf { 62 * timelineScale >= 30f }
@@ -1572,7 +1596,7 @@ private fun RangeHourGutter(timelineScale: Float, modifier: Modifier = Modifier)
     Box(modifier.width(CalinoSpacing.RailGutter).height((62 * timelineScale * 24).dp)) {
         (0..23).forEach { hour ->
             Text(
-                timeFormat.formatHour(hour),
+                timeFormat.formatHour(hour, locale),
                 Modifier.padding(start = 8.dp, top = (hour * 62 * timelineScale).dp),
                 fontSize = 10.sp,
                 color = CalinoColors.Ink3,
@@ -1580,7 +1604,7 @@ private fun RangeHourGutter(timelineScale: Float, modifier: Modifier = Modifier)
             )
             if (secondary != null) {
                 Text(
-                    calino.malinov.ski.util.CalinoZones.secondaryHour(today, hour, device, secondary, timeFormat),
+                    calino.malinov.ski.util.CalinoZones.secondaryHour(today, hour, device, secondary, timeFormat, locale),
                     Modifier.padding(start = 8.dp, top = (hour * 62 * timelineScale + 12).dp),
                     fontSize = 9.sp,
                     color = CalinoColors.Ink3.copy(alpha = .6f),

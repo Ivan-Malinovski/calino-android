@@ -1,5 +1,6 @@
 package calino.malinov.ski.platform
 
+import calino.malinov.ski.R
 import android.accounts.AbstractAccountAuthenticator
 import android.accounts.Account
 import android.accounts.AccountAuthenticatorResponse
@@ -66,14 +67,14 @@ class CalinoAuthenticator(private val context: Context) : AbstractAccountAuthent
     override fun editProperties(
         response: AccountAuthenticatorResponse,
         accountType: String,
-    ): Bundle = unsupported("Calino accounts have no editable properties")
+    ): Bundle = unsupported(context.getString(R.string.provider_account_properties))
 
     override fun getAuthToken(
         response: AccountAuthenticatorResponse,
         account: Account,
         authTokenType: String,
         options: Bundle?,
-    ): Bundle = unsupported("Calino does not issue auth tokens")
+    ): Bundle = unsupported(context.getString(R.string.provider_auth_tokens))
 
     override fun getAuthTokenLabel(authTokenType: String): String? = null
 
@@ -82,7 +83,7 @@ class CalinoAuthenticator(private val context: Context) : AbstractAccountAuthent
         account: Account,
         authTokenType: String?,
         options: Bundle?,
-    ): Bundle = unsupported("Change the password in Calino's account list")
+    ): Bundle = unsupported(context.getString(R.string.provider_password_change))
 
     /** Only the calendar authority, and only because we project into it. */
     override fun hasFeatures(

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="calino_widget_description">Heutige Termine und Aufgaben, jeweils eine Zeile</string>
+    <string name="calino_cards_widget_description">Heutige Termine und Aufgaben als Karten mit Orten</string>
+    <string name="calino_tasks_widget_description">Jetzt und demnächst fällige Aufgaben sowie Überfälliges</string>
+    <string name="app_function_display_description">Deine Termine und Aufgaben lesen, in Calino öffnen und neue zum Speichern vorbereiten</string>
+    <string name="phone_search_hint">Calino durchsuchen</string>
+    <string name="phone_search_settings_description">Termine und Aufgaben</string>
+</resources>

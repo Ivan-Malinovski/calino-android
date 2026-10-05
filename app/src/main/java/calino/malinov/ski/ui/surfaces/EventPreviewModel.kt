@@ -74,10 +74,14 @@ fun EventPreviewDraft.withEndTime(picked: LocalTime): EventPreviewDraft {
     return copy(durationMinutes = resolved.toInt())
 }
 
-fun EventPreviewDraft.validationError(): String? = when {
-    title.isBlank() -> "Enter an event title."
-    startTime == null && allDayEndDate != null && allDayEndDate.isBefore(date) -> "End date must be on or after start date."
-    startTime != null && (durationMinutes ?: 0) <= 0 -> "End time must be after start time."
+fun EventPreviewDraft.validationError(
+    titleRequired: String = "Enter an event title.",
+    invalidAllDayEnd: String = "End date must be on or after start date.",
+    invalidTimedEnd: String = "End time must be after start time.",
+): String? = when {
+    title.isBlank() -> titleRequired
+    startTime == null && allDayEndDate != null && allDayEndDate.isBefore(date) -> invalidAllDayEnd
+    startTime != null && (durationMinutes ?: 0) <= 0 -> invalidTimedEnd
     else -> null
 }
 
@@ -125,6 +129,7 @@ fun foreignZoneCaption(
     endZoneId: String?,
     device: ZoneId,
     format: (LocalTime) -> String,
+    inLabel: String = "in",
 ): String? {
     start ?: return null
     val startZone = zoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: return null
@@ -137,23 +142,23 @@ fun foreignZoneCaption(
     val localStart = startAt.withZoneSameInstant(startZone).toLocalTime()
     val localEnd = endAt.withZoneSameInstant(endZone).toLocalTime()
     return if (endZone == startZone) {
-        "${format(localStart)} – ${format(localEnd)} in ${CalinoZones.city(startZone)}"
+        "${format(localStart)} – ${format(localEnd)} $inLabel ${CalinoZones.city(startZone)}"
     } else {
         "${format(localStart)} ${CalinoZones.city(startZone)} → ${format(localEnd)} ${CalinoZones.city(endZone)}"
     }
 }
 
 /** A name for an attachment row: its file name, else the link's host, else "Attachment". */
-fun attachmentLabel(attachment: EventAttachment): String =
+fun attachmentLabel(attachment: EventAttachment, fallback: String = "Attachment"): String =
     attachment.fileName
         ?: attachment.uri?.let { runCatching { java.net.URI(it).host }.getOrNull() }?.removePrefix("www.")
-        ?: "Attachment"
+        ?: fallback
 
 /** The line under an attachment's name: the link's host, or the file's type and size. */
-fun attachmentDetail(attachment: EventAttachment): String? {
+fun attachmentDetail(attachment: EventAttachment, fallback: String = "Attachment", linkLabel: String = "Link"): String? {
     attachment.uri?.let { uri ->
         val host = runCatching { java.net.URI(uri).host }.getOrNull()?.removePrefix("www.")
-        return host?.takeIf { it != attachmentLabel(attachment) } ?: host?.let { "Link" }
+        return host?.takeIf { it != attachmentLabel(attachment, fallback) } ?: host?.let { linkLabel }
     }
     val size = attachment.sizeBytes?.let { bytes ->
         when {

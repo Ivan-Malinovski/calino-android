@@ -69,6 +69,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -94,6 +95,9 @@ import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.SwipeDownDismiss
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.formatCalinoDate
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.localizedDisplayFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
@@ -115,6 +119,10 @@ fun AiVisionSettingsContent() {
     var models by remember { mutableStateOf<List<String>>(emptyList()) }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    val apiKeyFirst = stringResource(R.string.ed_ai_save_key_first)
+    val loadingModels = stringResource(R.string.ed_ai_loading_models)
+    val noModels = stringResource(R.string.ed_ai_no_models)
+    val loadModelsError = stringResource(R.string.ed_ai_load_models_error)
 
     fun persist() {
         store.saveConfig(settings.provider, settings.baseUrl, settings.model)
@@ -124,12 +132,12 @@ fun AiVisionSettingsContent() {
     }
     fun fetchModels() {
         persist()
-        val key = store.apiKey() ?: run { status = "Save an API key first."; return }
-        busy = true; status = "Loading models…"
+        val key = store.apiKey() ?: run { status = apiKeyFirst; return }
+        busy = true; status = loadingModels
         scope.launch {
             runCatching { client.listModels(settings, key).sorted() }
-                .onSuccess { models = it; status = if (it.isEmpty()) "No models were returned." else "${it.size} models available" }
-                .onFailure { status = it.message ?: "Could not load models." }
+                .onSuccess { models = it; status = if (it.isEmpty()) noModels else context.resources.getQuantityString(R.plurals.ed_ai_models_available, it.size, it.size) }
+                .onFailure { status = it.message ?: loadModelsError }
             busy = false
         }
     }
@@ -138,36 +146,36 @@ fun AiVisionSettingsContent() {
         Modifier.fillMaxWidth().padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("Use your own API key to fill an event or task from a photo. The image is sent directly to your selected provider.", color = CalinoColors.Ink2)
+        Text(stringResource(R.string.ed_ai_settings_intro), color = CalinoColors.Ink2)
             Column(Modifier.fillMaxWidth().background(CalinoColors.Panel, RoundedCornerShape(18.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Provider", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.ed_ai_provider), fontWeight = FontWeight.Bold)
                 Box {
-                    OutlinedButton(onClick = { providerMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(settings.provider.label) }
+                    OutlinedButton(onClick = { providerMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(aiProviderLabel(settings.provider)) }
                     DropdownMenu(providerMenu, onDismissRequest = { providerMenu = false }) {
-                        AiProvider.entries.forEach { provider -> DropdownMenuItem(text = { Text(provider.label) }, onClick = {
+                        AiProvider.entries.forEach { provider -> DropdownMenuItem(text = { Text(aiProviderLabel(provider)) }, onClick = {
                             settings = settings.copy(provider = provider, baseUrl = provider.defaultUrl, model = if (provider == AiProvider.Custom) "mimo-v2.5" else "")
                             providerMenu = false
                         }) }
                     }
                 }
-                TextField(settings.baseUrl, { settings = settings.copy(baseUrl = it) }, label = { Text("Base URL") }, supportingText = { Text("Full API root including /v1; used exactly as entered") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                TextField(keyDraft, { keyDraft = it }, label = { Text("API key") }, placeholder = { Text(if (settings.hasApiKey) "••••••••••••" else "Enter API key") }, visualTransformation = if (revealKey) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { TextButton(onClick = { revealKey = !revealKey }) { Text(if (revealKey) "Hide" else "Show") } }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                if (settings.hasApiKey) TextButton(onClick = { store.clearApiKey(); updateLauncherShortcuts(context, false); settings = store.load(); status = "API key cleared" }) { Text("Clear saved key") }
-                Text("Model", fontWeight = FontWeight.Bold)
+                TextField(settings.baseUrl, { settings = settings.copy(baseUrl = it) }, label = { Text(stringResource(R.string.ed_ai_base_url)) }, supportingText = { Text(stringResource(R.string.ed_ai_base_url_hint)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                TextField(keyDraft, { keyDraft = it }, label = { Text(stringResource(R.string.ed_ai_api_key)) }, placeholder = { Text(if (settings.hasApiKey) "••••••••••••" else stringResource(R.string.ed_ai_enter_api_key)) }, visualTransformation = if (revealKey) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { TextButton(onClick = { revealKey = !revealKey }) { Text(if (revealKey) stringResource(R.string.ed_ai_hide) else stringResource(R.string.ed_ai_show)) } }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                if (settings.hasApiKey) TextButton(onClick = { store.clearApiKey(); updateLauncherShortcuts(context, false); settings = store.load(); status = context.getString(R.string.ed_ai_key_cleared) }) { Text(stringResource(R.string.ed_ai_clear_saved_key)) }
+                Text(stringResource(R.string.ed_ai_model), fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) {
-                        TextField(settings.model, { settings = settings.copy(model = it) }, label = { Text("Model ID") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        TextField(settings.model, { settings = settings.copy(model = it) }, label = { Text(stringResource(R.string.ed_ai_model_id)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         DropdownMenu(modelMenu, onDismissRequest = { modelMenu = false }) { models.forEach { id -> DropdownMenuItem(text = { Text(id) }, onClick = { settings = settings.copy(model = id); modelMenu = false }) } }
                     }
-                    OutlinedButton(onClick = { if (models.isEmpty()) fetchModels() else modelMenu = true }, enabled = !busy) { Text(if (models.isEmpty()) "Load" else "Choose") }
+                    OutlinedButton(onClick = { if (models.isEmpty()) fetchModels() else modelMenu = true }, enabled = !busy) { Text(if (models.isEmpty()) stringResource(R.string.ed_ai_load) else stringResource(R.string.ed_ai_choose)) }
                 }
-                Button(onClick = { persist(); status = "Saved" }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = CalinoColors.Ink)) { Text("Save settings") }
+                Button(onClick = { persist(); status = context.getString(R.string.ed_ai_saved) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = CalinoColors.Ink)) { Text(stringResource(R.string.ed_ai_save_settings)) }
                 Button(onClick = {
-                    persist(); val key = store.apiKey() ?: run { status = "Save an API key first."; return@Button }
-                    busy = true; status = "Testing connection…"
+                    persist(); val key = store.apiKey() ?: run { status = apiKeyFirst; return@Button }
+                    busy = true; status = context.getString(R.string.ed_ai_testing_connection)
                     scope.launch { val result = client.test(settings, key); status = result.message; if (result.ok) { store.saveVerification(result.visionCapable == true); settings = store.load() }; busy = false }
                 }, enabled = !busy && settings.model.isNotBlank() && settings.baseUrl.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                    if (busy) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.height(18.dp)) else Text("Test connection")
+                    if (busy) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.height(18.dp)) else Text(stringResource(R.string.ed_ai_test_connection))
                 }
                 status?.let { Text(it, color = CalinoColors.Ink2) }
             }
@@ -176,11 +184,12 @@ fun AiVisionSettingsContent() {
 
 @Composable
 fun AiProcessingOverlay(visible: Boolean, stage: String) {
+    val context = LocalContext.current
     AnimatedVisibility(visible, enter = fadeIn(), exit = fadeOut()) {
         Box(
             Modifier.fillMaxSize()
                 .background(CalinoColors.scrim(.18f))
-                .semantics { contentDescription = "AI photo import in progress: $stage" },
+                .semantics { contentDescription = context.getString(R.string.ed_ai_import_progress, stage) },
             contentAlignment = Alignment.Center,
         ) {
             Surface(
@@ -196,7 +205,7 @@ fun AiProcessingOverlay(visible: Boolean, stage: String) {
                 ) {
                     CircularProgressIndicator(color = CalinoColors.Accent, modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
                     Text(stage, color = CalinoColors.Ink, style = CalinoTypography.titleSmall)
-                    Text("Keep Calino open while the photo is read", color = CalinoColors.Ink2, style = CalinoTypography.bodyMedium)
+                    Text(stringResource(R.string.ed_ai_keep_open), color = CalinoColors.Ink2, style = CalinoTypography.bodyMedium)
                 }
             }
         }
@@ -217,13 +226,14 @@ fun AiCandidateReview(
     onCancel: () -> Unit,
     onUse: (List<AiEventCandidate>) -> Unit,
 ) {
+    val context = LocalContext.current
     val values = candidates.orEmpty()
     val timeFormat = LocalTimeFormat
-    val compactTitle = if (values.size > 1) "What did we find?" else "Confirm details"
+    val compactTitle = if (values.size > 1) stringResource(R.string.ed_ai_review_title_multiple) else stringResource(R.string.ed_ai_review_title_single)
     val compactSubtitle = if (values.size > 1) {
-        "Everything read from the photo is selected below. Tap any item to leave it out."
+        stringResource(R.string.ed_ai_review_subtitle_multiple)
     } else {
-        "Here’s what was read from the photo. You can still edit everything in the next step."
+        stringResource(R.string.ed_ai_review_subtitle_single)
     }
 
     BackHandler(enabled = candidates != null, onBack = onCancel)
@@ -242,10 +252,10 @@ fun AiCandidateReview(
         val multiple = values.size > 1
         val selectedCount = reviewCandidates.count { it.selected }
         val confirmLabel = when {
-            selectedCount == 0 -> "Select items to add"
-            selectedCount == values.size && multiple -> "Add all $selectedCount"
-            multiple -> "Add $selectedCount selected"
-            else -> "Use this"
+            selectedCount == 0 -> stringResource(R.string.ed_ai_select_items)
+            selectedCount == values.size && multiple -> stringResource(R.string.ed_ai_add_all, selectedCount)
+            multiple -> stringResource(R.string.ed_ai_add_selected, selectedCount)
+            else -> stringResource(R.string.ed_ai_use_this)
         }
 
         BoxWithConstraints(Modifier.fillMaxSize().navigationBarsPadding()) {
@@ -309,7 +319,7 @@ fun AiCandidateReview(
                             color = CalinoColors.Ink2,
                             modifier = Modifier.size(44.dp)
                                 .clickable(onClick = onCancel)
-                                .semantics { contentDescription = "Cancel photo import" },
+                                .semantics { contentDescription = context.getString(R.string.ed_ai_cancel_import) },
                         )
                     }
                     Spacer(Modifier.height(14.dp))
@@ -370,8 +380,8 @@ fun AiCandidateReview(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text("No results left", style = CalinoTypography.titleSmall, color = CalinoColors.Ink)
-                            Text("The swiped-away items will not be added.", style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2)
+                            Text(stringResource(R.string.ed_ai_no_results), style = CalinoTypography.titleSmall, color = CalinoColors.Ink)
+                            Text(stringResource(R.string.ed_ai_swiped_items_excluded), style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2)
                         }
                     }
                     Row(
@@ -380,7 +390,7 @@ fun AiCandidateReview(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         TextButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
-                            Text("Cancel", style = CalinoTypography.labelLarge)
+                            Text(stringResource(R.string.ed_ai_cancel), style = CalinoTypography.labelLarge)
                         }
                         Button(
                             onClick = {
@@ -411,11 +421,12 @@ private fun AiCandidateCard(
     onKindChange: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     val density = LocalDensity.current
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val shape = RoundedCornerShape(11.dp)
     val accent = if (kind == "task") CalinoColors.Green else CalinoColors.Accent
-    val title = item.title ?: if (kind == "task") "Untitled task" else "Untitled event"
+    val title = item.title ?: if (kind == "task") stringResource(R.string.ed_ai_untitled_task) else stringResource(R.string.ed_ai_untitled_event)
     var dragX by remember(item, kind) { mutableFloatStateOf(0f) }
     var isDragging by remember(item, kind) { mutableStateOf(false) }
     var dismissing by remember(item, kind) { mutableStateOf(false) }
@@ -458,7 +469,7 @@ private fun AiCandidateCard(
         ) {
             Icon(CalinoIcons.Trash, contentDescription = null, tint = CalinoColors.OnAccent.copy(alpha = actionProgress.coerceAtLeast(.72f)), modifier = Modifier.size(18.dp))
             Spacer(Modifier.size(8.dp))
-            Text("Remove", color = CalinoColors.OnAccent.copy(alpha = actionProgress.coerceAtLeast(.72f)), style = CalinoTypography.bodyMedium)
+            Text(stringResource(R.string.ed_ai_remove), color = CalinoColors.OnAccent.copy(alpha = actionProgress.coerceAtLeast(.72f)), style = CalinoTypography.bodyMedium)
         }
         Row(
             Modifier
@@ -494,7 +505,10 @@ private fun AiCandidateCard(
                     }
                 }
                 .semantics {
-                    contentDescription = "$title, ${if (selected) "selected" else "not selected"}. Swipe left or right to remove."
+                    contentDescription = context.getString(
+                        if (selected) R.string.ed_ai_candidate_selected else R.string.ed_ai_candidate_not_selected,
+                        title,
+                    )
                 }
                 .padding(horizontal = 13.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Top,
@@ -515,20 +529,25 @@ private fun AiCandidateCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                aiDateLabel(item, timeFormat, kind)?.let { AiMetaRow(CalinoIcons.Calendar, it) }
+                aiDateLabel(item, timeFormat, kind, stringResource(R.string.ed_ai_due_prefix), LocalCalinoLocale)?.let { AiMetaRow(CalinoIcons.Calendar, it) }
                 item.location?.takeIf(String::isNotBlank)?.let { AiMetaRow(CalinoIcons.Pin, it) }
                 item.description?.takeIf(String::isNotBlank)?.let {
                     Text(it, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
                 }
-                if (item.confidence != null && item.confidence != "high") {
-                    Text("${item.confidence} confidence", style = CalinoTypography.labelSmall, color = CalinoColors.Accent, modifier = Modifier.padding(top = 4.dp))
+                val confidenceLabel = when (item.confidence) {
+                    "low" -> stringResource(R.string.ed_ai_confidence_low)
+                    "medium" -> stringResource(R.string.ed_ai_confidence_medium)
+                    else -> null
+                }
+                confidenceLabel?.let {
+                    Text(stringResource(R.string.ed_ai_confidence, it), style = CalinoTypography.labelSmall, color = CalinoColors.Accent, modifier = Modifier.padding(top = 4.dp))
                 }
                 CompactSegmentedControl(
-                    options = listOf("Event", "Task"),
+                    options = listOf(stringResource(R.string.ed_ai_event), stringResource(R.string.ed_ai_task)),
                     selectedIndex = if (kind == "task") 1 else 0,
                     onSelected = { index -> onKindChange(if (index == 1) "task" else "event") },
                     modifier = Modifier.align(Alignment.End).width(148.dp),
-                    semanticLabel = "Result type",
+                    semanticLabel = stringResource(R.string.ed_ai_result_type),
                     maxControlWidth = 148.dp,
                 )
             }
@@ -561,19 +580,20 @@ private fun AiMetaRow(icon: androidx.compose.ui.graphics.vector.ImageVector, tex
     }
 }
 
-private fun aiDateLabel(item: AiEventCandidate, timeFormat: CalinoTimeFormat, kind: String): String? {
+private fun aiDateLabel(item: AiEventCandidate, timeFormat: CalinoTimeFormat, kind: String, duePrefix: String, locale: Locale): String? {
     val start = item.start ?: return null
-    if (item.allDay) return (if (kind == "task") "Due " else "") + formatCalinoDate(start.toLocalDate())
-    val date = start.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US))
-    val startText = "$date · ${timeFormat.format(start)}"
+    if (item.allDay) return (if (kind == "task") duePrefix else "") + formatCalinoDate(start.toLocalDate(), locale)
+    val dateFormat = localizedDisplayFormatter("EEE, MMM d", locale)
+    val date = start.format(dateFormat)
+    val startText = "$date · ${timeFormat.format(start, locale)}"
     val end = item.end
-    if (end == null) return (if (kind == "task") "Due " else "") + startText
+    if (end == null) return (if (kind == "task") duePrefix else "") + startText
     val endText = if (start.toLocalDate() == end.toLocalDate()) {
-        timeFormat.format(end)
+        timeFormat.format(end, locale)
     } else {
-        end.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)) + " · " + timeFormat.format(end)
+        end.format(dateFormat) + " · " + timeFormat.format(end, locale)
     }
-    return (if (kind == "task") "Due " else "") + "$startText – $endText"
+    return (if (kind == "task") duePrefix else "") + "$startText – $endText"
 }
 
 /**
@@ -590,19 +610,19 @@ fun updateLauncherShortcuts(context: Context, aiPhotoImportEnabled: Boolean) {
     val manager = context.getSystemService(ShortcutManager::class.java) ?: return
     val shortcuts = mutableListOf(
         ShortcutInfo.Builder(context, "new-event")
-            .setShortLabel("New event")
+            .setShortLabel(context.getString(R.string.ed_ai_shortcut_new_event))
             .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_new_event))
             .setIntent(Intent(Intent.ACTION_INSERT, null, context, MainActivity::class.java))
             .setRank(0)
             .build(),
         ShortcutInfo.Builder(context, "new-task")
-            .setShortLabel("New task")
+            .setShortLabel(context.getString(R.string.ed_ai_shortcut_new_task))
             .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_new_task))
             .setIntent(Intent(MainActivity.ActionDraftTask, null, context, MainActivity::class.java))
             .setRank(1)
             .build(),
         ShortcutInfo.Builder(context, "search")
-            .setShortLabel("Search")
+            .setShortLabel(context.getString(R.string.ed_ai_shortcut_search))
             .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_search))
             .setIntent(Intent("calino.malinov.ski.action.SEARCH", null, context, MainActivity::class.java))
             .setRank(2)
@@ -610,11 +630,18 @@ fun updateLauncherShortcuts(context: Context, aiPhotoImportEnabled: Boolean) {
     )
     if (aiPhotoImportEnabled) {
         shortcuts += ShortcutInfo.Builder(context, "ai-photo-import")
-            .setShortLabel("Photo import")
+            .setShortLabel(context.getString(R.string.ed_ai_shortcut_photo_import))
             .setIcon(Icon.createWithResource(context, R.drawable.ic_shortcut_ai_photo))
             .setIntent(Intent(Intent.ACTION_VIEW, Uri.parse("calino.malinov.ski://ai-photo-import"), context, MainActivity::class.java))
             .setRank(3)
             .build()
     }
     manager.dynamicShortcuts = shortcuts
+}
+
+@Composable
+private fun aiProviderLabel(provider: AiProvider): String = when (provider) {
+    AiProvider.Anthropic -> provider.label
+    AiProvider.OpenAi -> provider.label
+    AiProvider.Custom -> stringResource(R.string.ed_ai_custom_provider)
 }

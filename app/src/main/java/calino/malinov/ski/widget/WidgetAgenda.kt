@@ -114,6 +114,9 @@ data class WidgetAgendaOptions(
      * reached today.
      */
     val overdueDays: Long = 30,
+    /** Presentation inputs supplied by the Android boundary. */
+    val locale: Locale = Locale.US,
+    val untitledLabel: String = "(No title)",
 )
 
 /** The empty-day string, kept identical to the agenda surface's. */
@@ -244,7 +247,10 @@ object WidgetAgendaBuilder {
                 // The date replaces the time: "17:00" on a row that was due
                 // last Tuesday answers the wrong question.
                 task.row(task.due!!, options).copy(
-                    timeLabel = task.due!!.format(OverdueFormat),
+                    timeLabel = task.due!!.format(
+                        if (options.locale.language in setOf("da", "de")) DateTimeFormatter.ofPattern("d. MMM", options.locale)
+                        else OverdueFormat.withLocale(options.locale),
+                    ),
                     startTime = null,
                 )
             }
@@ -263,8 +269,8 @@ object WidgetAgendaBuilder {
             recordId = id,
             uid = uid,
             day = date,
-            title = title.ifBlank { "(No title)" },
-            timeLabel = startsAt?.let { options.timeFormat.format(it) },
+            title = title.ifBlank { options.untitledLabel },
+            timeLabel = startsAt?.let { options.timeFormat.format(it, options.locale) },
             startTime = startsAt,
             location = location?.takeIf { options.showLocations && it.isNotBlank() },
             color = color,
@@ -277,8 +283,8 @@ object WidgetAgendaBuilder {
         recordId = id,
         uid = uid,
         day = date,
-        title = title.ifBlank { "(No title)" },
-        timeLabel = dueTime?.let { options.timeFormat.format(it) },
+        title = title.ifBlank { options.untitledLabel },
+        timeLabel = dueTime?.let { options.timeFormat.format(it, options.locale) },
         startTime = dueTime,
         location = null,
         color = color,

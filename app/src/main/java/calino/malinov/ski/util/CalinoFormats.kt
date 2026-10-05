@@ -29,8 +29,8 @@ enum class CalinoTimeFormat(val label: String, pattern: String) {
 
     private val formatter: DateTimeFormatter = DateTimeFormatter.ofPattern(pattern, Locale.US)
 
-    fun format(time: LocalTime): String = formatter.format(time)
-    fun format(time: LocalDateTime): String = formatter.format(time)
+    fun format(time: LocalTime, locale: Locale = Locale.US): String = formatter.withLocale(locale).format(time)
+    fun format(time: LocalDateTime, locale: Locale = Locale.US): String = formatter.withLocale(locale).format(time)
 
     fun resolved(deviceDefault: CalinoTimeFormat): CalinoTimeFormat =
         if (this == System) deviceDefault else this
@@ -39,9 +39,9 @@ enum class CalinoTimeFormat(val label: String, pattern: String) {
      * The gutter label for a whole hour. The day rail's hour column is narrow,
      * so the 12-hour clock drops the ":00" rather than being clipped.
      */
-    fun formatHour(hour: Int): String = when (this) {
-        System, TwelveHour -> HourFormat.format(LocalTime.of(hour % 24, 0))
-        TwentyFourHour -> format(LocalTime.of(hour % 24, 0))
+    fun formatHour(hour: Int, locale: Locale = Locale.US): String = when (this) {
+        System, TwelveHour -> HourFormat.withLocale(locale).format(LocalTime.of(hour % 24, 0))
+        TwentyFourHour -> format(LocalTime.of(hour % 24, 0), locale)
     }
 
     companion object {
@@ -53,12 +53,13 @@ enum class CalinoTimeFormat(val label: String, pattern: String) {
     }
 }
 
-fun formatCalinoDate(date: LocalDate): String = date.format(DateFormat)
+fun formatCalinoDate(date: LocalDate, locale: Locale = Locale.US): String = date.format(DateFormat.withLocale(locale))
 
 fun formatCalinoTime(
     time: LocalDateTime,
     format: CalinoTimeFormat = CalinoTimeFormat.Default,
-): String = format.format(time)
+    locale: Locale = Locale.US,
+): String = format.format(time, locale)
 
 /**
  * A span in words, to at most two units.
@@ -94,7 +95,8 @@ fun formatCalinoDuration(minutes: Int): String = when {
 
 private const val MinutesPerDay = 24 * 60
 
-fun formatEventDate(event: CalEvent): String? = event.start?.let { formatCalinoDate(it.toLocalDate()) }
+fun formatEventDate(event: CalEvent, locale: Locale = Locale.US): String? =
+    event.start?.let { formatCalinoDate(it.toLocalDate(), locale) }
 
 /**
  * Converts the small fixture recurrence vocabulary to copy a person can scan.
@@ -170,7 +172,7 @@ fun nextOccurrences(event: CalEvent, from: LocalDate, limit: Int = 3): List<Loca
         .toList()
 }
 
-private fun recurrenceFields(recurrence: String?): Map<String, String>? {
+internal fun recurrenceFields(recurrence: String?): Map<String, String>? {
     val rule = recurrence?.trim()?.uppercase(Locale.US)?.takeIf { it.isNotEmpty() } ?: return null
     val fields = rule.split(';').associateNotNull { part ->
         val separator = part.indexOf('=')
@@ -184,7 +186,7 @@ private inline fun <T, R> Iterable<T>.associateNotNull(transform: (T) -> Pair<St
     for (item in this@associateNotNull) transform(item)?.let { (key, value) -> put(key, value) }
 }
 
-private fun dayOfWeekForCode(code: String): DayOfWeek? = when (code.trim()) {
+internal fun dayOfWeekForCode(code: String): DayOfWeek? = when (code.trim()) {
     "MO" -> DayOfWeek.MONDAY
     "TU" -> DayOfWeek.TUESDAY
     "WE" -> DayOfWeek.WEDNESDAY
@@ -195,7 +197,7 @@ private fun dayOfWeekForCode(code: String): DayOfWeek? = when (code.trim()) {
     else -> null
 }
 
-private fun parseRecurrenceUntil(value: String?): LocalDate? {
+internal fun parseRecurrenceUntil(value: String?): LocalDate? {
     val normalized = value?.removeSuffix("Z") ?: return null
     return runCatching {
         when (normalized.length) {

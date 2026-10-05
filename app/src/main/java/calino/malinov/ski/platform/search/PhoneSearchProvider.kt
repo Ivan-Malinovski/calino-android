@@ -61,7 +61,7 @@ class PhoneSearchProvider : ContentProvider() {
                     arrayOf<Any>(
                         index.toLong(),
                         item.title,
-                        item.subtitle(clock24),
+                        item.subtitle(clock24, context.resources.configuration.locales[0], context.getString(R.string.sys_all_day)),
                         item.itemId,
                         if (item.kind == "task") R.drawable.ic_search_task else R.drawable.ic_search_event,
                     ),
@@ -87,13 +87,13 @@ class PhoneSearchProvider : ContentProvider() {
 }
 
 /** "Thu 24 Sep · 17:00 · Work": when, then which calendar. */
-internal fun CalendarItem.subtitle(clock24: Boolean, locale: Locale = Locale.getDefault()): String {
+internal fun CalendarItem.subtitle(clock24: Boolean, locale: Locale = Locale.getDefault(), allDayLabel: String = "All day"): String {
     val day = date.format(DateTimeFormatter.ofPattern("EEE d MMM", locale))
     val timeFormat = DateTimeFormatter.ofPattern(if (clock24) "HH:mm" else "h:mm a", locale)
     val time = when {
         start != null -> start.toLocalTime().format(timeFormat)
         dueTime != null -> dueTime.format(timeFormat)
-        allDay -> "All day"
+        allDay -> allDayLabel
         else -> null
     }
     return listOfNotNull(day, time, calendarName).joinToString(" · ")

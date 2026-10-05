@@ -1083,7 +1083,7 @@ class CalDavRepository(
         prepare: () -> PreparedCalendarWrite,
         record: (PreparedCalendarWrite) -> T,
     ): WriteResult<T> {
-        val store = pendingStore ?: return WriteResult.Rejected("The pending write queue is not available.")
+        val store = pendingStore ?: return WriteResult.Rejected(WriteRejectionCode.PENDING_WRITE_QUEUE_UNAVAILABLE)
         val outcome = attemptWrite(source.calendar.url) {
             val prepared = prepare()
             check(
@@ -1112,7 +1112,7 @@ class CalDavRepository(
         prepare: () -> PreparedCardWrite,
         record: (PreparedCardWrite) -> T,
     ): WriteResult<T> {
-        val store = pendingStore ?: return WriteResult.Rejected("The pending write queue is not available.")
+        val store = pendingStore ?: return WriteResult.Rejected(WriteRejectionCode.PENDING_WRITE_QUEUE_UNAVAILABLE)
         val outcome = attemptWrite(source.addressBook.url) {
             val prepared = prepare()
             check(
@@ -1149,12 +1149,12 @@ class CalDavRepository(
     override suspend fun addEvent(input: NewEvent): WriteResult<CalEvent> {
         val source = sourceForCreate("VEVENT", input.calendarId)
         writableRejection(source, "VEVENT")?.let { return it }
-        source ?: return WriteResult.Rejected("No calendar is connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.NO_CALENDAR_CONNECTED)
 
         val organizer = if (input.attendees.isNotEmpty()) {
-            if (!source.autoSchedule) return WriteResult.Rejected("This calendar server does not advertise invitation scheduling.")
+            if (!source.autoSchedule) return WriteResult.Rejected(WriteRejectionCode.CALENDAR_SERVER_INVITATION_SCHEDULING_UNSUPPORTED)
             invitationOrganizer(source)
-                ?: return WriteResult.Rejected("The server did not identify your invitation address. Refresh the account and try again.")
+                ?: return WriteResult.Rejected(WriteRejectionCode.INVITATION_ADDRESS_UNIDENTIFIED)
         } else null
 
         val local = overlay.newEvent(input.copy(calendarId = source.calendar.url))
@@ -1174,15 +1174,15 @@ class CalDavRepository(
 
     override suspend fun updateEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
         val current = events().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That calendar event is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CALENDAR_EVENT_UNAVAILABLE)
         val currentSource = sourceForRecord(current.calendarId, current.href)
         if (current.organizer == null && input.attendees.isNotEmpty() &&
             (currentSource?.autoSchedule != true || invitationOrganizer(currentSource) == null)
-        ) return WriteResult.Rejected("This calendar does not have a verified invitation address.")
+        ) return WriteResult.Rejected(WriteRejectionCode.INVITATION_ADDRESS_UNVERIFIED)
         if (current.organizer != null && currentSource != null &&
             normalizedCalendarAddress(current.organizer.address) !in
             currentSource.calendarUserAddresses.map(::normalizedCalendarAddress)
-        ) return WriteResult.Rejected("Only the organizer can edit this invitation. Use a response on its detail card.")
+        ) return WriteResult.Rejected(WriteRejectionCode.ONLY_ORGANIZER_CAN_EDIT_INVITATION)
 
         // A locally-created event has no server ETag yet. Keep the edit in
         // the existing CREATE slot instead of manufacturing an UPDATE that
@@ -1228,7 +1228,7 @@ class CalDavRepository(
             }
             val source = sourceForRecord(current.calendarId, current.href)
             writableRejection(source, "VEVENT")?.let { return it }
-            source ?: return WriteResult.Rejected("That event's calendar is no longer connected.")
+            source ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_CALENDAR_UNCONNECTED)
             val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).keepingAttachments(input, current).copy(
                 id = current.id,
                 uid = current.uid ?: current.id,
@@ -1273,7 +1273,7 @@ class CalDavRepository(
         }
         val source = sourceForRecord(current.calendarId, current.href)
         writableRejection(source, "VEVENT")?.let { return it }
-        source ?: return WriteResult.Rejected("That event's calendar is no longer connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_CALENDAR_UNCONNECTED)
 
         val candidate = overlay.newEvent(input.copy(calendarId = source.calendar.url)).keepingAttachments(input, current).copy(
             id = current.id,
@@ -1305,32 +1305,32 @@ class CalDavRepository(
         scope: RecurrenceEditScope,
     ): WriteResult<CalEvent> {
         if (status !in setOf("ACCEPTED", "TENTATIVE", "DECLINED")) {
-            return WriteResult.Rejected("That invitation response is not supported.")
+            return WriteResult.Rejected(WriteRejectionCode.INVITATION_RESPONSE_UNSUPPORTED)
         }
         if (scope == RecurrenceEditScope.Future) {
-            return WriteResult.Rejected("Respond to this occurrence or the whole series.")
+            return WriteResult.Rejected(WriteRejectionCode.INVITATION_RESPONSE_SCOPE)
         }
         val event = events().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That invitation is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.INVITATION_UNAVAILABLE)
         if (pendingStore?.snapshot()?.any {
             it.eventId == id && it.component == "VEVENT" && it.state != PendingChangeState.DEAD_LETTER
-        } == true) return WriteResult.Rejected("A change to this invitation is already waiting to sync.")
+        } == true) return WriteResult.Rejected(WriteRejectionCode.INVITATION_ALREADY_WAITING)
         val source = sourceForRecord(event.calendarId, event.href)
-            ?: return WriteResult.Rejected("That invitation's calendar is no longer connected.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.INVITATION_CALENDAR_UNCONNECTED)
         writableRejection(source, "VEVENT")?.let { return it }
-        if (!source.autoSchedule) return WriteResult.Rejected("This server does not advertise invitation scheduling.")
+        if (!source.autoSchedule) return WriteResult.Rejected(WriteRejectionCode.SERVER_INVITATION_SCHEDULING_UNSUPPORTED)
         val addresses = source.calendarUserAddresses.map(::normalizedCalendarAddress).toSet()
         val own = event.attendees.filter { normalizedCalendarAddress(it.email) in addresses }
-        if (own.size != 1) return WriteResult.Rejected("Your attendee address could not be identified uniquely.")
+        if (own.size != 1) return WriteResult.Rejected(WriteRejectionCode.ATTENDEE_ADDRESS_NOT_UNIQUE)
         if (scope == RecurrenceEditScope.This && event.recurrenceId == null && event.recurrenceDate == null) {
-            return WriteResult.Rejected("This event has no occurrence to answer separately.")
+            return WriteResult.Rejected(WriteRejectionCode.EVENT_NO_OCCURRENCE_TO_ANSWER)
         }
         val attendee = own.single()
         val href = resourceHref(source.calendar.url, event.href, event.uid ?: event.id)
         val base = cache.loadResource(source.calendar.url, href)
-            ?: return WriteResult.Rejected("This invitation is not available in the raw cache. Refresh and try again.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.INVITATION_RAW_CACHE_UNAVAILABLE)
         val expectedStatus = ICalRsvp.status(base.ics, event, attendee.email, scope)
-            ?: return WriteResult.Rejected("Your attendee line could not be read safely.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.ATTENDEE_LINE_UNREADABLE)
         val candidate = event.copy(attendees = event.attendees.map {
             if (it.email == attendee.email) it.copy(participationStatus = status) else it
         })
@@ -1373,11 +1373,11 @@ class CalDavRepository(
      */
     suspend fun moveEvent(id: String, input: NewEvent): WriteResult<CalEvent> {
         val current = events().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That calendar event is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CALENDAR_EVENT_UNAVAILABLE)
         val destination = sources.firstOrNull { it.calendar.url == input.calendarId }
-            ?: return WriteResult.Rejected("That destination calendar is no longer connected.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.DESTINATION_CALENDAR_UNCONNECTED)
         val source = sourceForRecord(current.calendarId, current.href)
-            ?: return WriteResult.Rejected("That event's calendar is no longer connected.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_CALENDAR_UNCONNECTED)
         if (destination.calendar.url == source.calendar.url) {
             return updateEvent(id, input)
         }
@@ -1402,9 +1402,9 @@ class CalDavRepository(
             sourceResource = refreshed.getOrThrow()
         }
         val raw = sourceResource
-            ?: return WriteResult.Rejected("That event is not available in the raw calendar cache. Refresh and try again.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_RAW_CALENDAR_UNAVAILABLE)
         val sourceEtag = normalizeEtag(raw.etag ?: current.etag)
-            ?: return WriteResult.Rejected("That event has no current server version. Refresh and try again.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_NO_CURRENT_SERVER_VERSION)
 
         val candidate = overlay.newEvent(input.copy(calendarId = destination.calendar.url)).copy(
             id = current.id,
@@ -1429,7 +1429,7 @@ class CalDavRepository(
                     scope = input.recurrenceScope,
                     recurrenceChanged = input.recurrenceChanged,
                 )
-                ?: return WriteResult.Rejected("That recurring event could not be moved safely. Refresh and try again.")
+                ?: return WriteResult.Rejected(WriteRejectionCode.RECURRING_EVENT_MOVE_UNSAFE)
         }
 
         val members = events().filter { event ->
@@ -1445,9 +1445,11 @@ class CalDavRepository(
                 source = CalDavMoveSource(source.calendar, raw.href, sourceEtag),
             ),
         )
-        val plan = planResult.plan ?: return WriteResult.Rejected(
-            planResult.message ?: "That event cannot be moved safely.",
-        )
+        val plan = planResult.plan ?: return if (planResult.message == null) {
+            WriteResult.Rejected(WriteRejectionCode.EVENT_MOVE_UNSAFE)
+        } else {
+            WriteResult.Rejected(planResult.message)
+        }
 
         var destinationOutcome = attemptWrite(destination.calendar.url) {
             putMoveDestination(
@@ -1460,7 +1462,8 @@ class CalDavRepository(
         val destinationError = destinationOutcome.exceptionOrNull()
         if (destinationError != null) {
             if (destinationError is MoveDestinationConflictException) {
-                return WriteResult.Rejected(destinationError.message ?: "The destination already has a different item.")
+                return destinationError.message?.let { WriteResult.Rejected(it) }
+                    ?: WriteResult.Rejected(WriteRejectionCode.DESTINATION_ITEM_CONFLICT)
             }
             return queueMoveFailure(
                 source = source,
@@ -1553,7 +1556,7 @@ class CalDavRepository(
             ?: return WriteResult.Applied(Unit)
         val source = sourceForRecord(current.calendarId, current.href)
         writableRejection(source, "VEVENT")?.let { return it }
-        source ?: return WriteResult.Rejected("That event's calendar is no longer connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_CALENDAR_UNCONNECTED)
         if (current.recurrence != null || isRecurringTarget(current)) {
             return when (val result = deleteRecurringEventOnServer(source, current, scope)) {
                 is WriteResult.Applied -> result.also {
@@ -1591,10 +1594,10 @@ class CalDavRepository(
     }
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
-        recurringTaskValidation(input, tasks())?.let { return WriteResult.Rejected(it) }
+        recurringTaskValidationCode(input, tasks())?.let { return WriteResult.Rejected(it) }
         val source = sourceForCreate("VTODO", preferredId = input.calendarId, href = input.href)
         writableRejection(source, "VTODO")?.let { return it }
-        source ?: return WriteResult.Rejected("No calendar is connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.NO_CALENDAR_CONNECTED)
 
         val local = overlay.newTask(input.copy(calendarId = source.calendar.url))
         val uid = input.uid ?: local.id
@@ -1618,12 +1621,12 @@ class CalDavRepository(
     }
 
     override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> {
-        recurringTaskValidation(input, tasks(), id)?.let { return WriteResult.Rejected(it) }
+        recurringTaskValidationCode(input, tasks(), id)?.let { return WriteResult.Rejected(it) }
         val current = tasks().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That task is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.TASK_UNAVAILABLE)
         val source = sourceForRecord(null, current.href)
         writableRejection(source, "VTODO")?.let { return it }
-        source ?: return WriteResult.Rejected("That task's calendar is no longer connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.TASK_CALENDAR_UNCONNECTED)
 
         pendingCreateFor(current.id, "VTODO", source.calendar.url)?.let { pending ->
             val candidate = overlay.newTask(input.copy(calendarId = source.calendar.url)).copy(
@@ -1672,7 +1675,7 @@ class CalDavRepository(
             ?: return WriteResult.Applied(Unit)
         val source = sourceForRecord(null, current.href)
         writableRejection(source, "VTODO")?.let { return it }
-        source ?: return WriteResult.Rejected("That task's calendar is no longer connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.TASK_CALENDAR_UNCONNECTED)
         if ((current.recurrence != null || current.recurrenceId != null || current.recurrenceDate != null) &&
             scope != RecurrenceEditScope.All
         ) {
@@ -1718,7 +1721,7 @@ class CalDavRepository(
     override suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry> {
         val source = sourceForCreate("VJOURNAL", preferredId = null)
         writableRejection(source, "VJOURNAL")?.let { return it }
-        source ?: return WriteResult.Rejected("No calendar is connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.NO_CALENDAR_CONNECTED)
 
         val local = overlay.newJournal(input).let { it.copy(uid = it.id) }
         return when (val result = putJournalOnServer(source, local, PendingChangeType.CREATE)) {
@@ -1736,10 +1739,10 @@ class CalDavRepository(
 
     override suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry> {
         val current = journals().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That journal entry is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.JOURNAL_ENTRY_UNAVAILABLE)
         val source = sourceForRecord(null, current.href)
         writableRejection(source, "VJOURNAL")?.let { return it }
-        source ?: return WriteResult.Rejected("That journal entry's calendar is no longer connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.JOURNAL_CALENDAR_UNCONNECTED)
 
         pendingCreateFor(current.id, "VJOURNAL", source.calendar.url)?.let { pending ->
             val candidate = overlay.newJournal(input).copy(
@@ -1788,7 +1791,7 @@ class CalDavRepository(
             ?: return WriteResult.Applied(Unit)
         val source = sourceForRecord(null, current.href)
         writableRejection(source, "VJOURNAL")?.let { return it }
-        source ?: return WriteResult.Rejected("That journal entry's calendar is no longer connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.JOURNAL_CALENDAR_UNCONNECTED)
         return when (val result = deleteOnServer(source, current.id, current.uid ?: current.id, current.href, current.etag, "VJOURNAL")) {
             is WriteResult.Applied -> result.also {
                 overlay.deleteJournal(current.id)
@@ -1804,7 +1807,7 @@ class CalDavRepository(
 
     override suspend fun addContact(input: NewContact): WriteResult<Contact> {
         val source = sourceForContactCreate(input.addressBookId)
-            ?: return WriteResult.Rejected("No writable address book is connected.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.NO_WRITABLE_ADDRESS_BOOK)
         val local = overlay.addContact(input.copy(addressBookId = source.addressBook.url))
         val candidate = local.copy(
             uid = local.id,
@@ -1833,9 +1836,9 @@ class CalDavRepository(
 
     override suspend fun updateContact(id: String, input: NewContact): WriteResult<Contact> {
         val current = contacts().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That contact is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CONTACT_UNAVAILABLE)
         val source = sourceForContact(current)
-            ?: return WriteResult.Rejected("That contact's address book is no longer connected.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CONTACT_ADDRESS_BOOK_UNCONNECTED)
         if (source.addressBook.readOnly) return WriteResult.Rejected("${source.addressBook.displayName} is read-only.")
 
         pendingCreateFor(current.id, "VCARD", source.addressBook.url)?.let { pending ->
@@ -1902,7 +1905,7 @@ class CalDavRepository(
         val current = contacts().firstOrNull { it.id == id }
             ?: return WriteResult.Applied(Unit)
         val source = sourceForContact(current)
-            ?: return WriteResult.Rejected("That contact's address book is no longer connected.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CONTACT_ADDRESS_BOOK_UNCONNECTED)
         if (source.addressBook.readOnly) return WriteResult.Rejected("${source.addressBook.displayName} is read-only.")
         val result = deleteContactOnServer(source, current)
         return when (result) {
@@ -1935,7 +1938,7 @@ class CalDavRepository(
 
     override suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange> {
         val before = tasks().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That task is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.TASK_UNAVAILABLE)
         return taskChange(
             before,
             before.copy(
@@ -1950,19 +1953,19 @@ class CalDavRepository(
 
     override suspend fun rescheduleTask(id: String, due: LocalDate?): WriteResult<UndoableChange> {
         val before = tasks().firstOrNull { it.id == id }
-            ?: return WriteResult.Rejected("That task is no longer available.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.TASK_UNAVAILABLE)
         return taskChange(before, before.copy(due = due), "Rescheduled")
     }
 
     override suspend fun undo(change: UndoableChange): WriteResult<Unit> {
-        if (change.kind != ChangeKind.Task) return WriteResult.Rejected("That change cannot be undone.")
+        if (change.kind != ChangeKind.Task) return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         val before = (change.before as? ChangeValue.Task)?.value
-            ?: return WriteResult.Rejected("That change cannot be undone.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         val expected = (change.after as? ChangeValue.Task)?.value
-            ?: return WriteResult.Rejected("That change cannot be undone.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         val current = tasks().firstOrNull { it.id == change.id }
-            ?: return WriteResult.Rejected("That task is no longer available.")
-        if (current != expected) return WriteResult.Rejected("That task changed, so the change was not undone.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.TASK_UNAVAILABLE)
+        if (current != expected) return WriteResult.Rejected(WriteRejectionCode.TASK_CHANGE_NOT_UNDONE)
         return when (val result = putTaskOnServer(sourceForRecord(null, current.href), before.copy(
             uid = current.uid ?: current.id,
             href = current.href,
@@ -2068,23 +2071,19 @@ class CalDavRepository(
         val uid = event.uid ?: event.id
         val href = resourceHref(source.calendar.url, event.href, uid)
         val cached = cache.loadResource(source.calendar.url, href)
-            ?: return WriteResult.Rejected(
-                "The recurring event is not available in the raw cache. Refresh and try again.",
-            )
+            ?: return WriteResult.Rejected(WriteRejectionCode.RECURRING_EVENT_RAW_CACHE_UNAVAILABLE)
         val calendar = runCatching { ICalTimezones.parse(cached.ics).singleOrNull() }.getOrNull()
-            ?: return WriteResult.Rejected("The recurring event could not be read safely.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.RECURRING_EVENT_UNREADABLE)
         // A few servers store a detached override as its own resource. There
         // is no master rule from which FUTURE can be reconstructed, but THIS
         // and ALL can still operate on the resource that was actually read.
         val group = runCatching { RecurrenceEdit.Group.from(calendar, uid) }.getOrNull()
         if (group == null) {
             if (scope == RecurrenceEditScope.Future) {
-                return WriteResult.Rejected(
-                    "This detached occurrence has no series rule, so future occurrences cannot be changed.",
-                )
+                return WriteResult.Rejected(WriteRejectionCode.DETACHED_OCCURRENCE_NO_SERIES_RULE)
             }
             if (calendar.events.none { raw -> raw.uid?.value == uid && rawMatchesEvent(raw, event) }) {
-                return WriteResult.Rejected("That detached occurrence is no longer on the server.")
+                return WriteResult.Rejected(WriteRejectionCode.DETACHED_OCCURRENCE_UNAVAILABLE)
             }
             return deleteOnServer(
                 source = source,
@@ -2273,7 +2272,7 @@ class CalDavRepository(
         changeType: PendingChangeType,
     ): WriteResult<CalTask> {
         writableRejection(source, "VTODO")?.let { return it }
-        source ?: return WriteResult.Rejected("That task's calendar is no longer connected.")
+        source ?: return WriteResult.Rejected(WriteRejectionCode.TASK_CALENDAR_UNCONNECTED)
         val uid = task.uid ?: task.id
         return putCalendarWithQueue(
             source = source,
@@ -2872,7 +2871,7 @@ class CalDavRepository(
         contact: Contact,
     ): WriteResult<Unit> {
         val href = contact.href
-            ?: return WriteResult.Rejected("That contact has no server resource URL.")
+            ?: return WriteResult.Rejected(WriteRejectionCode.CONTACT_NO_SERVER_RESOURCE_URL)
         var expectedEtag = contact.etag
         var outcome = attemptWrite(source.addressBook.url) {
             cardWriter.delete(source.addressBook, source.credentials, href, expectedEtag)

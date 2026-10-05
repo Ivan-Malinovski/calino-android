@@ -31,7 +31,11 @@ android {
         }
     }
     buildTypes {
-        getByName("debug") { applicationIdSuffix=".nativeDebug"; versionNameSuffix="-debug" }
+        getByName("debug") {
+            isPseudoLocalesEnabled = true
+            applicationIdSuffix=".nativeDebug"
+            versionNameSuffix="-debug"
+        }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true

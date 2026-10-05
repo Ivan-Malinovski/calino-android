@@ -68,6 +68,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            isPseudoLocalesEnabled = true
             // Keep the signed debug app installable beside the production
             // application instead of having one replace the other.
             applicationIdSuffix = ".nativeDebug"

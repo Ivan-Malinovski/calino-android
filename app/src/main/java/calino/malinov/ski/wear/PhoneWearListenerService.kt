@@ -5,6 +5,7 @@ import android.util.Base64
 import calino.malinov.ski.data.CalinoContainer
 import calino.malinov.ski.data.repository.SyncState
 import calino.malinov.ski.data.repository.WriteResult
+import calino.malinov.ski.util.localizedReason
 import calino.malinov.ski.wearcontract.ACK_PATH_PREFIX
 import calino.malinov.ski.wearcontract.COMMAND_PATH_PREFIX
 import calino.malinov.ski.wearcontract.WearAck
@@ -93,7 +94,7 @@ class PhoneWearCommandCoordinator private constructor(context: Context) {
                 when (result) {
                     is WriteResult.Applied<*> -> CommandWriteResult.APPLIED to null
                     is WriteResult.Queued<*> -> CommandWriteResult.QUEUED to null
-                    is WriteResult.Rejected -> CommandWriteResult.REJECTED to result.reason
+                    is WriteResult.Rejected -> CommandWriteResult.REJECTED to result.localizedReason(application)
                 }
             },
         )

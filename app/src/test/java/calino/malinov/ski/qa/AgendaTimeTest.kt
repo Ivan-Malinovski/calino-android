@@ -15,6 +15,8 @@ class AgendaTimeTest {
     fun `a twelve hour face splits off its meridiem`() {
         assertEquals("8:00" to "AM", splitMeridiem("8:00 AM"))
         assertEquals("12:30" to "PM", splitMeridiem("12:30 PM"))
+        assertEquals("8:00" to "vorm.", splitMeridiem("8:00 vorm."))
+        assertEquals("12:30" to "nachm.", splitMeridiem("12:30 nachm."))
     }
 
     @Test

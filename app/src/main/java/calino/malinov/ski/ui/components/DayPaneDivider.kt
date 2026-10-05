@@ -17,11 +17,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calino.malinov.ski.R
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.state.SplitPaneWidthDp
@@ -49,7 +51,7 @@ fun DayPaneDivider(collapsed: Boolean, onToggle: () -> Unit) {
         animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
         label = "day pane chevron",
     )
-    val label = if (collapsed) "Show day pane" else "Hide day pane"
+    val label = stringResource(if (collapsed) R.string.cal_show_day_pane else R.string.cal_hide_day_pane)
     Box(
         Modifier.fillMaxHeight().width(44.dp),
         contentAlignment = Alignment.Center,

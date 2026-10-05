@@ -1,5 +1,10 @@
 package calino.malinov.ski.ui.year
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import calino.malinov.ski.util.LocalCalinoLocale
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
@@ -99,7 +104,6 @@ import calino.malinov.ski.util.weekendColumns
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle as DateTextStyle
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -272,12 +276,13 @@ private fun YearHeader(
     onTitleClick: () -> Unit,
 ) {
     val slide = with(LocalDensity.current) { 10.dp.roundToPx() }
+    val chooseYearDescription = stringResource(R.string.cal_choose_year)
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MenuButton(onClick = onOpenMenu)
-        YearStepButton(CalinoIcons.ChevronLeft, "Previous year", onPrevious)
+        YearStepButton(CalinoIcons.ChevronLeft, stringResource(R.string.cal_previous_year), onPrevious)
         AnimatedContent(
             targetState = year,
             transitionSpec = {
@@ -288,7 +293,7 @@ private fun YearHeader(
             },
             modifier = Modifier
                 .clickable(interactionSource = null, indication = null, onClick = onTitleClick)
-                .semantics { contentDescription = "Choose year"; role = Role.Button }
+                .semantics { contentDescription = chooseYearDescription; role = Role.Button }
                 .padding(horizontal = 6.dp),
             label = "year title",
         ) { shown ->
@@ -300,7 +305,7 @@ private fun YearHeader(
                 modifier = Modifier.testTag("year-title"),
             )
         }
-        YearStepButton(CalinoIcons.ChevronRight, "Next year", onNext)
+        YearStepButton(CalinoIcons.ChevronRight, stringResource(R.string.cal_next_year), onNext)
         Spacer(Modifier.weight(1f))
         if (legendInHeader) YearLegend()
     }
@@ -322,19 +327,20 @@ private fun YearLegend(modifier: Modifier = Modifier) {
     val isDark = CalinoColors.isDark
     val accent = CalinoColors.Accent
     val hairline = CalinoColors.Line
+    val legendDescription = stringResource(R.string.cal_heat_legend)
     Row(
-        modifier.semantics(mergeDescendants = true) { contentDescription = "Fewer to more events, five shades" },
+        modifier.semantics(mergeDescendants = true) { contentDescription = legendDescription },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Fewer", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+        Text(stringResource(R.string.cal_fewer), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
         repeat(YearHeatLevels) { level ->
             Box(
                 Modifier.size(14.dp).clip(RoundedCornerShape(4.dp))
                     .background(if (level == 0) hairline else accent.copy(alpha = yearHeatAlpha(level, isDark))),
             )
         }
-        Text("More events", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+        Text(stringResource(R.string.cal_more_events), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
     }
 }
 
@@ -422,8 +428,9 @@ private fun YearMonthTile(
     val ink3 = CalinoColors.Ink3
     val isCurrentMonth = YearMonth.from(today) == month
     var bounds by remember { mutableStateOf(Rect.Zero) }
-    val label = yearTileLabel(month, yearMonthTotal(counts() ?: IntArray(0), month))
-    val monthName = month.month.getDisplayName(DateTextStyle.FULL, Locale.getDefault())
+    val eventCount = yearMonthTotal(counts() ?: IntArray(0), month)
+    val label = pluralStringResource(R.plurals.cal_year_events, eventCount, month.month.getDisplayName(DateTextStyle.FULL, LocalCalinoLocale), month.year, eventCount)
+    val monthName = month.month.getDisplayName(DateTextStyle.FULL, LocalCalinoLocale)
     val titleColor = if (isCurrentMonth) CalinoColors.Accent else CalinoColors.Ink
     val tileModifier = modifier
         .clip(RoundedCornerShape(YearTileCornerRadius))

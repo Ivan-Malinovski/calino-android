@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.surfaces
 
+import androidx.compose.ui.res.stringResource
+import calino.malinov.ski.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +70,7 @@ fun WebcalSubscribeSheet(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val subscribeError = t(R.string.set_could_not_subscribe)
     // Same exit handshake as AddCalDavAccountSheet: stay composed until the
     // card has animated out, then unmount from Settings.
     var shown by remember { mutableStateOf(true) }
@@ -90,7 +94,7 @@ fun WebcalSubscribeSheet(
     BottomDetailCard(visible = shown, onDismiss = dismiss) { cardModifier ->
         Column(cardModifier.fillMaxSize()) {
             Text(
-                "Subscribe to calendar",
+                t(R.string.set_subscribe_to_calendar),
                 style = CalinoTypography.titleLarge,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp),
             )
@@ -101,27 +105,28 @@ fun WebcalSubscribeSheet(
                     .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                EditorSection("Feed") {
+                EditorSection(t(R.string.set_feed)) {
                     CalinoTextField(
                         value = form.url,
                         onValueChange = { form = form.copy(url = it); error = null },
-                        label = "Calendar URL",
-                        placeholder = "https:// or webcal://",
-                        description = "iCalendar subscription URL",
+                        label = t(R.string.set_calendar_url),
+                        placeholder = t(R.string.set_https_or_webcal),
+                        description = t(R.string.set_icalendar_subscription_url),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     )
                     CalinoTextField(
                         value = form.name,
                         onValueChange = { form = form.copy(name = it) },
-                        label = "Name",
-                        placeholder = "Optional — the host is used otherwise",
-                        description = "Subscription display name",
+                        label = t(R.string.set_name),
+                        placeholder = t(R.string.set_optional_the_host_is_used_otherwise),
+                        description = t(R.string.set_subscription_display_name),
                     )
                 }
-                EditorSection("Colour") {
+                EditorSection(t(R.string.set_colour)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         WebcalColors.forEach { color ->
                             val selected = form.color == color
+                            val colourDescription = t(R.string.set_colour)
                             Box(
                                 Modifier
                                     .size(32.dp)
@@ -133,21 +138,22 @@ fun WebcalSubscribeSheet(
                                         CircleShape,
                                     )
                                     .calinoPressable { form = form.copy(color = color) }
-                                    .semantics { contentDescription = "Colour" },
+                                    .semantics { contentDescription = colourDescription },
                             )
                         }
                     }
                 }
-                EditorSection("Refresh") {
+                EditorSection(t(R.string.set_refresh)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WebcalSubscription.RefreshChoices.forEach { minutes ->
                             val selected = form.refreshIntervalMinutes == minutes
                             val label = when (minutes) {
-                                15 -> "15m"
-                                60 -> "1h"
-                                360 -> "6h"
-                                else -> "1d"
+                                15 -> t(R.string.set_15m)
+                                60 -> t(R.string.set_1h)
+                                360 -> t(R.string.set_6h)
+                                else -> t(R.string.set_1d)
                             }
+                            val refreshDescription = t(R.string.set_refresh_1_s, label)
                             Text(
                                 label,
                                 style = CalinoTypography.bodySmall,
@@ -157,20 +163,20 @@ fun WebcalSubscribeSheet(
                                     .background(if (selected) CalinoColors.Accent else CalinoColors.Ink.copy(.08f))
                                     .calinoPressable { form = form.copy(refreshIntervalMinutes = minutes) }
                                     .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    .semantics { contentDescription = "Refresh $label" },
+                                    .semantics { contentDescription = refreshDescription },
                             )
                         }
                     }
                 }
-                EditorSection("Reminders") {
+                EditorSection(t(R.string.set_reminders)) {
                     val muted = !form.notifyReminders
                     Text(
-                        "Subscribed calendars stay quiet unless you opt in. The publisher's alarms stay in the file; they just do not fire.",
+                        t(R.string.set_subscribed_calendars_stay_quiet_unless_you_opt_in_the_publis),
                         style = CalinoTypography.bodySmall,
                         color = CalinoColors.Ink2,
                     )
                     TextButton(onClick = { form = form.copy(notifyReminders = !form.notifyReminders) }) {
-                        Text(if (muted) "Feed reminders are muted" else "Fire feed reminders")
+                        Text(if (muted) t(R.string.set_feed_reminders_are_muted) else t(R.string.set_fire_reminders))
                     }
                 }
                 error?.let { message ->
@@ -194,7 +200,7 @@ fun WebcalSubscribeSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = dismiss, enabled = !busy) { Text("Cancel") }
+                TextButton(onClick = dismiss, enabled = !busy) { Text(t(R.string.set_cancel)) }
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = {
@@ -203,7 +209,7 @@ fun WebcalSubscribeSheet(
                             error = null
                             runCatching { onSubscribe(form) }
                                 .onSuccess { dismiss() }
-                                .onFailure { error = it.message ?: "Could not subscribe." }
+                                .onFailure { error = it.message ?: subscribeError }
                             busy = false
                         }
                     },
@@ -217,10 +223,12 @@ fun WebcalSubscribeSheet(
                             strokeWidth = 2.dp,
                         )
                     } else {
-                        Text("Subscribe")
+                        Text(t(R.string.set_subscribe))
                     }
                 }
             }
         }
     }
 }
+@Composable
+private fun t(id: Int, vararg args: Any): String = stringResource(id, *args)

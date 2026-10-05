@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="provider_create_repeat">Creating a repeating event in a device calendar is not supported yet.</string>
+    <string name="provider_update_future">Device calendars support changing this event or the entire series, not future events.</string>
+    <string name="provider_update_repeat">Changing an existing device calendar recurrence rule is not supported yet.</string>
+    <string name="provider_exception_changed">That occurrence already changed in its owning app. Refresh the calendar and try again.</string>
+    <string name="provider_delete_future">Device calendars support deleting this event or the entire series, not future events.</string>
+    <string name="provider_changed_refresh">The event changed in its owning app. Refresh and try again.</string>
+    <string name="provider_move">Events cannot be moved between device calendars or between device and CalDAV calendars.</string>
+    <string name="provider_missing_calendar">That device calendar is no longer available.</string>
+    <string name="provider_ownership">That device calendar changed ownership. Turn editing off and on again before retrying.</string>
+    <string name="provider_removed">That event was removed by its owning app. Refresh the calendar.</string>
+    <string name="provider_changed">That event changed in its owning app. Refresh the calendar and try again.</string>
+    <string name="provider_editing_disabled">Editing is not enabled for that device calendar.</string>
+    <string name="provider_readonly">That device calendar is read-only or calendar write permission was revoked.</string>
+    <string name="provider_own_projection">Calino cannot import or edit its own Android projection.</string>
+    <string name="provider_new_identity">The calendar provider did not return the new event identity.</string>
+    <string name="provider_reminders">The calendar provider did not save every reminder.</string>
+    <string name="provider_exception_identity">The calendar provider did not return the exception identity.</string>
+    <string name="provider_exception_reminders">The calendar provider did not save every exception reminder.</string>
+    <string name="provider_reminder_state">The calendar provider did not return reminder state.</string>
+    <string name="provider_permission">Calendar write permission is required to change that device calendar.</string>
+    <string name="provider_rejected">The calendar provider rejected that change.</string>
+    <string name="provider_unsupported">Device calendars do not support changing %1$s. Clear those fields and try again.</string>
+    <string name="provider_attendees">attendees</string>
+    <string name="provider_categories">categories</string>
+    <string name="provider_relationships">relationships</string>
+    <string name="provider_travel">travel time</string>
+    <string name="provider_account_properties">Calino accounts have no editable properties</string>
+    <string name="provider_auth_tokens">Calino does not issue auth tokens</string>
+    <string name="provider_password_change">Change the password in Calino\'s account list</string>
+</resources>

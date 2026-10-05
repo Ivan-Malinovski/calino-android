@@ -1,5 +1,10 @@
 package calino.malinov.ski.ui.surfaces
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.res.stringResource
+import calino.malinov.ski.R
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.animateColorAsState
@@ -130,6 +135,7 @@ import calino.malinov.ski.util.CalinoEventDensity
 import calino.malinov.ski.util.CalinoEventSyncRange
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
+import calino.malinov.ski.util.LocalCalinoLocale
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.Instant
 import java.time.ZoneId
@@ -137,13 +143,13 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.UUID
 
-enum class SettingsSection(val title: String, val shortTitle: String) {
-    Display("Display", "Display"),
-    EventsTasks("Events & tasks", "Events & tasks"),
-    Reminders("Reminders", "Reminders"),
-    CalendarsSync("Calendars & sync", "Calendars & sync"),
-    DataAccess("Data & access", "Data & access"),
-    Advanced("Advanced", "Advanced"),
+enum class SettingsSection(val titleRes: Int, val shortTitleRes: Int) {
+    Display(R.string.set_display, R.string.set_display),
+    EventsTasks(R.string.set_events_tasks, R.string.set_events_tasks),
+    Reminders(R.string.set_reminders, R.string.set_reminders),
+    CalendarsSync(R.string.set_calendars_sync, R.string.set_calendars_sync),
+    DataAccess(R.string.set_data_access, R.string.set_data_access),
+    Advanced(R.string.set_advanced, R.string.set_advanced),
 }
 
 private val SettingsNavLaneHeight = 44.dp
@@ -159,46 +165,47 @@ private data class SettingsSearchTarget(val title: String, val group: String, va
 private val LocalSettingsSearchTarget = compositionLocalOf<SettingsSearchTarget?> { null }
 
 private data class SettingsSearchEntry(
-    val title: String,
+    val titleRes: Int,
     val section: SettingsSection,
-    val group: String,
+    val groupRes: Int,
     val description: String = "",
+    val localizedSearchTermsRes: Int? = null,
 )
 
 private val SettingsSearchEntries = listOf(
-    SettingsSearchEntry("Time format", SettingsSection.Display, "Regional defaults", "clock 12 24 hour"),
-    SettingsSearchEntry("Journal", SettingsSection.Display, "Surfaces", "navigation"),
-    SettingsSearchEntry("Contacts", SettingsSection.Display, "Surfaces", "navigation"),
-    SettingsSearchEntry("Theme", SettingsSection.Display, "Theme", "appearance light dark system"),
-    SettingsSearchEntry("Default view", SettingsSection.Display, "Display", "calendar start"),
-    SettingsSearchEntry("First day of week", SettingsSection.Display, "Display", "calendar grid"),
-    SettingsSearchEntry("Show week numbers", SettingsSection.Display, "Display"),
-    SettingsSearchEntry("Show pull bar", SettingsSection.Display, "Display", "zoom"),
-    SettingsSearchEntry("Menu pill", SettingsSection.Display, "Display", "navigation"),
-    SettingsSearchEntry("Event density", SettingsSection.Display, "Display", "month"),
-    SettingsSearchEntry("Sometime this week", SettingsSection.Display, "Display", "week tasks range badge sheet shelf"),
-    SettingsSearchEntry("Hide completed tasks", SettingsSection.EventsTasks, "Tasks in calendar"),
-    SettingsSearchEntry("Default duration", SettingsSection.EventsTasks, "New event defaults"),
-    SettingsSearchEntry("Show end times", SettingsSection.EventsTasks, "Display"),
-    SettingsSearchEntry("Show locations", SettingsSection.EventsTasks, "Display"),
-    SettingsSearchEntry("Categories", SettingsSection.EventsTasks, "Categories", "labels tags"),
-    SettingsSearchEntry("Keyword rules", SettingsSection.EventsTasks, "Keyword rules", "auto categorize categories labels"),
-    SettingsSearchEntry("Default reminder", SettingsSection.Reminders, "New event reminder"),
-    SettingsSearchEntry("Event reminders", SettingsSection.Reminders, "Events"),
-    SettingsSearchEntry("Tasks due", SettingsSection.Reminders, "Tasks"),
-    SettingsSearchEntry("Let another app remind me", SettingsSection.Reminders, "System calendar"),
-    SettingsSearchEntry("Reminders and channels", SettingsSection.Reminders, "Delivery", "notifications"),
-    SettingsSearchEntry("Android notification settings", SettingsSection.Reminders, "Delivery", "sounds"),
-    SettingsSearchEntry("Calendars and accounts", SettingsSection.CalendarsSync, "Connected accounts", "CalDAV address books"),
-    SettingsSearchEntry("Subscribed calendars", SettingsSection.CalendarsSync, "Subscribed calendars", "ics"),
-    SettingsSearchEntry("Background sync", SettingsSection.CalendarsSync, "Sync settings", "refresh frequency"),
-    SettingsSearchEntry("Event sync range", SettingsSection.CalendarsSync, "Sync settings", "offline search"),
-    SettingsSearchEntry("Import calendar", SettingsSection.DataAccess, "Import & export", "ics file"),
-    SettingsSearchEntry("Export calendar", SettingsSection.DataAccess, "Import & export", "ics file"),
-    SettingsSearchEntry("Show in phone search", SettingsSection.DataAccess, "Search & assistants", "Samsung Finder"),
-    SettingsSearchEntry("Let assistants use Calino", SettingsSection.DataAccess, "Search & assistants", "Gemini AppFunctions"),
-    SettingsSearchEntry("AI Photo Import", SettingsSection.DataAccess, "AI Photo Import", "provider API key model"),
-    SettingsSearchEntry("Grow details from events", SettingsSection.Advanced, "Motion", "animation container transform"),
+    SettingsSearchEntry(R.string.set_time_format, SettingsSection.Display, R.string.set_regional_defaults, "clock 12 24 hour", R.string.set_search_terms_time_format),
+    SettingsSearchEntry(R.string.set_journal, SettingsSection.Display, R.string.set_surfaces, "navigation", R.string.set_search_terms_journal),
+    SettingsSearchEntry(R.string.set_contacts, SettingsSection.Display, R.string.set_surfaces, "navigation", R.string.set_search_terms_contacts),
+    SettingsSearchEntry(R.string.set_theme, SettingsSection.Display, R.string.set_theme, "appearance light dark system", R.string.set_search_terms_theme),
+    SettingsSearchEntry(R.string.set_default_view, SettingsSection.Display, R.string.set_display, "calendar start", R.string.set_search_terms_default_view),
+    SettingsSearchEntry(R.string.set_first_day_of_week, SettingsSection.Display, R.string.set_display, "calendar grid", R.string.set_search_terms_first_day),
+    SettingsSearchEntry(R.string.set_show_week_numbers, SettingsSection.Display, R.string.set_display, "Show week numbers"),
+    SettingsSearchEntry(R.string.set_show_pull_bar, SettingsSection.Display, R.string.set_display, "zoom", R.string.set_search_terms_pull_bar),
+    SettingsSearchEntry(R.string.set_menu_pill, SettingsSection.Display, R.string.set_display, "navigation", R.string.set_search_terms_menu_pill),
+    SettingsSearchEntry(R.string.set_event_density, SettingsSection.Display, R.string.set_display, "month", R.string.set_search_terms_event_density),
+    SettingsSearchEntry(R.string.set_sometime_this_week, SettingsSection.Display, R.string.set_display, "week tasks range badge sheet shelf", R.string.set_search_terms_sometime_this_week),
+    SettingsSearchEntry(R.string.set_hide_completed_tasks, SettingsSection.EventsTasks, R.string.set_tasks_in_calendar, "Hide completed tasks"),
+    SettingsSearchEntry(R.string.set_default_duration, SettingsSection.EventsTasks, R.string.set_new_event_defaults, "Default duration"),
+    SettingsSearchEntry(R.string.set_show_end_times, SettingsSection.EventsTasks, R.string.set_display, "Show end times"),
+    SettingsSearchEntry(R.string.set_show_locations, SettingsSection.EventsTasks, R.string.set_display, "Show locations"),
+    SettingsSearchEntry(R.string.set_categories, SettingsSection.EventsTasks, R.string.set_categories, "labels tags", R.string.set_search_terms_categories),
+    SettingsSearchEntry(R.string.set_keyword_rules, SettingsSection.EventsTasks, R.string.set_keyword_rules, "auto categorize categories labels", R.string.set_search_terms_keyword_rules),
+    SettingsSearchEntry(R.string.set_default_reminder, SettingsSection.Reminders, R.string.set_new_event_reminder, "Default reminder"),
+    SettingsSearchEntry(R.string.set_event_reminders, SettingsSection.Reminders, R.string.set_events, "Event reminders"),
+    SettingsSearchEntry(R.string.set_tasks_due, SettingsSection.Reminders, R.string.set_tasks, "Tasks due"),
+    SettingsSearchEntry(R.string.set_let_another_app_remind_me, SettingsSection.Reminders, R.string.set_system_calendar, "Let another app remind me"),
+    SettingsSearchEntry(R.string.set_reminders_and_channels, SettingsSection.Reminders, R.string.set_delivery, "notifications", R.string.set_search_terms_reminders),
+    SettingsSearchEntry(R.string.set_android_notification_settings, SettingsSection.Reminders, R.string.set_delivery, "sounds", R.string.set_search_terms_notification_settings),
+    SettingsSearchEntry(R.string.set_calendars_and_accounts, SettingsSection.CalendarsSync, R.string.set_connected_accounts, "CalDAV address books", R.string.set_search_terms_calendars_accounts),
+    SettingsSearchEntry(R.string.set_subscribed_calendars, SettingsSection.CalendarsSync, R.string.set_subscribed_calendars, "ics", R.string.set_search_terms_subscribed_calendars),
+    SettingsSearchEntry(R.string.set_background_sync, SettingsSection.CalendarsSync, R.string.set_sync_settings, "refresh frequency", R.string.set_search_terms_background_sync),
+    SettingsSearchEntry(R.string.set_event_sync_range, SettingsSection.CalendarsSync, R.string.set_sync_settings, "offline search", R.string.set_search_terms_event_sync_range),
+    SettingsSearchEntry(R.string.set_import_calendar, SettingsSection.DataAccess, R.string.set_import_export, "ics file", R.string.set_search_terms_import_calendar),
+    SettingsSearchEntry(R.string.set_export_calendar, SettingsSection.DataAccess, R.string.set_import_export, "ics file", R.string.set_search_terms_export_calendar),
+    SettingsSearchEntry(R.string.set_show_in_phone_search, SettingsSection.DataAccess, R.string.set_search_assistants, "Samsung Finder", R.string.set_search_terms_phone_search),
+    SettingsSearchEntry(R.string.set_let_assistants_use_calino, SettingsSection.DataAccess, R.string.set_search_assistants, "Gemini AppFunctions", R.string.set_search_terms_assistants),
+    SettingsSearchEntry(R.string.set_ai_photo_import, SettingsSection.DataAccess, R.string.set_ai_photo_import, "provider API key model", R.string.set_search_terms_ai_photo_import),
+    SettingsSearchEntry(R.string.set_grow_details_from_events, SettingsSection.Advanced, R.string.set_motion, "animation container transform", R.string.set_search_terms_advanced_motion)
 )
 
 private enum class SettingRowControlLayout {
@@ -239,15 +246,16 @@ fun SettingsSurface(
     val section = remember(sectionName) {
         runCatching { SettingsSection.valueOf(sectionName) }.getOrDefault(SettingsSection.Display)
     }
+    val aiPhotoImportLabel = t(R.string.set_ai_photo_import)
     val currentSection by rememberUpdatedState(section)
     val sectionRailState = rememberLazyListState()
     val sectionPagerState = rememberPagerState(initialPage = section.ordinal) { SettingsSection.entries.size }
 
-    LaunchedEffect(openAiVisionRequest) {
+    LaunchedEffect(openAiVisionRequest, aiPhotoImportLabel) {
         if (openAiVisionRequest > 0) {
             sectionName = SettingsSection.DataAccess.name
             searchRequest += 1
-            searchTarget = SettingsSearchTarget("AI Photo Import", "AI Photo Import", searchRequest)
+            searchTarget = SettingsSearchTarget(aiPhotoImportLabel, aiPhotoImportLabel, searchRequest)
         }
     }
 
@@ -296,7 +304,7 @@ fun SettingsSurface(
                     MenuButton(onClick = it, modifier = Modifier.padding(end = 6.dp))
                 }
                 Text(
-                    "Settings",
+                    t(R.string.set_settings),
                     modifier = Modifier.weight(1f),
                     style = if (sideRail) CalinoTypography.headlineMedium else CalinoTypography.displayLarge,
                     maxLines = 1,
@@ -315,7 +323,7 @@ fun SettingsSurface(
                 ) {
                     Icon(
                         if (searchOpen) CalinoIcons.X else CalinoIcons.Search,
-                        contentDescription = if (searchOpen) "Close settings search" else "Search settings",
+                        contentDescription = if (searchOpen) t(R.string.set_close_settings_search) else t(R.string.set_search_settings),
                         tint = CalinoColors.Ink2,
                     )
                 }
@@ -362,17 +370,17 @@ fun SettingsSurface(
             CalinoSearchField(
                 query = searchQuery,
                 onQueryChanged = { searchQuery = it },
-                placeholder = "Search settings…",
-                contentDescription = "Search settings field",
+                placeholder = t(R.string.set_search_settings_hint),
+                contentDescription = t(R.string.set_search_settings_field),
                 modifier = Modifier.fillMaxWidth()
                     .padding(horizontal = if (sideRail) 12.dp else 20.dp, vertical = 4.dp),
                 inputModifier = Modifier.testTag("Search settings"),
             )
         }
         val results: @Composable () -> Unit = {
-            SettingsSearchResults(searchQuery) { entry ->
+            SettingsSearchResults(searchQuery) { entry, title, group ->
                 searchRequest += 1
-                searchTarget = SettingsSearchTarget(entry.title, entry.group, searchRequest)
+                searchTarget = SettingsSearchTarget(title, group, searchRequest)
                 sectionName = entry.section.name
                 searchOpen = false
                 searchQuery = ""
@@ -497,6 +505,8 @@ private fun SettingsNavChip(
     useFullTitle: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val title = t(section.titleRes)
+    val sectionDescription = t(R.string.set_section_settings, title)
     val background = if (selected) CalinoColors.AccentSoft else CalinoColors.Panel
     val foreground = if (selected) CalinoColors.Accent else CalinoColors.Ink2
     val outline = if (selected) CalinoColors.Accent.copy(.16f) else CalinoColors.Line
@@ -508,7 +518,7 @@ private fun SettingsNavChip(
             .widthIn(min = 48.dp)
             .clickable(interactionSource = null, indication = null, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = "${section.title} settings"
+                contentDescription = sectionDescription
                 role = Role.Tab
                 this.selected = selected
             },
@@ -525,7 +535,7 @@ private fun SettingsNavChip(
             contentAlignment = if (useFullTitle) Alignment.CenterStart else Alignment.Center,
         ) {
             Text(
-                if (useFullTitle) section.title else section.shortTitle,
+                if (useFullTitle) title else t(section.shortTitleRes),
                 color = foreground,
                 style = CalinoTypography.labelMedium,
                 textAlign = TextAlign.Center,
@@ -536,14 +546,15 @@ private fun SettingsNavChip(
 }
 
 @Composable
-private fun SettingsSearchResults(query: String, onSelect: (SettingsSearchEntry) -> Unit) {
+private fun SettingsSearchResults(query: String, onSelect: (SettingsSearchEntry, String, String) -> Unit) {
     val context = LocalContext.current
     val hasProjectedCalendars = remember { CalinoContainer.get(context).projectedCalendars().isNotEmpty() }
     val words = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
     val matches = SettingsSearchEntries.filter { entry ->
-        val searchable = "${entry.title} ${entry.section.title} ${entry.group} ${entry.description}"
-        (entry.title != "Let assistants use Calino" || android.os.Build.VERSION.SDK_INT >= 36) &&
-            (entry.title != "Let another app remind me" || hasProjectedCalendars) &&
+        val localizedSearchTerms = entry.localizedSearchTermsRes?.let(context::getString).orEmpty()
+        val searchable = "${context.getString(entry.titleRes)} ${context.getString(entry.section.titleRes)} ${context.getString(entry.groupRes)} $localizedSearchTerms ${entry.description}"
+        (entry.titleRes != R.string.set_let_assistants_use_calino || android.os.Build.VERSION.SDK_INT >= 36) &&
+            (entry.titleRes != R.string.set_let_another_app_remind_me || hasProjectedCalendars) &&
             words.all { searchable.contains(it, ignoreCase = true) }
     }
     LazyColumn(
@@ -551,20 +562,24 @@ private fun SettingsSearchResults(query: String, onSelect: (SettingsSearchEntry)
         contentPadding = PaddingValues(horizontal = CalinoSpacing.Screen, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (matches.isEmpty()) item { Text("No settings found", color = CalinoColors.Ink2) }
-        items(matches, key = { "${it.section.name}:${it.title}" }) { entry ->
+        if (matches.isEmpty()) item { Text(t(R.string.set_no_settings_found), color = CalinoColors.Ink2) }
+        items(matches, key = { "${it.section.name}:${it.titleRes}" }) { entry ->
+            val title = t(entry.titleRes)
+            val section = t(entry.section.titleRes)
+            val group = t(entry.groupRes)
+            val openDescription = t(R.string.set_open_1_s_in_2_s_settings, title, section)
             Column(
                 Modifier.fillMaxWidth()
                     .clip(RoundedCornerShape(CalinoShapes.Card))
                     .background(CalinoColors.Panel)
-                    .clickable { onSelect(entry) }
+                    .clickable { onSelect(entry, title, group) }
                     .padding(horizontal = 18.dp, vertical = 14.dp)
                     .semantics(mergeDescendants = true) {
-                        contentDescription = "Open ${entry.title} in ${entry.section.title} settings"
+                        contentDescription = openDescription
                     },
             ) {
-                Text(entry.title, style = CalinoTypography.bodyLarge)
-                Text(entry.section.title, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
+                Text(title, style = CalinoTypography.bodyLarge)
+                Text(section, style = CalinoTypography.bodySmall, color = CalinoColors.Ink2)
             }
         }
     }
@@ -616,7 +631,7 @@ private fun SettingsSectionContent(
         }
         SettingsSection.DataAccess -> SettingsPage {
             DataSettings(onImportCalendar, onExportCalendar)
-            SettingsGroup("AI Photo Import") { AiVisionSettingsContent() }
+            SettingsGroup(t(R.string.set_ai_photo_import)) { AiVisionSettingsContent() }
         }
         SettingsSection.Advanced -> SettingsPage { AdvancedSettings() }
     }
@@ -625,10 +640,10 @@ private fun SettingsSectionContent(
 @Composable
 private fun AdvancedSettings() {
     val preferences = LocalCalinoPreferences.current
-    SettingsGroup("Motion") {
+    SettingsGroup(t(R.string.set_motion)) {
         SettingToggleRow(
-            "Grow details from events",
-            "An event's details open out of the event you tapped. Off, they slide in",
+            t(R.string.set_grow_details_from_events),
+            t(R.string.set_an_event_s_details_open_out_of_the_event_you_tapped_off_they),
             preferences.growDetailFromEvent,
             preferences.setGrowDetailFromEvent,
         )
@@ -665,30 +680,45 @@ private fun SettingsPage(content: @Composable () -> Unit) {
 @Composable
 private fun GeneralSettings() {
     val preferences = LocalCalinoPreferences.current
-    SettingsGroup("Regional defaults") {
-        SettingRow("Time format", "Choose the clock that feels natural", controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
+    val context = LocalContext.current
+    SettingsGroup(t(R.string.set_regional_defaults)) {
+        SettingRow(t(R.string.set_time_format), t(R.string.set_choose_the_clock_that_feels_natural), controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
             // Unlike its neighbours this one is wired through: it drives every
             // clock face in the app, not just its own segmented control.
             val preferences = LocalCalinoPreferences.current
             CompactSegmentedControl(
-                options = CalinoTimeFormat.entries.map { it.label },
+                options = CalinoTimeFormat.entries.map { it.localizedLabel() },
                 selectedIndex = preferences.timeFormatChoice.ordinal,
                 onSelected = { preferences.setTimeFormat(CalinoTimeFormat.entries[it]) },
                 modifier = Modifier.fillMaxWidth(),
-                semanticLabel = "Time format",
+                semanticLabel = t(R.string.set_time_format),
+            )
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            SettingActionRow(
+                title = t(R.string.set_language),
+                description = t(R.string.set_choose_language),
+                action = t(R.string.set_open),
+                enabled = true,
+                onClick = {
+                    context.startActivity(
+                        Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS)
+                            .setData(Uri.fromParts("package", context.packageName, null)),
+                    )
+                },
             )
         }
     }
-    SettingsGroup("Surfaces") {
+    SettingsGroup(t(R.string.set_surfaces)) {
         SettingToggleRow(
-            "Journal",
-            "Show dated notes in the main navigation",
+            t(R.string.set_journal),
+            t(R.string.set_show_dated_notes_in_the_main_navigation),
             preferences.journalEnabled,
             preferences.setJournalEnabled,
         )
         SettingToggleRow(
-            "Contacts",
-            "Show your neighbor directory in the main navigation",
+            t(R.string.set_contacts),
+            t(R.string.set_show_your_neighbor_directory_in_the_main_navigation),
             preferences.contactsEnabled,
             preferences.setContactsEnabled,
         )
@@ -699,10 +729,10 @@ private fun GeneralSettings() {
 private fun AppearanceSettings() {
     val preferences = LocalCalinoPreferences.current
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
-        SettingsGroup("Theme") {
+        SettingsGroup(t(R.string.set_theme)) {
             Column(Modifier.padding(18.dp)) {
-                Text("Appearance", style = CalinoTypography.labelLarge)
-                Text("Paper, night, or follow the system.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
+                Text(t(R.string.set_appearance), style = CalinoTypography.labelLarge)
+                Text(t(R.string.set_paper_night_or_follow_the_system), style = CalinoTypography.bodySmall, color = CalinoColors.Ink2, modifier = Modifier.padding(top = 3.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     CalinoThemeChoice.entries.forEach { choice ->
                         // System previews whichever palette the phone is
@@ -715,7 +745,11 @@ private fun AppearanceSettings() {
                                 if (isSystemInDarkTheme()) CalinoThemes.PaperDark else CalinoThemes.PaperLight
                         }
                         ThemeCard(
-                            choice.label,
+                            when (choice) {
+                                CalinoThemeChoice.Light -> t(R.string.set_light)
+                                CalinoThemeChoice.System -> t(R.string.set_system)
+                                CalinoThemeChoice.Dark -> t(R.string.set_dark)
+                            },
                             preview,
                             selected = choice == preferences.themeChoice,
                             modifier = Modifier.weight(1f),
@@ -731,49 +765,49 @@ private fun AppearanceSettings() {
 private fun CalendarSettings() {
     val preferences = LocalCalinoPreferences.current
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
-        SettingsGroup("Display") {
+        SettingsGroup(t(R.string.set_display)) {
             SettingChoiceRow(
-                label = "Default view",
-                description = "The view Calino opens first",
+                label = t(R.string.set_default_view),
+                description = t(R.string.set_the_view_calino_opens_first),
                 options = CalinoDefaultView.entries,
                 selected = preferences.defaultView,
-                labelOf = { it.label },
+                labelOf = { it.localizedLabel() },
                 onSelected = preferences.setDefaultView,
             )
             SettingChoiceRow(
-                label = "First day of week",
-                description = "Where every calendar grid begins",
+                label = t(R.string.set_first_day_of_week),
+                description = t(R.string.set_where_every_calendar_grid_begins),
                 options = CalinoWeekStart.entries,
                 selected = preferences.weekStartChoice,
-                labelOf = { it.label },
+                labelOf = { it.localizedLabel() },
                 onSelected = preferences.setWeekStart,
             )
             SettingToggleRow(
-                "Show week numbers",
-                "An ISO week-number rail down the left of the month grid",
+                t(R.string.set_show_week_numbers),
+                t(R.string.set_an_iso_week_number_rail_down_the_left_of_the_month_grid),
                 preferences.showWeekNumbers,
                 preferences.setShowWeekNumbers,
             )
             SecondaryZoneSetting(preferences.secondaryZoneId, preferences.setSecondaryZoneId)
             SettingToggleRow(
-                "Show pull bar",
-                "The zoom bar between the calendar and the day",
+                t(R.string.set_show_pull_bar),
+                t(R.string.set_the_zoom_bar_between_the_calendar_and_the_day),
                 preferences.showZoomHandle,
                 preferences.setShowZoomHandle,
             )
             SettingToggleRow(
-                "Menu pill",
-                "Tap, swipe up or hold the view icon to jump between views. Off keeps the swipe-only add pill",
+                t(R.string.set_menu_pill),
+                t(R.string.set_tap_swipe_up_or_hold_the_view_icon_to_jump_between_views_off),
                 preferences.menuPill,
                 preferences.setMenuPill,
             )
             PillViewsSetting()
             SettingChoiceRow(
-                label = "Event density",
-                description = "How much of a busy day a month cell shows",
+                label = t(R.string.set_event_density),
+                description = t(R.string.set_how_much_of_a_busy_day_a_month_cell_shows),
                 options = CalinoEventDensity.entries,
                 selected = preferences.eventDensity,
-                labelOf = { it.label },
+                labelOf = { it.localizedLabel() },
                 onSelected = preferences.setEventDensity,
             )
         }
@@ -790,8 +824,8 @@ private fun CalendarSettings() {
 private fun PillViewsSetting() {
     val preferences = LocalCalinoPreferences.current
     SettingRow(
-        label = "Views on the pill",
-        description = "Tap to hide one. It stays in the sidebar",
+        label = t(R.string.set_views_on_the_pill),
+        description = t(R.string.set_tap_to_hide_one_it_stays_in_the_sidebar),
         controlLayout = SettingRowControlLayout.AdaptiveSegmented,
     ) {
         FlowRow(
@@ -812,7 +846,7 @@ private fun PillViewsSetting() {
                 CalinoChip(
                     text = pockRouteLabel(route),
                     selected = shown,
-                    description = "Show ${pockRouteLabel(route)} on the pill",
+                    description = t(R.string.set_show_1_s_on_the_pill, pockRouteLabel(route)),
                     semanticsRole = Role.Checkbox,
                     onClick = { preferences.setPillViewHidden(key, shown) },
                 )
@@ -825,34 +859,34 @@ private fun PillViewsSetting() {
 private fun EventSettings() {
     val preferences = LocalCalinoPreferences.current
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
-        SettingsGroup("New event defaults") {
+        SettingsGroup(t(R.string.set_new_event_defaults)) {
             SettingChoiceRow(
-                label = "Default duration",
-                description = "Used when a time is parsed without an end",
+                label = t(R.string.set_default_duration),
+                description = t(R.string.set_used_when_a_time_is_parsed_without_an_end),
                 options = CalinoDefaultDuration.entries,
                 selected = preferences.defaultDuration,
-                labelOf = { it.label },
+                labelOf = { it.localizedLabel() },
                 onSelected = preferences.setDefaultDuration,
             )
         }
-        SettingsGroup("Display") {
+        SettingsGroup(t(R.string.set_display)) {
             SettingToggleRow(
-                "Show end times",
-                "Include how long an event runs",
+                t(R.string.set_show_end_times),
+                t(R.string.set_include_how_long_an_event_runs),
                 preferences.showEndTimes,
                 preferences.setShowEndTimes,
             )
             SettingToggleRow(
-                "Show locations",
-                "Include places below event titles",
+                t(R.string.set_show_locations),
+                t(R.string.set_include_places_below_event_titles),
                 preferences.showLocations,
                 preferences.setShowLocations,
             )
         }
-        SettingsGroup("Tasks in calendar") {
+        SettingsGroup(t(R.string.set_tasks_in_calendar)) {
             SettingToggleRow(
-                "Hide completed tasks",
-                "Keep finished work out of the calendar",
+                t(R.string.set_hide_completed_tasks),
+                t(R.string.set_keep_finished_work_out_of_the_calendar),
                 preferences.hideCompletedTasks,
                 preferences.setHideCompletedTasks,
             )
@@ -884,11 +918,9 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
     var newKeywords by rememberSaveable { mutableStateOf("") }
     var newRuleCategory by rememberSaveable { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
-        SettingsGroup("Categories") {
+        SettingsGroup(t(R.string.set_categories)) {
             SettingNote(
-                "Tags like Work or Health that you can put on events and tasks. " +
-                    "They sync with your calendar. Categories added here are offered in the editor " +
-                    "alongside the ones your records already use.",
+                t(R.string.set_tags_like_work_or_health_that_you_can_put_on_events_and_task),
             )
             SettingDivider()
             AnimatedSettingRows(offered, keyOf = { it }) { category ->
@@ -899,15 +931,15 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
                 SettingActionRow(
                     title = category,
                     description = when {
-                        count == 1 -> "1 record"
-                        count > 0 -> "$count records"
-                        category in userCategories -> "Added here, not used yet"
-                        else -> "0 records"
+                        count == 1 -> t(R.string.set_1_record)
+                        count > 0 -> t(R.string.set_1_d_records, count)
+                        category in userCategories -> t(R.string.set_added_here_not_used_yet)
+                        else -> t(R.string.set_0_records)
                     },
-                    action = if (removable) "Remove" else "",
+                    action = if (removable) t(R.string.set_remove) else "",
                     danger = true,
                     enabled = removable,
-                    actionContentDescription = "Remove category $category",
+                    actionContentDescription = t(R.string.set_remove_category_1_s, category),
                     onClick = { preferences.setUserCategories(userCategories - category) },
                 )
             }
@@ -922,14 +954,14 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
                 CalinoTextField(
                     value = newCategory,
                     onValueChange = { newCategory = it },
-                    label = "New category",
+                    label = t(R.string.set_new_category),
                     modifier = Modifier.weight(1f),
                 )
                 SettingActionButton(
-                    "Add",
+                    t(R.string.set_add),
                     danger = false,
                     enabled = canAdd,
-                    actionContentDescription = "Add category",
+                    actionContentDescription = t(R.string.set_add_category),
                     onClick = {
                         preferences.setUserCategories(userCategories + name)
                         newCategory = ""
@@ -937,10 +969,9 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
                 )
             }
         }
-        SettingsGroup("Keyword rules") {
+        SettingsGroup(t(R.string.set_keyword_rules)) {
             SettingNote(
-                "When a title you type contains a keyword, its category is selected in the editor. " +
-                    "You can take it off before saving. Saved records are not changed.",
+                t(R.string.set_when_a_title_you_type_contains_a_keyword_its_category_is_sel),
             )
             SettingDivider()
             AnimatedSettingRows(rules, keyOf = { it.id }) { rule ->
@@ -948,14 +979,14 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
                 SettingActionRow(
                     title = "${rule.keywords.joinToString(", ")} → ${rule.category}",
                     description = when (matches) {
-                        0 -> "No loaded titles match"
-                        1 -> "1 loaded title matches"
-                        else -> "$matches loaded titles match"
+                        0 -> t(R.string.set_no_loaded_titles_match)
+                        1 -> t(R.string.set_1_loaded_title_matches)
+                        else -> t(R.string.set_1_d_loaded_titles_match, matches)
                     },
-                    action = "Remove",
+                    action = t(R.string.set_remove),
                     danger = true,
                     enabled = true,
-                    actionContentDescription = "Remove rule for ${rule.category}",
+                    actionContentDescription = t(R.string.set_remove_rule_for_1_s, rule.category),
                     onClick = { preferences.setAutoCategoryRules(rules.filterNot { it.id == rule.id }) },
                 )
             }
@@ -967,19 +998,19 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
                 CalinoTextField(
                     value = newKeywords,
                     onValueChange = { newKeywords = it },
-                    label = "Keywords",
-                    placeholder = "standup, sync",
-                    description = "Keywords, separated by commas",
+                    label = t(R.string.set_keywords),
+                    placeholder = t(R.string.set_standup_sync),
+                    description = t(R.string.set_keywords_separated_by_commas),
                 )
                 if (offered.isEmpty()) {
-                    Text("Add a category first.", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                    Text(t(R.string.set_add_a_category_first), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         offered.forEach { category ->
                             CalinoChip(
                                 text = category,
                                 selected = category == newRuleCategory,
-                                description = "Category for this rule",
+                                description = t(R.string.set_category_for_this_rule),
                                 semanticsRole = Role.RadioButton,
                                 onClick = { newRuleCategory = category.takeUnless { it == newRuleCategory } },
                             )
@@ -989,10 +1020,10 @@ private fun CategoriesSettings(catalog: CategoryCatalog) {
                 val keywords = newKeywords.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
                 val chosen = newRuleCategory?.takeIf { it in offered }
                 SettingActionButton(
-                    "Add rule",
+                    t(R.string.set_add_rule),
                     danger = false,
                     enabled = keywords.isNotEmpty() && chosen != null,
-                    actionContentDescription = "Add keyword rule",
+                    actionContentDescription = t(R.string.set_add_keyword_rule),
                     onClick = {
                         if (chosen != null) {
                             preferences.setAutoCategoryRules(
@@ -1053,11 +1084,11 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
         if (!permission.granted) {
-            SettingsGroup("Permission") {
+            SettingsGroup(t(R.string.set_permission)) {
                 SettingActionRow(
-                    title = "Notifications are off",
-                    description = "Calino cannot deliver a reminder until Android allows it",
-                    action = if (permission.requestable) "Allow" else "Settings",
+                    title = t(R.string.set_notifications_are_off),
+                    description = t(R.string.set_calino_cannot_deliver_a_reminder_until_android_allows_it),
+                    action = if (permission.requestable) t(R.string.set_allow) else t(R.string.set_settings),
                     enabled = true,
                     onClick = {
                         if (permission.requestable) permission.request() else permission.openSystemSettings()
@@ -1065,18 +1096,18 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
                 )
             }
         }
-        SettingsGroup("Events") {
+        SettingsGroup(t(R.string.set_events)) {
             SettingToggleRow(
-                "Event reminders",
-                "A quiet nudge before an event begins",
+                t(R.string.set_event_reminders),
+                t(R.string.set_a_quiet_nudge_before_an_event_begins),
                 preferences.eventRemindersEnabled,
                 preferences.setEventRemindersEnabled,
             )
         }
-        SettingsGroup("Tasks") {
+        SettingsGroup(t(R.string.set_tasks)) {
             SettingToggleRow(
-                "Tasks due",
-                "Remind me when a task reaches its date",
+                t(R.string.set_tasks_due),
+                t(R.string.set_remind_me_when_a_task_reaches_its_date),
                 preferences.taskRemindersEnabled,
                 preferences.setTaskRemindersEnabled,
             )
@@ -1085,11 +1116,10 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
         // reminders to an app that has been given no calendars would hand
         // them to nobody, and the reminders would simply stop.
         if (remember { CalinoContainer.get(context).projectedCalendars().isNotEmpty() }) {
-            SettingsGroup("System calendar") {
+            SettingsGroup(t(R.string.set_system_calendar)) {
                 SettingToggleRow(
-                    "Let another app remind me",
-                    "Your calendar app notifies for the calendars Calino publishes to " +
-                        "Android, instead of Calino. Tasks stay with Calino either way.",
+                    t(R.string.set_let_another_app_remind_me),
+                    t(R.string.set_your_calendar_app_notifies_for_the_calendars_calino_publishe),
                     preferences.providerRemindersEnabled,
                     preferences.setProviderRemindersEnabled,
                 )
@@ -1099,38 +1129,35 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
         // of a reminder the user set, it is a separate feature nobody has
         // built, and a switch that promises a summary and delivers nothing is
         // worse than no switch. Removed rather than left lying.
-        SettingsGroup("Delivery") {
+        SettingsGroup(t(R.string.set_delivery)) {
             SettingActionRow(
-                title = "Reminders and channels",
-                description = "What is scheduled next, and how each channel is set",
-                action = "Open",
+                title = t(R.string.set_reminders_and_channels),
+                description = t(R.string.set_what_is_scheduled_next_and_how_each_channel_is_set),
+                action = t(R.string.set_open),
                 enabled = true,
                 onClick = onOpenPreview,
             )
             SettingDivider()
             SettingActionRow(
-                title = "Android notification settings",
-                description = "Sounds, importance, and lock-screen behaviour",
-                action = "Open",
+                title = t(R.string.set_android_notification_settings),
+                description = t(R.string.set_sounds_importance_and_lock_screen_behaviour),
+                action = t(R.string.set_open),
                 enabled = true,
                 onClick = { context.startActivity(systemSettingsIntent(context)) },
             )
         }
-        SettingsGroup("If a reminder never arrives") {
+        SettingsGroup(t(R.string.set_if_a_reminder_never_arrives)) {
             SettingNote(
-                "Some phones -- Samsung, Xiaomi, Huawei, OnePlus and others -- shut background " +
-                    "apps down aggressively to save battery, which stops alarms from firing at all. " +
-                    "If reminders go missing, exempt Calino from battery optimisation. " +
-                    "dontkillmyapp.com lists the exact steps for each manufacturer.",
+                t(R.string.set_some_phones_samsung_xiaomi_huawei_oneplus_and_others_shut_ba),
             )
         }
-        SettingsGroup("New event reminder") {
+        SettingsGroup(t(R.string.set_new_event_reminder)) {
             SettingChoiceRow(
-                label = "Default reminder",
-                description = "What a new event reminds you with",
+                label = t(R.string.set_default_reminder),
+                description = t(R.string.set_what_a_new_event_reminds_you_with),
                 options = CalinoDefaultReminder.entries,
                 selected = preferences.defaultReminder,
-                labelOf = { it.label },
+                labelOf = { it.localizedLabel() },
                 onSelected = preferences.setDefaultReminder,
             )
         }
@@ -1151,13 +1178,15 @@ private fun SyncSettings(
     onOpenSubscribe: () -> Unit,
 ) {
     val preferences = LocalCalinoPreferences.current
+    val addAccountDescription = t(R.string.set_add_calendar_account)
+    val subscribeDescription = t(R.string.set_subscribe_to_calendar)
     Column(verticalArrangement = Arrangement.spacedBy(SettingsGroupSpacing)) {
-        SettingsGroup("Connected accounts") {
+        SettingsGroup(t(R.string.set_connected_accounts)) {
             SettingActionRow(
-                title = "Calendars and accounts",
-                description = "Manage connected accounts, calendars, and address books",
-                action = "Open",
-                actionContentDescription = "Open calendars and accounts",
+                title = t(R.string.set_calendars_and_accounts),
+                description = t(R.string.set_manage_connected_accounts_calendars_and_address_books),
+                action = t(R.string.set_open),
+                actionContentDescription = t(R.string.set_open_calendars_and_accounts),
                 enabled = true,
                 onClick = { onOpenAccounts(false, null) },
             )
@@ -1168,8 +1197,8 @@ private fun SyncSettings(
                         Icon(CalinoIcons.Calendar, "", tint = CalinoColors.Accent, modifier = Modifier.size(21.dp))
                     }
                     Column(Modifier.weight(1f).padding(start = 13.dp)) {
-                        Text("No calendar accounts", style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-                        Text("Local records only · nothing connected", style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                        Text(t(R.string.set_no_calendar_accounts), style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                        Text(t(R.string.set_local_records_only_nothing_connected), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
                     }
                     Box(Modifier.size(8.dp).clip(CircleShape).background(CalinoColors.Amber))
                 }
@@ -1179,8 +1208,13 @@ private fun SyncSettings(
                     val active = account.calendars.count { it.enabled }
                     SettingActionRow(
                         title = account.displayName,
-                        description = "${account.username} · $active of ${account.calendars.size} calendars on",
-                        action = "Manage",
+                        description = t(
+                            R.string.set_1_s_2_d_of_3_d_calendars_on,
+                            account.username,
+                            active,
+                            account.calendars.size,
+                        ),
+                        action = t(R.string.set_manage),
                         enabled = true,
                         onClick = { onOpenAccounts(false, account.id) },
                     )
@@ -1190,13 +1224,13 @@ private fun SyncSettings(
             TextButton(
                 onClick = { onOpenAccounts(true, null) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)
-                    .semantics { contentDescription = "Add calendar account" },
-            ) { Text("+  Add calendar account", color = CalinoColors.Accent) }
+                    .semantics { contentDescription = addAccountDescription },
+            ) { Text(t(R.string.set_add_calendar_account_9e0b181), color = CalinoColors.Accent) }
         }
-        SettingsGroup("Subscribed calendars") {
+        SettingsGroup(t(R.string.set_subscribed_calendars)) {
             if (webcalSubscriptions.isEmpty()) {
                 Text(
-                    "Read-only overlays from a public .ics or webcal URL. They are not a CalDAV account.",
+                    t(R.string.set_read_only_overlays_from_a_public_ics_or_webcal_url_they_are_),
                     style = CalinoTypography.bodySmall,
                     color = CalinoColors.Ink2,
                     modifier = Modifier.padding(18.dp),
@@ -1216,14 +1250,14 @@ private fun SyncSettings(
                             Modifier.padding(top = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            TextButton(onClick = { onSyncWebcal(subscription.id) }) { Text("Sync now") }
+                            TextButton(onClick = { onSyncWebcal(subscription.id) }) { Text(t(R.string.set_sync_now)) }
                             TextButton(
                                 onClick = { onToggleWebcalNotify(subscription.id, !subscription.notifyReminders) },
                             ) {
-                                Text(if (subscription.notifyReminders) "Mute reminders" else "Fire reminders")
+                                Text(if (subscription.notifyReminders) t(R.string.set_mute_reminders) else t(R.string.set_fire_reminders))
                             }
                             TextButton(onClick = { onRemoveWebcal(subscription.id) }) {
-                                Text("Remove", color = CalinoColors.Rose)
+                                Text(t(R.string.set_remove), color = CalinoColors.Rose)
                             }
                         }
                     }
@@ -1233,37 +1267,39 @@ private fun SyncSettings(
             TextButton(
                 onClick = onOpenSubscribe,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp)
-                    .semantics { contentDescription = "Subscribe to calendar" },
-            ) { Text("+  Subscribe to calendar (.ics)", color = CalinoColors.Accent) }
+                    .semantics { contentDescription = subscribeDescription },
+            ) { Text(t(R.string.set_subscribe_to_calendar_ics), color = CalinoColors.Accent) }
         }
-        SettingsGroup("Sync settings") {
+        SettingsGroup(t(R.string.set_sync_settings)) {
             SettingChoiceRow(
-                label = "Background sync",
-                description = "Requested refresh frequency for connected accounts",
+                label = t(R.string.set_background_sync),
+                description = t(R.string.set_requested_refresh_frequency_for_connected_accounts),
                 options = BackgroundSyncCadence.entries,
                 selected = backgroundSyncCadence,
-                labelOf = { it.shortLabel },
+                labelOf = { it.localizedShortLabel() },
                 onSelected = onBackgroundSyncCadenceChanged,
             )
-            SettingNote("Android controls when background work runs and may defer it to protect battery or data.")
-            val dateFormatter = remember {
-                DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+            SettingNote(t(R.string.set_android_controls_when_background_work_runs_and_may_defer_it_))
+            val locale = LocalCalinoLocale
+            val dateFormatter = remember(locale) {
+                DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(locale)
             }
             val zone = remember { ZoneId.systemDefault() }
-            SettingNote(
-                "Last background attempt: ${backgroundSyncStatus.lastAttemptEpochMs?.let { formatBackgroundSyncTime(it, dateFormatter, zone) } ?: "Not yet"}\n" +
-                    "Last successful sync: ${backgroundSyncStatus.lastSuccessEpochMs?.let { formatBackgroundSyncTime(it, dateFormatter, zone) } ?: "Not yet"}",
-            )
+            SettingNote(t(
+                R.string.set_last_background_attempt_1_s_last_successful_sync_2_s,
+                backgroundSyncStatus.lastAttemptEpochMs?.let { formatBackgroundSyncTime(it, dateFormatter, zone) } ?: t(R.string.set_not_yet),
+                backgroundSyncStatus.lastSuccessEpochMs?.let { formatBackgroundSyncTime(it, dateFormatter, zone) } ?: t(R.string.set_not_yet),
+            ))
             backgroundSyncStatus.lastFailure?.let { failure ->
-                SettingNote("Last sync issue: $failure")
+                SettingNote(t(R.string.set_last_sync_issue_1_s, failure))
             }
             SettingDivider()
             SettingChoiceRow(
-                label = "Event sync range",
-                description = "Past and future events kept available offline and in search",
+                label = t(R.string.set_event_sync_range),
+                description = t(R.string.set_past_and_future_events_kept_available_offline_and_in_search),
                 options = CalinoEventSyncRange.entries,
                 selected = preferences.eventSyncRange,
-                labelOf = { it.label },
+                labelOf = { it.localizedLabel() },
                 onSelected = preferences.setEventSyncRange,
             )
         }
@@ -1272,19 +1308,18 @@ private fun SyncSettings(
 
 @Composable
 private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) {
-    SettingsGroup("Import & export") {
-        SettingActionRow("Export calendar", "Save a local .ics copy of one calendar", "Export", enabled = true, onClick = onExport)
+    SettingsGroup(t(R.string.set_import_export)) {
+        SettingActionRow(t(R.string.set_export_calendar), t(R.string.set_save_a_local_ics_copy_of_one_calendar), t(R.string.set_export), enabled = true, onClick = onExport)
         SettingDivider()
-        SettingActionRow("Import calendar", "Review events from an existing .ics file", "Choose file", enabled = true, onClick = onImport)
+        SettingActionRow(t(R.string.set_import_calendar), t(R.string.set_review_events_from_an_existing_ics_file), t(R.string.set_choose_file), enabled = true, onClick = onImport)
     }
     val context = LocalContext.current
     var phoneSearch by remember { mutableStateOf(PhoneSearchAccess.isEnabled(context)) }
     var assistants by remember { mutableStateOf(AssistantAccess.isEnabled(context)) }
-    SettingsGroup("Search & assistants") {
+    SettingsGroup(t(R.string.set_search_assistants)) {
         SettingToggleRow(
-            "Show in phone search",
-            "Find your events and tasks from the phone's search, such as Samsung Finder. " +
-                "Stays on this phone. Journals and contacts stay private",
+            t(R.string.set_show_in_phone_search),
+            t(R.string.set_find_your_events_and_tasks_from_the_phone_s_search_such_as_s),
             phoneSearch,
         ) { enabled ->
             PhoneSearchAccess.setEnabled(context, enabled)
@@ -1295,9 +1330,8 @@ private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) {
         if (android.os.Build.VERSION.SDK_INT >= 36) {
             SettingDivider()
             SettingToggleRow(
-                "Let assistants use Calino",
-                "Assistants such as Gemini can read your events and tasks, which may leave the phone, " +
-                    "and prepare new ones for you to save. Journals and contacts stay private",
+                t(R.string.set_let_assistants_use_calino),
+                t(R.string.set_assistants_such_as_gemini_can_read_your_events_and_tasks_whi),
                 assistants,
             ) { enabled ->
                 AssistantAccess.setEnabled(context, enabled)
@@ -1310,9 +1344,10 @@ private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) {
 @Composable
 private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
     val target = LocalSettingsSearchTarget.current
+    val categoriesTitle = t(R.string.set_categories)
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     LaunchedEffect(target) {
-        if (target?.group == title && (target.title == title || target.title == "Categories")) {
+        if (target?.group == title && (target.title == title || target.title == categoriesTitle)) {
             bringIntoViewRequester.bringIntoView()
         }
     }
@@ -1417,11 +1452,11 @@ private fun <T> SettingChoiceRow(
     description: String,
     options: List<T>,
     selected: T,
-    labelOf: (T) -> String,
+    labelOf: @Composable (T) -> String,
     onSelected: (T) -> Unit,
 ) = SettingRow(label, description, controlLayout = SettingRowControlLayout.AdaptiveSegmented) {
     CompactSegmentedControl(
-        options = options.map(labelOf),
+        options = options.map { labelOf(it) },
         selectedIndex = options.indexOf(selected).coerceAtLeast(0),
         onSelected = { index -> onSelected(options[index]) },
         modifier = Modifier.fillMaxWidth(),
@@ -1430,28 +1465,34 @@ private fun <T> SettingChoiceRow(
 }
 
 @Composable
-private fun SettingToggleRow(label: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) = SettingRow(label, description) {
-    Switch(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        colors = SwitchDefaults.colors(checkedThumbColor = CalinoColors.OnAccent, checkedTrackColor = CalinoColors.Accent, uncheckedThumbColor = CalinoColors.Panel, uncheckedTrackColor = CalinoColors.Ink3.copy(.26f), uncheckedBorderColor = Color.Transparent),
-        // Merged, not layered: a bare `semantics {}` here produces a node that
-        // owns the label while the switch's own toggleable node underneath owns
-        // the state, so a screen reader reads the two separately and neither
-        // node is the whole control. Merging makes it one switch again.
-        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "$label toggle" },
-    )
+private fun SettingToggleRow(label: String, description: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val toggleDescription = t(R.string.set_1_s_toggle, label)
+    SettingRow(label, description) {
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = CalinoColors.OnAccent, checkedTrackColor = CalinoColors.Accent, uncheckedThumbColor = CalinoColors.Panel, uncheckedTrackColor = CalinoColors.Ink3.copy(.26f), uncheckedBorderColor = Color.Transparent),
+            // Merged, not layered: a bare `semantics {}` here produces a node that
+            // owns the label while the switch's own toggleable node underneath owns
+            // the state, so a screen reader reads the two separately and neither
+            // node is the whole control. Merging makes it one switch again.
+            modifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = toggleDescription
+            },
+        )
+    }
 }
 
 /**
  * A miniature of what a theme actually looks like.
  *
- * It paints itself from [preview]'s own values rather than from `name == "Dark"`
+ * It paints itself from [preview]'s own values rather than from the localized theme name
  * branches, so registering another palette in `CalinoThemes` gives it a correct
  * preview for free.
  */
 @Composable
 private fun ThemeCard(name: String, preview: CalinoPalette, selected: Boolean, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val previewDescription = t(R.string.set_1_s_theme_preview, name)
     val outline by animateColorAsState(
         if (selected) CalinoColors.Accent else CalinoColors.Line,
         tween(CalinoMotion.ContentEnterMillis),
@@ -1469,7 +1510,7 @@ private fun ThemeCard(name: String, preview: CalinoPalette, selected: Boolean, m
             .border(2.dp, outline, RoundedCornerShape(12.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = "$name theme preview"
+                contentDescription = previewDescription
                 role = Role.RadioButton
                 this.selected = selected
                 if (!enabled) disabled()
@@ -1589,6 +1630,69 @@ private fun formatBackgroundSyncTime(
 
 private fun Modifier.alphaIfDisabled(enabled: Boolean): Modifier = if (enabled) this else alpha(.45f)
 
+@Composable
+private fun CalinoTimeFormat.localizedLabel(): String = when (this) {
+    CalinoTimeFormat.System -> t(R.string.set_system)
+    CalinoTimeFormat.TwelveHour -> t(R.string.set_12h)
+    CalinoTimeFormat.TwentyFourHour -> t(R.string.set_24h)
+}
+
+@Composable
+private fun CalinoDefaultView.localizedLabel(): String = when (this) {
+    CalinoDefaultView.Month -> t(R.string.set_month)
+    CalinoDefaultView.Week -> t(R.string.set_week)
+    CalinoDefaultView.Day -> t(R.string.set_day)
+    CalinoDefaultView.Range -> t(R.string.set_range)
+    CalinoDefaultView.Agenda -> t(R.string.set_agenda)
+}
+
+@Composable
+private fun CalinoWeekStart.localizedLabel(): String = when (this) {
+    CalinoWeekStart.System -> t(R.string.set_system)
+    CalinoWeekStart.Monday -> t(R.string.set_monday)
+    CalinoWeekStart.Sunday -> t(R.string.set_sunday)
+}
+
+@Composable
+private fun CalinoEventDensity.localizedLabel(): String = when (this) {
+    CalinoEventDensity.Quiet -> t(R.string.set_quiet)
+    CalinoEventDensity.Balanced -> t(R.string.set_balanced)
+    CalinoEventDensity.Dense -> t(R.string.set_dense)
+}
+
+@Composable
+private fun CalinoDefaultDuration.localizedLabel(): String = when (this) {
+    CalinoDefaultDuration.Half -> t(R.string.set_30m)
+    CalinoDefaultDuration.Hour -> t(R.string.set_60m)
+    CalinoDefaultDuration.HourAndHalf -> t(R.string.set_90m)
+}
+
+@Composable
+private fun CalinoDefaultReminder.localizedLabel(): String = when (this) {
+    CalinoDefaultReminder.None -> t(R.string.set_none)
+    CalinoDefaultReminder.AtStart -> t(R.string.set_at_start)
+    CalinoDefaultReminder.TenMinutes -> t(R.string.set_10_min)
+    CalinoDefaultReminder.ThirtyMinutes -> t(R.string.set_30_min)
+    CalinoDefaultReminder.OneHour -> t(R.string.set_1_hour)
+}
+
+@Composable
+private fun BackgroundSyncCadence.localizedShortLabel(): String = when (this) {
+    BackgroundSyncCadence.Hourly -> t(R.string.set_1_h)
+    BackgroundSyncCadence.FourHours -> t(R.string.set_4_h)
+    BackgroundSyncCadence.TwelveHours -> t(R.string.set_12_h)
+    BackgroundSyncCadence.Daily -> t(R.string.set_24_h)
+    BackgroundSyncCadence.Off -> t(R.string.set_off)
+}
+
+@Composable
+private fun CalinoEventSyncRange.localizedLabel(): String = when (this) {
+    CalinoEventSyncRange.SixMonths -> t(R.string.set_6_mo)
+    CalinoEventSyncRange.OneYear -> t(R.string.set_1_yr)
+    CalinoEventSyncRange.TwoYears -> t(R.string.set_2_yr)
+    CalinoEventSyncRange.FiveYears -> t(R.string.set_5_yr)
+}
+
 /**
  * A second zone labelled beside the hour rail, as the web app has. Turning it
  * on opens the picker; nothing is saved until a zone is chosen.
@@ -1598,9 +1702,9 @@ private fun SecondaryZoneSetting(zoneId: String?, onChange: (String?) -> Unit) {
     var picking by remember { mutableStateOf(false) }
     val zone = zoneId?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() }
     SettingToggleRow(
-        "Second time zone",
-        zone?.let { "Hour labels also show ${calino.malinov.ski.util.CalinoZones.label(it)}" }
-            ?: "Label the day and week hours in another zone too",
+        t(R.string.set_second_time_zone),
+        zone?.let { t(R.string.set_hour_labels_also_show_1_s, calino.malinov.ski.util.CalinoZones.label(it)) }
+            ?: t(R.string.set_label_the_day_and_week_hours_in_another_zone_too),
         zone != null || picking,
     ) { on ->
         if (on) picking = true else { picking = false; onChange(null) }
@@ -1617,3 +1721,5 @@ private fun SecondaryZoneSetting(zoneId: String?, onChange: (String?) -> Unit) {
         }
     }
 }
+@Composable
+private fun t(id: Int, vararg args: Any): String = stringResource(id, *args)

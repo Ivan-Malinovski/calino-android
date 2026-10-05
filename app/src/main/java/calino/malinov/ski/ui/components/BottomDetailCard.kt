@@ -6,8 +6,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import calino.malinov.ski.design.CalinoColors
+import calino.malinov.ski.R
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
 
@@ -33,7 +35,7 @@ fun BottomDetailCard(
         visible = visible,
         onDismiss = onDismiss,
         modifier = modifier,
-        contentDescription = "Dismiss detail card",
+        contentDescription = stringResource(R.string.cal_dismiss_detail_card),
         pill = pill,
     ) { overlayModifier ->
         val mode = LocalCalinoSurfaceMode.current
@@ -77,7 +79,7 @@ fun BottomDetailOverlay(
         visible = visible,
         onDismiss = onDismiss,
         modifier = modifier,
-        contentDescription = "Dismiss detail card",
+        contentDescription = stringResource(R.string.cal_dismiss_detail_card),
         preferredSurfaceHeight = preferredSurfaceHeight,
         pill = pill,
         origin = origin,

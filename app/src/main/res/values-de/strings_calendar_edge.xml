@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cal_zoom_week_edge_hint">↑ AGENDA · ↓ MONAT</string>
+    <string name="cal_zoom_month_edge_hint">↑ EINKLAPPEN · ↓ JAHR</string>
+    <string name="set_calendar_edge_swipes">Zum Jahr und zur Agenda wischen</string>
+    <string name="set_calendar_edge_swipes_description">Wische über den ganzen Monat hinaus nach unten, um das Jahr zu öffnen, oder über die Woche hinaus nach oben, um die Agenda zu öffnen.</string>
+    <string name="set_calendar_edge_swipes_search">kalender zoom gesten übergänge wischen jahr agenda</string>
+    <string name="cal_zoom_week_only_hint">↓ MONAT</string>
+    <string name="cal_zoom_month_only_hint">↑ EINKLAPPEN</string>
+</resources>

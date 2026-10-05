@@ -63,6 +63,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="false"
         android:supportsRtl="true"
+        android:localeConfig="@xml/locales_config"
         android:enableOnBackInvokedCallback="true">
         <!--
             Assistant access (AppFunctions). Shipped disabled: Settings turns
@@ -261,13 +262,14 @@
         -->
         <receiver
             android:name=".widget.CalinoWidgetReceiver"
-            android:label="Calino agenda"
+            android:label="@string/sys_widget_agenda"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.LOCALE_CHANGED" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
@@ -283,7 +285,7 @@
         -->
         <receiver
             android:name=".widget.CalinoCardsWidgetReceiver"
-            android:label="Calino agenda cards"
+            android:label="@string/sys_widget_cards"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -296,7 +298,7 @@
         <!-- The task list. Same reasoning as the cards receiver above. -->
         <receiver
             android:name=".widget.CalinoTasksWidgetReceiver"
-            android:label="Calino tasks"
+            android:label="@string/sys_widget_tasks"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

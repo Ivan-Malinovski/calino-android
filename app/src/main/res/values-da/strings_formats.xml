@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fmt_minutes">%1$d min</string>
+    <string name="fmt_hours">%1$d t</string>
+    <string name="fmt_days">%1$d d</string>
+    <string name="fmt_every_day">Hver dag</string>
+    <string name="fmt_every_week">Hver uge</string>
+    <string name="fmt_every_weekdays">Hver %1$s</string>
+    <string name="fmt_every_month">Hver måned</string>
+    <string name="fmt_month_day">Hver måned på dag %1$d</string>
+    <string name="fmt_every_year">Hvert år</string>
+    <string name="fmt_year_date">Hvert år den %1$s</string>
+    <string name="fmt_repeating_event">Gentagen begivenhed</string>
+    <string name="fmt_until">%1$s indtil %2$s</string>
+    <string name="fmt_completed">Fuldførte %1$s</string>
+    <string name="fmt_reopened">Genåbnede %1$s</string>
+    <string name="fmt_rescheduled">Flyttede %1$s til %2$s</string>
+    <string name="fmt_no_date">ingen dato</string>
+</resources>

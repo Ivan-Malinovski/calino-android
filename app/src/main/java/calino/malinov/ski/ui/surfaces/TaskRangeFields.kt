@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,16 +25,15 @@ import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
+import calino.malinov.ski.R
 import calino.malinov.ski.ui.components.CalinoChip
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.EditorLabel
 import calino.malinov.ski.ui.components.EditorReveal
+import calino.malinov.ski.util.localizedDateFormatter
 import androidx.compose.foundation.border
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private val RangeDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.US)
 
 /**
  * The task's dates, laid out the way the web editor does: the dates first, the
@@ -61,20 +61,43 @@ internal fun TaskRangeFields(
     folded: Boolean = false,
     onClearDue: (() -> Unit)? = null,
 ) {
+    val rangeDateFormat = localizedDateFormatter("EEE, d MMM")
+    val addStart = stringResource(R.string.ed_task_add_start)
+    val chooseStart = stringResource(R.string.ed_task_choose_start)
+    val startLabel = stringResource(R.string.ed_task_start)
+    val dueLabel = stringResource(R.string.ed_task_due)
+    val changeStart = stringResource(R.string.ed_task_change_start)
+    val changeDue = stringResource(R.string.ed_task_change_due)
+    val setDue = stringResource(R.string.ed_task_set_due)
+    val thisWeek = stringResource(R.string.ed_task_this_week)
+    val setThisWeek = stringResource(R.string.ed_task_set_this_week)
+    val clearStart = stringResource(R.string.ed_task_clear_start)
+    val removeStart = stringResource(R.string.ed_task_remove_start)
+    val repeatingHint = stringResource(R.string.ed_task_repeat_range_hint)
+    val invalidHint = stringResource(R.string.ed_task_start_before_due)
+    val weekHint = stringResource(R.string.ed_task_week_range_hint)
+    val shortHint = stringResource(R.string.ed_task_short_range_hint)
+    val hint = rangeHint(start, due, recurring, repeatingHint, invalidHint, weekHint, shortHint)
     if (folded) {
-        FoldedTaskRange(start, due, recurring, onStart, onDue, onClearDue, onClearStart, onWeek, dueRow)
+        FoldedTaskRange(
+            start, due, recurring, onStart, onDue, onClearDue, onClearStart, onWeek, dueRow,
+            rangeDateFormat, addStart, chooseStart, startLabel, dueLabel, changeStart, changeDue,
+            thisWeek, setThisWeek, clearStart, removeStart,
+            stringResource(R.string.ed_task_hide_date_options), stringResource(R.string.ed_task_show_date_options),
+            stringResource(R.string.ed_task_clear_due), stringResource(R.string.ed_task_remove_due), hint,
+        )
         return
     }
     val ranged = start != null && due != null
     val spansWeek = ranged && due!!.toEpochDay() - start!!.toEpochDay() >= 2
     Column(Modifier.fillMaxWidth().animateContentSize(CalinoMotion.standardSpatial())) {
         EditorReveal(!ranged) {
-            dueRow { TaskTextAction("Add start", "Choose task start date", onStart) }
+            dueRow { TaskTextAction(addStart, chooseStart, onStart) }
         }
         EditorReveal(ranged) {
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                RangeDateField("Start", start?.format(RangeDateFormat).orEmpty(), "Change task start date", onStart, Modifier.weight(1f))
-                RangeDateField("Due", due?.format(RangeDateFormat).orEmpty(), "Change task due date", onDue, Modifier.weight(1f))
+                RangeDateField(startLabel, start?.format(rangeDateFormat).orEmpty(), changeStart, onStart, Modifier.weight(1f))
+                RangeDateField(dueLabel, due?.format(rangeDateFormat).orEmpty(), changeDue, onDue, Modifier.weight(1f))
             }
         }
         // One row of presets. A single date's quick picks and "This week" are
@@ -86,20 +109,19 @@ internal fun TaskRangeFields(
         ) {
             if (!ranged) picks.forEach { (date, text) ->
                 CalinoChip(
-                    text = text, selected = due == date, description = "Set due date",
+                    text = text, selected = due == date, description = setDue,
                     semanticsRole = Role.RadioButton, onClick = { onPick(date) },
                 )
             }
             if (!recurring) CalinoChip(
-                text = "This week", selected = spansWeek,
-                description = "Set task to this week", onClick = onWeek,
+                text = thisWeek, selected = spansWeek,
+                description = setThisWeek, onClick = onWeek,
             )
             if (ranged) CalinoChip(
-                text = "Clear start", selected = false,
-                description = "Remove task start date", onClick = onClearStart,
+                text = clearStart, selected = false,
+                description = removeStart, onClick = onClearStart,
             )
         }
-        val hint = rangeHint(start, due, recurring)
         EditorReveal(hint != null) {
             Text(hint.orEmpty(), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3, modifier = Modifier.padding(top = 8.dp))
         }
@@ -107,14 +129,14 @@ internal fun TaskRangeFields(
     }
 }
 
-private fun rangeHint(start: LocalDate?, due: LocalDate?, recurring: Boolean): String? {
+private fun rangeHint(start: LocalDate?, due: LocalDate?, recurring: Boolean, repeatingHint: String, invalidHint: String, weekHint: String, shortHint: String): String? {
     val ranged = start != null && due != null
     val spansWeek = ranged && due!!.toEpochDay() - start!!.toEpochDay() >= 2
     return when {
-        recurring -> "Repeating tasks keep their start date; week planning is for one-off tasks."
-        start != null && due != null && !start.isBefore(due) -> "Start must be before the due date."
-        spansWeek -> "Spans 3+ days, so it shows under “Sometime this week” in the week view."
-        ranged -> "Under 3 days, so it shows on its due day."
+        recurring -> repeatingHint
+        start != null && due != null && !start.isBefore(due) -> invalidHint
+        spansWeek -> weekHint
+        ranged -> shortHint
         else -> null
     }
 }
@@ -126,6 +148,10 @@ private fun FoldedTaskRange(
     start: LocalDate?, due: LocalDate?, recurring: Boolean,
     onStart: () -> Unit, onDue: () -> Unit, onClearDue: (() -> Unit)?, onClearStart: () -> Unit, onWeek: () -> Unit,
     dueRow: @Composable (startAction: @Composable () -> Unit) -> Unit,
+    rangeDateFormat: DateTimeFormatter,
+    addStart: String, chooseStart: String, startLabel: String, dueLabel: String, changeStart: String, changeDue: String,
+    thisWeek: String, setThisWeek: String, clearStart: String, removeStart: String,
+    hideOptions: String, showOptions: String, clearDue: String, removeDue: String, hint: String?,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     val chevron by animateFloatAsState(if (open) 180f else 0f, CalinoMotion.expressiveSpatial(), label = "date actions chevron")
@@ -136,8 +162,8 @@ private fun FoldedTaskRange(
             Box(Modifier.weight(1f)) {
                 if (ranged) {
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        RangeDateField("Start", start?.format(RangeDateFormat).orEmpty(), "Change task start date", onStart, Modifier.weight(1f))
-                        RangeDateField("Due", due?.format(RangeDateFormat).orEmpty(), "Change task due date", onDue, Modifier.weight(1f))
+                        RangeDateField(startLabel, start?.format(rangeDateFormat).orEmpty(), changeStart, onStart, Modifier.weight(1f))
+                        RangeDateField(dueLabel, due?.format(rangeDateFormat).orEmpty(), changeDue, onDue, Modifier.weight(1f))
                     }
                 } else {
                     dueRow {}
@@ -147,8 +173,8 @@ private fun FoldedTaskRange(
                 Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(CalinoShapes.Row))
-                    .clickable(role = Role.Button, onClickLabel = if (open) "Hide date options" else "Show date options") { open = !open }
-                    .semantics { contentDescription = if (open) "Hide date options" else "Show date options" },
+                    .clickable(role = Role.Button, onClickLabel = if (open) hideOptions else showOptions) { open = !open }
+                    .semantics { contentDescription = if (open) hideOptions else showOptions },
                 contentAlignment = Alignment.Center,
             ) {
                 CalinoIcon(CalinoIcon.Down, tint = CalinoColors.Ink3, modifier = Modifier.size(18.dp).rotate(chevron), contentDescription = null)
@@ -158,19 +184,18 @@ private fun FoldedTaskRange(
             FlowRow(Modifier.padding(start = 40.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 if (!ranged && due != null) {
                     if (onClearDue != null) CalinoChip(
-                        text = "Clear due", selected = false, description = "Remove task due date", onClick = onClearDue,
+                        text = clearDue, selected = false, description = removeDue, onClick = onClearDue,
                     )
-                    CalinoChip(text = "Add start", selected = false, description = "Choose task start date", onClick = onStart)
+                    CalinoChip(text = addStart, selected = false, description = chooseStart, onClick = onStart)
                 }
                 if (!recurring) CalinoChip(
-                    text = "This week", selected = spansWeek, description = "Set task to this week", onClick = onWeek,
+                    text = thisWeek, selected = spansWeek, description = setThisWeek, onClick = onWeek,
                 )
                 if (ranged) CalinoChip(
-                    text = "Clear start", selected = false, description = "Remove task start date", onClick = onClearStart,
+                    text = clearStart, selected = false, description = removeStart, onClick = onClearStart,
                 )
             }
         }
-        val hint = rangeHint(start, due, recurring)
         EditorReveal(hint != null) {
             Text(hint.orEmpty(), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 40.dp, bottom = 8.dp))
         }

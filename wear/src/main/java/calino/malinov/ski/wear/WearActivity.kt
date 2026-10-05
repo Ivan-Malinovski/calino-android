@@ -1,8 +1,10 @@
 package calino.malinov.ski.wear
 
 import android.content.Intent
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -79,6 +81,10 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -179,13 +185,15 @@ class WearActivity : ComponentActivity() {
         LaunchedEffect(snapshot == null) { if (snapshot != null) listState.scrollToItem(focusIndex) }
         ScreenScaffold(scrollState = listState) { contentPadding ->
             ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
-                item { PageHeader("Agenda") }
+                item { PageHeader(getString(R.string.wear_agenda)) }
                 statusItems(state, nowMillis)
                 if (snapshot != null && today != null) {
                     groups.forEach { group ->
-                        item(key = "day-${group.epochDay}") { SectionHeader(dayHeader(group.epochDay, today)) }
+                        item(key = "day-${group.epochDay}") {
+                            SectionHeader(dayHeader(this@WearActivity, group.epochDay, today))
+                        }
                         if (group.rows.isEmpty()) {
-                            item(key = "empty-${group.epochDay}") { EmptyRow("Nothing planned") }
+                            item(key = "empty-${group.epochDay}") { EmptyRow(getString(R.string.wear_nothing_planned)) }
                         }
                         items(group.rows.size, key = { rowId(group.rows[it]) }) { index ->
                             val row = group.rows[index]
@@ -207,12 +215,14 @@ class WearActivity : ComponentActivity() {
         val listState = rememberScalingLazyListState()
         ScreenScaffold(scrollState = listState) { contentPadding ->
             ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
-                item { PageHeader("Tasks") }
+                item { PageHeader(getString(R.string.wear_tasks)) }
                 statusItems(state, nowMillis)
                 if (snapshot != null) {
-                    if (sections.isEmpty()) item { EmptyRow("No open tasks") }
+                    if (sections.isEmpty()) item { EmptyRow(getString(R.string.wear_no_open_tasks)) }
                     sections.forEach { section ->
-                        item(key = "group-${section.group}") { SectionHeader(section.group.label()) }
+                        item(key = "group-${section.group}") {
+                            SectionHeader(section.group.label(this@WearActivity))
+                        }
                         items(section.tasks.size, key = { section.tasks[it].occurrenceId }) { index ->
                             val task = section.tasks[index]
                             RecordCard(task, snapshot, ended = false) { onOpen(task) }
@@ -224,18 +234,28 @@ class WearActivity : ComponentActivity() {
     }
 
     private fun statusCount(state: WearReducedState, nowMillis: Long) =
-        listOfNotNull(state.recentNotice(nowMillis), state.snapshot?.let { staleLabel(it, nowMillis) }).size +
+        listOfNotNull(
+            state.recentNotice(nowMillis)?.notice(this),
+            state.snapshot?.let { staleLabel(this, it, nowMillis) },
+        ).size +
             if (state.snapshot == null) 1 else 0
 
     private fun ScalingLazyListScope.statusItems(state: WearReducedState, nowMillis: Long) {
         state.recentNotice(nowMillis)?.let { acknowledgement ->
-            item(key = "notice") { InfoBlock(acknowledgement.notice(), "Watch action") }
+            item(key = "notice") { InfoBlock(acknowledgement.notice(this@WearActivity), getString(R.string.wear_watch_action)) }
         }
         val snapshot = state.snapshot
         if (snapshot == null) {
-            item(key = "setup") { InfoBlock("Set up Calino on your phone", "The watch will sync automatically") }
+            item(key = "setup") {
+                InfoBlock(
+                    getString(R.string.wear_set_up_on_phone),
+                    getString(R.string.wear_sync_automatically),
+                )
+            }
         } else {
-            staleLabel(snapshot, nowMillis)?.let { label -> item(key = "stale") { InfoBlock(label, "Cached calendar") } }
+            staleLabel(this@WearActivity, snapshot, nowMillis)?.let { label ->
+                item(key = "stale") { InfoBlock(label, getString(R.string.wear_cached_calendar)) }
+            }
         }
     }
 
@@ -291,15 +311,18 @@ class WearActivity : ComponentActivity() {
 
     @Composable
     private fun RecordCard(row: Any, snapshot: WearSnapshot, ended: Boolean, onClick: () -> Unit) {
-        val schedule = remember(row, snapshot.timeFormat) { rowSchedule(row, snapshot.timeFormat) }
+        val schedule = rowSchedule(this@WearActivity, row, snapshot.timeFormat)
         val pending = row is WearTask && row.writeState == WearWriteState.PENDING
+        val endedLabel = getString(R.string.wear_ended)
+        val openDetailsLabel = getString(R.string.wear_open_details)
+        val pendingSchedule = getString(R.string.wear_pending, schedule)
         TitleCard(
             onClick = onClick,
             modifier = Modifier
                 .fillMaxWidth()
                 .alpha(if (ended) ENDED_ALPHA else 1f)
                 .semantics {
-                    contentDescription = listOfNotNull(rowTitle(row), schedule, "ended".takeIf { ended }, "Open details")
+                    contentDescription = listOfNotNull(rowTitle(row), schedule, endedLabel.takeIf { ended }, openDetailsLabel)
                         .joinToString(", ")
                 },
             title = {
@@ -308,7 +331,7 @@ class WearActivity : ComponentActivity() {
                     Text(rowTitle(row), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             },
-            subtitle = { Text(if (pending) "Pending · $schedule" else schedule) },
+            subtitle = { Text(if (pending) pendingSchedule else schedule) },
         )
     }
 
@@ -319,17 +342,27 @@ class WearActivity : ComponentActivity() {
         var confirmation by remember { mutableStateOf<String?>(null) }
         var phoneFailed by remember { mutableStateOf(false) }
         val tomorrow = WearFormatting.today(snapshot) + 1
+        val phoneLabel = getString(R.string.wear_phone)
+        val taskLabel = getString(R.string.wear_task)
+        val eventLabel = getString(R.string.wear_event)
+        val completeLabel = getString(R.string.wear_complete)
+        val markTaskDoneLabel = getString(R.string.wear_mark_task_done)
+        val completedLabel = getString(R.string.wear_completed)
+        val tomorrowLabel = getString(R.string.wear_tomorrow)
+        val moveDueDateLabel = getString(R.string.wear_move_due_date)
+        val movedLabel = getString(R.string.wear_moved)
+        val phoneUnreachableLabel = getString(R.string.wear_phone_unreachable)
         ScreenScaffold(
             scrollState = listState,
             edgeButton = {
                 EdgeButton(onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     openPhone(row) { phoneFailed = true }
-                }) { Text("Phone") }
+                }) { Text(phoneLabel) }
             },
         ) { contentPadding ->
             ScalingLazyColumn(state = listState, contentPadding = contentPadding) {
-                item { PageHeader(if (row is WearTask) "Task" else "Event") }
+                item { PageHeader(if (row is WearTask) taskLabel else eventLabel) }
                 item {
                     Column(
                         Modifier
@@ -343,29 +376,29 @@ class WearActivity : ComponentActivity() {
                             ColorDot(row)
                             Text(rowTitle(row), style = MaterialTheme.typography.titleMedium)
                         }
-                        Text(detailSchedule(row, snapshot), style = MaterialTheme.typography.bodyMedium)
+                        Text(detailSchedule(this@WearActivity, row, snapshot), style = MaterialTheme.typography.bodyMedium)
                         rowMetadata(row).takeIf(String::isNotBlank)?.let {
                             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (row is WearTask) {
-                            Text(WearFormatting.taskStatus(row), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(wearTaskStatus(row), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
                 if (row is WearTask && !row.done) {
                     item {
-                        ActionButton("Complete", "Mark this task done", filled = true) {
+                        ActionButton(completeLabel, markTaskDoneLabel, filled = true) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             command(snapshot, row, WearCommandOp.SET_TASK_DONE, null)
-                            confirmation = "Completed"
+                            confirmation = completedLabel
                         }
                     }
                     if (row.dueEpochDay != tomorrow) {
                         item {
-                            ActionButton("Tomorrow", "Move the due date") {
+                            ActionButton(tomorrowLabel, moveDueDateLabel) {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 command(snapshot, row, WearCommandOp.RESCHEDULE_TASK, tomorrow)
-                                confirmation = "Moved"
+                                confirmation = movedLabel
                             }
                         }
                     }
@@ -384,7 +417,7 @@ class WearActivity : ComponentActivity() {
         FailureConfirmationDialog(
             visible = phoneFailed,
             onDismissRequest = { phoneFailed = false },
-            curvedText = { confirmationDialogCurvedText("Phone unreachable", curvedStyle) },
+            curvedText = { confirmationDialogCurvedText(phoneUnreachableLabel, curvedStyle) },
         )
     }
 
@@ -462,46 +495,139 @@ private fun rowMetadata(row: Any) = when (row) {
     is WearTask -> listOfNotNull(row.calendar, row.category).filter(String::isNotBlank).joinToString(" · ")
     else -> ""
 }
-private fun dayHeader(day: Long, today: Long) = when (day) {
-    today -> "Today"
-    today + 1 -> "Tomorrow"
-    else -> WearFormatting.date(day)
+private fun dayHeader(context: Context, day: Long, today: Long) = when (day) {
+    today -> context.getString(R.string.wear_today)
+    today + 1 -> context.getString(R.string.wear_tomorrow)
+    else -> context.wearDate(day)
 }
-private fun rowSchedule(row: Any, timeFormat: WearTimeFormat) = when (row) {
-    is WearEvent -> WearFormatting.eventTime(row, timeFormat)
-    is WearTask -> WearFormatting.taskDue(row, timeFormat)
+private fun rowSchedule(context: Context, row: Any, timeFormat: WearTimeFormat) = when (row) {
+    is WearEvent -> context.wearEventTime(row, timeFormat)
+    is WearTask -> context.wearTaskDue(row, timeFormat)
     else -> ""
 }
-private fun detailSchedule(row: Any, snapshot: WearSnapshot) = when (row) {
-    is WearEvent -> "${WearFormatting.eventDate(row)} · ${WearFormatting.eventTime(row, snapshot.timeFormat)}"
-    is WearTask -> WearFormatting.taskDue(row, snapshot.timeFormat)
+private fun detailSchedule(context: Context, row: Any, snapshot: WearSnapshot) = when (row) {
+    is WearEvent -> "${context.wearEventDate(row)} · ${context.wearEventTime(row, snapshot.timeFormat)}"
+    is WearTask -> context.wearTaskDue(row, snapshot.timeFormat)
     else -> ""
 }
-private fun TaskGroup.label() = name.lowercase().replaceFirstChar(Char::uppercase)
+private fun TaskGroup.label(context: Context) = context.getString(
+    when (this) {
+        TaskGroup.OVERDUE -> R.string.wear_group_overdue
+        TaskGroup.TODAY -> R.string.wear_group_today
+        TaskGroup.UPCOMING -> R.string.wear_group_upcoming
+        TaskGroup.UNDATED -> R.string.wear_group_undated
+    },
+)
 
 /** Failures stay until replaced; confirmations fade out of the list after a few minutes. */
 private fun WearReducedState.recentNotice(nowMillis: Long): WearAck? = notices.firstOrNull()?.takeIf {
     it.result !in setOf(WearAckResult.APPLIED, WearAckResult.QUEUED, WearAckResult.NOOP) ||
         nowMillis - it.atMillis < NOTICE_MILLIS
 }
-private fun WearAck.notice() = when (result) {
-    WearAckResult.APPLIED -> "Saved on phone"
-    WearAckResult.QUEUED -> "Saved · waiting to sync"
-    WearAckResult.NOOP -> "Already up to date"
-    else -> message ?: result.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+private fun WearAck.notice(context: Context) = when (result) {
+    WearAckResult.APPLIED -> context.getString(R.string.wear_saved_on_phone)
+    WearAckResult.QUEUED -> context.getString(R.string.wear_saved_waiting_to_sync)
+    WearAckResult.NOOP -> context.getString(R.string.wear_already_up_to_date)
+    else -> message?.let { context.localizedProcessorMessage(it) } ?: context.getString(
+        when (result) {
+            WearAckResult.CONFLICT -> R.string.wear_conflict
+            WearAckResult.NOT_FOUND -> R.string.wear_not_found
+            WearAckResult.REJECTED -> R.string.wear_rejected
+            WearAckResult.EXPIRED -> R.string.wear_expired
+            WearAckResult.NO_ACCOUNT -> R.string.wear_no_account
+            WearAckResult.UNSUPPORTED -> R.string.wear_unsupported
+            WearAckResult.APPLIED -> R.string.wear_saved_on_phone
+            WearAckResult.QUEUED -> R.string.wear_saved_waiting_to_sync
+            WearAckResult.NOOP -> R.string.wear_already_up_to_date
+        },
+    )
 }
-private fun staleLabel(snapshot: WearSnapshot, nowMillis: Long): String? {
+
+/** Translate only stable messages authored by WearCommandProcessor; keep unknown diagnostics intact. */
+private fun Context.localizedProcessorMessage(message: String): String {
+    val resourceId = when (message) {
+        "Command expired" -> R.string.wear_ack_command_expired
+        "Connect Calino on phone" -> R.string.wear_ack_connect_calino_on_phone
+        "Watch data is no longer current" -> R.string.wear_ack_watch_data_no_longer_current
+        "Unsupported command" -> R.string.wear_ack_unsupported_command
+        "Missing target day" -> R.string.wear_ack_missing_target_day
+        "Task changed or was removed" -> R.string.wear_ack_task_changed_or_removed
+        "Task changed on phone" -> R.string.wear_ack_task_changed_on_phone
+        else -> return message
+    }
+    return getString(resourceId)
+}
+private fun staleLabel(context: Context, snapshot: WearSnapshot, nowMillis: Long): String? {
     val age = Duration.between(Instant.ofEpochMilli(snapshot.generatedAtMillis), Instant.ofEpochMilli(nowMillis))
     val old = snapshot.stale || age.toHours() >= 1
     val parts = listOfNotNull(
-        "Updated ${ago(age)}".takeIf { old },
-        "Some items hidden".takeIf { snapshot.truncated },
+        context.getString(R.string.wear_updated_ago, context.wearAgo(age)).takeIf { old },
+        context.getString(R.string.wear_some_items_hidden).takeIf { snapshot.truncated },
     )
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
-private fun ago(age: Duration) = when {
-    age.toMinutes() < 1 -> "just now"
-    age.toHours() < 1 -> "${age.toMinutes()}m ago"
-    age.toDays() < 2 -> "${age.toHours()}h ago"
-    else -> "${age.toDays()}d ago"
+
+internal fun Context.wearDate(epochDay: Long): String {
+    val locale = resources.configuration.locales[0] ?: Locale.getDefault()
+    val pattern = if (locale.language in setOf("da", "de")) {
+        DateFormat.getBestDateTimePattern(locale, "EEEdMMM")
+    } else {
+        "EEE, d MMM"
+    }
+    return LocalDate.ofEpochDay(epochDay).format(DateTimeFormatter.ofPattern(pattern, locale))
+}
+
+internal fun Context.wearTime(minuteOfDay: Int, format: WearTimeFormat, compact: Boolean = false): String {
+    val locale = resources.configuration.locales[0] ?: Locale.getDefault()
+    val normalized = Math.floorMod(minuteOfDay, 24 * 60)
+    val pattern = when {
+        format == WearTimeFormat.H24 -> "HH:mm"
+        compact -> "h:mma"
+        else -> "h:mm a"
+    }
+    val formatted = LocalTime.of(normalized / 60, normalized % 60)
+        .format(DateTimeFormatter.ofPattern(pattern, locale))
+    return if (format == WearTimeFormat.H12 && compact) {
+        formatted.lowercase(locale).replace(":00", "")
+    } else {
+        formatted
+    }
+}
+
+internal fun Context.wearEventDate(event: WearEvent): String = if (event.endEpochDay > event.startEpochDay) {
+    "${wearDate(event.startEpochDay)} – ${wearDate(event.endEpochDay)}"
+} else {
+    wearDate(event.startEpochDay)
+}
+
+internal fun Context.wearEventTime(event: WearEvent, format: WearTimeFormat): String {
+    if (event.allDay) return getString(R.string.wear_all_day)
+    val start = event.startMinute ?: return getString(R.string.wear_time_unavailable)
+    val end = event.durationMinutes?.let { start + it }
+    return if (end != null) "${wearTime(start, format)}–${wearTime(end, format)}" else wearTime(start, format)
+}
+
+internal fun Context.wearTaskDue(task: WearTask, format: WearTimeFormat): String {
+    val day = task.dueEpochDay ?: return getString(R.string.wear_no_due_date)
+    val time = task.dueMinute?.let { " · ${wearTime(it, format)}" }.orEmpty()
+    return getString(R.string.wear_due_1_s, "${wearDate(day)}$time")
+}
+
+private fun Context.wearTaskStatus(task: WearTask): String = when {
+    task.done -> getString(R.string.wear_completed)
+    task.progress > 0 -> getString(R.string.wear_progress_percent, task.progress)
+    else -> getString(R.string.wear_open)
+}
+
+private fun Context.wearAgo(age: Duration): String = when {
+    age.toMinutes() < 1 -> getString(R.string.wear_just_now)
+    age.toHours() < 1 -> resources.getQuantityString(
+        R.plurals.wear_minutes_ago, age.toMinutes().toInt(), age.toMinutes().toInt(),
+    )
+    age.toDays() < 2 -> resources.getQuantityString(
+        R.plurals.wear_hours_ago, age.toHours().toInt(), age.toHours().toInt(),
+    )
+    else -> resources.getQuantityString(
+        R.plurals.wear_days_ago, age.toDays().toInt(), age.toDays().toInt(),
+    )
 }

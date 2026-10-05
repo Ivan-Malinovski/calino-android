@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cal_zoom_week_edge_hint">↑ AGENDA · ↓ MÅNED</string>
+    <string name="cal_zoom_month_edge_hint">↑ FOLD SAMMEN · ↓ ÅR</string>
+    <string name="set_calendar_edge_swipes">Stryg til År og Agenda</string>
+    <string name="set_calendar_edge_swipes_description">Stryg ned forbi hele måneden for at åbne År, eller op forbi ugen for at åbne Agenda.</string>
+    <string name="set_calendar_edge_swipes_search">kalender zoom bevægelser overgange stryg år agenda</string>
+    <string name="cal_zoom_week_only_hint">↓ MÅNED</string>
+    <string name="cal_zoom_month_only_hint">↑ FOLD SAMMEN</string>
+</resources>

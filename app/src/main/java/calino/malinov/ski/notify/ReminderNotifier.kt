@@ -31,7 +31,7 @@ class ReminderNotifier(private val context: Context) {
         val builder = NotificationCompat.Builder(context, ReminderChannels.channelFor(firing.kind))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(firing.title)
-            .setContentText(firing.subtitle)
+            .setContentText(localizedSubtitle(firing))
             .setWhen(firing.anchor.toEpochMilli())
             .setShowWhen(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -44,20 +44,20 @@ class ReminderNotifier(private val context: Context) {
             )
             .setAutoCancel(true)
             .setContentIntent(openIntent(firing))
-            .addAction(0, "Snooze 5 min", actionIntent(firing, ReminderActions.Snooze))
+            .addAction(0, context.getString(R.string.sys_snooze), actionIntent(firing, ReminderActions.Snooze))
 
         joinIntent(firing)?.let { intent ->
-            builder.addAction(0, "Join", intent)
+            builder.addAction(0, context.getString(R.string.sys_join), intent)
         }
 
         directionsIntent(firing)?.let { intent ->
-            builder.addAction(0, "Directions", intent)
+            builder.addAction(0, context.getString(R.string.sys_directions), intent)
         }
 
         if (firing.kind == ReminderKind.Task) {
             builder
-                .addAction(0, "Mark done", actionIntent(firing, ReminderActions.MarkDone))
-                .addAction(0, "Tomorrow", actionIntent(firing, ReminderActions.Tomorrow))
+                .addAction(0, context.getString(R.string.sys_mark_done), actionIntent(firing, ReminderActions.MarkDone))
+                .addAction(0, context.getString(R.string.sys_tomorrow), actionIntent(firing, ReminderActions.Tomorrow))
         }
 
         notify(firing.notificationId, builder)
@@ -82,6 +82,28 @@ class ReminderNotifier(private val context: Context) {
             .setAutoCancel(true)
             .setContentIntent(openIntent(firing))
         notify(firing.notificationId, builder)
+    }
+
+    /** Format at delivery time so a queued reminder follows a later language change. */
+    private fun localizedSubtitle(firing: ReminderFiring): String {
+        if (firing.displayAllDay == null) return firing.subtitle // Older durable schedule.
+        val locale = context.resources.configuration.locales[0]
+        val deviceClock = calino.malinov.ski.state.CalinoDeviceDefaults.from(context).timeFormat
+        val clock = calino.malinov.ski.state.SharedPreferencesPreferenceStore(context).loadTimeFormat().resolved(deviceClock)
+        val time = firing.displayTime?.let { clock.format(it, locale) }
+        if (firing.kind == ReminderKind.Event) {
+            val head = if (firing.displayAllDay) context.getString(R.string.sys_all_day) else time
+            return listOfNotNull(head, firing.location).joinToString(" · ")
+        }
+        val today = java.time.LocalDate.now()
+        val date = firing.displayDate
+        val head = when (date) {
+            null -> context.getString(R.string.sys_task_reminder)
+            today -> context.getString(R.string.sys_due_today)
+            today.plusDays(1) -> context.getString(R.string.sys_due_tomorrow)
+            else -> context.getString(R.string.sys_due_date, date.format(calino.malinov.ski.util.localizedDisplayFormatter("d MMM", locale)))
+        }
+        return listOfNotNull(head, time, firing.displayCategory).joinToString(" · ")
     }
 
     fun cancel(notificationId: Int) = manager.cancel(notificationId)
@@ -159,7 +181,7 @@ class ReminderNotifier(private val context: Context) {
     private fun directionsIntent(firing: ReminderFiring): PendingIntent? {
         if (firing.kind != ReminderKind.Event) return null
         val mapIntent = eventLocationIntent(firing.location) ?: return null
-        val chooser = Intent.createChooser(mapIntent, "Open location in maps").apply {
+        val chooser = Intent.createChooser(mapIntent, context.getString(R.string.sys_open_maps)).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         return PendingIntent.getActivity(

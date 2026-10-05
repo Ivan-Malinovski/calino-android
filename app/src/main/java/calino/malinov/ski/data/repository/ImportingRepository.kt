@@ -143,9 +143,8 @@ class ImportingRepository(
     /**
      * Why a write without a live route and explicit write consent is refused.
      */
-    private fun rejection(): WriteResult.Rejected = WriteResult.Rejected(
-        "Editing is not enabled for that device calendar.",
-    )
+    private fun rejection(): WriteResult.Rejected =
+        WriteResult.Rejected(WriteRejectionCode.DEVICE_CALENDAR_EDITING_DISABLED)
 
     private fun isImported(id: String?) = id != null && AndroidCalendarId.isImported(id)
 

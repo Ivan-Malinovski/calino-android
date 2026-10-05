@@ -1,5 +1,9 @@
 package calino.malinov.ski.ui.components
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+import calino.malinov.ski.util.LocalCalinoLocale
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -59,7 +63,6 @@ import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
 import java.time.LocalTime
-import java.util.Locale
 
 /**
  * The editor's shared controls. They exist so the long editor form reuses one
@@ -115,13 +118,14 @@ fun CalinoTextField(
         label = "field edge",
     )
     val shape = RoundedCornerShape(CalinoShapes.Field)
+    val fieldDescription = errorText?.let { stringResource(R.string.cal_field_description, description, it) } ?: description
     TextField(
         value = value,
         onValueChange = onValueChange,
         interactionSource = interaction,
         shape = shape,
         modifier = modifier.fillMaxWidth().border(1.dp, edge, shape).semantics {
-            contentDescription = errorText?.let { "$description, $it" } ?: description
+            contentDescription = fieldDescription
         },
         textStyle = textStyle,
         label = { Text(label) },
@@ -151,6 +155,8 @@ fun CalinoChip(
     modifier: Modifier = Modifier,
     semanticsRole: Role = Role.Button,
 ) {
+    val chipDescription = stringResource(R.string.cal_chip_description, text, description)
+    val selectedState = stringResource(if (selected) R.string.cal_selected_state else R.string.cal_not_selected_state)
     // Selection can change without a tap -- keyword rules select a category
     // as the title is typed -- so it fades rather than snapping.
     val fade = tween<Color>(CalinoMotion.ContentEnterMillis)
@@ -168,8 +174,8 @@ fun CalinoChip(
             .heightIn(min = 48.dp)
             .calinoPressable(role = semanticsRole, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = "$text, $description"
-                stateDescription = if (selected) "Selected" else "Not selected"
+                contentDescription = chipDescription
+                stateDescription = selectedState
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -210,7 +216,7 @@ fun EditorSection(
 @Composable
 fun EditorLabel(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.uppercase(Locale.getDefault()),
+        text.uppercase(LocalCalinoLocale),
         modifier,
         style = CalinoTypography.labelSmall,
         color = CalinoColors.Ink3,
@@ -228,13 +234,14 @@ fun EditorValueField(
     enabled: Boolean = true,
 ) {
     val pressable = if (enabled) Modifier.calinoPressable(onClick = onClick) else Modifier
+    val valueDescription = stringResource(if (enabled) R.string.cal_editor_value_change else R.string.cal_editor_value_unavailable, label, value)
     Column(
         modifier
             .clip(RoundedCornerShape(CalinoShapes.Row))
             .background(CalinoColors.Canvas)
             .border(1.dp, CalinoColors.Line, RoundedCornerShape(CalinoShapes.Row))
             .then(pressable)
-            .semantics { contentDescription = "$label, $value${if (enabled) ", tap to change" else ", unavailable"}" }
+            .semantics { contentDescription = valueDescription }
             .heightIn(min = 52.dp)
             .padding(horizontal = 13.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -256,13 +263,14 @@ fun CalinoToggleRow(
     enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val stateLabel = stringResource(if (checked) R.string.cal_on else R.string.cal_off)
     Row(
         modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
             .semantics(mergeDescendants = true) {
                 contentDescription = label
-                stateDescription = if (checked) "On" else "Off"
+                stateDescription = stateLabel
                 role = Role.Switch
             },
         verticalAlignment = Alignment.CenterVertically,
@@ -292,22 +300,25 @@ fun CalinoToggleRow(
  * *painted* through [CalinoPalette.forEvent], so it still looks right in dark.
  */
 private val SwatchColors = with(CalinoThemes.PaperLight) {
-    listOf("Rose" to Rose, "Blue" to Blue, "Green" to Green, "Amber" to Amber, "Plum" to Plum)
+    listOf(R.string.cal_color_rose to Rose, R.string.cal_color_blue to Blue, R.string.cal_color_green to Green, R.string.cal_color_amber to Amber, R.string.cal_color_plum to Plum)
 }
 
 @Composable
 fun CalinoColorSwatchRow(selected: Color, modifier: Modifier = Modifier, onSelect: (Color) -> Unit) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        EditorLabel("Color")
+        EditorLabel(stringResource(R.string.cal_color))
         Spacer(Modifier.weight(1f))
-        SwatchColors.forEach { (name, color) ->
+        SwatchColors.forEach { (nameResource, color) ->
+            val name = stringResource(nameResource)
+            val selectColorDescription = stringResource(R.string.cal_select_color, name)
+            val selectedState = stringResource(if (selected == color) R.string.cal_selected_state else R.string.cal_not_selected_state)
             Box(
                 Modifier
                     .size(48.dp)
                     .calinoPressable(role = Role.RadioButton) { onSelect(color) }
                     .semantics {
-                        contentDescription = "Select $name color"
-                        stateDescription = if (selected == color) "Selected" else "Not selected"
+                        contentDescription = selectColorDescription
+                        stateDescription = selectedState
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -345,6 +356,7 @@ fun CalinoProgressSlider(
     modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
+    val progressDescription = stringResource(R.string.cal_task_progress, percent)
     Slider(
         value = percent.toFloat(),
         onValueChange = {
@@ -358,6 +370,6 @@ fun CalinoProgressSlider(
         steps = 9,
         modifier = modifier
             .heightIn(min = 44.dp)
-            .semantics { contentDescription = "Task progress, $percent percent" },
+            .semantics { contentDescription = progressDescription },
     )
 }

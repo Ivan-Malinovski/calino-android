@@ -44,7 +44,7 @@ class CalinoComplicationService : ComplicationDataSourceService() {
         val now = System.currentTimeMillis()
         val type = request.complicationType
         if (snapshot == null) {
-            listener.onComplicationData(data(type, Glance.empty(), openApp(request)))
+            listener.onComplicationData(data(type, Glance.empty(this), openApp(request)))
             return
         }
         val points = listOf(now) + WearSelection.boundaries(snapshot, now)
@@ -65,7 +65,13 @@ class CalinoComplicationService : ComplicationDataSourceService() {
 
     override fun getPreviewData(type: ComplicationType): ComplicationData = data(
         type,
-        Glance("10:00", "Design review", "Next · 10:00", progress = 0.4f, occurrenceId = null),
+        Glance(
+            "10:00",
+            getString(R.string.wear_design_review),
+            getString(R.string.wear_next_1_s, "10:00"),
+            progress = 0.4f,
+            occurrenceId = null,
+        ),
         null,
     )
 
@@ -78,28 +84,39 @@ class CalinoComplicationService : ComplicationDataSourceService() {
                 val due = row.dueEpochDay
                 val overdue = due != null && due < today
                 val short = when {
-                    overdue -> "Late"
-                    due == today -> row.dueMinute?.let { WearFormatting.time(it, format, compact = true) } ?: "Today"
+                    overdue -> getString(R.string.wear_late)
+                    due == today -> row.dueMinute?.let { wearTime(it, format, compact = true) }
+                        ?: getString(R.string.wear_today)
                     due != null -> weekday(due)
-                    else -> "Task"
+                    else -> getString(R.string.wear_task)
                 }
-                Glance(short, row.title, if (overdue) "Overdue task" else "Task · $short", null, row.occurrenceId)
+                Glance(
+                    short,
+                    row.title,
+                    if (overdue) getString(R.string.wear_overdue_task)
+                    else getString(R.string.wear_task_with_schedule, short),
+                    null,
+                    row.occurrenceId,
+                )
             }
             is WearEvent -> {
                 val start = row.startMinute
                 if (row.allDay || start == null) {
-                    val short = if (row.startEpochDay <= today) "Today" else weekday(row.startEpochDay)
-                    Glance(short, row.title, "All day", null, row.occurrenceId)
+                    val short = if (row.startEpochDay <= today) getString(R.string.wear_today) else weekday(row.startEpochDay)
+                    Glance(short, row.title, getString(R.string.wear_all_day), null, row.occurrenceId)
                 } else {
                     val startMillis = WearFormatting.instantMillis(snapshot, row.startEpochDay, start)
                     val endMillis = startMillis + (row.durationMinutes ?: 0) * 60_000L
-                    val startLabel = WearFormatting.time(start, format, compact = true)
+                    val startLabel = wearTime(start, format, compact = true)
                     when {
                         // "Now" in the large line left a one-glyph title ("💰" for "💰 Work").
                         atMillis >= startMillis -> Glance(
                             WearFormatting.glanceTitle(row.title),
                             row.title,
-                            "Now · until ${WearFormatting.time(start + (row.durationMinutes ?: 0), format, compact = true)}",
+                            getString(
+                                R.string.wear_now_until_1_s,
+                                wearTime(start + (row.durationMinutes ?: 0), format, compact = true),
+                            ),
                             progress = 0f,
                             occurrenceId = row.occurrenceId,
                             startMillis = startMillis,
@@ -109,16 +126,22 @@ class CalinoComplicationService : ComplicationDataSourceService() {
                         row.startEpochDay == today -> Glance(
                             startLabel,
                             row.title,
-                            "Next · $startLabel",
+                            getString(R.string.wear_next_1_s, startLabel),
                             progress = 0f,
                             occurrenceId = row.occurrenceId,
                             countdownTo = startMillis,
                         )
-                        else -> Glance(weekday(row.startEpochDay), row.title, "${weekday(row.startEpochDay)} · $startLabel", null, row.occurrenceId)
+                        else -> Glance(
+                            weekday(row.startEpochDay),
+                            row.title,
+                            getString(R.string.wear_complication_name_and_short, weekday(row.startEpochDay), startLabel),
+                            null,
+                            row.occurrenceId,
+                        )
                     }
                 }
             }
-            else -> Glance.empty()
+            else -> Glance.empty(this)
         }
     }
 
@@ -131,7 +154,7 @@ class CalinoComplicationService : ComplicationDataSourceService() {
 
     private fun data(type: ComplicationType, glance: Glance, tap: PendingIntent?): ComplicationData {
         val icon = MonochromaticImage.Builder(Icon.createWithResource(this, R.drawable.ic_complication)).build()
-        val description = plain("${glance.longTitle}: ${glance.title}")
+        val description = plain(getString(R.string.wear_accessibility_title_and_description, glance.longTitle, glance.title))
         val shortText: ComplicationText = glance.countdownTo?.let { target ->
             TimeDifferenceComplicationText.Builder(
                 TimeDifferenceStyle.SHORT_DUAL_UNIT,
@@ -157,9 +180,9 @@ class CalinoComplicationService : ComplicationDataSourceService() {
                         CountDownTimeReference(Instant.ofEpochMilli(target)),
                     ).setMinimumTimeUnit(TimeUnit.MINUTES)
                         // "^1" is the placeholder for the time difference.
-                        .setText("${name.replace("^", "")} · ^1")
+                        .setText(getString(R.string.wear_complication_name_and_time, name.replace("^", "")))
                         .build()
-                } ?: plain("$name · ${glance.short}")
+                } ?: plain(getString(R.string.wear_complication_name_and_short, name, glance.short))
             }
         }
         return when (type) {
@@ -201,7 +224,10 @@ class CalinoComplicationService : ComplicationDataSourceService() {
     private fun plain(text: String) = PlainComplicationText.Builder(text).build()
 
     private fun weekday(epochDay: Long) =
-        LocalDate.ofEpochDay(epochDay).dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
+        LocalDate.ofEpochDay(epochDay).dayOfWeek.getDisplayName(
+            TextStyle.SHORT,
+            resources.configuration.locales[0] ?: Locale.getDefault(),
+        )
 
     private data class Glance(
         val short: String,
@@ -221,7 +247,13 @@ class CalinoComplicationService : ComplicationDataSourceService() {
         }
 
         companion object {
-            fun empty() = Glance("Free", "No plans", "Calino", null, null)
+            fun empty(context: android.content.Context) = Glance(
+                context.getString(R.string.wear_free),
+                context.getString(R.string.wear_no_plans),
+                "Calino",
+                null,
+                null,
+            )
         }
     }
 

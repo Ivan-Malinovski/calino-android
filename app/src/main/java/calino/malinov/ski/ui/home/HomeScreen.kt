@@ -60,7 +60,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.platform.LocalContext
 import calino.malinov.ski.R
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
@@ -236,7 +240,6 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.abs
@@ -290,8 +293,6 @@ private const val MonthEndpointBlendEnd = .18f
 /** Month event chips become direct targets only at the fully detailed level. */
 internal fun monthEventsOwnInput(zoom: Float): Boolean = zoom >= 1.5f
 
-private val FullDateFormatter = DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.US)
-private val AgendaDateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US)
 
 /**
  * Geometry shared by the compact month endpoint and its interactive pager.
@@ -2512,12 +2513,13 @@ private fun rememberCompactWeekRowVisual(
     val density = LocalDensity.current
     val today = LocalCalinoNow.current.today
     val eventDensity = LocalCalinoPreferences.current.eventDensity
-    return remember(firstDay, weekStart, events, eventDateIndex, anchorDay, today, eventDensity, density, measurer) {
+    val locale = LocalCalinoLocale
+    return remember(firstDay, weekStart, events, eventDateIndex, anchorDay, today, eventDensity, density, measurer, locale) {
         val dates = List(7) { firstDay.plusDays(it.toLong()) }
         val anchorMonth = YearMonth.from(anchorDay)
         CompactWeekRowVisual(
             dates = dates,
-            weekdayLayouts = weekdayLetters(weekStart).map {
+            weekdayLayouts = weekdayLetters(weekStart, locale).map {
                 measurer.measure(it, CompactWeekWeekdayStyle)
             },
             dateLayouts = dates.map {
@@ -2800,6 +2802,7 @@ private fun WeekStripPage(
     val visual = rememberCompactWeekRowVisual(firstDay, weekStart, events, eventDateIndex, selected)
     val colors = CalinoColors
     val today = LocalCalinoNow.current.today
+    val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d")
     val showWeekNumbers = LocalCalinoPreferences.current.showWeekNumbers
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -2848,22 +2851,22 @@ private fun WeekStripPage(
         ) {
             visual.dates.forEach { date ->
                 val tasksDueCount = openTasksDueOn(tasksByDueDate[date].orEmpty(), date).size
+                val selectedLabel = if (date == selected) stringResource(R.string.cal_selected) else null
+                val todayLabel = if (date == today) stringResource(R.string.cal_today) else null
+                val tasksDueLabel = if (tasksDueCount > 0) pluralStringResource(R.plurals.cal_open_tasks_due, tasksDueCount, tasksDueCount) else null
+                val dateDescription = buildString {
+                    append(date.format(fullDateFormatter))
+                    selectedLabel?.let { append(", ").append(it) }
+                    todayLabel?.let { append(", ").append(it) }
+                    tasksDueLabel?.let { append(", ").append(it) }
+                }
                 Box(
                     Modifier.weight(1f)
                         .fillMaxHeight()
                         .then(
                             if (interactionEnabled) {
                                 Modifier.clickable { onDay(date) }
-                                    .semantics(mergeDescendants = true) {
-                                        contentDescription = buildString {
-                                            append(date.format(FullDateFormatter))
-                                            if (date == selected) append(", selected")
-                                            if (date == today) append(", today")
-                                            if (tasksDueCount > 0) {
-                                                append(", $tasksDueCount open tasks due")
-                                            }
-                                        }
-                                    }
+                                    .semantics(mergeDescendants = true) { contentDescription = dateDescription }
                             } else {
                                 Modifier.clearAndSetSemantics { }
                             },
@@ -2899,6 +2902,8 @@ private fun DayTasksSection(
 ) {
     if (dayTasks.isEmpty()) return
     val preferences = LocalCalinoPreferences.current
+    val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d")
+    val dueDateLabel = day.format(fullDateFormatter)
     val expanded = preferences.dayTasksExpanded
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) -90f else 90f,
@@ -2913,16 +2918,12 @@ private fun DayTasksSection(
                 .clip(RoundedCornerShape(8.dp))
                 .clickable(
                     enabled = enabled,
-                    onClickLabel = if (expanded) {
-                        "Collapse tasks due for ${day.format(FullDateFormatter)}"
-                    } else {
-                        "Expand tasks due for ${day.format(FullDateFormatter)}"
-                    },
+                    onClickLabel = stringResource(if (expanded) R.string.cal_collapse_tasks_due else R.string.cal_expand_tasks_due, dueDateLabel),
                 ) { preferences.setDayTasksExpanded(!expanded) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "TASKS DUE · ${dayTasks.count { !it.done }} OPEN",
+                pluralStringResource(R.plurals.cal_tasks_due_heading, dayTasks.count { !it.done }, dayTasks.count { !it.done }),
                 fontSize = 10.sp,
                 letterSpacing = 1.sp,
                 color = CalinoColors.Green,
@@ -3176,6 +3177,7 @@ private fun MorphingMonthGrid(
     val colors = CalinoColors
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
+    val locale = LocalCalinoLocale
     val eventDensity = LocalCalinoPreferences.current.eventDensity
     val geometry = remember(month, weekStart) { monthGridGeometry(month, weekStart) }
     val start = geometry.start
@@ -3205,8 +3207,8 @@ private fun MorphingMonthGrid(
                 )
             }
         }
-        val weekdayLayouts = remember(density, weekStart) {
-            weekdayLetters(weekStart).map { textMeasurer.measure(it, weekdayStyle) }
+        val weekdayLayouts = remember(density, weekStart, locale) {
+            weekdayLetters(weekStart, locale).map { textMeasurer.measure(it, weekdayStyle) }
         }
         val eventLayouts = remember(geometry, events, eventTextMaxWidth, density) {
             buildMap {
@@ -3258,7 +3260,7 @@ private fun MorphingMonthGrid(
                 fun faded(color: Color, factor: Float = 1f): Color =
                     color.copy(alpha = color.alpha * revealAlpha * factor.coerceIn(0f, 1f))
 
-                weekdayLetters(weekStart).forEachIndexed { column, _ ->
+                weekdayLetters(weekStart, locale).forEachIndexed { column, _ ->
                     val layout = weekdayLayouts[column]
                     drawText(
                         layout,
@@ -3521,6 +3523,10 @@ private fun MonthGridHitTargets(
         }
     }
 
+    val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d")
+    val selectedLabel = stringResource(R.string.cal_selected)
+    val eventsLabel = stringResource(R.string.cal_events_prefix)
+    val journalEntryLabel = stringResource(R.string.cal_journal_entry)
     Layout(
         content = {
             repeat(rows) { row ->
@@ -3528,16 +3534,17 @@ private fun MonthGridHitTargets(
                     val date = start.plusDays((row * 7 + column).toLong())
                     val dayEvents = events[date].orEmpty().filterNotNull()
                     val dueTasks = tasks[date].orEmpty()
-                    val dateDescription = remember(date, selected, dayEvents, date in journalDates, dueTasks) {
-                            buildString {
-                                append(date.format(FullDateFormatter))
-                                if (date == selected) append(", selected")
-                                if (dayEvents.isNotEmpty()) append(", events: ").append(dayEvents.joinToString { it.title })
-                                if (date in journalDates) append(", journal entry")
-                                val openTaskCount = dueTasks.count { !it.done }
-                                if (openTaskCount > 0) append(", $openTaskCount open tasks due")
-                            }
+                    val openTaskCount = dueTasks.count { !it.done }
+                    val openTaskLabel = if (openTaskCount > 0) pluralStringResource(R.plurals.cal_open_tasks_due, openTaskCount, openTaskCount) else null
+                    val dateDescription = remember(date, selected, dayEvents, date in journalDates, openTaskLabel, fullDateFormatter, selectedLabel, eventsLabel, journalEntryLabel) {
+                        buildString {
+                            append(date.format(fullDateFormatter))
+                            if (date == selected) append(", ").append(selectedLabel)
+                            if (dayEvents.isNotEmpty()) append(", ").append(eventsLabel).append(": ").append(dayEvents.joinToString { it.title })
+                            if (date in journalDates) append(", ").append(journalEntryLabel)
+                            openTaskLabel?.let { append(", ").append(it) }
                         }
+                    }
                     val cellModifier = if (interactionEnabled) {
                         Modifier
                             .clickable { onDay(date) }
@@ -3696,6 +3703,7 @@ private fun MonthEventTarget(
 ) {
     var menuOpen by remember(event.id) { mutableStateOf(false) }
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     val click = {
         // The month cell can be tapped without selecting its day first. Detail
         // uses the committed day to seed an occurrence's editable date.
@@ -3715,7 +3723,7 @@ private fun MonthEventTarget(
             )
             .zIndex(eventIndex.toFloat())
             .semantics(mergeDescendants = true) {
-                contentDescription = eventDescription(event, timeFormat)
+                contentDescription = eventDescription(event, timeFormat, locale)
                 if (onEventClick != null) {
                     onClick {
                         click()
@@ -3767,6 +3775,7 @@ private fun StaticMonthGrid(
     val colors = CalinoColors
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
+    val locale = LocalCalinoLocale
     val eventDensity = LocalCalinoPreferences.current.eventDensity
     val showWeekNumbers = LocalCalinoPreferences.current.showWeekNumbers
     val geometry = remember(month, weekStart) { monthGridGeometry(month, weekStart) }
@@ -3827,8 +3836,8 @@ private fun StaticMonthGrid(
                 )
             }
         }
-        val weekdayLayouts = remember(density, weekStart) {
-            weekdayLetters(weekStart).map { textMeasurer.measure(it, weekdayStyle) }
+        val weekdayLayouts = remember(density, weekStart, locale) {
+            weekdayLetters(weekStart, locale).map { textMeasurer.measure(it, weekdayStyle) }
         }
         val weekNumberStyle = remember { ComposeTextStyle(fontSize = 10.sp, lineHeight = 12.sp) }
         val weekNumberLayouts = remember(geometry, showWeekNumbers, density) {
@@ -4099,7 +4108,7 @@ private fun StaticMonthGrid(
                 // than fade: this row is the one element the unfold never
                 // reveals or hides.
                 fun drawWeekdayHeadings() {
-                    weekdayLetters(weekStart).forEachIndexed { column, _ ->
+                    weekdayLetters(weekStart, locale).forEachIndexed { column, _ ->
                         val layout = weekdayLayouts[column]
                         drawText(
                             layout,
@@ -4786,6 +4795,7 @@ private fun MonthGrid(
 ) {
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
+    val locale = LocalCalinoLocale
     val eventDensity = LocalCalinoPreferences.current.eventDensity
     val geometry = remember(month, weekStart) { monthGridGeometry(month, weekStart) }
     val start = geometry.start
@@ -4814,7 +4824,7 @@ private fun MonthGrid(
                     .height(lerpDp(22.dp, 0.dp, compactProgress))
                     .graphicsLayer { alpha = 1f - compactProgress },
             ) {
-                weekdayLetters(weekStart).forEach {
+                weekdayLetters(weekStart, locale).forEach {
                     Text(
                         it,
                         Modifier.weight(1f),
@@ -4957,21 +4967,21 @@ private fun CompactMonthRow(
     onDay: (LocalDate) -> Unit,
 ) {
     val calinoToday = LocalCalinoNow.current.today
+    val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d")
+    val selectedLabel = stringResource(R.string.cal_selected)
+    val eventsLabel = stringResource(R.string.cal_events_prefix)
     Row(modifier) {
         repeat(7) { column ->
             val date = start.plusDays(column.toLong())
             val inMonth = YearMonth.from(date) == month
             val today = date == calinoToday
             val dayEvents = events[date].orEmpty()
-            val dateDescription = remember(date, selected, dayEvents) {
+            val dateDescription = remember(date, selected, dayEvents, fullDateFormatter, selectedLabel, eventsLabel) {
                 buildString {
-                    append(date.format(FullDateFormatter))
-                    // This row stays clickable most of the way through the
-                    // collapse, so it has to report selection like every other
-                    // day cell does. Without it the selected day silently loses
-                    // its state partway through the morph.
-                    if (date == selected) append(", selected")
-                    if (dayEvents.isNotEmpty()) append(", events: ").append(dayEvents.joinToString { it.title })
+                    append(date.format(fullDateFormatter))
+                    // Preserve selection in the spoken label throughout the collapse.
+                    if (date == selected) append(", ").append(selectedLabel)
+                    if (dayEvents.isNotEmpty()) append(", ").append(eventsLabel).append(": ").append(dayEvents.joinToString { it.title })
                 }
             }
             val cellModifier = if (interactive) {
@@ -5006,7 +5016,7 @@ private fun CompactMonthRow(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                        date.dayOfWeek.getDisplayName(TextStyle.NARROW, LocalCalinoLocale),
                         fontSize = 10.sp,
                         color = CalinoColors.Ink3,
                     )
@@ -5307,6 +5317,10 @@ private fun DayCell(
     onDay: () -> Unit,
 ) {
     val today = date == LocalCalinoNow.current.today
+    val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d")
+    val selectedLabel = stringResource(R.string.cal_selected)
+    val eventsLabel = stringResource(R.string.cal_events_prefix)
+    val journalEntryLabel = stringResource(R.string.cal_journal_entry)
     val compactFade = (1f - compactProgress).coerceIn(0f, 1f)
     val selectedWeight = max(compactFade.takeIf { selected } ?: 0f, compactSelectedWeight)
         .coerceIn(0f, 1f)
@@ -5315,12 +5329,12 @@ private fun DayCell(
         today -> CalinoColors.AccentSoft.copy(alpha = .45f * compactFade)
         else -> Color.Transparent
     }
-    val dateDescription = remember(date, selected, events, hasJournal) {
+    val dateDescription = remember(date, selected, events, hasJournal, fullDateFormatter, selectedLabel, eventsLabel, journalEntryLabel) {
         buildString {
-            append(date.format(FullDateFormatter))
-            if (selected) append(", selected")
-            if (events.isNotEmpty()) append(", events: ").append(events.joinToString { it.title })
-            if (hasJournal) append(", journal entry")
+            append(date.format(fullDateFormatter))
+            if (selected) append(", ").append(selectedLabel)
+            if (events.isNotEmpty()) append(", ").append(eventsLabel).append(": ").append(events.joinToString { it.title })
+            if (hasJournal) append(", ").append(journalEntryLabel)
         }
     }
     val interactionModifier = if (interactive) {
@@ -5351,7 +5365,7 @@ private fun DayCell(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                date.dayOfWeek.getDisplayName(TextStyle.NARROW, LocalCalinoLocale),
                 fontSize = 10.sp,
                 color = lerpColor(CalinoColors.Ink3, CalinoColors.OnSelection, compactSelectedWeight),
             )
@@ -5608,15 +5622,17 @@ private fun EventChip(
 ) {
     var menuOpen by remember(event.id) { mutableStateOf(false) }
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
+    val context = LocalContext.current
     val preferences = LocalCalinoPreferences.current
     val metadata = buildString {
         if (event.allDay) {
-            append("All day")
+            append(stringResource(R.string.cal_all_day))
         } else {
-            event.start?.let { append(timeFormat.format(it)) }
+            event.start?.let { append(timeFormat.format(it, locale)) }
             event.durationMinutes?.takeIf { preferences.showEndTimes }?.let { duration ->
                 if (isNotEmpty()) append(" · ")
-                append(formatCalinoDuration(duration))
+                append(formatCalinoDuration(context, duration))
             }
         }
         event.location?.takeIf { preferences.showLocations }?.let { location ->
@@ -5662,7 +5678,7 @@ private fun EventChip(
             .then(rowInteraction)
             .graphicsLayer { translationY = dragDistance }
             .zIndex(if (abs(dragDistance) > .5f) 1f else 0f)
-            .semantics(mergeDescendants = true) { contentDescription = eventDescription(event, timeFormat) }
+            .semantics(mergeDescendants = true) { contentDescription = eventDescription(event, timeFormat, locale) }
             .background(eventTint(Color(event.color), if (agendaStyle) .12f else .10f, CalinoColors.Panel))
             .border(1.dp, CalinoColors.forEvent(Color(event.color)).copy(alpha = if (agendaStyle) .16f else .12f), shape)
             .padding(horizontal = if (agendaStyle) 10.dp else 4.dp, vertical = if (agendaStyle) 7.dp else 4.dp),
@@ -5803,6 +5819,7 @@ private fun LegacyDayPagerSurface(
     }
     val density = LocalDensity.current
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     val hostPreferences = LocalCalinoPreferences.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -6097,7 +6114,7 @@ private fun LegacyDayPagerSurface(
                         .fillMaxWidth()
                         .height(51.dp)
                         .zIndex(21f),
-                    time = timeFormat.format(targetTime),
+                    time = timeFormat.format(targetTime, locale),
                     railStart = 52.dp,
                     colors = colors,
                 )
@@ -6129,7 +6146,7 @@ private fun LegacyDayPagerSurface(
                     .fillMaxWidth()
                     .height(51.dp)
                     .zIndex(21f),
-                time = timeFormat.format(session.dateTime.toLocalTime()),
+                time = timeFormat.format(session.dateTime.toLocalTime(), locale),
                 railStart = 52.dp,
                 colors = colors,
             )
@@ -6153,11 +6170,12 @@ private fun SelectedDayAgendaPage(
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
-) {
+ ) {
+    val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d")
+    val agendaDateFormatter = localizedDateFormatter("EEE, MMM d")
+    val agendaDescription = stringResource(R.string.cal_agenda_for_date, day.format(fullDateFormatter))
     val interactionModifier = if (active) {
-        modifier.semantics {
-            contentDescription = "Agenda for ${day.format(FullDateFormatter)}"
-        }
+        modifier.semantics { contentDescription = agendaDescription }
     } else {
         modifier.clearAndSetSemantics { }
     }
@@ -6177,14 +6195,14 @@ private fun SelectedDayAgendaPage(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                day.format(AgendaDateFormatter),
+                day.format(agendaDateFormatter),
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
                 color = CalinoColors.Ink2,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                "OPEN DAY",
+                stringResource(R.string.cal_open_day),
                 fontSize = 10.sp,
                 letterSpacing = 1.sp,
                 color = CalinoColors.Accent,
@@ -6206,7 +6224,7 @@ private fun SelectedDayAgendaPage(
         )
         val orderedEvents = remember(dayEvents) { sortAgendaEvents(dayEvents) }
         if (orderedEvents.isEmpty()) {
-            Text("Nothing scheduled", fontSize = 13.sp, color = CalinoColors.Ink3, modifier = Modifier.padding(vertical = 8.dp))
+            Text(stringResource(R.string.cal_nothing_scheduled), fontSize = 13.sp, color = CalinoColors.Ink3, modifier = Modifier.padding(vertical = 8.dp))
         } else {
             Column(
                 Modifier.padding(top = 6.dp),
@@ -6257,8 +6275,9 @@ private fun DayRailPage(
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
     onLaneHeight: (Float) -> Unit,
 ) {
+    val timelineDescription = stringResource(R.string.cal_timeline_pinch)
     val interactionModifier = if (active) {
-        Modifier.semantics { contentDescription = "Timeline, pinch to resize" }
+        Modifier.semantics { contentDescription = timelineDescription }
     } else {
         Modifier.clearAndSetSemantics { }
     }
@@ -6502,6 +6521,7 @@ internal fun HourRailContent(
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
     val slots = remember(dayEvents) { layoutDayRail(dayEvents) }
@@ -6522,14 +6542,14 @@ internal fun HourRailContent(
             val device = remember { java.time.ZoneId.systemDefault() }
             (0..23).forEach { hour ->
                 Text(
-                    timeFormat.formatHour(hour),
+                    timeFormat.formatHour(hour, locale),
                     Modifier.offset(x = 8.dp, y = (hour * hourHeight.value - 7f).dp),
                     fontSize = 10.sp,
                     color = colors.Ink3,
                 )
                 if (secondary != null) {
                     Text(
-                        calino.malinov.ski.util.CalinoZones.secondaryHour(day, hour, device, secondary, timeFormat),
+                        calino.malinov.ski.util.CalinoZones.secondaryHour(day, hour, device, secondary, timeFormat, locale),
                         Modifier.offset(x = 8.dp, y = (hour * hourHeight.value + 5f).dp),
                         fontSize = 9.sp,
                         color = colors.Ink3.copy(alpha = .6f),
@@ -6759,7 +6779,7 @@ internal fun HourRailContent(
                         .calinoSurfaceOrigin(event.id, if (laneWidth < 72.dp) 6.dp else 11.dp, growFromEvents)
                         .then(directDragInteraction)
                         .semantics(mergeDescendants = true) {
-                            contentDescription = eventDescription(event, timeFormat)
+                            contentDescription = eventDescription(event, timeFormat, locale)
                             if (onEvent != null) {
                                 onClick {
                                     onEvent(event)
@@ -6795,7 +6815,7 @@ internal fun HourRailContent(
                             .height(51.dp)
                             .graphicsLayer { translationX = directDragOffset.x }
                             .zIndex(49f),
-                        time = timeFormat.format(event.start.plusMinutes(snappedMinutes.toLong())),
+                        time = timeFormat.format(event.start.plusMinutes(snappedMinutes.toLong()), locale),
                         railStart = 0.dp,
                         colors = colors,
                         compact = true,
@@ -6809,12 +6829,13 @@ internal fun HourRailContent(
         // a hard-coded 11.33 hours on every page, so every day claimed to be
         // 11:20 and the line never moved. LocalCalinoNow re-reads on the minute.
         val now = LocalCalinoNow.current
+        val currentTimeDescription = stringResource(R.string.cal_current_time, timeFormat.format(now.time, locale))
         if (day == now.today) {
                 Canvas(
                     Modifier.fillMaxWidth()
                     .offset(y = (now.hourOfDay * hourHeight.value).dp)
                     .height(8.dp)
-                    .semantics { contentDescription = "Current time, ${timeFormat.format(now.time)}" },
+                    .semantics { contentDescription = currentTimeDescription },
             ) {
                 // The marker belongs to the day, so it starts where the day's
                 // rail starts -- which is the hour gutter when this page draws
@@ -7124,6 +7145,8 @@ private fun TravelTimeBand(
     compact: Boolean,
 ) {
     val corner = if (compact) 6.dp else 11.dp
+    val context = LocalContext.current
+    val durationLabel = formatCalinoDuration(context, minutes)
     // The bottom [corner] is hidden under the card; centre the label above it.
     BoxWithConstraints(
         modifier
@@ -7147,7 +7170,7 @@ private fun TravelTimeBand(
     ) {
         if (maxHeight - corner >= 13.dp && maxWidth >= 36.dp) {
             Text(
-                if (maxWidth >= 88.dp) "${formatCalinoDuration(minutes)} travel" else formatCalinoDuration(minutes),
+                if (maxWidth >= 88.dp) stringResource(R.string.cal_travel_time, durationLabel) else durationLabel,
                 Modifier.padding(start = 4.dp, end = 4.dp, bottom = corner),
                 fontSize = 10.sp,
                 lineHeight = 11.sp,
@@ -7174,6 +7197,8 @@ internal fun TimelineEventCard(
     hideAccentRail: Boolean = false,
     content: @Composable (() -> Unit)? = null,
 ) {
+    val locale = LocalCalinoLocale
+    val context = LocalContext.current
     val liftScale by animateFloatAsState(
         targetValue = if (lifted) 1.035f else 1f,
         animationSpec = spring(dampingRatio = .78f, stiffness = 520f),
@@ -7248,7 +7273,7 @@ internal fun TimelineEventCard(
                     // so they stack, and each line only appears once the card
                     // is tall enough to have spent nothing the title needed.
                     Text(
-                        timeFormat.format(event.start!!),
+                        timeFormat.format(event.start!!, locale),
                         fontSize = 8.sp,
                         lineHeight = CompactMetaLine.value.sp,
                         color = colors.Ink2,
@@ -7267,10 +7292,10 @@ internal fun TimelineEventCard(
                     }
                 } else if (showMetadata) {
                     val metadata = buildString {
-                        append(timeFormat.format(event.start!!))
+                        append(timeFormat.format(event.start!!, locale))
                         event.durationMinutes
                             ?.takeIf { preferences.showEndTimes }
-                            ?.let { append(" · ").append(formatCalinoDuration(it)) }
+                            ?.let { append(" · ").append(formatCalinoDuration(context, it)) }
                         event.location
                             ?.takeIf { preferences.showLocations }
                             ?.let { append(" · ").append(it) }
@@ -7291,21 +7316,23 @@ private fun ZoomHandle(
     gestureModifier: Modifier,
     onTap: () -> Unit,
 ) {
+    val zoomAccessibilityLabel = stringResource(R.string.cal_change_zoom_level, zoomLevel + 1)
+    val pullLabel = stringResource(when (zoomBand) {
+        0 -> R.string.cal_zoom_week_edge_hint
+        1 -> R.string.cal_pull_again_for_detail
+        else -> R.string.cal_zoom_month_edge_hint
+    })
     Row(
         Modifier.fillMaxWidth().requiredHeight(ZoomHandleTouchHeight).then(gestureModifier)
             .clickable(onClick = onTap)
-            .semantics(mergeDescendants = true) { contentDescription = "Change calendar zoom, level ${zoomLevel + 1} of 3" }
+            .semantics(mergeDescendants = true) { contentDescription = zoomAccessibilityLabel }
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(Modifier.width(26.dp).height(3.dp).background(CalinoColors.Ink.copy(.25f)))
         Text(
-            when (zoomBand) {
-                0 -> stringResource(R.string.cal_zoom_week_edge_hint)
-                1 -> "PULL AGAIN FOR DETAIL"
-                else -> stringResource(R.string.cal_zoom_month_edge_hint)
-            },
+            pullLabel,
             fontSize = 10.sp,
             letterSpacing = 1.sp,
             color = CalinoColors.Ink3,

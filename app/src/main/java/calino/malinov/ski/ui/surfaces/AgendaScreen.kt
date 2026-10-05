@@ -1,5 +1,11 @@
 package calino.malinov.ski.ui.surfaces
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import calino.malinov.ski.util.localizedDateFormatter
+import calino.malinov.ski.util.LocalCalinoLocale
+
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -93,9 +99,7 @@ import calino.malinov.ski.util.EventDateIndex
 import calino.malinov.ski.util.sortAgendaEvents
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
-import java.util.Locale
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -119,7 +123,6 @@ private fun focusedDayOnPage(
     return month.atDay(current.dayOfMonth.coerceAtMost(month.lengthOfMonth()))
 }
 
-private val AgendaDayFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)
 
 /**
  * The month-paged agenda: one page per month, every day of that month listed
@@ -316,19 +319,21 @@ fun AgendaScreen(
             exit = shrinkVertically(tween(CalinoMotion.ContentEnterMillis)) + fadeOut(tween(CalinoMotion.ContentEnterMillis)),
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).animateContentSize(tween(CalinoMotion.ContentEnterMillis))) {
-                Text("Pending invitations (${pendingInvitations.size})", style = CalinoTypography.titleMedium, color = CalinoColors.Ink2)
+                Text(pluralStringResource(R.plurals.cal_pending_invitations, pendingInvitations.size, pendingInvitations.size), style = CalinoTypography.titleMedium, color = CalinoColors.Ink2)
                 Column(Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
                     pendingInvitations.forEach { invitation ->
                         val day = invitation.date ?: invitation.start?.toLocalDate() ?: today
+                        val invitationDescription = stringResource(R.string.cal_open_invitation, invitation.title)
+                        val agendaDayFormatter = localizedDateFormatter("MMM d, yyyy")
                         Row(
                             Modifier.fillMaxWidth().heightIn(min = 44.dp)
                                 .calinoPressable { onEventClick?.invoke(day, invitation) }
-                                .semantics { contentDescription = "Open invitation ${invitation.title}" }
+                                .semantics { contentDescription = invitationDescription }
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(invitation.title, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink, modifier = Modifier.weight(1f))
-                            Text(day.format(AgendaDayFormatter), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                            Text(day.format(agendaDayFormatter), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
                         }
                     }
                 }
@@ -378,7 +383,7 @@ fun AgendaScreen(
                 if (layoutSpec.hingeBandDp > 0f) Spacer(Modifier.width(layoutSpec.hingeBandDp.dp).fillMaxHeight().background(CalinoColors.Canvas))
                 else Box(Modifier.width(1.dp).fillMaxHeight().background(CalinoColors.Line))
                 Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 16.dp, vertical = 18.dp)) {
-                    Text("Selected day", style = CalinoTypography.titleMedium, color = CalinoColors.Ink2)
+                    Text(stringResource(R.string.cal_selected_day), style = CalinoTypography.titleMedium, color = CalinoColors.Ink2)
                     Spacer(Modifier.height(8.dp))
                     AgendaDayBlock(
                         day = selected, events = selectedEvents, tasks = selectedTasks,
@@ -537,6 +542,7 @@ internal fun AgendaDayBlock(
     onAdd: () -> Unit,
 ) {
     val timeFormat = LocalTimeFormat
+    val locale = LocalCalinoLocale
     val dayEvents = remember(events) { sortAgendaEvents(events) }
     Column(
         modifier.animateContentSize(tween(CalinoMotion.ContentEnterMillis)),
@@ -544,7 +550,7 @@ internal fun AgendaDayBlock(
         AgendaDayHeader(day = day, onAdd = onAdd)
         if (dayEvents.isEmpty() && tasks.isEmpty()) {
             Text(
-                "Nothing scheduled",
+                stringResource(R.string.cal_nothing_scheduled),
                 color = CalinoColors.Ink3,
                 fontSize = 13.sp,
                 lineHeight = 19.5.sp,
@@ -559,8 +565,8 @@ internal fun AgendaDayBlock(
                         AgendaRow(
                             title = event.title,
                             color = eventColor(event.color),
-                            time = if (event.allDay) null else event.start?.let { timeFormat.format(it) },
-                            subtitle = event.location ?: if (event.recurrence != null) "Repeats weekly" else null,
+                            time = if (event.allDay) null else event.start?.let { timeFormat.format(it, locale) },
+                            subtitle = event.location ?: if (event.recurrence != null) stringResource(R.string.cal_repeats_weekly) else null,
                             variant = AgendaRowVariant.Card,
                             onClick = onEventClick?.let { click -> { click(day, event) } },
                             onLongClick = onEventAction?.let { { menuOpen = true } },
@@ -598,7 +604,7 @@ internal fun AgendaDayBlock(
                                     // Only a task that carries a real due *time* gets a
                                     // clock face. Formatting the due date's midnight gave
                                     // every task an identical "12:00 AM" that said nothing.
-                                    time = task.dueTime?.let { timeFormat.format(it) },
+                                    time = task.dueTime?.let { timeFormat.format(it, locale) },
                                     onClick = onTaskClick?.let { click -> { click(task) } },
                                     onCheckedChange = { done -> onTaskDone(task, done) },
                                     onLongClick = { menuOpen = true },
@@ -645,18 +651,21 @@ fun DayPane(
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
     onAdd: (LocalDate) -> Unit = {},
 ) {
+    val daySidebarLabel = stringResource(R.string.cal_day_sidebar)
     HorizontalPager(
         state = state,
         modifier = modifier
             .fillMaxSize()
             .background(CalinoColors.Canvas)
             .testTag("day-pane-pager")
-            .semantics { contentDescription = "Day sidebar" },
+            .semantics { contentDescription = daySidebarLabel },
         userScrollEnabled = interactionEnabled,
         beyondViewportPageCount = 1,
         key = { page -> dateForDayPage(page).toEpochDay() },
     ) { page ->
         val pageDay = dateForDayPage(page)
+        val agendaDayFormatter = localizedDateFormatter("MMM d, yyyy")
+        val dayPageDescription = stringResource(R.string.cal_day_sidebar_page, pageDay.format(agendaDayFormatter))
         val pageEvents = remember(eventDateIndex, pageDay) { eventDateIndex.eventsOn(pageDay) }
         val pageTasks = tasksByDueDate[pageDay].orEmpty()
         Column(
@@ -665,9 +674,7 @@ fun DayPane(
                 .verticalScroll(rememberScrollState())
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp)
                 .padding(bottom = CalinoSpacing.PillClearance)
-                .semantics {
-                    contentDescription = "Day sidebar page ${pageDay.format(AgendaDayFormatter)}"
-                },
+                .semantics { contentDescription = dayPageDescription },
         ) {
             AgendaDayBlock(
                 day = pageDay,
@@ -694,8 +701,10 @@ fun DayPane(
 @Composable
 internal fun AgendaDayHeader(day: LocalDate, onAdd: () -> Unit) {
     val isToday = day == LocalCalinoNow.current.today
-    val weekday = day.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
-        .replaceFirstChar { it.uppercase() }
+    val agendaDayFormatter = localizedDateFormatter("MMM d, yyyy")
+    val addDescription = stringResource(R.string.cal_add_on_date, day.format(agendaDayFormatter))
+    val weekday = day.dayOfWeek.getDisplayName(TextStyle.FULL, LocalCalinoLocale)
+        .replaceFirstChar { it.titlecase(LocalCalinoLocale) }
     Row(
         Modifier
             .fillMaxWidth()
@@ -718,7 +727,7 @@ internal fun AgendaDayHeader(day: LocalDate, onAdd: () -> Unit) {
                 .padding(horizontal = if (isToday) 8.dp else 0.dp, vertical = if (isToday) 2.dp else 0.dp),
         ) {
             Text(
-                day.format(AgendaDayFormatter),
+                day.format(agendaDayFormatter),
                 color = if (isToday) CalinoColors.Accent else CalinoColors.Ink3,
                 fontSize = 12.5.sp,
                 lineHeight = 18.sp,
@@ -731,11 +740,11 @@ internal fun AgendaDayHeader(day: LocalDate, onAdd: () -> Unit) {
                 .heightIn(min = 44.dp)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Chip))
                 .calinoPressable(onClick = onAdd)
-                .semantics { contentDescription = "Add on ${day.format(AgendaDayFormatter)}" }
+                .semantics { contentDescription = addDescription }
                 .padding(horizontal = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("+ Add", color = CalinoColors.Ink3, fontSize = 12.5.sp, lineHeight = 18.sp)
+            Text(stringResource(R.string.cal_plus_add), color = CalinoColors.Ink3, fontSize = 12.5.sp, lineHeight = 18.sp)
         }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(CalinoColors.Line2))

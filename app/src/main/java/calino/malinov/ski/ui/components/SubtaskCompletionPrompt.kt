@@ -1,5 +1,9 @@
 package calino.malinov.ski.ui.components
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -117,6 +121,11 @@ private fun PromptCard(
     onMarkDone: () -> Unit,
 ) {
     val count = request.open.size
+    val promptTitle = stringResource(R.string.cal_mark_subtasks_done_question)
+    val openSummary = if (count == 1) stringResource(R.string.cal_one_subtask_open)
+        else pluralStringResource(R.plurals.cal_subtasks_open, count, count)
+    val leaveOpenLabel = stringResource(R.string.cal_leave_open)
+    val markDoneLabel = stringResource(R.string.cal_mark_done)
     Column(
         Modifier
             .widthIn(max = 460.dp)
@@ -124,7 +133,7 @@ private fun PromptCard(
             .shadow(24.dp, RoundedCornerShape(CalinoShapes.Sheet), clip = false)
             .clip(RoundedCornerShape(CalinoShapes.Sheet))
             .background(CalinoColors.Panel)
-            .semantics { paneTitle = "Mark subtasks as done?" }
+            .semantics { paneTitle = promptTitle }
             .padding(start = 22.dp, end = 22.dp, top = 22.dp, bottom = 14.dp),
     ) {
         // The parent, already finished: the reason for the question.
@@ -141,10 +150,10 @@ private fun PromptCard(
             )
         }
         Spacer(Modifier.height(10.dp))
-        Text("Mark subtasks as done?", style = CalinoTypography.titleLarge, color = CalinoColors.Ink)
+        Text(promptTitle, style = CalinoTypography.titleLarge, color = CalinoColors.Ink)
         Spacer(Modifier.height(4.dp))
         Text(
-            if (count == 1) "One is still open." else "$count are still open.",
+            openSummary,
             style = CalinoTypography.bodyMedium,
             color = CalinoColors.Ink2,
         )
@@ -161,7 +170,7 @@ private fun PromptCard(
             }
             if (count > VisibleSubtasks) {
                 Text(
-                    "+${count - VisibleSubtasks} more",
+                    pluralStringResource(R.plurals.cal_more_count, count - VisibleSubtasks, count - VisibleSubtasks),
                     style = CalinoTypography.bodySmall,
                     color = CalinoColors.Ink3,
                     modifier = Modifier.padding(start = 30.dp, top = 2.dp, bottom = 6.dp),
@@ -170,8 +179,8 @@ private fun PromptCard(
         }
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PromptButton("Leave open", filled = false, enabled = !ticking, onClick = onLeaveOpen, modifier = Modifier.weight(1f))
-            PromptButton("Mark done", filled = true, enabled = !ticking, onClick = onMarkDone, modifier = Modifier.weight(1f))
+            PromptButton(leaveOpenLabel, filled = false, enabled = !ticking, onClick = onLeaveOpen, modifier = Modifier.weight(1f))
+            PromptButton(markDoneLabel, filled = true, enabled = !ticking, onClick = onMarkDone, modifier = Modifier.weight(1f))
         }
     }
 }

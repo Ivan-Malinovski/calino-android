@@ -28,7 +28,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Today"
+            android:text="@string/sys_today"
             android:textColor="@color/widget_ink"
             android:textSize="15sp"
             android:textStyle="bold" />
@@ -37,7 +37,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="Mon, May 4"
+            android:text="@string/sys_preview_day"
             android:textColor="@color/widget_ink3"
             android:textSize="12sp" />
     </LinearLayout>
@@ -46,7 +46,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
-        android:text="Overdue"
+        android:text="@string/sys_overdue"
         android:textColor="@color/widget_ink3"
         android:textSize="11sp"
         android:textStyle="bold" />
@@ -62,7 +62,7 @@
             android:layout_width="46dp"
             android:layout_height="wrap_content"
             android:gravity="end"
-            android:text="Apr 29"
+            android:text="@string/sys_preview_overdue_date"
             android:textColor="@color/widget_ink2"
             android:textSize="10.5sp" />
 
@@ -77,7 +77,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="Renew passport"
+            android:text="@string/sys_preview_passport"
             android:textColor="@color/widget_ink"
             android:textSize="13sp" />
     </LinearLayout>
@@ -99,7 +99,7 @@
             android:layout_width="46dp"
             android:layout_height="wrap_content"
             android:gravity="end"
-            android:text="Due"
+            android:text="@string/sys_due"
             android:textColor="@color/widget_ink2"
             android:textSize="10.5sp" />
 
@@ -114,7 +114,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="Send the invoice"
+            android:text="@string/sys_preview_invoice"
             android:textColor="@color/widget_ink"
             android:textSize="13sp" />
     </LinearLayout>

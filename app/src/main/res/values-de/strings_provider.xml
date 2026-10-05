@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="provider_create_repeat">Wiederkehrende Termine in einem Gerätekalender können noch nicht erstellt werden.</string>
+    <string name="provider_update_future">In Gerätekalendern kann dieser Termin oder die ganze Serie geändert werden, aber nicht zukünftige Termine.</string>
+    <string name="provider_update_repeat">Bestehende Wiederholungsregeln in Gerätekalendern können noch nicht geändert werden.</string>
+    <string name="provider_exception_changed">Dieses Vorkommen wurde in der zuständigen App bereits geändert. Aktualisiere den Kalender und versuche es erneut.</string>
+    <string name="provider_delete_future">In Gerätekalendern kann dieser Termin oder die ganze Serie gelöscht werden, aber nicht zukünftige Termine.</string>
+    <string name="provider_changed_refresh">Der Termin wurde in der zuständigen App geändert. Aktualisiere und versuche es erneut.</string>
+    <string name="provider_move">Termine können nicht zwischen Gerätekalendern oder zwischen Geräte- und CalDAV-Kalendern verschoben werden.</string>
+    <string name="provider_missing_calendar">Dieser Gerätekalender ist nicht mehr verfügbar.</string>
+    <string name="provider_ownership">Der Besitzer dieses Gerätekalenders hat sich geändert. Deaktiviere und aktiviere die Bearbeitung, bevor du es erneut versuchst.</string>
+    <string name="provider_removed">Dieser Termin wurde von der zuständigen App entfernt. Aktualisiere den Kalender.</string>
+    <string name="provider_changed">Dieser Termin wurde in der zuständigen App geändert. Aktualisiere den Kalender und versuche es erneut.</string>
+    <string name="provider_editing_disabled">Die Bearbeitung ist für diesen Gerätekalender nicht aktiviert.</string>
+    <string name="provider_readonly">Dieser Gerätekalender ist schreibgeschützt oder die Schreibberechtigung wurde entzogen.</string>
+    <string name="provider_own_projection">Calino kann seine eigene Android-Projektion nicht importieren oder bearbeiten.</string>
+    <string name="provider_new_identity">Der Kalenderanbieter hat keine Kennung für den neuen Termin zurückgegeben.</string>
+    <string name="provider_reminders">Der Kalenderanbieter hat nicht alle Erinnerungen gespeichert.</string>
+    <string name="provider_exception_identity">Der Kalenderanbieter hat keine Kennung für die Ausnahme zurückgegeben.</string>
+    <string name="provider_exception_reminders">Der Kalenderanbieter hat nicht alle Erinnerungen für die Ausnahme gespeichert.</string>
+    <string name="provider_reminder_state">Der Kalenderanbieter hat keinen Erinnerungsstatus zurückgegeben.</string>
+    <string name="provider_permission">Zum Ändern dieses Gerätekalenders ist eine Schreibberechtigung erforderlich.</string>
+    <string name="provider_rejected">Der Kalenderanbieter hat diese Änderung abgelehnt.</string>
+    <string name="provider_unsupported">Gerätekalender unterstützen keine Änderung von %1$s. Leere diese Felder und versuche es erneut.</string>
+    <string name="provider_attendees">Teilnehmer</string>
+    <string name="provider_categories">Kategorien</string>
+    <string name="provider_relationships">Beziehungen</string>
+    <string name="provider_travel">Reisezeit</string>
+    <string name="provider_account_properties">Calino-Konten haben keine bearbeitbaren Eigenschaften</string>
+    <string name="provider_auth_tokens">Calino stellt keine Authentifizierungstoken aus</string>
+    <string name="provider_password_change">Ändere das Passwort in Calinos Kontoliste</string>
+</resources>

@@ -21,8 +21,7 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.design.CalinoColors
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import calino.malinov.ski.util.localizedDateFormatter
 
 /** Indent applied per subtask level, and the width of one connector rail slot. */
 const val TaskNestStep = 20
@@ -103,9 +102,6 @@ private fun DrawScope.drawNestRails(
 /** Where the day and the title sit apart from the rail they hang off. */
 private val AbsentParentGutter = 7.dp
 
-/** How the stand-in names a parent's day: "Mon 21". */
-private val AbsentParentDay = DateTimeFormatter.ofPattern("EEE d", Locale.US)
-
 /**
  * The stand-in for a parent that is not on this list -- see
  * [calino.malinov.ski.state.TaskListRow.AbsentParent].
@@ -130,6 +126,7 @@ fun AbsentParentRow(
     val density = LocalDensity.current
     val railOffsetPx = with(density) { railOffset.toPx() }
     val strokePx = with(density) { 1.dp.toPx() }
+    val absentParentDayFormatter = localizedDateFormatter("EEE d")
     Row(
         modifier
             .fillMaxWidth()
@@ -160,7 +157,7 @@ fun AbsentParentRow(
         )
         parent.due?.let { due ->
             Text(
-                due.format(AbsentParentDay),
+                due.format(absentParentDayFormatter),
                 Modifier.padding(start = AbsentParentGutter),
                 fontSize = 11.sp,
                 lineHeight = 18.sp,

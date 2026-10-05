@@ -23,8 +23,6 @@ import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.util.CalinoWeekStart
 import calino.malinov.ski.util.weekdayLetters
 import java.time.YearMonth
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -55,6 +53,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
@@ -96,8 +95,11 @@ import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoMotion
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
+import calino.malinov.ski.R
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.LocalCalinoLocale
+import calino.malinov.ski.util.localizedDateFormatter
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -118,12 +120,15 @@ private const val WheelLaps = 2_000
 @Composable
 fun rememberTimePicker(
     initial: () -> LocalTime?,
-    title: String = "Time",
+    title: String? = null,
     onPicked: (LocalTime) -> Unit,
-): () -> Unit = rememberPickerDialog(
-    initial = { initial() ?: LocalTime.of(LocalTime.now().hour, 0).plusHours(1) },
-    onPicked = onPicked,
-) { seed, cancel, done -> TimePickerCard(title, seed, cancel, done) }
+): () -> Unit {
+    val pickerTitle = title ?: stringResource(R.string.cal_time)
+    return rememberPickerDialog(
+        initial = { initial() ?: LocalTime.of(LocalTime.now().hour, 0).plusHours(1) },
+        onPicked = onPicked,
+    ) { seed, cancel, done -> TimePickerCard(pickerTitle, seed, cancel, done) }
+}
 
 /**
  * Opens Calino's date picker -- a swipeable month in the same card as the
@@ -220,6 +225,8 @@ private fun PickerCard(
     headerEnd: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
+    val choosingMonthLabel = stringResource(R.string.cal_choosing_month)
+    val showingDaysLabel = stringResource(R.string.cal_showing_days)
     Column(
         Modifier
             .widthIn(max = 460.dp)
@@ -258,7 +265,7 @@ private fun PickerCard(
                     .heightIn(min = 44.dp)
                     .clip(RoundedCornerShape(CalinoShapes.Row))
                     .then(if (onTitleClick != null) Modifier.calinoPressable(onClick = onTitleClick) else Modifier)
-                    .semantics { if (onTitleClick != null) stateDescription = if (titleOpen) "Choosing month" else "Showing days" },
+                    .semantics { if (onTitleClick != null) stateDescription = if (titleOpen) choosingMonthLabel else showingDaysLabel },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -295,8 +302,8 @@ private fun PickerCard(
         content()
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PromptButton("Cancel", filled = false, enabled = true, onClick = onCancel, modifier = Modifier.weight(1f))
-            PromptButton("Done", filled = true, enabled = true, onClick = onDone, modifier = Modifier.weight(1f))
+            PromptButton(stringResource(R.string.cal_cancel), filled = false, enabled = true, onClick = onCancel, modifier = Modifier.weight(1f))
+            PromptButton(stringResource(R.string.cal_done), filled = true, enabled = true, onClick = onDone, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -304,6 +311,11 @@ private fun PickerCard(
 @Composable
 private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit, onDone: (LocalTime) -> Unit) {
     val twentyFour = LocalTimeFormat == CalinoTimeFormat.TwentyFourHour
+    val hourLabel = stringResource(R.string.cal_hour)
+    val minuteLabel = stringResource(R.string.cal_minute)
+    val amPmLabel = stringResource(R.string.cal_am_pm)
+    val amLabel = stringResource(R.string.cal_am)
+    val pmLabel = stringResource(R.string.cal_pm)
     var hour by remember { mutableIntStateOf(seed.hour) }
     var minute by remember { mutableIntStateOf(seed.minute) }
 
@@ -325,7 +337,7 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                         count = 24,
                         selected = hour,
                         label = { "%02d".format(it) },
-                        description = "Hour",
+                        description = hourLabel,
                         modifier = Modifier.weight(1f),
                         hug = Alignment.End,
                         onSelected = { hour = it },
@@ -335,7 +347,7 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                         count = 12,
                         selected = (hour + 11) % 12,
                         label = { (it + 1).toString() },
-                        description = "Hour",
+                        description = hourLabel,
                         modifier = Modifier.weight(1f),
                         hug = Alignment.End,
                         onSelected = { hour = (it + 1) % 12 + if (hour >= 12) 12 else 0 },
@@ -351,7 +363,7 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                     count = 60,
                     selected = minute,
                     label = { "%02d".format(it) },
-                    description = "Minute",
+                    description = minuteLabel,
                     modifier = Modifier.weight(if (twentyFour) 1f else .4f),
                     hug = Alignment.Start,
                     onSelected = { minute = it },
@@ -360,8 +372,8 @@ private fun TimePickerCard(title: String, seed: LocalTime, onCancel: () -> Unit,
                     TimeWheel(
                         count = 2,
                         selected = if (hour >= 12) 1 else 0,
-                        label = { if (it == 0) "AM" else "PM" },
-                        description = "AM or PM",
+                        label = { if (it == 0) amLabel else pmLabel },
+                        description = amPmLabel,
                         modifier = Modifier.weight(.6f),
                         hug = Alignment.Start,
                         loops = false,
@@ -403,6 +415,8 @@ private fun TimeWheel(
     val scope = rememberCoroutineScope()
     val currentOnSelected by rememberUpdatedState(onSelected)
     val currentSelected by rememberUpdatedState(selected)
+    val nextActionLabel = stringResource(R.string.cal_next)
+    val previousActionLabel = stringResource(R.string.cal_previous)
 
     val centred by remember { derivedStateOf { state.centredIndex(rowPx) } }
     LaunchedEffect(state) {
@@ -436,8 +450,8 @@ private fun TimeWheel(
                 contentDescription = description
                 stateDescription = label(selected)
                 customActions = listOf(
-                    CustomAccessibilityAction("Next") { step(1); true },
-                    CustomAccessibilityAction("Previous") { step(-1); true },
+                    CustomAccessibilityAction(nextActionLabel) { step(1); true },
+                    CustomAccessibilityAction(previousActionLabel) { step(-1); true },
                 )
             },
     ) {
@@ -493,13 +507,12 @@ private fun LazyListState.rowDistance(index: Int, rowPx: Float): Float =
 private const val DatePagerMonths = 1_200
 private val DayCell = 44.dp
 private val WeekGutter = 24.dp
-private val DayDateFormat = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.US)
-private val MonthTitleFormat = DateTimeFormatter.ofPattern("MMMM", Locale.US)
 
 @Composable
 private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (LocalDate) -> Unit, startOnMonthYear: Boolean = false) {
     val weekStart = LocalCalinoPreferences.current.weekStart
     val weekNumbers = LocalCalinoPreferences.current.showWeekNumbers
+    val locale = LocalCalinoLocale
     var picked by remember { mutableStateOf(seed) }
     val seedMonth = remember { YearMonth.from(seed) }
     val pager = rememberPagerState(initialPage = DatePagerMonths) { DatePagerMonths * 2 }
@@ -510,9 +523,12 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
     var wheelMonth by remember { mutableStateOf(seedMonth) }
     val today = LocalDate.now()
     var choosingMonth by remember { mutableStateOf(startOnMonthYear) }
+    val monthTitleFormat = localizedDateFormatter("MMMM")
+    val previousMonth = stringResource(R.string.cal_previous_month)
+    val nextMonth = stringResource(R.string.cal_next_month)
 
     PickerCard(
-        title = (if (startOnMonthYear) wheelMonth else shown).format(MonthTitleFormat),
+        title = (if (startOnMonthYear) wheelMonth else shown).format(monthTitleFormat),
         titleAside = (if (startOnMonthYear) wheelMonth else shown).year.toString(),
         onTitleClick = if (startOnMonthYear) null else { { choosingMonth = !choosingMonth } },
         titleOpen = choosingMonth,
@@ -524,10 +540,10 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
             else if (choosingMonth) choosingMonth = false else onDone(picked)
         },
         headerEnd = {
-            if (!choosingMonth) MonthStep(CalinoIcons.ChevronLeft, "Previous month") {
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronLeft, previousMonth) {
                 scope.launch { pager.animateScrollToPage(pager.currentPage - 1, animationSpec = CalinoMotion.standardSpatial()) }
             }
-            if (!choosingMonth) MonthStep(CalinoIcons.ChevronRight, "Next month") {
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronRight, nextMonth) {
                 scope.launch { pager.animateScrollToPage(pager.currentPage + 1, animationSpec = CalinoMotion.standardSpatial()) }
             }
         },
@@ -555,7 +571,7 @@ private fun DatePickerCard(seed: LocalDate, onCancel: () -> Unit, onDone: (Local
                 Column {
                     Row(Modifier.fillMaxWidth()) {
                         if (weekNumbers) Spacer(Modifier.width(WeekGutter))
-                        weekdayLetters(weekStart).forEach {
+                        weekdayLetters(weekStart, locale).forEach {
                             Box(Modifier.weight(1f).height(28.dp), contentAlignment = Alignment.Center) {
                                 Text(it, style = CalinoTypography.labelMedium, color = CalinoColors.Ink3)
                             }
@@ -621,6 +637,7 @@ private fun MonthGrid(
 
 @Composable
 private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, marked: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+    val dateFormat = localizedDateFormatter("EEEE, MMMM d, yyyy")
     val fill by animateFloatAsState(
         if (selected) 1f else 0f,
         spring(dampingRatio = .7f, stiffness = 600f),
@@ -642,7 +659,7 @@ private fun DayCell(date: LocalDate, selected: Boolean, today: Boolean, marked: 
             .clip(CircleShape)
             .then(if (enabled) Modifier.calinoPressable(onClick = onClick) else Modifier)
             .semantics {
-                contentDescription = date.format(DayDateFormat)
+                contentDescription = date.format(dateFormat)
                 this.selected = selected
             },
         contentAlignment = Alignment.Center,
@@ -695,6 +712,7 @@ fun CalinoMonthCalendar(
 ) {
     val weekStart = LocalCalinoPreferences.current.weekStart
     val weekNumbers = LocalCalinoPreferences.current.showWeekNumbers
+    val locale = LocalCalinoLocale
     val baseMonth = remember { month }
     val pager = rememberPagerState(initialPage = DatePagerMonths) { DatePagerMonths * 2 }
     val scope = rememberCoroutineScope()
@@ -708,6 +726,11 @@ fun CalinoMonthCalendar(
     val shown = monthAt(pager.currentPage)
     val today = LocalDate.now()
     var choosingMonth by remember { mutableStateOf(false) }
+    val monthTitleFormat = localizedDateFormatter("MMMM")
+    val choosingMonthLabel = stringResource(R.string.cal_choosing_month)
+    val showingDaysLabel = stringResource(R.string.cal_showing_days)
+    val previousMonth = stringResource(R.string.cal_previous_month)
+    val nextMonth = stringResource(R.string.cal_next_month)
 
     // Host -> pager: follow the month the host commits, unless we are already there.
     LaunchedEffect(month) {
@@ -729,10 +752,10 @@ fun CalinoMonthCalendar(
                     .heightIn(min = 44.dp)
                     .clip(RoundedCornerShape(CalinoShapes.Row))
                     .calinoPressable(onClick = { choosingMonth = !choosingMonth })
-                    .semantics { stateDescription = if (choosingMonth) "Choosing month" else "Showing days" },
+                    .semantics { stateDescription = if (choosingMonth) choosingMonthLabel else showingDaysLabel },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(shown.format(MonthTitleFormat), style = CalinoTypography.titleMedium, color = CalinoColors.Ink, maxLines = 1)
+                Text(shown.format(monthTitleFormat), style = CalinoTypography.titleMedium, color = CalinoColors.Ink, maxLines = 1)
                 Text(shown.year.toString(), style = CalinoTypography.titleSmall, color = CalinoColors.Ink3, modifier = Modifier.padding(start = 8.dp), maxLines = 1)
                 val turn by animateFloatAsState(if (choosingMonth) 180f else 0f, CalinoMotion.standardSpatial(), label = "month title chevron")
                 androidx.compose.material3.Icon(
@@ -742,10 +765,10 @@ fun CalinoMonthCalendar(
                     modifier = Modifier.padding(start = 4.dp).size(18.dp).graphicsLayer { rotationZ = turn },
                 )
             }
-            if (!choosingMonth) MonthStep(CalinoIcons.ChevronLeft, "Previous month") {
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronLeft, previousMonth) {
                 scope.launch { pager.animateScrollToPage(pager.currentPage - 1, animationSpec = CalinoMotion.standardSpatial()) }
             }
-            if (!choosingMonth) MonthStep(CalinoIcons.ChevronRight, "Next month") {
+            if (!choosingMonth) MonthStep(CalinoIcons.ChevronRight, nextMonth) {
                 scope.launch { pager.animateScrollToPage(pager.currentPage + 1, animationSpec = CalinoMotion.standardSpatial()) }
             }
         }
@@ -765,7 +788,7 @@ fun CalinoMonthCalendar(
                 Column {
                     Row(Modifier.fillMaxWidth()) {
                         if (weekNumbers) Spacer(Modifier.width(WeekGutter))
-                        weekdayLetters(weekStart).forEach {
+                        weekdayLetters(weekStart, locale).forEach {
                             Box(Modifier.weight(1f).height(28.dp), contentAlignment = Alignment.Center) {
                                 Text(it, style = CalinoTypography.labelMedium, color = CalinoColors.Ink3)
                             }
@@ -780,7 +803,6 @@ fun CalinoMonthCalendar(
     }
 }
 
-private val MonthNames = List(12) { java.time.Month.of(it + 1).getDisplayName(java.time.format.TextStyle.FULL, Locale.US) }
 private const val FirstYear = 1900
 private const val LastYear = 2200
 
@@ -790,6 +812,10 @@ private const val LastYear = 2200
  */
 @Composable
 private fun MonthYearWheels(month: YearMonth, onMonth: (YearMonth) -> Unit) {
+    val locale = LocalCalinoLocale
+    val monthNames = remember(locale) { List(12) { java.time.Month.of(it + 1).getDisplayName(java.time.format.TextStyle.FULL, locale) } }
+    val monthLabel = stringResource(R.string.cal_month)
+    val yearLabel = stringResource(R.string.cal_year)
     val currentOnMonth by rememberUpdatedState(onMonth)
     var chosen by remember { mutableStateOf(month) }
     Box(Modifier.fillMaxWidth().height(28.dp + DayCell * 6), contentAlignment = Alignment.Center) {
@@ -804,8 +830,8 @@ private fun MonthYearWheels(month: YearMonth, onMonth: (YearMonth) -> Unit) {
             TimeWheel(
                 count = 12,
                 selected = chosen.monthValue - 1,
-                label = { MonthNames[it] },
-                description = "Month",
+                label = { monthNames[it] },
+                description = monthLabel,
                 modifier = Modifier.weight(1f),
                 hug = Alignment.End,
                 onSelected = { chosen = chosen.withMonth(it + 1); currentOnMonth(chosen) },
@@ -814,7 +840,7 @@ private fun MonthYearWheels(month: YearMonth, onMonth: (YearMonth) -> Unit) {
                 count = LastYear - FirstYear + 1,
                 selected = chosen.year - FirstYear,
                 label = { (FirstYear + it).toString() },
-                description = "Year",
+                description = yearLabel,
                 loops = false,
                 modifier = Modifier.weight(1f),
                 hug = Alignment.Start,

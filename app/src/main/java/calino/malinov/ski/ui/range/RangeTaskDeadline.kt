@@ -1,5 +1,8 @@
 package calino.malinov.ski.ui.range
 
+import calino.malinov.ski.R
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +26,7 @@ import calino.malinov.ski.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.ui.components.eventColor
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.state.LocalTimeFormat
+import calino.malinov.ski.util.LocalCalinoLocale
 
 /** A deadline marker anchored at its due time; its hit lane has no duration semantics. */
 @Composable
@@ -33,10 +37,13 @@ internal fun RangeTaskDeadline(
     var menu by remember { mutableStateOf(false) }
     val color = eventColor(task.color)
     val shape = RoundedCornerShape(8.dp)
-    val dueLabel = LocalTimeFormat.format(task.dueTime!!)
+    val dueLabel = LocalTimeFormat.format(task.dueTime!!, LocalCalinoLocale)
+    val dueDescription = stringResource(R.string.cal_task_due_label, task.title, dueLabel)
+    val openDescription = stringResource(R.string.cal_mark_named_task_open, task.title)
+    val completeDescription = stringResource(R.string.cal_complete_named_task, task.title)
     BoxWithConstraints(modifier.fillMaxWidth().height(44.dp)
         .combinedClickable(onClick = { onOpen(task) }, onLongClick = { menu = true })
-        .semantics { contentDescription = "${task.title}, due $dueLabel" }) {
+        .semantics { contentDescription = dueDescription }) {
         val wide = maxWidth >= 120.dp
         // Paint a small badge on the deadline, leaving the rest of its touch
         // lane transparent so it cannot read as a forty-minute task block.
@@ -52,7 +59,7 @@ internal fun RangeTaskDeadline(
                 textDecoration = if (task.done) TextDecoration.LineThrough else null)
         }
         if (wide) Box(Modifier.align(Alignment.TopEnd).size(44.dp).clickable { onDone(task, !task.done) }
-            .semantics { contentDescription = if (task.done) "Mark ${task.title} open" else "Complete ${task.title}" }, contentAlignment = Alignment.Center) {
+            .semantics { contentDescription = if (task.done) openDescription else completeDescription }, contentAlignment = Alignment.Center) {
             CalinoIcon(if (task.done) CalinoIcon.Check else CalinoIcon.Clock, tint = color, modifier = Modifier.size(16.dp))
         }
         TaskActionMenu(task, expanded = menu, onDismiss = { menu = false }, onAction = { onAction(it, task) })
