@@ -36,6 +36,8 @@
     <string name="set_new_event_defaults">New event defaults</string>
     <string name="set_used_when_a_time_is_parsed_without_an_end">Used when a time is parsed without an end</string>
     <string name="set_show_end_times">Show end times</string>
+    <string name="set_range_multi_day_events_in_header">Multi-day events in Range header</string>
+    <string name="set_range_multi_day_events_in_header_description">Show timed events spanning multiple days as header bars instead of blocks in the time grid</string>
     <string name="set_include_how_long_an_event_runs">Include how long an event runs</string>
     <string name="set_show_locations">Show locations</string>
     <string name="set_include_places_below_event_titles">Include places below event titles</string>

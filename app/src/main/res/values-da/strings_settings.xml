@@ -36,6 +36,8 @@
     <string name="set_new_event_defaults">Standard for nye begivenheder</string>
     <string name="set_used_when_a_time_is_parsed_without_an_end">Bruges, når et tidspunkt ikke har en slutning</string>
     <string name="set_show_end_times">Vis sluttidspunkter</string>
+    <string name="set_range_multi_day_events_in_header">Flerdagsbegivenheder i Periodes overskrift</string>
+    <string name="set_range_multi_day_events_in_header_description">Vis tidsbestemte begivenheder over flere dage som bjælker øverst i stedet for blokke i tidsoversigten</string>
     <string name="set_include_how_long_an_event_runs">Vis begivenhedens varighed</string>
     <string name="set_show_locations">Vis steder</string>
     <string name="set_include_places_below_event_titles">Vis steder under begivenhedens titel</string>

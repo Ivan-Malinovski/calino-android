@@ -1,6 +1,31 @@
 package calino.malinov.ski.util
 
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.occurrenceStartCovering
+import java.time.Duration
+import java.time.LocalDate
+
+/**
+ * A display-only slice of a timed occurrence within [day]. Never pass this
+ * copy to an editor or write callback: those must retain the original event.
+ * Midnight at the end is exclusive, so it leaves the following rail empty.
+ */
+fun eventOnDayRail(event: CalEvent, day: LocalDate): CalEvent? {
+    if (event.allDay) return null
+    val time = event.start?.toLocalTime() ?: return null
+    val occurrenceDay = event.occurrenceStartCovering(day) ?: return null
+    val start = occurrenceDay.atTime(time)
+    val end = start.plusMinutes((event.durationMinutes ?: 60).coerceAtLeast(0).toLong())
+    val dayStart = day.atStartOfDay()
+    val dayEnd = day.plusDays(1).atStartOfDay()
+    if (start >= dayEnd || (end <= dayStart && start != dayStart)) return null
+    val sliceStart = maxOf(start, dayStart)
+    val sliceEnd = minOf(end, dayEnd)
+    return event.copy(
+        start = sliceStart,
+        durationMinutes = event.durationMinutes?.let { Duration.between(sliceStart, sliceEnd).toMinutes().toInt() },
+    )
+}
 
 /**
  * Where one event sits on the day rail once its neighbours are accounted for.
@@ -34,12 +59,12 @@ private const val MinimumBlockMinutes = 20
  *
  * All-day events are not on the rail and are dropped here.
  */
-fun layoutDayRail(events: List<CalEvent>): List<DayRailSlot> {
+fun layoutDayRail(events: List<CalEvent>, day: LocalDate): List<DayRailSlot> {
     val timed = events.mapNotNull { event ->
-        if (event.allDay) return@mapNotNull null
-        val start = event.start ?: return@mapNotNull null
+        val slice = eventOnDayRail(event, day) ?: return@mapNotNull null
+        val start = slice.start!!
         val startMinute = start.hour * 60 + start.minute
-        val span = (event.durationMinutes ?: 60).coerceAtLeast(MinimumBlockMinutes)
+        val span = (slice.durationMinutes ?: 60).coerceAtLeast(MinimumBlockMinutes)
         Triple(event, startMinute, (startMinute + span).coerceAtMost(24 * 60))
     }.sortedWith(compareBy<Triple<CalEvent, Int, Int>>({ it.second }, { -it.third }, { it.first.id }))
 

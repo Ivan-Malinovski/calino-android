@@ -4,6 +4,8 @@ import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoWeekStart
 import calino.malinov.ski.util.startOfWeek
+import calino.malinov.ski.util.eventOnDayRail
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.math.roundToInt
@@ -89,6 +91,12 @@ internal fun rangeDropTarget(
     val startMinute = start.hour * 60 + start.minute
     val targetMinute = (startMinute + minuteDelta).coerceIn(0, 23 * 60 + 45)
     return day.atStartOfDay().plusMinutes(targetMinute.toLong())
+}
+
+/** Move the entire event by the displacement of the slice that was lifted. */
+internal fun rangeEventStartAfterDrop(event: CalEvent, liftedDay: LocalDate, target: LocalDateTime): LocalDateTime? {
+    val sliceStart = eventOnDayRail(event, liftedDay)?.start ?: return null
+    return event.start?.plus(Duration.between(sliceStart, target))
 }
 
 /** The shortest an event can be dragged to by its end edge. */

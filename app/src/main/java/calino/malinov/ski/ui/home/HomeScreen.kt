@@ -231,6 +231,7 @@ import calino.malinov.ski.util.gridStart
 import calino.malinov.ski.util.isoWeekNumber
 import calino.malinov.ski.util.monthWashPlan
 import calino.malinov.ski.util.layoutDayRail
+import calino.malinov.ski.util.eventOnDayRail
 import calino.malinov.ski.util.leadingCells
 import calino.malinov.ski.util.startOfWeek
 import calino.malinov.ski.util.weekdayColumn
@@ -6524,7 +6525,7 @@ internal fun HourRailContent(
     val locale = LocalCalinoLocale
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
-    val slots = remember(dayEvents) { layoutDayRail(dayEvents) }
+    val slots = remember(dayEvents, day) { layoutDayRail(dayEvents, day) }
     val hourHeight = (TimelineBaseHourHeightDp * timelineScale).dp
     val railStart = if (showHourLabels) 52.dp else 0.dp
     Box(Modifier.fillMaxWidth().height((hourHeight.value * 24f).dp)) {
@@ -6571,6 +6572,7 @@ internal fun HourRailContent(
             // right without surrendering most of their title width.
             slots.forEach { slot ->
                 val event = slot.event
+                val displayEvent = eventOnDayRail(event, day)!!
                 val compactCascade = if (slot.columns > 1) {
                     minOf(8.dp, (railWidth - 24.dp).coerceAtLeast(0.dp) / (slot.columns - 1))
                 } else {
@@ -6779,7 +6781,7 @@ internal fun HourRailContent(
                         .calinoSurfaceOrigin(event.id, if (laneWidth < 72.dp) 6.dp else 11.dp, growFromEvents)
                         .then(directDragInteraction)
                         .semantics(mergeDescendants = true) {
-                            contentDescription = eventDescription(event, timeFormat, locale)
+                            contentDescription = eventDescription(displayEvent, timeFormat, locale)
                             if (onEvent != null) {
                                 onClick {
                                     onEvent(event)
@@ -6787,7 +6789,7 @@ internal fun HourRailContent(
                                 }
                             }
                         },
-                    event = event,
+                    event = displayEvent,
                     showMetadata = showMetadata,
                     timeFormat = timeFormat,
                     preferences = railPreferences,

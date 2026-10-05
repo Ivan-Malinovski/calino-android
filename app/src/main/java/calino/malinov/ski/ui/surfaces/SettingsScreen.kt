@@ -187,6 +187,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry(R.string.set_hide_completed_tasks, SettingsSection.EventsTasks, R.string.set_tasks_in_calendar, "Hide completed tasks"),
     SettingsSearchEntry(R.string.set_default_duration, SettingsSection.EventsTasks, R.string.set_new_event_defaults, "Default duration"),
     SettingsSearchEntry(R.string.set_show_end_times, SettingsSection.EventsTasks, R.string.set_display, "Show end times"),
+    SettingsSearchEntry(R.string.set_range_multi_day_events_in_header, SettingsSection.EventsTasks, R.string.set_display, "Multi-day events in Range header"),
     SettingsSearchEntry(R.string.set_show_locations, SettingsSection.EventsTasks, R.string.set_display, "Show locations"),
     SettingsSearchEntry(R.string.set_categories, SettingsSection.EventsTasks, R.string.set_categories, "labels tags", R.string.set_search_terms_categories),
     SettingsSearchEntry(R.string.set_keyword_rules, SettingsSection.EventsTasks, R.string.set_keyword_rules, "auto categorize categories labels", R.string.set_search_terms_keyword_rules),
@@ -870,6 +871,12 @@ private fun EventSettings() {
             )
         }
         SettingsGroup(t(R.string.set_display)) {
+            SettingToggleRow(
+                t(R.string.set_range_multi_day_events_in_header),
+                t(R.string.set_range_multi_day_events_in_header_description),
+                preferences.rangeMultiDayEventsInHeader,
+                preferences.setRangeMultiDayEventsInHeader,
+            )
             SettingToggleRow(
                 t(R.string.set_show_end_times),
                 t(R.string.set_include_how_long_an_event_runs),

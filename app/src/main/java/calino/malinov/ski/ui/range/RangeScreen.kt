@@ -131,6 +131,8 @@ import calino.malinov.ski.ui.surfaces.EventMenuAction
 import calino.malinov.ski.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.EventDateIndex
+import calino.malinov.ski.util.eventOnDayRail
+import calino.malinov.ski.util.isTimedSpan
 import calino.malinov.ski.util.layoutAllDayBand
 import calino.malinov.ski.util.startOfWeek
 import calino.malinov.ski.util.resolveAllDaySpans
@@ -561,7 +563,7 @@ private fun RangePagerSurface(
             with(density) { CalinoSpacing.RailGutter.toPx() },
             visibleDragDays,
         )
-        val start = session.card.event.start
+        val start = eventOnDayRail(session.card.event, session.card.day)?.start
         if (day != null && start != null) {
             rangeDropTarget(
                 start = start,
@@ -719,7 +721,7 @@ private fun RangePagerSurface(
                         }
                     } else if (session != null) {
                         val start = session.card.event.start
-                        val target = dragTarget
+                        val target = dragTarget?.let { rangeEventStartAfterDrop(session.card.event, session.card.day, it) }
                         if (start != null && target != null) {
                             if (target != start) onEventTimeDrop(session.card.event, target)
                         }
@@ -973,7 +975,7 @@ private fun RangePagerSurface(
                     .semantics {
                         contentDescription = dropPreviewDescription
                     },
-                event = session.card.event,
+                event = eventOnDayRail(session.card.event, session.card.day)!!,
                 showMetadata = session.card.showMetadata,
                 timeFormat = timeFormat,
                 preferences = preferences,
@@ -1002,7 +1004,7 @@ private fun RangePagerSurface(
                         translationX = rect.left - hostOrigin.x + session.offset.x
                         translationY = rect.top - hostOrigin.y + session.offset.y
                     },
-                event = session.card.event,
+                event = eventOnDayRail(session.card.event, session.card.day)!!,
                 showMetadata = session.card.showMetadata,
                 timeFormat = timeFormat,
                 preferences = preferences,
@@ -1042,6 +1044,7 @@ private fun RangePage(
 ) {
     val density = LocalDensity.current
     val hideDone = LocalCalinoPreferences.current.hideCompletedTasks
+    val multiDayEventsInHeader = LocalCalinoPreferences.current.rangeMultiDayEventsInHeader
     val locale = LocalCalinoLocale
     val dayCalendarDescription = stringResource(R.string.cal_day_calendar, days.size)
     val railLayer = rememberGraphicsLayer()
@@ -1070,7 +1073,9 @@ private fun RangePage(
             // keeps the leading gap so columns sit where they always have.
             Spacer(Modifier.width(0.dp))
             days.forEach { day ->
-                val timed = remember(eventIndex, day) { eventIndex.eventsOn(day).filterNot { it.allDay } }
+                val timed = remember(eventIndex, day, multiDayEventsInHeader) {
+                    eventIndex.eventsOn(day).filterNot { it.allDay || (multiDayEventsInHeader && it.isTimedSpan()) }
+                }
                 Box(
                     Modifier.weight(1f).border(0.5.dp, CalinoColors.Line2)
                         .rangeEmptyLongPress(
@@ -1078,10 +1083,11 @@ private fun RangePage(
                                 val minute = point.y /
                                     with(density) { (62 * timelineScale).dp.toPx() } * 60f
                                 tasks.any { it.due == day && it.dueTime != null && minute >= it.dueTime.hour * 60 + it.dueTime.minute && minute < it.dueTime.hour * 60 + it.dueTime.minute + 44f * 60 / (62 * timelineScale) } || timed.any { event ->
-                                    val start = event.start ?: return@any false
+                                    val slice = eventOnDayRail(event, day) ?: return@any false
+                                    val start = slice.start!!
                                     val startMinute = start.hour * 60 + start.minute
-                                    val duration = event.durationMinutes ?: 30
-                                    minute >= startMinute && minute <= startMinute + duration
+                                    val duration = slice.durationMinutes ?: 60
+                                    minute >= startMinute && minute < startMinute + duration
                                 }
                             },
                             onLongPress = { point ->
@@ -1157,7 +1163,9 @@ private fun RangePage(
             // Filtered once, ahead of the packer, rather than per day inside
             // it -- otherwise toggling "hide completed" would not relayout.
             val visibleTasks = remember(tasks, hideDone) { tasks.filter { it.dueTime == null && (!hideDone || !it.done) } }
-            val spans = remember(eventIndex, days) { resolveAllDaySpans(days, eventIndex::eventsOn) }
+            val spans = remember(eventIndex, days, multiDayEventsInHeader) {
+                resolveAllDaySpans(days, includeTimedSpans = multiDayEventsInHeader, eventsOn = eventIndex::eventsOn)
+            }
             var bandExpanded by rememberSaveable(days.first(), days.size) { mutableStateOf(false) }
             val bandLayout = remember(spans, visibleTasks, days, bandExpanded) {
                 layoutAllDayBand(days, spans, visibleTasks, if (bandExpanded) Int.MAX_VALUE else RangeBandLaneLimit)

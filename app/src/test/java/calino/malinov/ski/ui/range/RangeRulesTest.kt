@@ -111,6 +111,16 @@ class RangeRulesTest {
     private fun timed(start: LocalDateTime, minutes: Int, recurrence: String? = null) =
         CalEvent("evt", "Event", 0xFF5B7FB5, start, minutes, recurrence = recurrence, calendarId = "work")
 
+    @Test fun `lifting a continuation moves the whole event by the slice displacement`() {
+        val start = wednesday.minusDays(2).atTime(16, 15)
+        val event = timed(start, 49 * 60)
+        // A cancelled/no-motion lift of Wednesday's midnight slice is a no-op.
+        assertEquals(start, rangeEventStartAfterDrop(event, wednesday, wednesday.atStartOfDay()))
+        assertEquals(start.plusMinutes(30), rangeEventStartAfterDrop(event, wednesday, wednesday.atTime(0, 30)))
+        assertEquals(start.plusDays(1), rangeEventStartAfterDrop(event, wednesday, wednesday.plusDays(1).atStartOfDay()))
+        assertEquals(start.plusMinutes(15), rangeEventStartAfterDrop(event, start.toLocalDate(), start.plusMinutes(15)))
+    }
+
     @Test fun `end edge resizes on the quarter-hour grid`() {
         val start = LocalDateTime.of(2026, 9, 16, 9, 0)
         // Half an hour at 62dp per hour, nudged a little further.

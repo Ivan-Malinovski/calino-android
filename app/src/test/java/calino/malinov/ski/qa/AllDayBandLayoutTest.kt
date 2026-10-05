@@ -11,6 +11,7 @@ import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 /**
@@ -23,6 +24,48 @@ import org.junit.Test
 class AllDayBandLayoutTest {
     private val monday = LocalDate.of(2026, 5, 18)
     private val week = (0L..6L).map { monday.plusDays(it) }
+
+    @Test fun timedSpansOptIntoTheHeaderWithoutChangingTheEvent() {
+        val timed = CalEvent("timed", "Trip", 1L, monday.atTime(16, 15), 49 * 60, calendarId = "personal")
+        val short = timed.copy(id = "short", durationMinutes = 60)
+        val lookup = { day: LocalDate -> listOf(timed, short).filter { it.occursOn(day) } }
+        assertTrue(resolveAllDaySpans(week, eventsOn = lookup).isEmpty())
+        val span = resolveAllDaySpans(week, includeTimedSpans = true, eventsOn = lookup).single()
+        assertSame(timed, span.event)
+        assertFalse(span.event.allDay)
+        assertEquals(monday, span.start)
+        assertEquals(monday.plusDays(2), span.endInclusive)
+        val placed = layoutAllDayBand(week, listOf(span), emptyList(), 2).placements.single()
+        assertEquals(0, placed.startColumn)
+        assertEquals(2, placed.endColumn)
+    }
+
+    @Test fun timedSpanHeaderClipsWindowsAndTreatsMidnightAsExclusive() {
+        val timed = CalEvent("timed", "Trip", 1L, monday.atTime(16, 15), 31 * 60 + 45, calendarId = "personal")
+        val days = week.drop(1)
+        val span = resolveAllDaySpans(days, includeTimedSpans = true) { day -> listOf(timed).filter { it.occursOn(day) } }.single()
+        assertEquals(monday, span.occurrenceStart)
+        assertEquals(monday.plusDays(1), span.start)
+        assertEquals(monday.plusDays(1), span.endInclusive)
+        assertTrue(span.continuesBefore)
+        assertFalse(span.continuesAfter)
+        // Ending at midnight after the start day still occupies only one date.
+        val untilMidnight = timed.copy(durationMinutes = 7 * 60 + 45)
+        assertTrue(resolveAllDaySpans(week, includeTimedSpans = true) { listOf(untilMidnight) }.isEmpty())
+    }
+
+    @Test fun recurringTimedSpanHeaderUsesTheOccurrenceDatesAndContinuationEdges() {
+        val series = CalEvent("weekly", "Trip", 1L, monday.atTime(16, 15), 49 * 60,
+            recurrence = "FREQ=WEEKLY;BYDAY=MO", calendarId = "personal")
+        val nextMonday = monday.plusWeeks(1)
+        val span = resolveAllDaySpans(listOf(nextMonday.plusDays(1)), includeTimedSpans = true) { day ->
+            listOf(series).filter { it.occursOn(day) }
+        }.single()
+        assertEquals(nextMonday, span.occurrenceStart)
+        assertEquals(nextMonday.plusDays(1), span.start)
+        assertTrue(span.continuesBefore)
+        assertTrue(span.continuesAfter)
+    }
 
     private fun event(id: String, date: LocalDate, endDate: LocalDate? = null, recurrence: String? = null) = CalEvent(
         id = id,

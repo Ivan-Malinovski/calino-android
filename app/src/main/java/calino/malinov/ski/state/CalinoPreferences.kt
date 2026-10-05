@@ -114,6 +114,9 @@ data class CalinoPreferences(
     val setDefaultView: (CalinoDefaultView) -> Unit = {},
     val rangeMode: CalinoRangeMode = CalinoRangeMode.Default,
     val setRangeMode: (CalinoRangeMode) -> Unit = {},
+    /** Display timed events covering multiple dates in Range's spanning header. */
+    val rangeMultiDayEventsInHeader: Boolean = true,
+    val setRangeMultiDayEventsInHeader: (Boolean) -> Unit = {},
     val defaultDuration: CalinoDefaultDuration = CalinoDefaultDuration.Default,
     val setDefaultDuration: (CalinoDefaultDuration) -> Unit = {},
     val defaultReminder: CalinoDefaultReminder = CalinoDefaultReminder.Default,
@@ -221,6 +224,8 @@ interface CalinoPreferenceStore {
     fun loadHideCompletedTasks(): Boolean
     fun saveHideCompletedTasks(hide: Boolean)
     fun loadShowEndTimes(): Boolean
+    fun loadRangeMultiDayEventsInHeader(): Boolean
+    fun saveRangeMultiDayEventsInHeader(enabled: Boolean)
     fun saveShowEndTimes(show: Boolean)
     fun loadShowLocations(): Boolean
     fun saveShowLocations(show: Boolean)
@@ -304,6 +309,7 @@ interface CalinoPreferenceStore {
         private var reminder = CalinoDefaultReminder.Default
         private var hideCompleted = false
         private var endTimes = true
+        private var rangeMultiDayEventsInHeader = true
         private var locations = true
         private var syncRange = CalinoEventSyncRange.Default
         private var journal = false
@@ -344,6 +350,8 @@ interface CalinoPreferenceStore {
         override fun loadHideCompletedTasks() = hideCompleted
         override fun saveHideCompletedTasks(hide: Boolean) { hideCompleted = hide }
         override fun loadShowEndTimes() = endTimes
+        override fun loadRangeMultiDayEventsInHeader() = rangeMultiDayEventsInHeader
+        override fun saveRangeMultiDayEventsInHeader(enabled: Boolean) { rangeMultiDayEventsInHeader = enabled }
         override fun saveShowEndTimes(show: Boolean) { endTimes = show }
         override fun loadShowLocations() = locations
         override fun saveShowLocations(show: Boolean) { locations = show }
@@ -468,6 +476,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveHideCompletedTasks(hide: Boolean) = putBoolean(HideCompletedTasksKey, hide)
 
     override fun loadShowEndTimes(): Boolean = prefs.getBoolean(ShowEndTimesKey, true)
+    override fun loadRangeMultiDayEventsInHeader(): Boolean = prefs.getBoolean(RangeMultiDayEventsInHeaderKey, true)
+    override fun saveRangeMultiDayEventsInHeader(enabled: Boolean) = putBoolean(RangeMultiDayEventsInHeaderKey, enabled)
     override fun saveShowEndTimes(show: Boolean) = putBoolean(ShowEndTimesKey, show)
 
     override fun loadShowLocations(): Boolean = prefs.getBoolean(ShowLocationsKey, true)
@@ -543,6 +553,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val DefaultReminderKey = "default_reminder"
         const val HideCompletedTasksKey = "hide_completed_tasks"
         const val ShowEndTimesKey = "show_end_times"
+        const val RangeMultiDayEventsInHeaderKey = "range_multi_day_events_in_header"
         const val ShowLocationsKey = "show_locations"
         const val EventSyncRangeKey = "event_sync_range"
         const val JournalEnabledKey = "journal_enabled"
@@ -594,6 +605,7 @@ fun rememberCalinoPreferences(
     var defaultReminder by remember(store) { mutableStateOf(store.loadDefaultReminder()) }
     var hideCompletedTasks by remember(store) { mutableStateOf(store.loadHideCompletedTasks()) }
     var showEndTimes by remember(store) { mutableStateOf(store.loadShowEndTimes()) }
+    var rangeMultiDayEventsInHeader by remember(store) { mutableStateOf(store.loadRangeMultiDayEventsInHeader()) }
     var showLocations by remember(store) { mutableStateOf(store.loadShowLocations()) }
     var eventSyncRange by remember(store) { mutableStateOf(store.loadEventSyncRange()) }
     var journalEnabled by remember(store) { mutableStateOf(store.loadJournalEnabled()) }
@@ -645,6 +657,8 @@ fun rememberCalinoPreferences(
         hideCompletedTasks = hideCompletedTasks,
         setHideCompletedTasks = { value -> hideCompletedTasks = value; store.saveHideCompletedTasks(value) },
         showEndTimes = showEndTimes,
+        rangeMultiDayEventsInHeader = rangeMultiDayEventsInHeader,
+        setRangeMultiDayEventsInHeader = { value -> rangeMultiDayEventsInHeader = value; store.saveRangeMultiDayEventsInHeader(value) },
         setShowEndTimes = { value -> showEndTimes = value; store.saveShowEndTimes(value) },
         showLocations = showLocations,
         setShowLocations = { value -> showLocations = value; store.saveShowLocations(value) },

@@ -36,6 +36,8 @@
     <string name="set_new_event_defaults">Vorgaben für neue Termine</string>
     <string name="set_used_when_a_time_is_parsed_without_an_end">Wird verwendet, wenn für eine erkannte Uhrzeit kein Ende angegeben ist</string>
     <string name="set_show_end_times">Endzeiten anzeigen</string>
+    <string name="set_range_multi_day_events_in_header">Mehrtägige Termine im Kopfbereich der Zeitspanne</string>
+    <string name="set_range_multi_day_events_in_header_description">Termine über mehrere Tage als Balken im Kopfbereich statt als Blöcke im Zeitraster anzeigen</string>
     <string name="set_include_how_long_an_event_runs">Termindauer anzeigen</string>
     <string name="set_show_locations">Orte anzeigen</string>
     <string name="set_include_places_below_event_titles">Orte unter Termintiteln anzeigen</string>

@@ -58,23 +58,32 @@ data class AllDayBandLayout(
     val overflowTaskCount: Int,
 )
 
+/** Whether a timed event occupies more than one calendar date (midnight end exclusive). */
+fun CalEvent.isTimedSpan(): Boolean = !allDay && spanLengthDays() > 0
+
 /**
  * Resolves every all-day event touching [days] into one span per occurrence,
  * clipped to that window.
+ * [includeTimedSpans] also places timed spans in the band, keeping their
+ * original event and times intact for detail and write callbacks.
  *
  * [eventsOn] is a per-date projection (an [EventDateIndex] in practice), so
  * a multi-day or recurring event is reached once from every day it covers --
  * deduplication happens here, keyed by (event id, occurrence start), which is
  * why a recurring event's separate occurrences never collide.
  */
-fun resolveAllDaySpans(days: List<LocalDate>, eventsOn: (LocalDate) -> List<CalEvent>): List<AllDaySpan> {
+fun resolveAllDaySpans(
+    days: List<LocalDate>,
+    includeTimedSpans: Boolean = false,
+    eventsOn: (LocalDate) -> List<CalEvent>,
+): List<AllDaySpan> {
     if (days.isEmpty()) return emptyList()
     val windowStart = days.first()
     val windowEnd = days.last()
     val seen = LinkedHashMap<String, AllDaySpan>()
     days.forEach { day ->
         eventsOn(day).forEach { event ->
-            if (!event.allDay) return@forEach
+            if (!event.allDay && !(includeTimedSpans && event.isTimedSpan())) return@forEach
             val occurrenceStart = event.occurrenceStartCovering(day) ?: return@forEach
             val key = "${event.id}@$occurrenceStart"
             if (seen.containsKey(key)) return@forEach
