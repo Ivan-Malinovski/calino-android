@@ -1840,9 +1840,13 @@ fun HomeScreen(
                                 // ours; keeping it would make the calendar jump in
                                 // by the whole scrolled distance at the handover.
                                 if (agendaCanScroll) travel = Offset.Zero
+                                // A short upward wobble must not steal a fast
+                                // side swipe from the week/day pagers. Require
+                                // deliberate travel within ~18° of vertical
+                                // before locking this pointer stream to zoom.
                                 if (!agendaCanScroll &&
-                                    abs(travel.y) > viewConfiguration.touchSlop * .5f &&
-                                    abs(travel.y) > abs(travel.x)
+                                    abs(travel.y) > viewConfiguration.touchSlop * 1.5f &&
+                                    abs(travel.y) > abs(travel.x) * 3f
                                 ) {
                                     // A held event chip consumes position changes
                                     // before this Final-pass observer. Preserve its
