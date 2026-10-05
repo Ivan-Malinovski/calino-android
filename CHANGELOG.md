@@ -3,6 +3,31 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.11.0 — 2026-10-05
+
+Calino 0.11.0 translates the app into Danish and German, shows multi-day events in the Range header, and makes the Year, Agenda and Month transitions follow your finger.
+
+### Added
+
+- **Danish and German.** The phone and watch apps are translated, including calendar labels, typed dates, editors, reminders, widgets and screen-reader text. Pick a language per app in Android settings. Your calendar data is never translated.
+- **Multi-day events in the Range header.** Timed events that span several days now sit in the header across the days they cover, keeping their original times. This is on by default and can be turned off in display settings.
+- **Calendar for new tasks.** The new-task editor has a calendar row so a task goes to the calendar you choose instead of always the default one (#13). Saved tasks and subtasks show their calendar read-only.
+- **Edge-swipe setting.** A new setting turns the edge swipe to Year and Agenda on or off.
+
+### Changed
+
+- **Year and Agenda follow your finger.** Month contracts into its Year tile as you swipe, and Agenda is revealed through a soft moving edge. Agenda opens on the day you had selected.
+- **One day sidebar for Month and Year.** In wide landscape layouts both views share the same sidebar, so switching between them keeps its date, scroll position and collapsed state.
+- **Simpler Range header.** A day-count dropdown replaces the old controls, and incomplete tasks are listed first when the header overflows.
+- **Smoother navigation pill.** Save feedback is shared between pill controls, actions and labels animate, and previews hand over to the editor without a flash. Surfaces and controls got a visual polish.
+- **New-task date row.** The date, due time and a chevron share one line. The chevron reveals Clear due, Add start and This week. A repeat row with no repeat now reads "Don't repeat" instead of being blank.
+
+### Fixed
+
+- **Week-task popup dimming.** The dim now covers the heading and status bar, and fades in and out in step with the popup.
+- **Quick week and day swipes.** Vertical swipes that start with a slight upward jitter no longer get taken over by calendar zoom.
+- **Multi-day event layout.** Clipping, overlap layout and moves across days are corrected when header placement is turned off.
+
 ## 0.10.0 — 2026-10-02
 
 Calino 0.10.0 adds "Sometime this week" tasks: plan a task for the week without picking a day, see it from every Range view, and drag it onto a day when you know when.
