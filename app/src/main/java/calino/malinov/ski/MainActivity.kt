@@ -8,6 +8,7 @@ import calino.malinov.ski.ui.year.YearGrowHoldMillis
 import calino.malinov.ski.ui.year.YearTileCornerRadius
 import calino.malinov.ski.ui.components.LocalCalinoPressPoint
 import calino.malinov.ski.ui.components.recordCalinoPressPoint
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -121,6 +122,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.CompositingStrategy
+import calino.malinov.ski.ui.components.drawCalendarWithSoftAgendaEdge
+import calino.malinov.ski.ui.surfaces.AgendaStartRequest
+import calino.malinov.ski.ui.components.drawCalendarIntoYearTile
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -259,6 +265,9 @@ import calino.malinov.ski.ui.components.pockRouteLabel
 import calino.malinov.ski.ui.home.HomeScreen
 import calino.malinov.ski.ui.home.PillSwipeDays
 import calino.malinov.ski.ui.range.RangeScreen
+import calino.malinov.ski.ui.home.CalendarEdge
+import calino.malinov.ski.ui.home.CalendarEdgeTransition
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import calino.malinov.ski.ui.year.YearScreen
 import calino.malinov.ski.ui.components.SwipeDownDismiss
 import calino.malinov.ski.ui.surfaces.DayModalSurface
@@ -1317,6 +1326,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var pendingSubtaskCompletion by remember { mutableStateOf<SubtaskCompletionRequest?>(null) }
     var parentCompletionUndo by remember { mutableStateOf<UndoableChange?>(null) }
     val writeScope = androidx.compose.runtime.rememberCoroutineScope()
+    val calendarEdge = remember { CalendarEdgeTransition(writeScope) }
+    var agendaStartRequestId by rememberSaveable { mutableIntStateOf(0) }
+    var agendaStartRequest by remember { mutableStateOf<AgendaStartRequest?>(null) }
+    var edgeMonthBounds by remember { mutableStateOf<Rect?>(null) }
+    var rootSurfaceBounds by remember { mutableStateOf<Rect?>(null) }
+    var calendarViewportBounds by remember { mutableStateOf<Rect?>(null) }
     // The lane the add pill lives in, so a deliberate save can be reported on
     // the pill that started it.
     val savePillLane = LocalCalinoPillLane.current
@@ -1956,6 +1971,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     }
 
     fun navigateRoot(next: PockRoute) {
+        // Another root choice supersedes an in-flight edge settle.
+        calendarEdge.drag(null, 0f)
         showDayModal = false
         monthOpenedFromYear = false
         journalReviewVisible = false
@@ -2052,7 +2069,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // content keyed on this value would then be recreated mid-handoff,
     // reintroducing the exact jump this is meant to prevent.
     var predictiveBackDestination by remember { mutableStateOf<PockRoute>(PockRoute.Day) }
-    val rootPredictiveBackEnabled = !sidebarVisible && !journalReviewVisible && !journalEditorVisible &&
+    val rootPredictiveBackEnabled = calendarEdge.target == null && !sidebarVisible && !journalReviewVisible && !journalEditorVisible &&
         !showDayModal && (route != PockRoute.Day || monthOpenedFromYear) && route != PockRoute.Detail &&
         route != PockRoute.TaskDetail && route != PockRoute.QuickAdd
     PredictiveBackHandler(enabled = rootPredictiveBackEnabled) { events ->
@@ -2168,9 +2185,26 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         visibleCalendarIds = visibleCalendarIds,
                         filterCalendarVisibility = true,
                         modifier = Modifier.fillMaxSize(),
-                        interactionEnabled = route == PockRoute.Day && !showDayModal && !journalReviewVisible,
+                        interactionEnabled = route == PockRoute.Day && !showDayModal && !journalReviewVisible && !calendarEdge.settling,
                         monthZoomRequest = monthZoomRequest,
-                        zoomBackEnabled = !monthOpenedFromYear,
+                        zoomBackEnabled = !monthOpenedFromYear && calendarEdge.target == null,
+                        agendaEdgeProgress = { if (calendarEdge.target == CalendarEdge.Agenda) calendarEdge.progress else 0f },
+                        onZoomViewportBounds = { calendarViewportBounds = it },
+                        onEdgeDrag = { edge, progress ->
+                            if (edge == CalendarEdge.Agenda && calendarEdge.target != edge) {
+                                agendaStartRequestId += 1
+                                agendaStartRequest = AgendaStartRequest(agendaStartRequestId, selectedDate)
+                            }
+                            calendarEdge.drag(edge, progress)
+                        },
+                        onEdgeRelease = { velocity, cancelled ->
+                            calendarEdge.release(velocity, cancelled) { edge ->
+                                // The live destination migrates into its settled slot.
+                                // Suppress a second route animation after the geometric settle.
+                                predictiveRouteCommit = true
+                                navigateRoot(if (edge == CalendarEdge.Year) PockRoute.Year else PockRoute.Agenda)
+                            }
+                        },
                         initialDate = selectedDate,
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = ::selectCalendarDate,
@@ -2216,7 +2250,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         initialDate = selectedDate,
                         modifier = Modifier.fillMaxSize(),
                         onOpenMenu = { sidebarVisible = true },
-                        onDateChanged = ::selectCalendarDate,
+                        onDateChanged = { if (route == PockRoute.Year) selectCalendarDate(it) },
+                        onMonthBounds = { month, bounds ->
+                            if (month == YearMonth.from(selectedDate) && bounds.width > 0f && bounds.height > 0f) {
+                                edgeMonthBounds = bounds
+                            }
+                        },
                         onOpenMonth = { month, tile ->
                             yearZoomOrigin = SurfaceOriginBounds(tile, YearTileCornerRadius)
                             selectCalendarDate(if (YearMonth.from(yearToday) == month) yearToday else month.atDay(1))
@@ -2309,6 +2348,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         }.distinctBy { it.uid ?: it.id },
                         modifier = Modifier.fillMaxSize(),
                         initialDate = selectedDate,
+                        focusReportingEnabled = route == PockRoute.Agenda,
+                        startRequest = agendaStartRequest,
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = {
                             agendaPillLabelDirection = it.compareTo(selectedDate)
@@ -2565,12 +2606,43 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         Box(
             Modifier
                 .fillMaxSize()
-                .onGloballyPositioned { surfaceOrigin = it.positionInRoot() }
+                .clipToBounds()
+                .onGloballyPositioned {
+                    surfaceOrigin = it.positionInRoot()
+                    rootSurfaceBounds = Rect(surfaceOrigin, androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat()))
+                }
                 .drawWithContent {
                     surfaceLayer.record { this@drawWithContent.drawContent() }
                     drawLayer(surfaceLayer)
                 },
         ) {
+            val edgeTarget = calendarEdge.target
+            if (rootRoute == PockRoute.Day && edgeTarget != null) {
+                val previewRoute = if (edgeTarget == CalendarEdge.Year) PockRoute.Year else PockRoute.Agenda
+                Box(
+                    Modifier.fillMaxSize()
+                        .clearAndSetSemantics { }
+                        .pointerInput(edgeTarget) {
+                            // A preview is paint only until route commitment.
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).consume()
+                                do {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    event.changes.forEach { it.consume() }
+                                } while (event.changes.any { it.pressed })
+                            }
+                        }
+                        .graphicsLayer {
+                            val progress = calendarEdge.progress
+                            // Agenda rests under the lifted calendar, with a small
+                            // parallax travel. Year stays still while Month contracts.
+                            translationY = if (edgeTarget == CalendarEdge.Agenda) size.height * .12f * (1f - progress) else 0f
+                            alpha = if (progress > 0f) 1f else 0f
+                        },
+                ) {
+                    destinationContent(previewRoute)()
+                }
+            }
             if (rootBackInProgress) {
                 val destinationProgress = ((rootBackProgress - PredictiveBackFadeThreshold) /
                     (1f - PredictiveBackFadeThreshold)).coerceIn(0f, 1f)
@@ -2597,6 +2669,28 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             .coerceIn(0f, 1f)
                         shape = RoundedCornerShape(28.dp)
                         clip = rootBackProgress > 0f
+                        compositingStrategy = if (rootRoute == PockRoute.Day && edgeTarget == CalendarEdge.Agenda) {
+                            CompositingStrategy.Offscreen
+                        } else CompositingStrategy.Auto
+                        if (rootRoute == PockRoute.Day && edgeTarget == CalendarEdge.Year) {
+                            // Fade throughout the contraction rather than waiting
+                            // until the miniature is almost in its Year tile.
+                            val fade = ((calendarEdge.progress - .08f) / .74f).coerceIn(0f, 1f)
+                            alpha = 1f - fade * fade * (3f - 2f * fade)
+                        }
+                    }
+                    .drawWithContent {
+                        val progress = calendarEdge.progress
+                        val page = rootSurfaceBounds
+                        if (rootRoute == PockRoute.Day && edgeTarget == CalendarEdge.Year &&
+                            edgeMonthBounds != null && page != null
+                        ) {
+                            drawCalendarIntoYearTile(edgeMonthBounds!!, page, progress, YearTileCornerRadius.toPx())
+                        } else if (rootRoute == PockRoute.Day && edgeTarget == CalendarEdge.Agenda && page != null) {
+                            val header = ((calendarViewportBounds?.top ?: page.top) - page.top).coerceIn(0f, size.height)
+                            // A soft moving edge rolls away below the shared heading.
+                            drawCalendarWithSoftAgendaEdge(header, progress)
+                        } else drawContent()
                     },
                 transitionSpec = {
                     if (predictiveRouteCommit) {

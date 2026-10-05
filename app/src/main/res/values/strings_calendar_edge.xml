@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cal_zoom_week_edge_hint">↑ AGENDA · ↓ MONTH</string>
+    <string name="cal_zoom_month_edge_hint">↑ COLLAPSE · ↓ YEAR</string>
+</resources>

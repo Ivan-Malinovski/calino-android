@@ -127,6 +127,8 @@ private val AgendaDayFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Loca
  * from the zooming calendar surface, and shares the calendar's month heading
  * and month-page arithmetic so both stay on the same page for the same date.
  */
+data class AgendaStartRequest(val id: Int, val date: LocalDate)
+
 @Composable
 fun AgendaScreen(
     events: List<CalEvent>,
@@ -136,6 +138,10 @@ fun AgendaScreen(
     initialDate: LocalDate = FixtureNow.today,
     onOpenMenu: (() -> Unit)? = null,
     onDateChanged: (LocalDate) -> Unit = {},
+    /** A mounted root preview must not publish a new committed reading date. */
+    focusReportingEnabled: Boolean = true,
+    /** An explicit calendar reveal supersedes a previously saved list position. */
+    startRequest: AgendaStartRequest? = null,
     /**
      * The two days a live month swipe has the add pill's label between, or
      * null whenever no drag owns it. Null at rest rather than the committed
@@ -157,12 +163,25 @@ fun AgendaScreen(
     onAddOn: (LocalDate) -> Unit = {},
 ) {
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
-    LaunchedEffect(initialDate) { selectedEpoch = initialDate.toEpochDay() }
+    var handledStartRequestId by rememberSaveable { mutableIntStateOf(0) }
+    var positionRequest by remember {
+        mutableStateOf(startRequest?.takeIf { it.id != handledStartRequestId })
+    }
     val selected = LocalDate.ofEpochDay(selectedEpoch)
     val today = LocalCalinoNow.current.today
 
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = monthPageFor(YearMonth.from(initialDate))) { MonthPagerPageCount }
+    LaunchedEffect(initialDate, startRequest?.id) {
+        val request = startRequest?.takeIf { it.id != handledStartRequestId }
+        selectedEpoch = (request?.date ?: initialDate).toEpochDay()
+        if (request != null) {
+            positionRequest = request
+            // Preview positioning must be immediate, including a restored month pager.
+            pagerState.scrollToPage(monthPageFor(YearMonth.from(request.date)))
+            handledStartRequestId = request.id
+        }
+    }
 
     // What each composed page's list is actually resting on, keyed by page.
     // A month page keeps its own scroll position, and a page arrived at for
@@ -245,7 +264,10 @@ fun AgendaScreen(
         }
     }
 
-    LaunchedEffect(selectedEpoch) {
+    LaunchedEffect(selectedEpoch, handledStartRequestId, startRequest?.id) {
+        // The explicit entry jump owns the pager until it has applied the
+        // requested date. A restored selectedEpoch must not scroll it back.
+        if (startRequest != null && startRequest.id != handledStartRequestId) return@LaunchedEffect
         val target = monthPageFor(YearMonth.from(LocalDate.ofEpochDay(selectedEpoch)))
         if (pagerState.currentPage != target && !pagerState.isScrollInProgress) {
             pagerState.animateScrollToPage(target)
@@ -321,12 +343,13 @@ fun AgendaScreen(
             AgendaMonthPage(
                 month = monthForPage(page),
                 selected = selected,
+                startRequest = positionRequest,
                 onFocusedDayPreview = { day -> pageFocus[page] = day },
                 // A page that has left the pager's reach loses its list, and
                 // with it the position this was recording. Left behind, the
                 // entry would name a day the page no longer opens on.
                 onDisposed = { pageFocus.remove(page) },
-                reportsFocusedDate = page == pagerState.settledPage && !pagerState.isScrollInProgress,
+                reportsFocusedDate = focusReportingEnabled && page == pagerState.settledPage && !pagerState.isScrollInProgress,
                 onFocusedDateChanged = { day ->
                     if (day.toEpochDay() != currentSelectedEpoch.value) {
                         selectedEpoch = day.toEpochDay()
@@ -373,6 +396,7 @@ fun AgendaScreen(
 private fun AgendaMonthPage(
     month: YearMonth,
     selected: LocalDate,
+    startRequest: AgendaStartRequest?,
     /**
      * Where this page is resting, reported whether or not it is the page the
      * agenda is on. A neighbour is composed a page ahead of the finger, so
@@ -404,7 +428,9 @@ private fun AgendaMonthPage(
         days.associateWith { day -> tasksDueOn(visible, day) }.filterValues { it.isNotEmpty() }
     }
     val listState = rememberLazyListState()
-    var initialPositioningComplete by remember(month) { mutableStateOf(false) }
+    var positionedRequestId by remember(month) { mutableIntStateOf(Int.MIN_VALUE) }
+    val requestId = startRequest?.id ?: 0
+    val initialPositioningComplete = positionedRequestId == requestId
     val focusedDay by remember(listState, days) {
         derivedStateOf {
             val layout = listState.layoutInfo
@@ -448,11 +474,13 @@ private fun AgendaMonthPage(
 
     // Entering the agenda from a chosen date should land on that date rather
     // than on the first of the month. Only the page that owns it scrolls.
-    LaunchedEffect(month) {
-        if (YearMonth.from(selected) == month && selected.dayOfMonth > 1) {
-            listState.scrollToItem(selected.dayOfMonth - 1)
+    LaunchedEffect(month, requestId) {
+        val requestedDay = startRequest?.date?.takeIf { YearMonth.from(it) == month }
+        val start = requestedDay ?: selected.takeIf { YearMonth.from(it) == month }
+        if (start != null && (requestedDay != null || start.dayOfMonth > 1)) {
+            listState.scrollToItem(start.dayOfMonth - 1)
         }
-        initialPositioningComplete = true
+        positionedRequestId = requestId
     }
 
     LazyColumn(

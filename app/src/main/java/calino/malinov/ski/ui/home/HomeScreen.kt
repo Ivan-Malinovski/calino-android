@@ -59,6 +59,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import calino.malinov.ski.R
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
@@ -104,6 +106,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -174,7 +177,6 @@ import calino.malinov.ski.qa.shouldExpandFromDayRail
 import calino.malinov.ski.qa.timelineCreateMinute
 import calino.malinov.ski.qa.edgeScrollDirection
 import calino.malinov.ski.qa.timelineScaleAfterPinch
-import calino.malinov.ski.qa.zoomAfterVerticalDrag
 import calino.malinov.ski.qa.zoomSettleLevel
 import calino.malinov.ski.qa.calendarTransitionFrame
 import calino.malinov.ski.qa.monthRowHingeOffset
@@ -258,7 +260,6 @@ import kotlinx.coroutines.delay
  */
 private val PagerEpoch = LocalDate.of(2026, 5, 18)
 private const val DaytimeScrollHour = 9
-private const val ZoomStepDp = 280f
 private const val TimelineBaseHourHeightDp = 62f
 private const val TimelineMinScale = .65f
 private const val TimelineMaxScale = 1.8f
@@ -608,6 +609,11 @@ fun HomeScreen(
      * between the month and the Year page it was opened from.
      */
     zoomBackEnabled: Boolean = true,
+    /** Live preview beyond either endpoint, with route commitment owned by the shell. */
+    onEdgeDrag: (CalendarEdge?, Float) -> Unit = { _, _ -> },
+    onEdgeRelease: (Float, Boolean) -> Unit = { _, _ -> },
+    agendaEdgeProgress: () -> Float = { 0f },
+    onZoomViewportBounds: (Rect) -> Unit = {},
     /** Reports whether the large split month layout is active. */
     onSplitPaneChanged: (Boolean) -> Unit = {},
     /**
@@ -1683,7 +1689,11 @@ fun HomeScreen(
                 onDateChanged(today)
             },
         )
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        val liveAgendaEdgeProgress by rememberUpdatedState(agendaEdgeProgress)
+        BoxWithConstraints(
+            Modifier.weight(1f).fillMaxWidth().clipToBounds()
+                .onGloballyPositioned { onZoomViewportBounds(it.boundsInRoot()) },
+        ) {
             val showZoomHandle = LocalCalinoPreferences.current.showZoomHandle
             val handleHeight = if (showZoomHandle) ZoomHandleHeight else 0.dp
 
@@ -1735,6 +1745,9 @@ fun HomeScreen(
              * day surface too, so the calendar can be collapsed or expanded
              * from the space below the visible month/week surface.
              */
+            val edgeDrag by rememberUpdatedState(onEdgeDrag)
+            val edgeRelease by rememberUpdatedState(onEdgeRelease)
+            var gestureCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
             val calendarZoomGesture = Modifier.pointerInput(handleHeight) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -1753,89 +1766,132 @@ fun HomeScreen(
                     var owned = false
                     var anchorLevel = 0
                     var velocityTracker = VelocityTracker()
-                    while (true) {
-                        // Observe after descendants. An armed event-card drag
-                        // consumes its movement in Initial; seeing that here
-                        // lets the card keep the stream while an unconsumed
-                        // vertical drag on empty month space can zoom.
-                        val event = awaitPointerEvent(PointerEventPass.Final)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        // A second pointer belongs to the timeline pinch
-                        // recognizer below. Do not let the one-finger calendar
-                        // zoom claim the stream before the pinch can start.
-                        if (!owned && event.changes.count { it.pressed } > 1) break
-                        if (!change.pressed) {
-                            if (owned) {
-                                val velocity = velocityTracker.calculateVelocity()
-                                animateZoomTo(
-                                    zoomSettleLevel(
-                                        zoom = zoomState.floatValue,
-                                        anchorLevel = anchorLevel,
-                                        // Positive y velocity means a downward pull.
-                                        zoomVelocityDpPerSecond = velocity.y.toDp().value,
-                                    ).toFloat(),
-                                )
-                            }
-                            break
-                        }
-                        // Ignore-consumed: once this gesture consumes a change,
-                        // `positionChange` reports zero for the rest of the
-                        // drag. Reading that, the zoom stopped following the
-                        // finger after the first frame and only the settling
-                        // fling moved it -- which is what made a continuous
-                        // morph behave like a switch.
-                        travel += change.positionChangeIgnoreConsumed()
-                        var claimed = 0f
-                        if (!owned) {
-                            // The agenda owns a drag it can still scroll on.
-                            // Only once it sits against the matching edge --
-                            // top for a downward pull, bottom for an upward one
-                            // -- does the calendar take the drag over.
-                            val agendaCanScroll = startedOnDaySurface && (
-                                if (travel.y > 0f) agendaScroll.canScrollBackward
-                                else agendaScroll.canScrollForward
-                                )
-                            // Travel the agenda is still absorbing is not
-                            // ours; keeping it would make the calendar jump in
-                            // by the whole scrolled distance at the handover.
-                            if (agendaCanScroll) travel = Offset.Zero
-                            if (!agendaCanScroll &&
-                                abs(travel.y) > viewConfiguration.touchSlop * .5f &&
-                                abs(travel.y) > abs(travel.x)
-                            ) {
-                                // A held event chip consumes position changes
-                                // before this Final-pass observer. Preserve its
-                                // drag, but do not reject the whole month grid:
-                                // that blanket rejection made levels 1 and 2
-                                // impossible to expand or collapse by swiping.
-                                if (!startedOnDaySurface &&
-                                    !startedOnHandle &&
-                                    change.positionChange() == Offset.Zero &&
-                                    change.positionChangeIgnoreConsumed() != Offset.Zero
-                                ) {
-                                    break
-                                }
-                                owned = true
-                                cancelMotion()
-                                anchorLevel = zoomState.floatValue.roundToInt().coerceIn(0, 2)
-                                velocityTracker = VelocityTracker()
-                                // The travel spent deciding belongs to the same
-                                // drag; dropping it made the calendar jump in
-                                // rather than start under the finger.
-                                claimed = travel.y
-                            } else if (abs(travel.x) > viewConfiguration.touchSlop) {
+                    var extendedZoom = zoomState.floatValue
+                    var previousRoot = gestureCoordinates?.localToRoot(down.position) ?: down.position
+                    var edge: CalendarEdge? = when {
+                        settledZoom >= 1.999f -> CalendarEdge.Year
+                        settledZoom <= .001f -> CalendarEdge.Agenda
+                        else -> null
+                    }
+                    // Mount and measure the destination before the first outward frame.
+                    edgeDrag(edge, 0f)
+                    var released = false
+                    try {
+                        while (true) {
+                            // Observe after descendants. An armed event-card drag
+                            // consumes its movement in Initial; seeing that here
+                            // lets the card keep the stream while an unconsumed
+                            // vertical drag on empty month space can zoom.
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            // A second pointer belongs to the timeline pinch
+                            // recognizer below. Do not let the one-finger calendar
+                            // zoom claim the stream before the pinch can start.
+                            if (event.changes.count { it.pressed } > 1) break
+                            // Compose represents ACTION_CANCEL as a consumed release.
+                            // A consumed up must return, never commit a destination.
+                            if (!change.pressed && change.isConsumed) break
+                            if (!change.pressed) {
+                                if (owned) {
+                                    val velocity = velocityTracker.calculateVelocity()
+                                    if (edge != null && (extendedZoom < 0f || extendedZoom > 2f)) {
+                                        // Returning from the new root must restore the
+                                        // endpoint reached by this same continuous pull.
+                                        settledZoom = zoomState.floatValue
+                                        edgeRelease(if (edge == CalendarEdge.Year) velocity.y.toDp().value else -velocity.y.toDp().value, false)
+                                    } else {
+                                        edgeDrag(null, 0f)
+                                        animateZoomTo(
+                                            zoomSettleLevel(
+                                                zoom = zoomState.floatValue,
+                                                anchorLevel = anchorLevel,
+                                                // Positive y velocity means a downward pull.
+                                                zoomVelocityDpPerSecond = velocity.y.toDp().value,
+                                            ).toFloat(),
+                                        )
+                                    }
+                                } else edgeDrag(null, 0f)
+                                released = true
                                 break
                             }
+                            // Ignore-consumed: once this gesture consumes a change,
+                            // `positionChange` reports zero for the rest of the
+                            // drag. Reading that, the zoom stopped following the
+                            // finger after the first frame and only the settling
+                            // fling moved it -- which is what made a continuous
+                            // morph behave like a switch.
+                            // Screen travel remains stable across the host's other
+                            // transforms, including a month opened from a Year tile.
+                            val rootPosition = gestureCoordinates?.localToRoot(change.position) ?: change.position
+                            val rootDelta = rootPosition - previousRoot
+                            previousRoot = rootPosition
+                            travel += rootDelta
+                            var claimed = 0f
+                            if (!owned) {
+                                // The agenda owns a drag it can still scroll on.
+                                // Only once it sits against the matching edge --
+                                // top for a downward pull, bottom for an upward one
+                                // -- does the calendar take the drag over.
+                                val agendaCanScroll = startedOnDaySurface && (
+                                    if (travel.y > 0f) agendaScroll.canScrollBackward
+                                    else agendaScroll.canScrollForward
+                                    )
+                                // Travel the agenda is still absorbing is not
+                                // ours; keeping it would make the calendar jump in
+                                // by the whole scrolled distance at the handover.
+                                if (agendaCanScroll) travel = Offset.Zero
+                                if (!agendaCanScroll &&
+                                    abs(travel.y) > viewConfiguration.touchSlop * .5f &&
+                                    abs(travel.y) > abs(travel.x)
+                                ) {
+                                    // A held event chip consumes position changes
+                                    // before this Final-pass observer. Preserve its
+                                    // drag, but do not reject the whole month grid:
+                                    // that blanket rejection made levels 1 and 2
+                                    // impossible to expand or collapse by swiping.
+                                    if (!startedOnDaySurface &&
+                                        !startedOnHandle &&
+                                        change.positionChange() == Offset.Zero &&
+                                        change.positionChangeIgnoreConsumed() != Offset.Zero
+                                    ) {
+                                        break
+                                    }
+                                    owned = true
+                                    cancelMotion()
+                                    anchorLevel = zoomState.floatValue.roundToInt().coerceIn(0, 2)
+                                    velocityTracker = VelocityTracker()
+                                    // The travel spent deciding belongs to the same
+                                    // drag; dropping it made the calendar jump in
+                                    // rather than start under the finger.
+                                    claimed = travel.y
+                                } else if (abs(travel.x) > viewConfiguration.touchSlop) {
+                                    break
+                                }
+                            }
+                            if (owned) {
+                                velocityTracker.addPosition(change.uptimeMillis, rootPosition)
+                                change.consume()
+                                val delta = with(density) { (if (claimed != 0f) claimed else rootDelta.y).toDp().value }
+                                extendedZoom = calendarZoomAfterDrag(extendedZoom, delta)
+                                zoomState.floatValue = extendedZoom.coerceIn(0f, 2f)
+                                edge = when {
+                                    extendedZoom > 2f -> CalendarEdge.Year
+                                    extendedZoom < 0f -> CalendarEdge.Agenda
+                                    else -> null
+                                }
+                                edgeDrag(edge, when (edge) {
+                                    CalendarEdge.Year -> extendedZoom - 2f
+                                    CalendarEdge.Agenda -> -extendedZoom
+                                    null -> 0f
+                                })
+                            }
                         }
-                        if (owned) {
-                            velocityTracker.addPosition(change.uptimeMillis, change.position)
-                            change.consume()
-                            val delta = if (claimed != 0f) claimed else change.positionChangeIgnoreConsumed().y
-                            zoomState.floatValue = zoomAfterVerticalDrag(
-                                zoomState.floatValue,
-                                delta.toDp().value,
-                                ZoomStepDp,
-                            )
+                    } finally {
+                        if (!released) {
+                            if (owned) {
+                                edgeRelease(0f, true)
+                                animateZoomTo(anchorLevel.toFloat())
+                            } else edgeDrag(null, 0f)
                         }
                     }
                 }
@@ -1844,7 +1900,17 @@ fun HomeScreen(
             Box(
                 Modifier.fillMaxSize()
                     .clipToBounds()
-                    .then(if (interactionEnabled) calendarZoomGesture else Modifier),
+                    .onGloballyPositioned { gestureCoordinates = it }
+                    .testTag("calendar-zoom-surface")
+                    .then(if (interactionEnabled) calendarZoomGesture else Modifier)
+                    .drawWithContent {
+                        // Roll the strip and day list beneath the fixed month
+                        // heading. Drawing moves; the pointer owner stays put.
+                        val stripTravel = 80.dp.toPx() * liveAgendaEdgeProgress()
+                        withTransform({ translate(top = -stripTravel) }) {
+                            this@drawWithContent.drawContent()
+                        }
+                    },
             ) {
                 // The week pager is the compact endpoint of the same
                 // selected-week geometry drawn by StaticMonthGrid. Keeping it
@@ -7246,9 +7312,9 @@ private fun ZoomHandle(
         Box(Modifier.width(26.dp).height(3.dp).background(CalinoColors.Ink.copy(.25f)))
         Text(
             when (zoomBand) {
-                0 -> "PULL FOR MONTH"
+                0 -> stringResource(R.string.cal_zoom_week_edge_hint)
                 1 -> "PULL AGAIN FOR DETAIL"
-                else -> "RELEASE TO COLLAPSE"
+                else -> stringResource(R.string.cal_zoom_month_edge_hint)
             },
             fontSize = 10.sp,
             letterSpacing = 1.sp,

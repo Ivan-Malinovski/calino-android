@@ -134,6 +134,7 @@ fun YearScreen(
     onTaskAction: (TaskMenuAction, CalTask) -> Unit,
     onTaskDone: (CalTask, Boolean) -> Unit,
     onAddOn: (LocalDate) -> Unit,
+    onMonthBounds: (YearMonth, Rect) -> Unit = { _, _ -> },
 ) {
     val today = LocalCalinoNow.current.today
     val preferences = LocalCalinoPreferences.current
@@ -211,6 +212,7 @@ fun YearScreen(
                         selected = selected.takeIf { shape.showPane },
                         showLegend = !(landscape && !shape.showPane),
                         onOpenMonth = onOpenMonth,
+                        onMonthBounds = onMonthBounds,
                         onSelectDay = { day ->
                             selectedEpoch = day.toEpochDay()
                             onDateChanged(day)
@@ -321,6 +323,7 @@ private fun YearPage(
     selected: LocalDate?,
     showLegend: Boolean,
     onOpenMonth: (YearMonth, Rect) -> Unit,
+    onMonthBounds: (YearMonth, Rect) -> Unit,
     onSelectDay: (LocalDate) -> Unit,
 ) {
     // Off the main thread: a year is 365 index lookups, and the pager composes
@@ -361,6 +364,7 @@ private fun YearPage(
                             splitDays = shape.showPane,
                             onOpen = { rect -> onOpenMonth(month, rect) },
                             onSelectDay = onSelectDay,
+                            onBounds = { rect -> onMonthBounds(month, rect) },
                             modifier = Modifier.width(tileWidth).height(tileHeight),
                         )
                     }
@@ -382,6 +386,7 @@ private fun YearMonthTile(
     splitDays: Boolean,
     onOpen: (Rect) -> Unit,
     onSelectDay: (LocalDate) -> Unit,
+    onBounds: (Rect) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isDark = CalinoColors.isDark
@@ -398,7 +403,10 @@ private fun YearMonthTile(
     val tileModifier = modifier
         .clip(RoundedCornerShape(YearTileCornerRadius))
         .background(if (isCurrentMonth) CalinoColors.AccentSoft else Color.Transparent)
-        .onGloballyPositioned { bounds = it.boundsInRoot() }
+        .onGloballyPositioned {
+            bounds = it.boundsInRoot()
+            onBounds(bounds)
+        }
         .then(
             if (splitDays) {
                 Modifier
