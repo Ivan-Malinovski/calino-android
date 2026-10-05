@@ -17,7 +17,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
     private val repository get() = CalinoContainer.get(context).fixtureRepository
     private fun openWeek() {
         compose.openRoute("Range")
-        compose.onNodeWithContentDescription("Range size in days: 7").performClick()
+        compose.selectRangeDays(7)
         compose.onNode(hasContentDescription("Sometime this week", substring = true)).assertIsDisplayed()
         if (compose.hasDescribedNode("Dismiss sample calendar notice")) compose.onNodeWithContentDescription("Dismiss sample calendar notice").performClick()
     }
@@ -38,7 +38,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
     @Test fun badgeOpensPopoverAndScrimDismissesIt() {
         openWeek()
         compose.onAllNodesWithText("Call the plumber").assertCountEquals(0)
-        val header = compose.onNodeWithContentDescription("Range size in days: 3").fetchSemanticsNode().boundsInRoot
+        val header = compose.onNodeWithContentDescription("Range size in days").fetchSemanticsNode().boundsInRoot
         val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
         val before = automation.takeScreenshot()
         compose.mainClock.autoAdvance = false
@@ -64,7 +64,7 @@ class WeekTaskInteractionTest : CalinoUiTest() {
         capture("week-popover-exit")
         compose.mainClock.autoAdvance = true
         compose.waitUntil(5000) { compose.onAllNodesWithText("Call the plumber").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithContentDescription("Range size in days: 7").assertIsSelected()
+        compose.onNodeWithContentDescription("Range size in days").assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "7 days"))
         openShelf()
         compose.onNodeWithContentDescription("Close week tasks").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Call the plumber").fetchSemanticsNodes().isEmpty() }

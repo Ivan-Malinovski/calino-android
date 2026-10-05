@@ -17,7 +17,7 @@ class WeekTaskDarkPreviewTest : CalinoUiTest(theme = CalinoThemeChoice.Dark) {
 
     @Test fun shelfAndQuickAddKeepTheirContentThroughEnterAndExit() {
         compose.openRoute("Range")
-        compose.onNodeWithContentDescription("Range size in days: 7").performClick()
+        compose.selectRangeDays(7)
         if (compose.hasDescribedNode("Dismiss sample calendar notice")) compose.onNodeWithContentDescription("Dismiss sample calendar notice").performClick()
         compose.onNode(hasContentDescription("Sometime this week", substring = true)).performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithText("Call the plumber").fetchSemanticsNodes().isNotEmpty() }

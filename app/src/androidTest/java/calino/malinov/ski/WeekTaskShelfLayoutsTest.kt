@@ -20,7 +20,7 @@ class WeekTaskStripTest : CalinoUiTest() {
         sh("settings put system accelerometer_rotation 0"); sh("settings put system user_rotation 1")
         Thread.sleep(1500)
         compose.openRoute("Range")
-        compose.onNodeWithContentDescription("Range size in days: 7").performClick()
+        compose.selectRangeDays(7)
         if (compose.hasDescribedNode("Dismiss sample calendar notice")) compose.onNodeWithContentDescription("Dismiss sample calendar notice").performClick()
         compose.onNodeWithText("Call the plumber").assertIsDisplayed()
         frame("strip")

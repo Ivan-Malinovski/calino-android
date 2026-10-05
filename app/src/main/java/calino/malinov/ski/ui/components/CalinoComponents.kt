@@ -1346,6 +1346,7 @@ fun CalinoMonthHeading(
     monthForPage: ((Int) -> YearMonth)? = null,
     showNavigationArrows: Boolean = true,
     showTodayButton: Boolean = true,
+    todayIcon: ImageVector? = null,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
     val previousMonthLabel = stringResource(R.string.cal_previous_month)
@@ -1368,7 +1369,7 @@ fun CalinoMonthHeading(
         // visual weight above its baseline. Nudge the complete month/year lockup
         // to the optical center of the surrounding 48dp controls.
         Column(
-            Modifier.weight(1f).padding(horizontal = 2.dp).offset(y = 2.dp)
+            Modifier.weight(1f).heightIn(min = 48.dp).padding(horizontal = 2.dp).offset(y = 2.dp)
                 .then(if (onMonthYearClick != null) Modifier.clickable(
                     interactionSource = null,
                     indication = null,
@@ -1376,6 +1377,7 @@ fun CalinoMonthHeading(
                 )
                     .semantics { contentDescription = chooseMonthLabel; role = Role.Button }
                 else Modifier),
+            verticalArrangement = Arrangement.Center,
         ) {
             if (monthPagerState != null && monthForPage != null) {
                 val centerPage = monthPagerState.currentPage
@@ -1477,19 +1479,24 @@ fun CalinoMonthHeading(
                 animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
                 label = "today shortcut opacity",
             )
-            TextButton(
-                onClick = onToday,
-                enabled = showToday,
-                modifier = Modifier
-                    .graphicsLayer { alpha = todayAlpha }
-                    .then(
-                        if (showToday) {
-                            Modifier.semantics { contentDescription = goToTodayLabel }
-                        } else {
-                            Modifier.clearAndSetSemantics { }
-                        },
-                    ),
-            ) { Text(todayLabel, color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium) }
+            val todayModifier = Modifier
+                .graphicsLayer { alpha = todayAlpha }
+                .then(
+                    if (showToday) {
+                        Modifier.semantics { contentDescription = goToTodayLabel }
+                    } else {
+                        Modifier.clearAndSetSemantics { }
+                    },
+                )
+            if (todayIcon != null) {
+                IconButton(onClick = onToday, enabled = showToday, modifier = todayModifier) {
+                    Icon(todayIcon, contentDescription = null, tint = CalinoColors.Accent, modifier = Modifier.size(20.dp))
+                }
+            } else {
+                TextButton(onClick = onToday, enabled = showToday, modifier = todayModifier) {
+                    Text(todayLabel, color = CalinoColors.Accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+            }
         }
         trailingContent?.invoke()
         if (showNavigationArrows) {

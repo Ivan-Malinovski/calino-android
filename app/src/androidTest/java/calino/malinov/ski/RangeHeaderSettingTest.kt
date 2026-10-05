@@ -34,7 +34,7 @@ class RangeHeaderSettingTest : CalinoUiTest() {
         assertInHeader()
         capture("range-header-default")
         listOf("1", "7", "3").forEach { size ->
-            compose.onNodeWithContentDescription("Range size in days: $size").performClick()
+            compose.selectRangeDays(size.toInt())
             assertInHeader()
             capture("range-header-$size-days")
         }

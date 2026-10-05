@@ -119,6 +119,12 @@ fun SemanticsNodeInteractionsProvider.openRoute(label: String) {
     onNodeWithContentDescription(label).performScrollTo().performClick()
 }
 
+/** Range day counts now live in the header's dropdown. */
+fun SemanticsNodeInteractionsProvider.selectRangeDays(days: Int) {
+    onNodeWithContentDescription("Range size in days").performClick()
+    onNodeWithContentDescription("Range size in days: $days").performClick()
+}
+
 /** Whether any node matches, without failing when none does. */
 fun SemanticsNodeInteractionsProvider.exists(matcher: SemanticsMatcher): Boolean =
     onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()

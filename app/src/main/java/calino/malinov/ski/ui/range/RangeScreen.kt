@@ -122,7 +122,8 @@ import calino.malinov.ski.ui.components.AllDayBand
 import calino.malinov.ski.ui.components.AllDayBandDensity
 import calino.malinov.ski.ui.components.CalinoMonthHeading
 import calino.malinov.ski.ui.components.rememberMonthYearPicker
-import calino.malinov.ski.ui.components.CompactSegmentedControl
+import calino.malinov.ski.ui.components.CompactDropdownControl
+import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.home.CompactLaneScrim
 import calino.malinov.ski.ui.home.HourRailContent
 import calino.malinov.ski.ui.home.TimelineCardBounds
@@ -151,6 +152,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** The range pager, addressed by tag the way the calendar pagers are. */
 const val RangePagerTag = "range-pager"
+
+// Keep the animated date line available for a future header preference.
+private const val ShowRangeSubtitle = false
 
 @Composable
 fun RangeScreen(
@@ -261,43 +265,55 @@ fun RangeScreen(
         onDateChanged(next)
         pagerGeneration += 1
     }
+    val rangeDateFormat = localizedDateFormatter("MMM d")
+    val rangeDescription = stringResource(R.string.cal_range_dates_accessibility, rangeLabel(liveFirstDay, mode.dayCount, rangeDateFormat))
     Column(modifier.fillMaxSize().background(CalinoColors.Canvas)) {
-        Box {
-            CalinoMonthHeading(
-                day = liveFirstDay,
-                onMonthYearClick = openMonthYearPicker,
-                onOpenMenu = onOpenMenu,
-                onPreviousMonth = {},
-                onNextMonth = {},
-                onToday = {
-                    pagerBaseEpoch = today.toEpochDay()
-                    anchorEpoch = today.toEpochDay()
-                    weekAligned = true
-                    onDateChanged(today)
-                    pagerGeneration += 1
-                },
-                showToday = today !in visibleDays,
-                subtitleContent = {
-                    RangeSubtitle(
-                        pager = pager,
-                        dayCount = mode.dayCount,
-                        sliding = headerSliding,
-                        firstDayNow = { liveFirstDay },
-                        firstDayOf = ::pageFirstDay,
-                    )
-                },
-                showNavigationArrows = false,
-                showTodayButton = true,
-                trailingContent = {
-                    CompactSegmentedControl(
-                        options = listOf("1", "3", "7"),
-                        selectedIndex = CalinoRangeMode.entries.indexOf(mode),
-                        onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
-                        semanticLabel = stringResource(R.string.cal_range_size_days),
-                        modifier = Modifier.width(144.dp),
-                    )
-                },
-            )
+        Box(Modifier.semantics {
+            // Retain the complete visible dates for accessibility without a painted subtitle.
+            if (!ShowRangeSubtitle) contentDescription = rangeDescription
+        }) {
+            // The shared heading emits its control row and divider separately.
+            // Stack them before placing the week-task scrim over both.
+            Column {
+                CalinoMonthHeading(
+                    day = liveFirstDay,
+                    onMonthYearClick = openMonthYearPicker,
+                    onOpenMenu = onOpenMenu,
+                    onPreviousMonth = {},
+                    onNextMonth = {},
+                    onToday = {
+                        pagerBaseEpoch = today.toEpochDay()
+                        anchorEpoch = today.toEpochDay()
+                        weekAligned = true
+                        onDateChanged(today)
+                        pagerGeneration += 1
+                    },
+                    showToday = today !in visibleDays,
+                    subtitleContent = if (ShowRangeSubtitle) {
+                        {
+                            RangeSubtitle(
+                                pager = pager,
+                                dayCount = mode.dayCount,
+                                sliding = headerSliding,
+                                firstDayNow = { liveFirstDay },
+                                firstDayOf = ::pageFirstDay,
+                            )
+                        }
+                    } else null,
+                    showNavigationArrows = false,
+                    showTodayButton = true,
+                    todayIcon = CalinoIcons.CalendarToday,
+                    trailingContent = {
+                        CompactDropdownControl(
+                            options = CalinoRangeMode.entries.map { pluralStringResource(R.plurals.cal_day_span_count, it.dayCount, it.dayCount) },
+                            optionDescriptions = CalinoRangeMode.entries.map { stringResource(R.string.cal_segmented_option, stringResource(R.string.cal_range_size_days), it.dayCount.toString()) },
+                            selectedIndex = CalinoRangeMode.entries.indexOf(mode),
+                            onSelected = { preferences.setRangeMode(CalinoRangeMode.entries[it]) },
+                            semanticLabel = stringResource(R.string.cal_range_size_days),
+                        )
+                    },
+                )
+            }
             WeekTaskScrim(
                 visible = popoverOpen,
                 onDismiss = { changePopoverVisibility(false) },

@@ -65,9 +65,9 @@ class RangeSpanningEventTest : CalinoUiTest() {
         awaitNoDescribed("Close event preview")
         compose.onNodeWithContentDescription("Range dates, May 18 – May 20").assertIsDisplayed()
         // All supported widths use the same clipped projection.
-        compose.onNodeWithContentDescription("Range size in days: 1").performClick()
+        compose.selectRangeDays(1)
         compose.onAllNodesWithContentDescription("Spanning event, 4:15 PM").assertCountEquals(1)
-        compose.onNodeWithContentDescription("Range size in days: 7").performClick()
+        compose.selectRangeDays(7)
         compose.onAllNodesWithContentDescription("Spanning event, 12:00 AM").assertCountEquals(2)
         capture("range-span-seven-days")
     }

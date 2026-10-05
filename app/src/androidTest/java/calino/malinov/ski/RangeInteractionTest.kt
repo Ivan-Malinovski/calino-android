@@ -1,6 +1,8 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.click
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.hasContentDescription
@@ -61,7 +63,7 @@ class RangeInteractionTest : CalinoUiTest() {
 
     @Test fun oneDayModePagesByOneDayAndPersists() {
         compose.openRoute("Range")
-        compose.onNodeWithContentDescription("Range size in days: 1").performClick()
+        compose.selectRangeDays(1)
         compose.onNodeWithContentDescription("Range dates, May 18").assertIsDisplayed()
 
         compose.onNodeWithTag(RangePagerTag).performTouchInput { swipeLeft() }
@@ -70,14 +72,19 @@ class RangeInteractionTest : CalinoUiTest() {
 
         compose.openRoute("Agenda")
         compose.openRoute("Range")
-        compose.onNodeWithContentDescription("Range size in days: 1").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range size in days").assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "1 day"))
         compose.onNodeWithContentDescription("Range dates, May 19").assertIsDisplayed()
     }
 
     @Test fun rangeOffersOneThreeAndSevenDayModes() {
         compose.openRoute("Range")
+        compose.onNodeWithText("May 18 – May 20").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Range size in days").performClick()
         listOf("1", "3", "7").forEach { option ->
             compose.onNodeWithContentDescription("Range size in days: $option").assertIsDisplayed()
         }
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithContentDescription("Range dates, May 18 – May 20").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Range size in days: 7").assertDoesNotExist()
     }
 }

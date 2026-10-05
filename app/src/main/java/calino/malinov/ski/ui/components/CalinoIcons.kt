@@ -21,6 +21,8 @@ object CalinoIcons {
     val Search: ImageVector by lazy { icon("search") { circle(11f, 11f, 7f); moveTo(16f, 16f); lineTo(21f, 21f) } }
     val Camera: ImageVector by lazy { icon("camera") { moveTo(4f, 7f); curveTo(4f, 5.9f, 4.9f, 5f, 6f, 5f); horizontalLineTo(8f); lineTo(9.5f, 3f); horizontalLineTo(14.5f); lineTo(16f, 5f); horizontalLineTo(18f); curveTo(19.1f, 5f, 20f, 5.9f, 20f, 7f); verticalLineTo(18f); curveTo(20f, 19.1f, 19.1f, 20f, 18f, 20f); horizontalLineTo(6f); curveTo(4.9f, 20f, 4f, 19.1f, 4f, 18f); close(); circle(12f, 12f, 3f) } }
     val Calendar: ImageVector by lazy { icon("calendar") { moveTo(4f, 5f); horizontalLineTo(20f); verticalLineTo(21f); horizontalLineTo(4f); close(); moveTo(8f, 3f); verticalLineTo(7f); moveTo(16f, 3f); verticalLineTo(7f); moveTo(4f, 10f); horizontalLineTo(20f) } }
+    /** Today: a calendar with one marked day. */
+    val CalendarToday: ImageVector by lazy { icon("calendar-today") { moveTo(4f, 5f); horizontalLineTo(20f); verticalLineTo(21f); horizontalLineTo(4f); close(); moveTo(8f, 3f); verticalLineTo(7f); moveTo(16f, 3f); verticalLineTo(7f); moveTo(4f, 10f); horizontalLineTo(20f); circle(12f, 15.5f, 1.5f) } }
     /** The range calendar: the calendar glyph split into day columns, so it never reads as Month. */
     val CalendarRange: ImageVector by lazy { icon("calendar-range") { moveTo(4f, 5f); horizontalLineTo(20f); verticalLineTo(21f); horizontalLineTo(4f); close(); moveTo(8f, 3f); verticalLineTo(7f); moveTo(16f, 3f); verticalLineTo(7f); moveTo(4f, 10f); horizontalLineTo(20f); moveTo(9.5f, 10f); verticalLineTo(21f); moveTo(14.5f, 10f); verticalLineTo(21f) } }
     /** The year calendar: the calendar glyph with a grid of day dots, so it never reads as Month or Range. */
