@@ -624,11 +624,10 @@ internal fun AgendaDayBlock(
 }
 
 /**
- * The landscape companion pane: a day-paged agenda beside the month grid. The
- * pager is supplied by [HomeScreen], so its real-user settle collector remains
- * the one owner of the committed date. Each page scrolls vertically on its
- * own and reserves the add pill's clearance, since the pill sits over this pane
- * when it is showing.
+ * The shared landscape day agenda beside the Month or Year grid. The route
+ * supplies its pager and owns date commits after real-user swipes settle.
+ * Each page scrolls vertically and reserves the add pill's clearance, since
+ * the pill sits over this pane when it is showing.
  */
 @Composable
 fun DayPane(
@@ -654,6 +653,7 @@ fun DayPane(
             .testTag("day-pane-pager")
             .semantics { contentDescription = "Day sidebar" },
         userScrollEnabled = interactionEnabled,
+        beyondViewportPageCount = 1,
         key = { page -> dateForDayPage(page).toEpochDay() },
     ) { page ->
         val pageDay = dateForDayPage(page)

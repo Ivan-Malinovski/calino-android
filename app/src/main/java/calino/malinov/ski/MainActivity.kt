@@ -41,6 +41,7 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -57,6 +58,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -131,6 +133,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -254,6 +258,12 @@ import calino.malinov.ski.state.EndLaneWidthDp
 import calino.malinov.ski.state.shouldSplit
 import calino.malinov.ski.state.PocReturnTarget
 import calino.malinov.ski.ui.components.AddPill
+import calino.malinov.ski.ui.components.DayPaneDivider
+import calino.malinov.ski.ui.components.rememberSplitDayPaneState
+import calino.malinov.ski.ui.surfaces.DayPane
+import calino.malinov.ski.state.tasksDueOn
+import calino.malinov.ski.state.foldSplitProgress
+import calino.malinov.ski.util.EventDateIndex
 import calino.malinov.ski.ui.components.CalinoPillLane
 import calino.malinov.ski.ui.components.CalinoPillFeedback
 import calino.malinov.ski.ui.components.LocalCalinoPillLane
@@ -2166,8 +2176,31 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 ),
             ),
     ) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
         val rootRoute = currentRootRoute
+        val rootTransition = updateTransition(rootRoute, label = "root destination")
+        val calendarRoots = remember { setOf(PockRoute.Day, PockRoute.Year) }
+        val sharedSplitGeometry = shouldSplit(maxWidth.value.toInt(), maxHeight.value.toInt()) &&
+            !LocalFoldPosture.current.isBookPosture &&
+            (LocalHingeOpenness.current?.value?.let(::foldSplitProgress) ?: 0f) == 0f
+        val sharedDayPane = rememberSplitDayPaneState(
+            day = selectedDate,
+            enabled = sharedSplitGeometry && rootRoute in calendarRoots,
+            onDateChanged = ::selectCalendarDate,
+        )
+        // One pane stays mounted during Month/Year transitions and predictive
+        // back between them. Other routes keep their ordinary full-page motion.
+        val stationaryDayPane = sharedSplitGeometry &&
+            rootTransition.currentState in calendarRoots && rootTransition.targetState in calendarRoots &&
+            (!rootBackInProgress || predictiveBackDestination in calendarRoots)
+        val sharedLaneWidth = sharedDayPane.width + 44.dp
+        val sharedLaneWidthPx = with(LocalDensity.current) { sharedLaneWidth.toPx() }
+        val sharedEventIndex = remember(calendarEvents) { EventDateIndex.build(calendarEvents) }
+        val sharedTasksByDueDate = remember(calendarTasks, preferences.hideCompletedTasks) {
+            calendarTasks.filter { it.due != null && !(preferences.hideCompletedTasks && it.done) }
+                .groupBy { it.due!! }
+                .mapValues { (date, tasks) -> tasksDueOn(tasks, date) }
+        }
         // The add pill is frosted glass over whatever surface is behind it, so
         // that surface is recorded here and the pill draws a blurred copy of
         // its own patch of it. The pill is a sibling of this stack, never a
@@ -2206,6 +2239,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             }
                         },
                         initialDate = selectedDate,
+                        sharedDayPane = sharedDayPane.takeIf { sharedSplitGeometry },
+                        dayPaneExternallyHosted = stationaryDayPane,
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = ::selectCalendarDate,
                         onSwipeLabelDaysChanged = { swipeLabelDays = it },
@@ -2248,6 +2283,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         events = calendarEvents,
                         tasks = calendarTasks,
                         initialDate = selectedDate,
+                        sharedDayPane = sharedDayPane.takeIf { sharedSplitGeometry },
+                        dayPaneExternallyHosted = stationaryDayPane,
                         modifier = Modifier.fillMaxSize(),
                         onOpenMenu = { sidebarVisible = true },
                         onDateChanged = { if (route == PockRoute.Year) selectCalendarDate(it) },
@@ -2258,7 +2295,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         },
                         onOpenMonth = { month, tile ->
                             yearZoomOrigin = SurfaceOriginBounds(tile, YearTileCornerRadius)
-                            selectCalendarDate(if (YearMonth.from(yearToday) == month) yearToday else month.atDay(1))
+                            selectCalendarDate(
+                                if (sharedSplitGeometry && YearMonth.from(selectedDate) == month) selectedDate
+                                else if (YearMonth.from(yearToday) == month) yearToday else month.atDay(1),
+                            )
                             monthZoomRequest += 1
                             navigateRoot(PockRoute.Day)
                             monthOpenedFromYear = true
@@ -2616,6 +2656,17 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     drawLayer(surfaceLayer)
                 },
         ) {
+            Box(
+                Modifier.fillMaxSize().drawWithContent {
+                    if (stationaryDayPane) {
+                        // The entire moving route is clipped to the grid lane;
+                        // its empty reserved sidebar can never paint over the pane.
+                        clipRect(right = (size.width - sharedLaneWidth.toPx()).coerceAtLeast(0f)) {
+                            this@drawWithContent.drawContent()
+                        }
+                    } else drawContent()
+                },
+            ) {
             val edgeTarget = calendarEdge.target
             if (rootRoute == PockRoute.Day && edgeTarget != null) {
                 val previewRoute = if (edgeTarget == CalendarEdge.Year) PockRoute.Year else PockRoute.Agenda
@@ -2650,6 +2701,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer {
+                            if (stationaryDayPane) {
+                                transformOrigin = TransformOrigin((size.width - sharedLaneWidthPx) / (2f * size.width), .5f)
+                            }
                             scaleX = 1.1f - .1f * destinationProgress
                             scaleY = scaleX
                             alpha = destinationProgress
@@ -2658,11 +2712,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     destinationContent(predictiveBackDestination)()
                 }
             }
-            AnimatedContent(
-                targetState = rootRoute,
+            rootTransition.AnimatedContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
+                        if (stationaryDayPane) {
+                            transformOrigin = TransformOrigin((size.width - sharedLaneWidthPx) / (2f * size.width), .5f)
+                        }
                         scaleX = 1f - .1f * rootBackProgress
                         scaleY = scaleX
                         alpha = 1f - (rootBackProgress / PredictiveBackFadeThreshold)
@@ -2707,10 +2763,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             fadeOut(tween(YearGrowFadeMillis, delayMillis = YearGrowHoldMillis))
                     }
                     val direction = if (targetState.rootOrder() >= initialState.rootOrder()) 1 else -1
-                    (slideInHorizontally(tween(260)) { direction * it / 4 } + fadeIn(tween(180))) togetherWith
-                        (slideOutHorizontally(tween(210)) { -direction * it / 4 } + fadeOut(tween(140)))
+                    (slideInHorizontally(tween(260)) {
+                        direction * (if (stationaryDayPane) it - sharedLaneWidthPx.roundToInt() else it) / 4
+                    } + fadeIn(tween(180))) togetherWith
+                        (slideOutHorizontally(tween(210)) {
+                            -direction * (if (stationaryDayPane) it - sharedLaneWidthPx.roundToInt() else it) / 4
+                        } + fadeOut(tween(140)))
                 },
-                label = "root destination transition",
             ) { currentRoute ->
                 // Fixed once per arrival: a month opened from a Year tile
                 // grows out of that tile. The morph rides this page's own
@@ -2731,7 +2790,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         .onGloballyPositioned { coords ->
                             pageBounds = Rect(
                                 coords.positionInRoot(),
-                                androidx.compose.ui.geometry.Size(coords.size.width.toFloat(), coords.size.height.toFloat()),
+                                androidx.compose.ui.geometry.Size(
+                                    coords.size.width.toFloat() - if (stationaryDayPane && currentRoute in calendarRoots) sharedLaneWidthPx else 0f,
+                                    coords.size.height.toFloat(),
+                                ),
                             )
                         }
                         .graphicsLayer {
@@ -2759,6 +2821,45 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     withFrameNanos {}
                     withFrameNanos {}
                     predictiveRouteCommit = false
+                }
+            }
+            }
+            if (stationaryDayPane) {
+                Row(
+                    Modifier.align(Alignment.CenterEnd).width(sharedLaneWidth).fillMaxHeight()
+                        .background(CalinoColors.Canvas),
+                ) {
+                    DayPaneDivider(
+                        collapsed = sharedDayPane.collapsed,
+                        onToggle = { sharedDayPane.collapsed = !sharedDayPane.collapsed },
+                    )
+                    if (sharedDayPane.width > 0.dp) DayPane(
+                        state = sharedDayPane.pager,
+                        eventDateIndex = sharedEventIndex,
+                        tasksByDueDate = sharedTasksByDueDate,
+                        interactionEnabled = route in calendarRoots && !sidebarVisible && !showDayModal &&
+                            !journalReviewVisible && !rootBackInProgress && !sharedDayPane.collapsed,
+                        modifier = Modifier.width(sharedDayPane.width).fillMaxHeight().clipToBounds(),
+                        onEventClick = { day, event ->
+                            selectedEventId = event.id
+                            selectedEventOccurrenceDay = day.toEpochDay()
+                            detailOrigin = if (rootRoute == PockRoute.Year) PocReturnTarget.Year else PocReturnTarget.Calendar
+                            route = PockRoute.Detail
+                        },
+                        onEventAction = ::handleEventAction,
+                        onTaskClick = { task ->
+                            openTaskDetail(task, if (rootRoute == PockRoute.Year) PocReturnTarget.Year else PocReturnTarget.Calendar)
+                        },
+                        onTaskAction = ::handleTaskAction,
+                        onTaskDrop = { task, date ->
+                            launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
+                        },
+                        onTaskDone = { task, done -> setTaskDone(task, done) },
+                        onAdd = { day ->
+                            selectCalendarDate(day)
+                            openQuickAdd(QuickAddKind.Event, if (rootRoute == PockRoute.Year) PocReturnTarget.Year else PocReturnTarget.Calendar)
+                        },
+                    )
                 }
             }
         }

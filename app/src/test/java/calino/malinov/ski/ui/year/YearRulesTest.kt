@@ -43,11 +43,11 @@ class YearRulesTest {
         assertEquals(YearGridShape(4, 3, true), yearGridShape(1280, 800))
     }
 
-    @Test fun `split boundary is 720 wide and the fourth column needs 560 beside the pane`() {
+    @Test fun `split boundary is 720 wide and the fourth column needs 560 beside the pane and divider`() {
         assertEquals(YearGridShape(6, 2, false), yearGridShape(719, 400))
         assertEquals(YearGridShape(3, 4, true), yearGridShape(720, 400))
-        assertEquals(YearGridShape(3, 4, true), yearGridShape(919, 400))
-        assertEquals(YearGridShape(4, 3, true), yearGridShape(920, 400))
+        assertEquals(YearGridShape(3, 4, true), yearGridShape(963, 400))
+        assertEquals(YearGridShape(4, 3, true), yearGridShape(964, 400))
     }
 
     @Test fun `pages map to years and back`() {

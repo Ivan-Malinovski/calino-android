@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -68,7 +69,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.model.CalEvent
@@ -79,13 +79,15 @@ import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.state.LocalCalinoNow
 import calino.malinov.ski.state.LocalCalinoPreferences
-import calino.malinov.ski.state.SplitPaneWidthDp
 import calino.malinov.ski.state.tasksDueOn
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.ui.components.rememberMonthYearPicker
-import calino.malinov.ski.ui.surfaces.AgendaDayBlock
+import calino.malinov.ski.ui.components.SplitDayPaneState
+import calino.malinov.ski.ui.components.rememberSplitDayPaneState
+import calino.malinov.ski.ui.components.DayPaneDivider
+import calino.malinov.ski.ui.surfaces.DayPane
 import calino.malinov.ski.ui.surfaces.EventMenuAction
 import calino.malinov.ski.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.util.CalinoWeekStart
@@ -135,18 +137,34 @@ fun YearScreen(
     onTaskDone: (CalTask, Boolean) -> Unit,
     onAddOn: (LocalDate) -> Unit,
     onMonthBounds: (YearMonth, Rect) -> Unit = { _, _ -> },
+    sharedDayPane: SplitDayPaneState? = null,
+    dayPaneExternallyHosted: Boolean = false,
 ) {
     val today = LocalCalinoNow.current.today
     val preferences = LocalCalinoPreferences.current
     val weekStart = preferences.weekStart
     var selectedEpoch by rememberSaveable { mutableStateOf(initialDate.toEpochDay()) }
-    val selected = LocalDate.ofEpochDay(selectedEpoch)
+    // In the hosted split the shell is authoritative. Reading its date here
+    // also keeps programmatic year paging from rebasing a stale local day.
+    val selected = if (sharedDayPane != null) initialDate else LocalDate.ofEpochDay(selectedEpoch)
     // The pager is addressed relative to the year the page opened on; the base
     // survives recreation so a restored pager lands on the same page.
     val baseYear = rememberSaveable { initialDate.year }
     val pager = rememberPagerState(initialPage = pageForYear(baseYear, initialDate.year)) { YearPagerPageCount }
     val currentSelected by rememberUpdatedState(selected)
     val eventIndex = remember(events) { EventDateIndex.build(events) }
+    val hideCompleted = preferences.hideCompletedTasks
+    val tasksByDueDate = remember(tasks, hideCompleted) {
+        tasks.filter { it.due != null && !(hideCompleted && it.done) }
+            .groupBy { it.due!! }
+            .mapValues { (date, dueTasks) -> tasksDueOn(dueTasks, date) }
+    }
+    val dayPane = sharedDayPane ?: rememberSplitDayPaneState(selected, enabled = true) { next ->
+        selectedEpoch = next.toEpochDay()
+        onDateChanged(next)
+    }
+    val dayPaneCollapsed = dayPane.collapsed
+    val paneWidth = dayPane.width
 
     // The date follows the pager only once it has come to rest, and a date
     // that arrives from outside (the picker, a return from the editor) moves
@@ -209,7 +227,7 @@ fun YearScreen(
                         shape = shape,
                         weekStart = weekStart,
                         today = today,
-                        selected = selected.takeIf { shape.showPane },
+                        selected = selected.takeIf { shape.showPane && !dayPaneCollapsed },
                         showLegend = !(landscape && !shape.showPane),
                         onOpenMonth = onOpenMonth,
                         onMonthBounds = onMonthBounds,
@@ -221,16 +239,23 @@ fun YearScreen(
                 }
             }
             if (shape.showPane) {
-                YearDayPane(
-                    day = selected,
-                    eventIndex = eventIndex,
-                    tasks = tasks,
+                if (dayPaneExternallyHosted) {
+                    Spacer(Modifier.width(44.dp + paneWidth).fillMaxHeight())
+                    return@Row
+                }
+                DayPaneDivider(collapsed = dayPaneCollapsed, onToggle = { dayPane.collapsed = !dayPane.collapsed })
+                if (paneWidth > 0.dp) DayPane(
+                    state = dayPane.pager,
+                    eventDateIndex = eventIndex,
+                    tasksByDueDate = tasksByDueDate,
+                    interactionEnabled = !dayPaneCollapsed,
+                    modifier = Modifier.width(paneWidth).fillMaxHeight().clipToBounds(),
                     onEventClick = onEventClick,
                     onEventAction = onEventAction,
                     onTaskClick = onTaskClick,
                     onTaskAction = onTaskAction,
                     onTaskDone = onTaskDone,
-                    onAdd = { onAddOn(selected) },
+                    onAdd = onAddOn,
                 )
             }
         }
@@ -541,53 +566,6 @@ private const val WeekGutterUnits = .85f
 
 private fun digitLayouts(measurer: TextMeasurer, style: TextStyle, length: Int): List<TextLayoutResult> =
     List(length) { measurer.measure((it + 1).toString(), style) }
-
-/** The right-hand pane of the split layout: one fixed day's agenda. */
-@Composable
-private fun YearDayPane(
-    day: LocalDate,
-    eventIndex: EventDateIndex,
-    tasks: List<CalTask>,
-    onEventClick: (LocalDate, CalEvent) -> Unit,
-    onEventAction: (EventMenuAction, CalEvent) -> Unit,
-    onTaskClick: (CalTask) -> Unit,
-    onTaskAction: (TaskMenuAction, CalTask) -> Unit,
-    onTaskDone: (CalTask, Boolean) -> Unit,
-    onAdd: () -> Unit,
-) {
-    val hideCompleted = LocalCalinoPreferences.current.hideCompletedTasks
-    Row(Modifier.width(SplitPaneWidthDp.dp).fillMaxHeight().testTag("year-day-pane")) {
-        Box(Modifier.width(1.dp).fillMaxHeight().background(CalinoColors.Line))
-        AnimatedContent(
-            targetState = day,
-            transitionSpec = {
-                fadeIn(tween(CalinoMotion.SurfaceFadeMillis)) togetherWith fadeOut(tween(CalinoMotion.FadeThroughMillis))
-            },
-            modifier = Modifier.weight(1f).fillMaxHeight().background(CalinoColors.Side),
-            label = "year day pane",
-        ) { shownDay ->
-            val dayEvents = remember(eventIndex, shownDay) { eventIndex.eventsOn(shownDay) }
-            val dueTasks = remember(tasks, shownDay, hideCompleted) {
-                tasksDueOn(tasks.filter { it.due == shownDay && !(hideCompleted && it.done) }, shownDay)
-            }
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom = CalinoSpacing.PillClearance)) {
-                AgendaDayBlock(
-                    day = shownDay,
-                    events = dayEvents,
-                    tasks = dueTasks,
-                    onEventClick = onEventClick,
-                    onEventAction = onEventAction,
-                    onEventDrop = { _, _ -> },
-                    onTaskClick = onTaskClick,
-                    onTaskAction = onTaskAction,
-                    onTaskDrop = { _, _ -> },
-                    onTaskDone = onTaskDone,
-                    onAdd = onAdd,
-                )
-            }
-        }
-    }
-}
 
 /** A tile's corner; the month grows out of a rectangle rounded like this. */
 internal val YearTileCornerRadius = 14.dp

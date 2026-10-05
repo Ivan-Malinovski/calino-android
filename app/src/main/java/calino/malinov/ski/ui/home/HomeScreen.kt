@@ -5,9 +5,9 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -207,6 +207,9 @@ import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.TaskRow
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.ui.components.calinoLongPressDrag
+import calino.malinov.ski.ui.components.SplitDayPaneState
+import calino.malinov.ski.ui.components.DayPaneDivider
+import calino.malinov.ski.ui.components.animatedDayPaneWidth
 import calino.malinov.ski.ui.surfaces.DayPane
 import calino.malinov.ski.ui.surfaces.TaskActionMenu
 import calino.malinov.ski.ui.surfaces.TaskMenuAction
@@ -270,7 +273,7 @@ private const val TimelineMaxScale = 1.8f
  */
 private const val MinFoldMorphRatio = .04f
 private const val DayPagerCenter = 100_000
-private const val DayPagerPageCount = DayPagerCenter * 2 + 1
+internal const val DayPagerPageCount = DayPagerCenter * 2 + 1
 private const val WeekPagerCenter = 10_000
 private const val WeekPagerPageCount = WeekPagerCenter * 2 + 1
 internal const val MonthPagerCenter = 10_000
@@ -387,7 +390,7 @@ private const val NoSwipeBase = Int.MIN_VALUE
 private fun pagePosition(pager: PagerState): Float =
     pager.currentPage + pager.currentPageOffsetFraction
 
-private fun dayPageFor(date: LocalDate): Int =
+internal fun dayPageFor(date: LocalDate): Int =
     (DayPagerCenter.toLong() + date.toEpochDay() - PagerEpoch.toEpochDay())
         .coerceIn(0L, (DayPagerPageCount - 1).toLong())
         .toInt()
@@ -616,6 +619,9 @@ fun HomeScreen(
     onZoomViewportBounds: (Rect) -> Unit = {},
     /** Reports whether the large split month layout is active. */
     onSplitPaneChanged: (Boolean) -> Unit = {},
+    /** A split-layout host may keep the agenda outside the route animation. */
+    sharedDayPane: SplitDayPaneState? = null,
+    dayPaneExternallyHosted: Boolean = false,
     /**
      * Whether a single day is actually in focus on screen. False at the month
      * endpoint, where the grid fills the surface and picking a day out of it
@@ -681,9 +687,10 @@ fun HomeScreen(
     // rather than `initialDate`, which would throw the calendar back to
     // wherever the session began.
     val pagerAnchor = LocalDate.ofEpochDay(selectedEpoch)
-    val dayPagerState = key(weekStart) {
+    val localDayPagerState = key(weekStart) {
         rememberPagerState(initialPage = dayPageFor(pagerAnchor)) { DayPagerPageCount }
     }
+    val dayPagerState = sharedDayPane?.pager ?: localDayPagerState
     val weekPagerState = key(weekStart) {
         rememberPagerState(initialPage = weekPageFor(pagerAnchor, weekStart)) { WeekPagerPageCount }
     }
@@ -868,7 +875,12 @@ fun HomeScreen(
         snapshotFlow { dayPagerState.isScrollInProgress to dayPagerState.settledPage }
             .distinctUntilChanged()
             .collect { (scrolling, it) ->
-                if (scrolling || !isUserSettle(dayPagerState)) return@collect
+                if (scrolling) return@collect
+                if (sharedDayPane != null) {
+                    pagerDragOrigins.remove(dayPagerState)
+                    return@collect
+                }
+                if (!isUserSettle(dayPagerState)) return@collect
                 val date = dateForDayPage(it)
                 if (date.toEpochDay() != currentSelectedEpoch.value) {
                     // Publish the final selector position before changing the
@@ -1085,7 +1097,7 @@ fun HomeScreen(
                 val currentDate = LocalDate.ofEpochDay(currentSelectedEpoch.value)
                 if (YearMonth.from(currentDate) != targetMonth) {
                     val date = targetMonth.atDay(currentDate.dayOfMonth.coerceAtMost(targetMonth.lengthOfMonth()))
-                    dayPagerState.requestScrollToPage(dayPageFor(date))
+                    if (sharedDayPane == null) dayPagerState.requestScrollToPage(dayPageFor(date))
                     selectedEpoch = date.toEpochDay()
                     onDateChanged(date)
                 }
@@ -1107,7 +1119,9 @@ fun HomeScreen(
         // this effect only brings the visual pagers to an already committed
         // selection.
         launch {
-            if (dayPagerState.currentPage != targetDayPage || abs(dayPagerState.currentPageOffsetFraction) > .001f) {
+            if (sharedDayPane == null &&
+                (dayPagerState.currentPage != targetDayPage || abs(dayPagerState.currentPageOffsetFraction) > .001f)
+            ) {
                 if (jump) dayPagerState.scrollToPage(targetDayPage) else dayPagerState.animateScrollToPage(targetDayPage)
             }
         }
@@ -1445,7 +1459,8 @@ fun HomeScreen(
     // Landscape on a wide window is a different layout, not a wider version
     // of the zoom continuum: the month grid is pinned open beside a day pane,
     // so the week strip, the day rail and the zoom gesture are not composed.
-    var dayPaneCollapsed by rememberSaveable { mutableStateOf(false) }
+    var localDayPaneCollapsed by rememberSaveable { mutableStateOf(false) }
+    val dayPaneCollapsed = sharedDayPane?.collapsed ?: localDayPaneCollapsed
     // The zoom the compact layout was left at, so folding back does not dump
     // the calendar at the split layout's pinned endpoint.
     var zoomBeforeSplit by rememberSaveable { mutableFloatStateOf(initialZoom) }
@@ -1600,7 +1615,12 @@ fun HomeScreen(
             monthPagerState = monthPagerState,
             interactionEnabled = interactionEnabled,
             dayPaneCollapsed = dayPaneCollapsed,
-            onToggleDayPane = { dayPaneCollapsed = !dayPaneCollapsed },
+            onToggleDayPane = {
+                if (sharedDayPane != null) sharedDayPane.collapsed = !sharedDayPane.collapsed
+                else localDayPaneCollapsed = !localDayPaneCollapsed
+            },
+            sharedDayPane = sharedDayPane,
+            dayPaneExternallyHosted = dayPaneExternallyHosted,
             onOpenMenu = onOpenMenu,
             onMonthYearClick = openMonthYearPicker,
             onPreviousMonth = {
@@ -2292,6 +2312,8 @@ private fun SplitHomeLayout(
     interactionEnabled: Boolean,
     dayPaneCollapsed: Boolean,
     onToggleDayPane: () -> Unit,
+    sharedDayPane: SplitDayPaneState?,
+    dayPaneExternallyHosted: Boolean,
     onOpenMenu: (() -> Unit)?,
     onMonthYearClick: () -> Unit,
     onPreviousMonth: () -> Unit,
@@ -2326,11 +2348,7 @@ private fun SplitHomeLayout(
             if (abs(distance) <= .001f) null else distance
         }
     }
-    val settledPaneWidth by animateDpAsState(
-        targetValue = if (dayPaneCollapsed) 0.dp else SplitPaneWidthDp.dp,
-        animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
-        label = "day pane width",
-    )
+    val settledPaneWidth = sharedDayPane?.width ?: animatedDayPaneWidth(dayPaneCollapsed)
     // The pane grows with the grid settling rather than arriving already open,
     // so an unfold reads as one motion.
     val restingWidth = settledPaneWidth * morphFraction
@@ -2395,6 +2413,10 @@ private fun SplitHomeLayout(
         if (hingeSplit) {
             Spacer(Modifier.width((hingeBandDp.dp - 44.dp).coerceAtLeast(0.dp)).fillMaxHeight())
         }
+        if (dayPaneExternallyHosted) {
+            Spacer(Modifier.width(44.dp + paneWidth).fillMaxHeight())
+            return@Row
+        }
         DayPaneDivider(collapsed = dayPaneCollapsed, onToggle = onToggleDayPane)
         if (paneWidth > 0.dp) {
             DayPane(
@@ -2412,42 +2434,6 @@ private fun SplitHomeLayout(
                 onTaskDrop = onTaskDrop,
                 onTaskDone = onTaskDone,
                 onAdd = onAddOn,
-            )
-        }
-    }
-}
-
-/**
- * The rule between the two panes, doubling as the pane's collapse control.
- * The painted chevron is compact; the touch lane around it is not.
- */
-@Composable
-private fun DayPaneDivider(collapsed: Boolean, onToggle: () -> Unit) {
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (collapsed) 180f else 0f,
-        animationSpec = tween(CalinoMotion.SurfaceFadeMillis),
-        label = "day pane chevron",
-    )
-    val label = if (collapsed) "Show day pane" else "Hide day pane"
-    Box(
-        Modifier.fillMaxHeight().width(44.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.fillMaxHeight().width(1.dp).background(CalinoColors.Line).align(Alignment.Center))
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(CalinoColors.Canvas)
-                .calinoPressable(onClick = onToggle)
-                .semantics { contentDescription = label },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "\u203A",
-                color = CalinoColors.Ink3,
-                fontSize = 20.sp,
-                modifier = Modifier.graphicsLayer { rotationZ = chevronRotation },
             )
         }
     }

@@ -1,6 +1,6 @@
 package calino.malinov.ski.ui.year
 
-import calino.malinov.ski.state.SplitPaneWidthDp
+import calino.malinov.ski.state.EndLaneWidthDp
 import calino.malinov.ski.state.shouldSplit
 import calino.malinov.ski.util.EventDateIndex
 import java.time.LocalDate
@@ -47,7 +47,7 @@ internal const val YearFourColumnMinWidthDp = 560
 
 internal fun yearGridShape(widthDp: Int, heightDp: Int): YearGridShape = when {
     shouldSplit(widthDp, heightDp) -> {
-        val columns = if (widthDp - SplitPaneWidthDp >= YearFourColumnMinWidthDp) 4 else 3
+        val columns = if (widthDp - EndLaneWidthDp >= YearFourColumnMinWidthDp) 4 else 3
         YearGridShape(columns, 12 / columns, showPane = true)
     }
     widthDp > heightDp -> YearGridShape(6, 2, showPane = false)
