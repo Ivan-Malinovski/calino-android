@@ -17,6 +17,7 @@ import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
+import calino.malinov.ski.data.model.RecurrenceRules
 import calino.malinov.ski.data.model.placementDate
 import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.upcomingOccurrences
@@ -218,6 +219,10 @@ data class UndoableChange internal constructor(
 /** Fixture-only local repository. It has no CalDAV, accounts, or network path. */
 class FixtureRepository : CalinoRepository {
     companion object {
+        /** A fixture series is expanded this far ahead of its first day, in years. */
+        private const val TaskSeriesSpan = 1L
+        private const val MaxTaskSeriesRows = 400
+
         val FixtureDate: LocalDate = LocalDate.of(2026, 5, 18)
     }
 
@@ -334,17 +339,79 @@ class FixtureRepository : CalinoRepository {
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
         recurringTaskValidationCode(input, tasks())?.let { return WriteResult.Rejected(it) }
-        val task = taskFromInput("local-task-${nextTaskId++}", input, done = false)
+        val id = "local-task-${nextTaskId++}"
+        val anchor = input.due
+        if (input.recurrence != null && anchor != null) {
+            val rows = expandedTaskSeries(id, input, anchor, emptyMap(), anchor, done = false)
+            update { it.copy(tasks = it.tasks + rows) }
+            return WriteResult.Applied(rows.first())
+        }
+        val task = taskFromInput(id, input, done = false)
         update { it.copy(tasks = it.tasks + task) }
         return WriteResult.Applied(task)
     }
 
     override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> {
         recurringTaskValidationCode(input, tasks(), id)?.let { return WriteResult.Rejected(it) }
-        task(id)
+        val existing = task(id)
+        if (input.recurrence != null && input.recurrenceChanged && input.parentTaskId == null) {
+            // Connected mode expands a changed rule into one record per
+            // occurrence, so the fixture must too, or the series shows once.
+            val uid = existing.uid ?: existing.id.substringBefore('@')
+            val previous = tasks().filter {
+                it.id == uid || (it.id.substringBefore('@') == uid && it.recurrenceDate != null)
+            }
+            val anchor = previous.mapNotNull { it.recurrenceDate }.minOrNull() ?: input.due ?: existing.due
+            if (anchor != null) {
+                val target = input.recurrenceDate ?: input.due ?: anchor
+                val doneByDate = previous.mapNotNull { row -> (row.recurrenceDate ?: row.due)?.let { it to row.done } }.toMap()
+                val rows = expandedTaskSeries(uid, input, anchor, doneByDate, target, done)
+                val replaced = previous.map { it.id }.toSet().ifEmpty { setOf(id) }
+                update { current -> current.copy(tasks = current.tasks.filterNot { it.id in replaced } + rows) }
+                return WriteResult.Applied(rows.firstOrNull { it.due == target } ?: rows.first())
+            }
+        }
         val updated = taskFromInput(id, input, done)
         replaceTask(updated)
         return WriteResult.Applied(updated)
+    }
+
+    /**
+     * One row per occurrence across [TaskSeriesSpan], the way connected mode
+     * hands out a CalDAV series. [target] is the occurrence being edited, which
+     * takes [input] and [done] as given; the others keep the completion they
+     * had on the same date.
+     */
+    private fun expandedTaskSeries(
+        uid: String,
+        input: NewTask,
+        anchor: LocalDate,
+        doneByDate: Map<LocalDate, Boolean>,
+        target: LocalDate,
+        done: Boolean,
+    ): List<CalTask> {
+        val rule = input.recurrence.orEmpty()
+        val dates = RecurrenceRules
+            .nextOccurrences(rule, anchor.atStartOfDay(), true, anchor.minusDays(1), MaxTaskSeriesRows)
+            .takeWhile { !it.isAfter(anchor.plusYears(TaskSeriesSpan)) }
+            .ifEmpty { listOf(anchor) }
+        val neutral = input.copy(percentComplete = 0, status = null, completedAt = null)
+        return dates.map { date ->
+            val isTarget = date == target
+            val base = taskFromInput(
+                "$uid@$date", if (isTarget) input else neutral,
+                done = if (isTarget) done else doneByDate[date] == true,
+            )
+            base.copy(
+                due = date,
+                startDate = input.startDate?.plusDays(ChronoUnit.DAYS.between(anchor, date)),
+                uid = uid,
+                recurrenceDate = date,
+                recurrenceId = null,
+                recurrenceScope = RecurrenceEditScope.This,
+                recurrenceChanged = false,
+            )
+        }
     }
 
     override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {

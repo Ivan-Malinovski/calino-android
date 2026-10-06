@@ -45,4 +45,25 @@ class RecurrenceCountRuleTest {
         assertTrue(event.occursOn(start.plusWeeks(2)))
         assertFalse(event.occursOn(start.plusWeeks(3)))
     }
+
+    /** The end day is the last day, in every time zone: an all-day series has no time to compare. */
+    @Test fun anAllDayEndDateIsTheLastDayInAnyTimeZone() {
+        val start = LocalDate.of(2026, 5, 18)
+        val rule = recurrenceRule(RecurrenceFreq.Daily, emptySet(), LocalDate.of(2026, 5, 24))
+        val previous = java.util.TimeZone.getDefault()
+        try {
+            // Results are memoised without the zone, so each zone gets its own anchor day.
+            listOf("UTC", "Europe/Copenhagen", "Asia/Tokyo", "America/Los_Angeles").forEachIndexed { index, zone ->
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone))
+                val event = CalEvent(
+                    id = "e-$zone", title = "Retreat", color = 0xFF5B7FB5, start = null, date = start.plusDays(index.toLong()), durationMinutes = 0, allDay = true,
+                    recurrence = rule, calendarId = "personal",
+                )
+                assertTrue(zone, event.occursOn(LocalDate.of(2026, 5, 24)))
+                assertFalse(zone, event.occursOn(LocalDate.of(2026, 5, 25)))
+            }
+        } finally {
+            java.util.TimeZone.setDefault(previous)
+        }
+    }
 }

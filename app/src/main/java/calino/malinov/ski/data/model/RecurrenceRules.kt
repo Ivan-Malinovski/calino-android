@@ -62,6 +62,7 @@ internal object RecurrenceRules {
         limit: Int,
     ): List<LocalDate> {
         if (limit <= 0) return emptyList()
+        val lastDay = lastDayOf(rule, allDay)
         val event = runCatching {
             Biweekly.parse(icalText(rule.trim(), anchor, allDay)).first()?.events?.firstOrNull()
         }.getOrNull() ?: return emptyList()
@@ -79,12 +80,14 @@ internal object RecurrenceRules {
             steps++
             val instant = runCatching { iterator.next().toInstant() }.getOrNull() ?: break
             val date = instant.atZone(zone).toLocalDate()
+            if (lastDay != null && date.isAfter(lastDay)) break
             if (date.isAfter(after) && dates.lastOrNull() != date) dates += date
         }
         return dates
     }
 
     private fun datesIn(key: Key): Set<LocalDate> {
+        val lastDay = lastDayOf(key.rule, key.allDay)
         val event = runCatching {
             Biweekly.parse(icalText(key.rule, key.anchor, key.allDay)).first()?.events?.firstOrNull()
         }.getOrNull() ?: return emptySet()
@@ -100,9 +103,27 @@ internal object RecurrenceRules {
         while (iterator.hasNext() && dates.size < MaxOccurrencesPerYear) {
             val instant = runCatching { iterator.next().toInstant() }.getOrNull() ?: break
             if (instant >= until) break
-            dates += instant.atZone(zone).toLocalDate()
+            val date = instant.atZone(zone).toLocalDate()
+            if (lastDay != null && date.isAfter(lastDay)) break
+            dates += date
         }
         return dates
+    }
+
+    /**
+     * The last day of an all-day series, or null.
+     *
+     * The editor writes `UNTIL=20260524T235959Z`. Handed to biweekly beside a
+     * DATE start, that is compared as an instant against local midnight, so the
+     * series runs a day long east of UTC and (with a plain `UNTIL=20260524`) a
+     * day short west of it. An all-day series has no time to compare, so
+     * [icalText] leaves UNTIL out and the callers stop at this day instead.
+     */
+    private fun lastDayOf(rule: String, allDay: Boolean): LocalDate? {
+        if (!allDay) return null
+        val value = rule.split(';').firstOrNull { it.uppercase(Locale.US).startsWith("UNTIL=") }
+            ?.substringAfter('=')?.trim() ?: return null
+        return runCatching { LocalDate.parse(value.take(8), DateStamp) }.getOrNull()
     }
 
     /**
@@ -119,7 +140,9 @@ internal object RecurrenceRules {
             .map { it.substringAfter('=') }
             .flatMap { it.split(',') }
             .filter { it.isNotBlank() }
-        val recurrence = parts.filterNot { it.uppercase(Locale.US).startsWith("EXDATE=") }.joinToString(";")
+        val recurrence = parts.filterNot { it.uppercase(Locale.US).startsWith("EXDATE=") }
+            .filterNot { allDay && it.uppercase(Locale.US).startsWith("UNTIL=") }
+            .joinToString(";")
 
         return buildString {
             append("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Calino//Recurrence//EN\r\n")
