@@ -284,7 +284,9 @@ import calino.malinov.ski.ui.year.YearScreen
 import calino.malinov.ski.ui.components.SwipeDownDismiss
 import calino.malinov.ski.ui.surfaces.DayModalSurface
 import calino.malinov.ski.ui.surfaces.EventDetail
+import calino.malinov.ski.ui.surfaces.EventDeleteDialog
 import calino.malinov.ski.ui.surfaces.TaskDeleteSheet
+import calino.malinov.ski.ui.surfaces.isRecurringEvent
 import calino.malinov.ski.ui.surfaces.TaskDetail
 import calino.malinov.ski.ui.surfaces.NotificationsSurface
 import calino.malinov.ski.ui.surfaces.rememberNotificationSurfaceState
@@ -1334,6 +1336,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     var pendingTaskDelete by remember { mutableStateOf<CalTask?>(null) }
     // A repeating task asks which part of the series to remove, so it skips the pill's hold.
     var taskDeleteSheetTarget by remember { mutableStateOf<CalTask?>(null) }
+    var eventDeleteDialogTarget by remember { mutableStateOf<CalEvent?>(null) }
     // A parent just completed with subtasks still open: the question of
     // whether to finish those too. The parent itself is already done.
     var pendingSubtaskCompletion by remember { mutableStateOf<SubtaskCompletionRequest?>(null) }
@@ -1855,6 +1858,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             EventMenuAction.Delete ->
                 if (event.calendarId in readOnlyCalendarIds) {
                     writeError = readOnlyRefusal(event.calendarId)
+                } else if (isRecurringEvent(event)) {
+                    eventDeleteDialogTarget = event
                 } else {
                     pendingEventDelete = event
                 }
@@ -3678,6 +3683,18 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         onDelete = { target, scope ->
             taskDeleteSheetTarget = null
             launchWrite({ repository.deleteTask(target.id, scope) }, indicate = PillWriteKind.Remove)
+        },
+    )
+
+    EventDeleteDialog(
+        event = eventDeleteDialogTarget,
+        onDismiss = { eventDeleteDialogTarget = null },
+        onDelete = { target, scope ->
+            eventDeleteDialogTarget = null
+            launchWrite(
+                { repository.deleteEvent(target.id, scope, target.placementDate()) },
+                indicate = PillWriteKind.Remove,
+            )
         },
     )
 

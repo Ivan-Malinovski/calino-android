@@ -18,6 +18,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
@@ -62,6 +65,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.layout.wrapContentSize
@@ -134,6 +140,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
@@ -1082,6 +1089,14 @@ private fun EventDetailContent(
         }
     }
     Box(Modifier.fillMaxSize()) {
+    EventDeleteDialog(
+        event = event.takeIf { deleteStage == EventDeleteStage.Scope },
+        onDismiss = { deleteStage = EventDeleteStage.None },
+        onDelete = { target, scope ->
+            deleteStage = EventDeleteStage.None
+            onDeleteEvent(target, scope)
+        },
+    )
     Column(Modifier.fillMaxSize()) {
         HeroMasthead(tint) {
             val kicker = eventKicker(event, context.getString(R.string.ed_repeating), LocalCalinoLocale)
@@ -1349,44 +1364,6 @@ private fun EventDetailContent(
             }
             error?.let { message -> item { Text(message, color = CalinoColors.Rose, style = CalinoTypography.bodySmall, modifier = Modifier.padding(12.dp)) } }
         }
-        AnimatedVisibility(
-            visible = confirmDelete && isRecurringEvent(event),
-            enter = expandVertically(tween(180)) + fadeIn(tween(150)),
-            exit = shrinkVertically(tween(150)) + fadeOut(tween(110)),
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(context.getString(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
-                eventDeleteScopes(event).forEach { option ->
-                    val label = when (option) {
-                        RecurrenceEditScope.This -> context.getString(R.string.ed_this_event)
-                        RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
-                        RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
-                    }
-                    DeleteScopeButton(
-                        label = label,
-                        selected = deleteStage == EventDeleteStage.Confirm && deleteScope == option,
-                        modifier = Modifier.testTag("event-delete-${option.name.lowercase()}"),
-                        onClick = {
-                            deleteScope = option
-                            // Answering the scope question is what hands
-                            // the pill its confirmation.
-                            deleteStage = EventDeleteStage.Confirm
-                        },
-                    )
-                }
-            }
-        }
-        // The scope prompts sit below the list, so only while one is open
-        // does the card reserve the pill's lane as a fixed footer.
-        val footer by animateDpAsState(
-            targetValue = if (confirmDelete && isRecurringEvent(event)) EventPreviewPillClearance else 0.dp,
-            animationSpec = tween(180),
-            label = "event detail pill footer",
-        )
-        Spacer(Modifier.height(footer))
     }
     // DetailCardSurface draws its drag handle above this content slot. Cover
     // that lane too, otherwise the handle stays bright through the prompt's
@@ -1739,31 +1716,17 @@ fun eventDeleteScopes(event: CalEvent): List<RecurrenceEditScope> =
 fun eventDetailReadOnly(hostReadOnly: Boolean, event: CalEvent): Boolean =
     hostReadOnly || WebcalSubscription.isWebcalCalendarId(event.calendarId)
 
-/**
- * One way of removing a repeating record: a full-width action in the delete
- * prompts. [selected] marks the scope already chosen while a later step (the
- * pill's own confirmation) is still waiting.
- */
+/** One way of removing a repeating record: a full-width action in the delete popup. */
 @Composable
-private fun DeleteScopeButton(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    selected: Boolean = false,
-) {
-    val chosen = stringResource(R.string.ed_selected)
+private fun DeleteScopeButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Button(
         onClick = onClick,
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .semantics { if (selected) stateDescription = chosen },
+        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = CalinoColors.Rose.copy(alpha = if (selected) .30f else .16f),
+            containerColor = CalinoColors.Rose.copy(alpha = .16f),
             contentColor = CalinoColors.Ink,
         ),
-        border = if (selected) BorderStroke(1.5.dp, CalinoColors.Rose) else null,
         elevation = null,
     ) {
         Text(label, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
@@ -1780,72 +1743,126 @@ private fun hasCustomRepeatParts(rule: String): Boolean {
 }
 
 /**
- * Delete confirmation for a repeating task. [task] is null while nothing is
- * pending, so the sheet keeps rendering the last task through its exit.
+ * The one question asked before removing part of a repeating series, for
+ * tasks and events alike: a floating popup over the whole window, never a
+ * card that belongs to either surface.
  *
  * Each scope is its own full-width action, so choosing is the confirmation:
  * there is no pre-selected default to confirm by accident, and the narrowest
- * reading is listed first.
+ * reading is listed first. [item] is null while nothing is pending, so the
+ * popup keeps rendering the last item through its exit.
  */
 @Composable
-fun TaskDeleteSheet(
-    task: CalTask?,
+private fun <T : Any> RepeatDeleteDialog(
+    item: T?,
+    title: (T) -> String,
+    heading: String,
+    scopes: List<Pair<RecurrenceEditScope, String>>,
+    tagPrefix: String,
     onDismiss: () -> Unit,
-    onDelete: (CalTask, RecurrenceEditScope) -> Unit,
-    modifier: Modifier = Modifier,
+    onDelete: (T, RecurrenceEditScope) -> Unit,
 ) {
-    val context = LocalContext.current
-    var shown by remember { mutableStateOf<CalTask?>(null) }
-    LaunchedEffect(task) { if (task != null) shown = task }
-    val target = task ?: shown ?: return
-    BackHandler(enabled = task != null, onBack = onDismiss)
-    Box(modifier.fillMaxSize()) {
-        CalinoScrim(visible = task != null, onDismiss = onDismiss)
-        CalinoSheet(
-            visible = task != null,
-            onDismiss = onDismiss,
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    target.title,
-                    style = CalinoTypography.headlineSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(context.getString(R.string.ed_remove_recurring_task), style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-                    Text(context.getString(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
-                }
-                Column(
-                    Modifier.padding(top = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+    var shown by remember { mutableStateOf<T?>(null) }
+    LaunchedEffect(item) { if (item != null) shown = item }
+    // The window outlives `item` just long enough to play the exit.
+    val transition = remember { MutableTransitionState(false) }
+    transition.targetState = item != null
+    val target = item ?: shown
+    if (target == null || !(transition.currentState || transition.targetState)) return
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        // The window's own dim cannot animate; the scrim below does.
+        (LocalView.current.parent as? DialogWindowProvider)?.window?.setDimAmount(0f)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CalinoScrim(visible = transition.targetState, onDismiss = onDismiss)
+            AnimatedVisibility(
+                visibleState = transition,
+                enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + scaleIn(tween(CalinoMotion.ContentEnterMillis), initialScale = .94f),
+                exit = fadeOut(tween(CalinoMotion.ContentExitMillis)) + scaleOut(tween(CalinoMotion.ContentExitMillis), targetScale = .96f),
+            ) {
+                Surface(
+                    modifier = Modifier.padding(horizontal = 24.dp).widthIn(max = 380.dp).fillMaxWidth().shadow(16.dp, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    color = CalinoColors.Panel,
                 ) {
-                    RecurrenceEditScope.entries.forEach { option ->
-                        val label = when (option) {
-                            RecurrenceEditScope.This -> context.getString(R.string.ed_repeat_this_task)
-                            RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
-                            RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(title(target), style = CalinoTypography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(heading, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                            Text(stringResource(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
                         }
-                        DeleteScopeButton(
-                            label = label,
-                            onClick = { onDelete(target, option) },
-                            modifier = Modifier.testTag("task-delete-${option.name.lowercase()}"),
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, CalinoColors.Line),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = CalinoColors.Ink3),
-                    ) {
-                        Text(context.getString(R.string.ed_cancel), style = CalinoTypography.bodyLarge)
+                        Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            scopes.forEach { (scope, label) ->
+                                DeleteScopeButton(
+                                    label = label,
+                                    onClick = { onDelete(target, scope) },
+                                    modifier = Modifier.testTag("$tagPrefix-delete-${scope.name.lowercase()}"),
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = onDismiss,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, CalinoColors.Line),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CalinoColors.Ink3),
+                            ) {
+                                Text(stringResource(R.string.ed_cancel), style = CalinoTypography.bodyLarge)
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/** Delete popup for a repeating task. */
+@Composable
+fun TaskDeleteSheet(
+    task: CalTask?,
+    onDismiss: () -> Unit,
+    onDelete: (CalTask, RecurrenceEditScope) -> Unit,
+) {
+    RepeatDeleteDialog(
+        item = task,
+        title = { it.title },
+        heading = stringResource(R.string.ed_remove_recurring_task),
+        scopes = listOf(
+            RecurrenceEditScope.This to stringResource(R.string.ed_repeat_this_task),
+            RecurrenceEditScope.Future to stringResource(R.string.ed_this_and_future),
+            RecurrenceEditScope.All to stringResource(R.string.ed_entire_series),
+        ),
+        tagPrefix = "task",
+        onDismiss = onDismiss,
+        onDelete = onDelete,
+    )
+}
+
+/** Delete popup for a repeating event; imported series omit "this and future". */
+@Composable
+fun EventDeleteDialog(
+    event: CalEvent?,
+    onDismiss: () -> Unit,
+    onDelete: (CalEvent, RecurrenceEditScope) -> Unit,
+) {
+    val labels = mapOf(
+        RecurrenceEditScope.This to stringResource(R.string.ed_this_event),
+        RecurrenceEditScope.Future to stringResource(R.string.ed_this_and_future),
+        RecurrenceEditScope.All to stringResource(R.string.ed_entire_series),
+    )
+    var scopes by remember { mutableStateOf(emptyList<Pair<RecurrenceEditScope, String>>()) }
+    if (event != null) scopes = eventDeleteScopes(event).map { it to labels.getValue(it) }
+    RepeatDeleteDialog(
+        item = event,
+        title = { it.title },
+        heading = stringResource(R.string.ed_remove_recurring_event),
+        scopes = scopes,
+        tagPrefix = "event",
+        onDismiss = onDismiss,
+        onDelete = onDelete,
+    )
 }
 
 /**
