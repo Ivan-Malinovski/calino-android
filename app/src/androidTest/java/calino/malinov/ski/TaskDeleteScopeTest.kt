@@ -2,9 +2,8 @@ package calino.malinov.ski
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -36,8 +35,6 @@ class TaskDeleteScopeTest {
         recurrenceScope = RecurrenceEditScope.This,
     )
 
-    private val isChosen = SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Selected")
-
     private fun show(task: CalTask, deleted: AtomicReference<RecurrenceEditScope?>) {
         compose.setContent {
             CalinoTheme {
@@ -46,42 +43,43 @@ class TaskDeleteScopeTest {
         }
     }
 
-    @Test fun deletingARepeatingTaskOffersTheSeriesAndDefaultsToOneOccurrence() {
+    private fun openSheet() {
+        compose.onNodeWithContentDescription("Delete task").performClick()
+        compose.waitUntil(5_000L) { compose.onAllNodesWithTag("task-delete-this").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun deletingARepeatingTaskOffersEveryScopeAsItsOwnAction() {
         val deleted = AtomicReference<RecurrenceEditScope?>()
         show(occurrence, deleted)
 
-        compose.onNodeWithContentDescription("Delete task").performClick()
-        compose.waitForIdle()
-        compose.waitUntil(5_000L) { compose.hasDescribedNode("This task, Delete scope This task") }
-        compose.onNodeWithContentDescription("This task, Delete scope This task").assertIsDisplayed().assert(isChosen)
-        compose.onNodeWithContentDescription("This and future, Delete scope This and future").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Entire series, Delete scope Entire series").assertIsDisplayed()
-
-        compose.onNodeWithTag("task-delete-confirm").performClick()
-        compose.waitUntil(5_000L) { deleted.get() != null }
-        assertEquals(RecurrenceEditScope.This, deleted.get())
+        openSheet()
+        compose.onNodeWithTag("task-delete-this").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithTag("task-delete-future").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithTag("task-delete-all").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithText("Cancel").assertIsDisplayed()
+        assertNull(deleted.get())
     }
 
-    @Test fun theChosenScopeReachesTheDelete() {
+    private fun tapScope(tag: String): RecurrenceEditScope? {
         val deleted = AtomicReference<RecurrenceEditScope?>()
         show(occurrence, deleted)
-
-        compose.onNodeWithContentDescription("Delete task").performClick()
-        compose.waitUntil(5_000L) { compose.hasDescribedNode("This task, Delete scope This task") }
-        compose.onNodeWithContentDescription("Entire series, Delete scope Entire series").performClick()
-        compose.onNodeWithContentDescription("Entire series, Delete scope Entire series").assert(isChosen)
-        compose.onNodeWithTag("task-delete-confirm").performClick()
+        openSheet()
+        compose.onNodeWithTag(tag).performClick()
         compose.waitUntil(5_000L) { deleted.get() != null }
-        assertEquals(RecurrenceEditScope.All, deleted.get())
+        return deleted.get()
     }
+
+    @Test fun thisTaskDeletesOnlyThatOccurrence() = assertEquals(RecurrenceEditScope.This, tapScope("task-delete-this"))
+
+    @Test fun thisAndFutureDeletesFromHere() = assertEquals(RecurrenceEditScope.Future, tapScope("task-delete-future"))
+
+    @Test fun entireSeriesDeletesEverything() = assertEquals(RecurrenceEditScope.All, tapScope("task-delete-all"))
 
     @Test fun cancellingTheScopeSheetDeletesNothing() {
         val deleted = AtomicReference<RecurrenceEditScope?>()
         show(occurrence, deleted)
 
-        compose.onNodeWithContentDescription("Delete task").performClick()
-        compose.waitUntil(5_000L) { compose.hasDescribedNode("This task, Delete scope This task") }
-        compose.onNodeWithContentDescription("This and future, Delete scope This and future").performClick()
+        openSheet()
         compose.onNodeWithText("Cancel").performClick()
         compose.waitForIdle()
         assertNull(deleted.get())

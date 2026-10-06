@@ -1859,19 +1859,14 @@ private fun hasCustomRepeatParts(rule: String): Boolean {
 }
 
 /**
- * The scope a task's delete should open on. One occurrence defaults to
- * [RecurrenceEditScope.This], so confirming without choosing never removes more
- * of the series than the person pointed at.
- */
-fun defaultTaskDeleteScope(task: CalTask): RecurrenceEditScope =
-    if (task.recurrenceId != null || task.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All
-
-/**
  * Delete confirmation for a repeating task. [task] is null while nothing is
  * pending, so the sheet keeps rendering the last task through its exit.
+ *
+ * Each scope is its own full-width action, so choosing is the confirmation:
+ * there is no pre-selected default to confirm by accident, and the narrowest
+ * reading is listed first.
  */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 fun TaskDeleteSheet(
     task: CalTask?,
     onDismiss: () -> Unit,
@@ -1882,7 +1877,6 @@ fun TaskDeleteSheet(
     var shown by remember { mutableStateOf<CalTask?>(null) }
     LaunchedEffect(task) { if (task != null) shown = task }
     val target = task ?: shown ?: return
-    var scope by remember(target.id) { mutableStateOf(defaultTaskDeleteScope(target)) }
     BackHandler(enabled = task != null, onBack = onDismiss)
     Box(modifier.fillMaxSize()) {
         CalinoScrim(visible = task != null, onDismiss = onDismiss)
@@ -1898,11 +1892,13 @@ fun TaskDeleteSheet(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(context.getString(R.string.ed_remove_recurring_task), style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-                Text(context.getString(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(context.getString(R.string.ed_remove_recurring_task), style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                    Text(context.getString(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                }
+                Column(
+                    Modifier.padding(top = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     RecurrenceEditScope.entries.forEach { option ->
                         val label = when (option) {
@@ -1910,27 +1906,31 @@ fun TaskDeleteSheet(
                             RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
                             RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
                         }
-                        CalinoChip(
-                            text = label,
-                            selected = scope == option,
-                            description = context.getString(R.string.ed_delete_scope, label),
-                            semanticsRole = Role.RadioButton,
-                            onClick = { scope = option },
-                        )
+                        Button(
+                            onClick = { onDelete(target, option) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag("task-delete-${option.name.lowercase()}"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CalinoColors.Rose.copy(alpha = .16f),
+                                contentColor = CalinoColors.Ink,
+                            ),
+                            elevation = null,
+                        ) {
+                            Text(label, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                        }
                     }
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onDismiss) { Text(context.getString(R.string.ed_cancel)) }
-                    Button(
-                        onClick = { onDelete(target, scope) },
-                        modifier = Modifier.testTag("task-delete-confirm"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(CalinoColors.Rose),
-                    ) { Text(context.getString(R.string.ed_delete)) }
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, CalinoColors.Line),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = CalinoColors.Ink3),
+                    ) {
+                        Text(context.getString(R.string.ed_cancel), style = CalinoTypography.bodyLarge)
+                    }
                 }
             }
         }
