@@ -65,9 +65,53 @@ class TaskRepeatEditTest {
         assertFalse(saved.get()!!.recurrenceChanged)
     }
 
-    @Test fun aOneOffTaskHasNoRepeatRow() {
+    private val oneOff = occurrence.copy(
+        id = "insurance", title = "Renew car insurance", recurrence = null, recurrenceDate = null,
+    )
+
+    @Test fun aOneOffTaskCanStartRepeating() {
         val saved = AtomicReference<NewTask?>()
-        show(occurrence.copy(recurrence = null, recurrenceDate = null), saved)
+        show(oneOff, saved)
+
+        compose.onNodeWithContentDescription("Change task repeat").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Change task repeat").performClick()
+        compose.onNodeWithContentDescription("Yearly, Repeat yearly").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Save task").performClick()
+        compose.waitUntil(5_000L) { saved.get() != null }
+
+        assertEquals("FREQ=YEARLY", saved.get()?.recurrence)
+        assertTrue(saved.get()!!.recurrenceChanged)
+    }
+
+    @Test fun aOneOffTaskThatIsNotMadeToRepeatSavesAsUnchanged() {
+        val saved = AtomicReference<NewTask?>()
+        show(oneOff, saved)
+
+        compose.onNodeWithContentDescription("Change task repeat").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("Priority: High").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Save task").performClick()
+        compose.waitUntil(5_000L) { saved.get() != null }
+
+        assertNull(saved.get()?.recurrence)
+        assertFalse(saved.get()!!.recurrenceChanged)
+    }
+
+    @Test fun repeatingAnUndatedTaskGivesItADueDate() {
+        val saved = AtomicReference<NewTask?>()
+        show(oneOff.copy(due = null), saved)
+
+        compose.onNodeWithContentDescription("Change task repeat").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Daily, Repeat daily").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Save task").performClick()
+        compose.waitUntil(5_000L) { saved.get() != null }
+
+        assertEquals("FREQ=DAILY", saved.get()?.recurrence)
+        assertTrue(saved.get()?.due != null)
+    }
+
+    @Test fun aSubtaskHasNoRepeatRow() {
+        val saved = AtomicReference<NewTask?>()
+        show(oneOff.copy(parentTaskId = "parent"), saved)
 
         compose.onNodeWithContentDescription("Change task reminder").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Change task repeat").assertDoesNotExist()

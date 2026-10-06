@@ -1958,7 +1958,7 @@ fun TaskDetailSurface(
         if (due == null) due = today
         dueTime = picked
     }
-    val repeatAnchor = task.recurrenceDate ?: task.due ?: today
+    val repeatAnchor = task.recurrenceDate ?: due ?: today
     val pickRepeatEnd = rememberDatePicker({ repeatAnchor.plusMonths(3) }) { picked ->
         recurrence = recurrenceRule(
             recurrenceFreqOf(recurrence) ?: RecurrenceFreq.Weekly,
@@ -2207,7 +2207,9 @@ fun TaskDetailSurface(
                         }
                     }
                     HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                    if (task.recurrence != null) {
+                    // Any top-level task can start repeating here; subtasks and tasks
+                    // with subtasks cannot (the repository rejects both).
+                    if (task.recurrence != null || (task.parentTaskId == null && tasks.none { it.parentTaskId == task.id })) {
                         Column {
                             val repeatChevron by animateFloatAsState(
                                 if (repeatOpen) 180f else 0f,
@@ -2216,8 +2218,8 @@ fun TaskDetailSurface(
                             )
                             TaskRow(
                                 icon = CalinoIcon.Repeat,
-                                text = formatRecurrenceRule(context, recurrence, repeatAnchor),
-                                set = true,
+                                text = recurrence?.let { formatRecurrenceRule(context, it, repeatAnchor) } ?: context.getString(R.string.ed_editor_dont_repeat),
+                                set = recurrence != null,
                                 description = context.getString(R.string.ed_change_task_repeat),
                                 onClick = { repeatOpen = !repeatOpen },
                             ) {
@@ -2236,15 +2238,23 @@ fun TaskDetailSurface(
                                     RecurrenceRuleEditor(
                                         rule = recurrence,
                                         anchor = repeatAnchor,
-                                        onRule = { recurrence = it },
+                                        onRule = { picked ->
+                                            // A repeat needs a date to start from.
+                                            if (picked != null && due == null) due = today
+                                            recurrence = picked
+                                        },
                                         pickUntil = pickRepeatEnd,
-                                        allowNever = false,
+                                        // An existing series ends with an end date or a
+                                        // delete; only a one-off can go back to "Never".
+                                        allowNever = task.recurrence == null,
                                         showLabel = false,
                                     )
                                     if (task.recurrence?.let(::hasCustomRepeatParts) == true) {
                                         Text(context.getString(R.string.ed_repeat_custom_note), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
                                     }
-                                    Text(context.getString(R.string.ed_repeat_series_note), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                                    if (task.recurrence != null) {
+                                        Text(context.getString(R.string.ed_repeat_series_note), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                                    }
                                 }
                             }
                         }

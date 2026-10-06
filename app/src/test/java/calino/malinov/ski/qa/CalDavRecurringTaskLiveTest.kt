@@ -52,7 +52,7 @@ class CalDavRecurringTaskLiveTest {
         fun occurrence(date: LocalDate): CalTask = tasks().single { it.due == date }
     }
 
-    private fun withSeries(rrule: String = "FREQ=WEEKLY;BYDAY=TU", block: suspend Harness.() -> Unit) = runBlocking {
+    private fun withSeries(rrule: String? = "FREQ=WEEKLY;BYDAY=TU", block: suspend Harness.() -> Unit) = runBlocking {
         val url = System.getenv("CALINO_CALDAV_URL")
         val user = System.getenv("CALINO_CALDAV_USER")
         val password = System.getenv("CALINO_CALDAV_PASS")
@@ -78,10 +78,10 @@ class CalDavRecurringTaskLiveTest {
             val href = "$scratchUrl$UID.ics"
             val planted = http.put(
                 href, credentials,
-                listOf(
+                listOfNotNull(
                     "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Another Client//EN", "BEGIN:VTODO", "UID:$UID",
                     "DTSTAMP:20260301T000000Z", "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
-                    "RRULE:$rrule", "SUMMARY:Exercise", "X-FOREIGN-THING:keep me", "END:VTODO", "END:VCALENDAR",
+                    rrule?.let { "RRULE:$it" }, "SUMMARY:Exercise", "X-FOREIGN-THING:keep me", "END:VTODO", "END:VCALENDAR",
                 ).joinToString("\r\n") + "\r\n",
                 DavHttp.CalendarMediaType, DavPrecondition.New,
             )
@@ -171,6 +171,27 @@ class CalDavRecurringTaskLiveTest {
             listOf(3, 5, 10, 12, 17, 19).map { LocalDate.of(2026, 3, it) },
             tasks().mapNotNull { it.due }.sorted(),
         )
+    }
+
+    @Test
+    fun `a one-off task becomes a repeating one in place`() = withSeries(rrule = null) {
+        val oneOff = tasks().single()
+        assertEquals(null, oneOff.recurrence)
+        val result = repository.updateTask(
+            oneOff.id,
+            oneOff.asUpdate().copy(recurrence = "FREQ=WEEKLY;BYDAY=TU", recurrenceChanged = true),
+            oneOff.done,
+        )
+        assertTrue(result.toString(), result is WriteResult.Applied)
+        sync()
+        val text = server()
+        assertTrue(text, text.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+        assertTrue(text, text.contains("X-FOREIGN-THING:keep me"))
+        assertEquals(1, Regex("BEGIN:VTODO").findAll(text).count())
+        val due = tasks().mapNotNull { it.due }.sorted()
+        assertTrue(due.size > 20)
+        assertEquals(LocalDate.of(2026, 3, 3), due.first())
+        assertTrue(due.contains(LocalDate.of(2026, 3, 10)))
     }
 
     private companion object {
