@@ -392,6 +392,7 @@
     <string name="ed_join">Join</string>
     <string name="ed_open_attachment">Open</string>
     <string name="ed_remove_recurring_event">Remove this recurring event?</string>
+    <string name="ed_remove_recurring_task">Remove this repeating task?</string>
     <string name="ed_remove_event">Remove this event?</string>
     <string name="ed_close_event_details">Close event details</string>
     <string name="ed_edit">Edit</string>

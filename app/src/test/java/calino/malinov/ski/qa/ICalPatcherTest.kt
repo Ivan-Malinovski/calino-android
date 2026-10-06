@@ -294,6 +294,88 @@ class ICalPatcherTest {
         assertFalse(overrideText, overrideText.contains("BEGIN:VALARM"))
     }
 
+    private val weeklyTask = ics(
+        "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:gym",
+        "DTSTART;VALUE=DATE:20260303", "DUE;VALUE=DATE:20260303",
+        "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Exercise", "END:VTODO", "END:VCALENDAR",
+    )
+
+    private fun occurrenceOn(day: LocalDate) = mapper.parse(
+        weeklyTask, "cal", 1L, "gym.ics", windowStart = day, windowEnd = day,
+    ).tasks.single()
+
+    @Test
+    fun `deleting this occurrence of a repeating task excludes only that date`() {
+        val patched = patcher.deleteTaskRecurrence(
+            weeklyTask, "gym", occurrenceOn(LocalDate.of(2026, 3, 10)), RecurrenceEditScope.This,
+        )!!
+
+        assertTrue(patched, patched.contains("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+        assertTrue(patched, patched.contains("EXDATE;VALUE=DATE:20260310"))
+        assertFalse(patched, patched.contains("UNTIL"))
+    }
+
+    @Test
+    fun `deleting this and future caps the series the day before the occurrence`() {
+        val patched = patcher.deleteTaskRecurrence(
+            weeklyTask, "gym", occurrenceOn(LocalDate.of(2026, 3, 17)), RecurrenceEditScope.Future,
+        )!!
+
+        assertTrue(patched, patched.contains("UNTIL=20260316"))
+        assertTrue(patched, patched.contains("DTSTART;VALUE=DATE:20260303"))
+        assertFalse(patched, patched.contains("EXDATE"))
+        val remaining = mapper.parse(
+            patched, "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 1), windowEnd = LocalDate.of(2026, 4, 30),
+        ).tasks.map { it.due }
+        assertEquals(listOf(LocalDate.of(2026, 3, 3), LocalDate.of(2026, 3, 10)), remaining)
+    }
+
+    @Test
+    fun `this and future on a timed series caps it just before the occurrence`() {
+        val timed = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:pills",
+            "DTSTART:20260303T090000Z", "DUE:20260303T100000Z",
+            "RRULE:FREQ=WEEKLY;BYDAY=TU", "SUMMARY:Pills", "END:VTODO", "END:VCALENDAR",
+        )
+        val all = mapper.parse(
+            timed, "cal", 1L, "pills.ics",
+            windowStart = LocalDate.of(2026, 3, 1), windowEnd = LocalDate.of(2026, 3, 31),
+        ).tasks
+        val third = all.first { it.due == LocalDate.of(2026, 3, 17) }
+
+        val patched = patcher.deleteTaskRecurrence(timed, "pills", third, RecurrenceEditScope.Future)!!
+
+        assertTrue(patched, patched.contains("UNTIL=20260317T085959Z"))
+        val remaining = mapper.parse(
+            patched, "cal", 1L, "pills.ics",
+            windowStart = LocalDate.of(2026, 3, 1), windowEnd = LocalDate.of(2026, 3, 31),
+        ).tasks.map { it.due }
+        assertEquals(listOf(LocalDate.of(2026, 3, 3), LocalDate.of(2026, 3, 10)), remaining)
+        assertFalse(patcher.futureDeleteRemovesSeries(timed, "pills", third))
+        assertTrue(patcher.futureDeleteRemovesSeries(timed, "pills", all.first()))
+    }
+
+    @Test
+    fun `this and future from the first occurrence is recognised as the whole series`() {
+        assertTrue(patcher.futureDeleteRemovesSeries(weeklyTask, "gym", occurrenceOn(LocalDate.of(2026, 3, 3))))
+        assertFalse(patcher.futureDeleteRemovesSeries(weeklyTask, "gym", occurrenceOn(LocalDate.of(2026, 3, 10))))
+    }
+
+    @Test
+    fun `a due-only series is recognised from its DUE anchor`() {
+        val dueOnly = ics(
+            "BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VTODO", "UID:bins",
+            "DUE;VALUE=DATE:20260304", "RRULE:FREQ=WEEKLY", "SUMMARY:Bins", "END:VTODO", "END:VCALENDAR",
+        )
+        fun occurrence(day: LocalDate) = mapper.parse(
+            dueOnly, "cal", 1L, "bins.ics", windowStart = day, windowEnd = day,
+        ).tasks.single()
+
+        assertTrue(patcher.futureDeleteRemovesSeries(dueOnly, "bins", occurrence(LocalDate.of(2026, 3, 4))))
+        assertFalse(patcher.futureDeleteRemovesSeries(dueOnly, "bins", occurrence(LocalDate.of(2026, 3, 11))))
+    }
+
     @Test
     fun `all-scope title edit from completed occurrence does not complete master`() {
         val resource = ics(

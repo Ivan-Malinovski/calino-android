@@ -1676,11 +1676,16 @@ class CalDavRepository(
         val source = sourceForRecord(null, current.href)
         writableRejection(source, "VTODO")?.let { return it }
         source ?: return WriteResult.Rejected(WriteRejectionCode.TASK_CALENDAR_UNCONNECTED)
-        if ((current.recurrence != null || current.recurrenceId != null || current.recurrenceDate != null) &&
-            scope != RecurrenceEditScope.All
-        ) {
-            val uid = current.uid ?: current.id
-            val href = resourceHref(source.calendar.url, current.href, uid)
+        val recurringTask = current.recurrence != null || current.recurrenceId != null || current.recurrenceDate != null
+        val uid = current.uid ?: current.id
+        val href = resourceHref(source.calendar.url, current.href, uid)
+        // "This and future" from the first occurrence is the whole series. Deleting
+        // the resource says so plainly instead of leaving a master that never fires.
+        val effectiveScope = if (recurringTask && scope == RecurrenceEditScope.Future &&
+            cache.loadResource(source.calendar.url, href)
+                ?.let { recurrencePatcher.futureDeleteRemovesSeries(it.ics, uid, current) } == true
+        ) RecurrenceEditScope.All else scope
+        if (recurringTask && effectiveScope != RecurrenceEditScope.All) {
             return when (val result = putCalendarWithQueue(
                 source = source,
                 changeType = PendingChangeType.UPDATE,
@@ -1693,7 +1698,7 @@ class CalDavRepository(
                         ?: throw CalDavException(CalDavErrorCode.PreconditionFailed, "The recurring task is not available in the raw cache.", status = 412)
                     val expected = normalizeEtag(requestedEtag) ?: normalizeEtag(resource.etag)
                         ?: throw CalDavException(CalDavErrorCode.PreconditionFailed, "The recurring task has no current server version.", status = 412)
-                    val body = recurrencePatcher.deleteTaskRecurrence(resource.ics, uid, current, scope)
+                    val body = recurrencePatcher.deleteTaskRecurrence(resource.ics, uid, current, effectiveScope)
                         ?: throw CalDavException(CalDavErrorCode.NotCalDav, "The recurring task could not be patched safely.")
                     PreparedCalendarWrite(href, body, calino.malinov.ski.data.caldav.DavPrecondition.Match(expected), expected)
                 },

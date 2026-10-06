@@ -249,6 +249,7 @@
     <string name="ed_join">Deltag</string>
     <string name="ed_open_attachment">Åbn</string>
     <string name="ed_remove_recurring_event">Fjern denne gentagne begivenhed?</string>
+    <string name="ed_remove_recurring_task">Fjern denne gentagne opgave?</string>
     <string name="ed_remove_event">Fjern denne begivenhed?</string>
     <string name="ed_close_event_details">Luk begivenhedsdetaljer</string>
     <string name="ed_edit">Rediger</string>

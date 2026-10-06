@@ -164,6 +164,7 @@ import calino.malinov.ski.data.model.derivedDisplayName
 import calino.malinov.ski.data.model.contactReminderEvent
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.NewJournal
+import calino.malinov.ski.state.isRecurringTask
 import calino.malinov.ski.state.weekTask
 import calino.malinov.ski.state.scheduledTask
 import calino.malinov.ski.util.startOfWeek
@@ -283,6 +284,7 @@ import calino.malinov.ski.ui.year.YearScreen
 import calino.malinov.ski.ui.components.SwipeDownDismiss
 import calino.malinov.ski.ui.surfaces.DayModalSurface
 import calino.malinov.ski.ui.surfaces.EventDetail
+import calino.malinov.ski.ui.surfaces.TaskDeleteSheet
 import calino.malinov.ski.ui.surfaces.TaskDetail
 import calino.malinov.ski.ui.surfaces.NotificationsSurface
 import calino.malinov.ski.ui.surfaces.rememberNotificationSurfaceState
@@ -1330,6 +1332,8 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // asks for a scope instead of defaulting to the whole series.
     var pendingEventDelete by remember { mutableStateOf<CalEvent?>(null) }
     var pendingTaskDelete by remember { mutableStateOf<CalTask?>(null) }
+    // A repeating task asks which part of the series to remove, so it skips the pill's hold.
+    var taskDeleteSheetTarget by remember { mutableStateOf<CalTask?>(null) }
     // A parent just completed with subtasks still open: the question of
     // whether to finish those too. The parent itself is already done.
     var pendingSubtaskCompletion by remember { mutableStateOf<SubtaskCompletionRequest?>(null) }
@@ -1794,7 +1798,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             TaskMenuAction.ToggleDone -> setTaskDone(task, !task.done)
             TaskMenuAction.Duplicate -> launchWrite({ repository.duplicateTask(task, textContext.getString(R.string.host_copy_suffix)) })
             TaskMenuAction.ConvertToEvent -> launchWrite({ repository.convertTaskToEvent(task) })
-            TaskMenuAction.Delete -> pendingTaskDelete = task
+            TaskMenuAction.Delete -> if (task.isRecurringTask()) taskDeleteSheetTarget = task else pendingTaskDelete = task
         }
     }
 
@@ -3033,12 +3037,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             savePillLane.saveFinished(writeScope, success = landed)
                         }
                     },
-                    onDelete = {
+                    onDelete = { scope ->
                         writeError = null
                         savePillLane.saveStarted(PillWriteKind.Remove)
                         var landed = false
                         try {
-                            when (val result = repository.deleteTask(task.id, task.recurrenceScope)) {
+                            when (val result = repository.deleteTask(task.id, scope)) {
                                 is WriteResult.Applied -> {
                                     landed = true
                                     selectedTaskId = null
@@ -3667,6 +3671,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         )
     }
     }
+
+    TaskDeleteSheet(
+        task = taskDeleteSheetTarget,
+        onDismiss = { taskDeleteSheetTarget = null },
+        onDelete = { target, scope ->
+            taskDeleteSheetTarget = null
+            launchWrite({ repository.deleteTask(target.id, scope) }, indicate = PillWriteKind.Remove)
+        },
+    )
 
     if (searchVisible) {
         CalinoSearchSheet(

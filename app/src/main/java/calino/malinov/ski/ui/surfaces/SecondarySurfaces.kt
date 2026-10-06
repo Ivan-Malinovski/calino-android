@@ -230,6 +230,7 @@ import calino.malinov.ski.util.formatRecurrenceSummary
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
 import calino.malinov.ski.util.startOfWeek
+import calino.malinov.ski.state.isRecurringTask
 import calino.malinov.ski.state.isSometimeThisWeek
 import calino.malinov.ski.state.isWeekTask
 import calino.malinov.ski.state.shouldSplit
@@ -1845,6 +1846,85 @@ fun EventDeleteSheet(
 }
 
 /**
+ * The scope a task's delete should open on. One occurrence defaults to
+ * [RecurrenceEditScope.This], so confirming without choosing never removes more
+ * of the series than the person pointed at.
+ */
+fun defaultTaskDeleteScope(task: CalTask): RecurrenceEditScope =
+    if (task.recurrenceId != null || task.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All
+
+/**
+ * Delete confirmation for a repeating task. [task] is null while nothing is
+ * pending, so the sheet keeps rendering the last task through its exit.
+ */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+fun TaskDeleteSheet(
+    task: CalTask?,
+    onDismiss: () -> Unit,
+    onDelete: (CalTask, RecurrenceEditScope) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var shown by remember { mutableStateOf<CalTask?>(null) }
+    LaunchedEffect(task) { if (task != null) shown = task }
+    val target = task ?: shown ?: return
+    var scope by remember(target.id) { mutableStateOf(defaultTaskDeleteScope(target)) }
+    BackHandler(enabled = task != null, onBack = onDismiss)
+    Box(modifier.fillMaxSize()) {
+        CalinoScrim(visible = task != null, onDismiss = onDismiss)
+        CalinoSheet(
+            visible = task != null,
+            onDismiss = onDismiss,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    target.title,
+                    style = CalinoTypography.headlineSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(context.getString(R.string.ed_remove_recurring_task), style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+                Text(context.getString(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    RecurrenceEditScope.entries.forEach { option ->
+                        val label = when (option) {
+                            RecurrenceEditScope.This -> context.getString(R.string.ed_repeat_this_task)
+                            RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
+                            RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
+                        }
+                        CalinoChip(
+                            text = label,
+                            selected = scope == option,
+                            description = context.getString(R.string.ed_delete_scope, label),
+                            semanticsRole = Role.RadioButton,
+                            onClick = { scope = option },
+                        )
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) { Text(context.getString(R.string.ed_cancel)) }
+                    Button(
+                        onClick = { onDelete(target, scope) },
+                        modifier = Modifier.testTag("task-delete-confirm"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(CalinoColors.Rose),
+                    ) { Text(context.getString(R.string.ed_delete)) }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Event detail's lane contents. Overflow is one segment of the same pill,
  * rather than a second button competing with the preview header.
  */
@@ -1889,7 +1969,7 @@ fun TaskDetailSurface(
     onBack: () -> Unit = {},
     onSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> true },
     onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
-    onDelete: suspend () -> Boolean = { true },
+    onDelete: suspend (RecurrenceEditScope) -> Boolean = { true },
     onAddSubtask: () -> Unit = {},
     categories: List<String> = emptyList(),
     onOpenSubtask: (CalTask) -> Unit = {},
@@ -1916,6 +1996,9 @@ fun TaskDetailSurface(
     var pendingSave by remember(task.id) { mutableStateOf(false) }
     var pendingDelete by remember(task.id) { mutableStateOf(false) }
     var confirmingDelete by remember(task.id) { mutableStateOf(false) }
+    // A repeating task asks which part of the series to remove before it leaves.
+    var scopeSheetOpen by remember(task.id) { mutableStateOf(false) }
+    var deleteScope by remember(task.id) { mutableStateOf(RecurrenceEditScope.All) }
     var requestedDone by remember(task.id) { mutableStateOf<Boolean?>(null) }
     var savingNotes by remember(task.id) { mutableStateOf(false) }
     var editingNotes by remember(task.id) { mutableStateOf(false) }
@@ -1936,7 +2019,7 @@ fun TaskDetailSurface(
         if (!shown) {
             delay(220)
             if (pendingDelete) {
-                if (!onDelete()) {
+                if (!onDelete(deleteScope)) {
                     // The host's scrim remains composed while this surface is
                     // selected. Reopen it after a rejected write instead of
                     // leaving an invisible, full-window surface over the app.
@@ -1991,321 +2074,339 @@ fun TaskDetailSurface(
         shown = false
     }
 
-    BottomDetailCard(
-        visible = shown,
-        onDismiss = { dismiss(false) },
-        modifier = Modifier.fillMaxSize(),
-        dismissDistance = 980.dp,
-        canStartDismiss = { !detailScrollState.canScrollBackward },
-        // The event card's own gestures: a swipe down closes it in the side
-        // panel too, not only a swipe toward the edge.
-        allowDownwardDismissInEndPanel = true,
-        surfaceKind = CalinoSurfaceKind.TaskPreview,
-        handleColor = headerTint,
-        pill = {
-            val canSave = title.trim().isNotEmpty()
-            // Completion has its own action, so it does not count as an edit
-            // waiting to be saved.
-            val dirty = title != task.title ||
-                category != task.category.orEmpty() ||
-                notes != savedNotes ||
-                due != task.due ||
-                dueTime != task.dueTime ||
-                taskStart != task.startDate || taskStartTime != task.startTime ||
-                reminder != task.reminder ||
-                priority != task.priority ||
-                percentComplete != task.percentComplete
-            ModalActionPill(
-                addLabel = context.getString(R.string.ed_new_task),
-                morphFromAddPill = true,
-                inPillLane = true,
-                expanded = shown,
-                cancelLabel = context.getString(R.string.ed_cancel),
-                onCancel = { dismiss(false) },
-                cancelDescription = context.getString(R.string.ed_cancel_task_editing),
-                deleteLabel = context.getString(R.string.ed_delete),
-                onDelete = {
-                    pendingDelete = true
-                    confirmingDelete = false
-                    shown = false
-                },
-                deleteDescription = context.getString(R.string.ed_delete_task),
-                deleteConfirmationActive = confirmingDelete,
-                onDeleteConfirmationChange = { confirmingDelete = it },
-                deleteHoldToConfirm = true,
-                primaryLabel = context.getString(R.string.ed_save),
-                primaryTone = ModalPillActionTone.Save,
-                onPrimary = { dismiss(true) },
-                primaryEnabled = canSave,
-                primaryDescription = context.getString(R.string.ed_save_task),
-                secondaryLabel = if (done) context.getString(R.string.ed_mark_open) else context.getString(R.string.ed_mark_done),
-                onSecondary = {
-                    val nextDone = !done
-                    requestedDone = nextDone
-                    done = nextDone
-                    // Keep the richer progress model consistent with the
-                    // primary completion action before the delayed save takes
-                    // its snapshot. This also makes completion robust if the
-                    // boolean callback and NewTask payload are observed on
-                    // adjacent recomposition frames.
-                    percentComplete = if (nextDone) 100 else 0
-                    dismiss(true)
-                },
-                secondaryEnabled = canSave,
-                secondaryDescription = if (done) context.getString(R.string.ed_mark_task_open) else context.getString(R.string.ed_mark_task_done),
-                primaryVisible = dirty,
-            )
-        },
-    ) { detailModifier ->
-        Column(
-            detailModifier
-                .fillMaxSize()
-                .background(CalinoColors.Canvas),
-        ) {
-            HeroMasthead(headerTint) {
-                // Same shell as an event's: the category is the kicker above
-                // the title, and an empty kicker still holds its line open so
-                // every card's title starts at the same height.
-                val kicker = listOfNotNull(
-                    category.trim().takeIf { it.isNotEmpty() },
-                    context.getString(R.string.ed_repeating).takeIf { task.recurrence != null },
-                ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.uppercase(LocalCalinoLocale)
-                Column(Modifier.fillMaxWidth().padding(top = if (kicker == null) 14.dp else 0.dp)) {
-                    kicker?.let { Text(it, style = CalinoTypography.labelSmall, color = taskColor(task)) }
-                    BasicTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp, bottom = 6.dp)
-                            .semantics { contentDescription = context.getString(R.string.ed_task_title_label) },
-                        textStyle = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink),
-                        singleLine = true,
-                        decorationBox = { innerTextField ->
-                            Box {
-                                if (title.isBlank()) {
-                                    Text(context.getString(R.string.ed_add_task_title), style = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink3))
+    Box(Modifier.fillMaxSize()) {
+        BottomDetailCard(
+            visible = shown,
+            onDismiss = { dismiss(false) },
+            modifier = Modifier.fillMaxSize(),
+            dismissDistance = 980.dp,
+            canStartDismiss = { !detailScrollState.canScrollBackward },
+            // The event card's own gestures: a swipe down closes it in the side
+            // panel too, not only a swipe toward the edge.
+            allowDownwardDismissInEndPanel = true,
+            surfaceKind = CalinoSurfaceKind.TaskPreview,
+            handleColor = headerTint,
+            pill = {
+                val canSave = title.trim().isNotEmpty()
+                // Completion has its own action, so it does not count as an edit
+                // waiting to be saved.
+                val dirty = title != task.title ||
+                    category != task.category.orEmpty() ||
+                    notes != savedNotes ||
+                    due != task.due ||
+                    dueTime != task.dueTime ||
+                    taskStart != task.startDate || taskStartTime != task.startTime ||
+                    reminder != task.reminder ||
+                    priority != task.priority ||
+                    percentComplete != task.percentComplete
+                ModalActionPill(
+                    addLabel = context.getString(R.string.ed_new_task),
+                    morphFromAddPill = true,
+                    inPillLane = true,
+                    expanded = shown,
+                    cancelLabel = context.getString(R.string.ed_cancel),
+                    onCancel = { dismiss(false) },
+                    cancelDescription = context.getString(R.string.ed_cancel_task_editing),
+                    deleteLabel = context.getString(R.string.ed_delete),
+                    onDelete = {
+                        if (task.isRecurringTask()) {
+                            scopeSheetOpen = true
+                        } else {
+                            pendingDelete = true
+                            confirmingDelete = false
+                            shown = false
+                        }
+                    },
+                    deleteDescription = context.getString(R.string.ed_delete_task),
+                    deleteConfirmationActive = confirmingDelete,
+                    onDeleteConfirmationChange = { confirmingDelete = it },
+                    // The scope sheet is the confirmation for a series.
+                    deleteHoldToConfirm = !task.isRecurringTask(),
+                    primaryLabel = context.getString(R.string.ed_save),
+                    primaryTone = ModalPillActionTone.Save,
+                    onPrimary = { dismiss(true) },
+                    primaryEnabled = canSave,
+                    primaryDescription = context.getString(R.string.ed_save_task),
+                    secondaryLabel = if (done) context.getString(R.string.ed_mark_open) else context.getString(R.string.ed_mark_done),
+                    onSecondary = {
+                        val nextDone = !done
+                        requestedDone = nextDone
+                        done = nextDone
+                        // Keep the richer progress model consistent with the
+                        // primary completion action before the delayed save takes
+                        // its snapshot. This also makes completion robust if the
+                        // boolean callback and NewTask payload are observed on
+                        // adjacent recomposition frames.
+                        percentComplete = if (nextDone) 100 else 0
+                        dismiss(true)
+                    },
+                    secondaryEnabled = canSave,
+                    secondaryDescription = if (done) context.getString(R.string.ed_mark_task_open) else context.getString(R.string.ed_mark_task_done),
+                    primaryVisible = dirty,
+                )
+            },
+        ) { detailModifier ->
+            Column(
+                detailModifier
+                    .fillMaxSize()
+                    .background(CalinoColors.Canvas),
+            ) {
+                HeroMasthead(headerTint) {
+                    // Same shell as an event's: the category is the kicker above
+                    // the title, and an empty kicker still holds its line open so
+                    // every card's title starts at the same height.
+                    val kicker = listOfNotNull(
+                        category.trim().takeIf { it.isNotEmpty() },
+                        context.getString(R.string.ed_repeating).takeIf { task.recurrence != null },
+                    ).takeIf { it.isNotEmpty() }?.joinToString(" · ")?.uppercase(LocalCalinoLocale)
+                    Column(Modifier.fillMaxWidth().padding(top = if (kicker == null) 14.dp else 0.dp)) {
+                        kicker?.let { Text(it, style = CalinoTypography.labelSmall, color = taskColor(task)) }
+                        BasicTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp, bottom = 6.dp)
+                                .semantics { contentDescription = context.getString(R.string.ed_task_title_label) },
+                            textStyle = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink),
+                            singleLine = true,
+                            decorationBox = { innerTextField ->
+                                Box {
+                                    if (title.isBlank()) {
+                                        Text(context.getString(R.string.ed_add_task_title), style = CalinoTypography.headlineMedium.copy(color = CalinoColors.Ink3))
+                                    }
+                                    innerTextField()
                                 }
-                                innerTextField()
-                            }
+                            },
+                        )
+                    }
+                }
+                HorizontalDivider(color = taskColor(task).copy(alpha = .30f))
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(detailScrollState)
+                        .padding(horizontal = 18.dp),
+                ) {
+                    TaskRangeFields(
+                        start = taskStart, due = due,
+                        recurring = task.recurrence != null || task.recurrenceId != null || task.recurrenceDate != null,
+                        onStart = pickTaskStart,
+                        onDue = pickDueDate,
+                        onClearStart = { taskStart = null; taskStartTime = null },
+                        onWeek = {
+                            val first = (planningDate ?: today).startOfWeek(weekStart)
+                            taskStart = first; taskStartTime = null; due = first.plusDays(6); dueTime = null
+                        },
+                        picks = listOf(today to context.getString(R.string.ed_today), today.plusDays(1) to context.getString(R.string.ed_tomorrow), today.plusDays(7) to context.getString(R.string.ed_next_week)),
+                        onPick = { due = it },
+                        dueRow = { startAction ->
+                            TaskRow(
+                                icon = CalinoIcon.Calendar,
+                                text = due?.format(dateFormat) ?: context.getString(R.string.ed_add_due_date),
+                                set = due != null,
+                                description = context.getString(R.string.ed_choose_custom_due_date),
+                                onClick = pickDueDate,
+                                onClear = if (due != null) ({ due = null; dueTime = null; taskStart = null; taskStartTime = null }) else null,
+                                clearDescription = context.getString(R.string.ed_remove_due_date),
+                                trailing = { if (due != null) startAction() },
+                            )
                         },
                     )
-                }
-            }
-            HorizontalDivider(color = taskColor(task).copy(alpha = .30f))
-            Column(
-                Modifier
-                    .weight(1f)
-                    .verticalScroll(detailScrollState)
-                    .padding(horizontal = 18.dp),
-            ) {
-                TaskRangeFields(
-                    start = taskStart, due = due,
-                    recurring = task.recurrence != null || task.recurrenceId != null || task.recurrenceDate != null,
-                    onStart = pickTaskStart,
-                    onDue = pickDueDate,
-                    onClearStart = { taskStart = null; taskStartTime = null },
-                    onWeek = {
-                        val first = (planningDate ?: today).startOfWeek(weekStart)
-                        taskStart = first; taskStartTime = null; due = first.plusDays(6); dueTime = null
-                    },
-                    picks = listOf(today to context.getString(R.string.ed_today), today.plusDays(1) to context.getString(R.string.ed_tomorrow), today.plusDays(7) to context.getString(R.string.ed_next_week)),
-                    onPick = { due = it },
-                    dueRow = { startAction ->
-                        TaskRow(
-                            icon = CalinoIcon.Calendar,
-                            text = due?.format(dateFormat) ?: context.getString(R.string.ed_add_due_date),
-                            set = due != null,
-                            description = context.getString(R.string.ed_choose_custom_due_date),
-                            onClick = pickDueDate,
-                            onClear = if (due != null) ({ due = null; dueTime = null; taskStart = null; taskStartTime = null }) else null,
-                            clearDescription = context.getString(R.string.ed_remove_due_date),
-                            trailing = { if (due != null) startAction() },
-                        )
-                    },
-                )
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                TaskRow(
-                    icon = CalinoIcon.Clock,
-                    text = dueTime?.let { LocalTimeFormat.format(it, LocalCalinoLocale) } ?: context.getString(R.string.ed_add_due_time),
-                    set = dueTime != null,
-                    description = context.getString(R.string.ed_change_due_time),
-                    onClick = pickDueTime,
-                    onClear = if (dueTime != null) ({ dueTime = null }) else null,
-                    clearDescription = context.getString(R.string.ed_remove_due_time),
-                )
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Column {
-                    val chevron by animateFloatAsState(
-                        if (reminderOpen) 180f else 0f,
-                        CalinoMotion.expressiveSpatial(),
-                        label = "reminder chevron",
-                    )
-                    // The whole row is the control: value and chevron say what
-                    // it holds and that it opens, with no button inside it.
+                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                     TaskRow(
-                        icon = CalinoIcon.Bell,
-                        text = if (reminder != null) taskReminderSummary(context, reminder, LocalTimeFormat, LocalCalinoLocale) else context.getString(R.string.ed_add_reminder),
-                        set = reminder != null,
-                        description = context.getString(R.string.ed_change_task_reminder),
-                        onClick = { reminderOpen = !reminderOpen },
-                    ) {
-                        CalinoIcon(
-                            CalinoIcon.Down,
-                            tint = CalinoColors.Ink3,
-                            modifier = Modifier.size(18.dp).rotate(chevron),
-                            contentDescription = null,
+                        icon = CalinoIcon.Clock,
+                        text = dueTime?.let { LocalTimeFormat.format(it, LocalCalinoLocale) } ?: context.getString(R.string.ed_add_due_time),
+                        set = dueTime != null,
+                        description = context.getString(R.string.ed_change_due_time),
+                        onClick = pickDueTime,
+                        onClear = if (dueTime != null) ({ dueTime = null }) else null,
+                        clearDescription = context.getString(R.string.ed_remove_due_time),
+                    )
+                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                    Column {
+                        val chevron by animateFloatAsState(
+                            if (reminderOpen) 180f else 0f,
+                            CalinoMotion.expressiveSpatial(),
+                            label = "reminder chevron",
                         )
-                    }
-                    EditorReveal(reminderOpen) {
-                        Box(Modifier.padding(start = 38.dp, bottom = 12.dp)) {
-                            TaskReminderChips(reminder) { reminder = it }
+                        // The whole row is the control: value and chevron say what
+                        // it holds and that it opens, with no button inside it.
+                        TaskRow(
+                            icon = CalinoIcon.Bell,
+                            text = if (reminder != null) taskReminderSummary(context, reminder, LocalTimeFormat, LocalCalinoLocale) else context.getString(R.string.ed_add_reminder),
+                            set = reminder != null,
+                            description = context.getString(R.string.ed_change_task_reminder),
+                            onClick = { reminderOpen = !reminderOpen },
+                        ) {
+                            CalinoIcon(
+                                CalinoIcon.Down,
+                                tint = CalinoColors.Ink3,
+                                modifier = Modifier.size(18.dp).rotate(chevron),
+                                contentDescription = null,
+                            )
+                        }
+                        EditorReveal(reminderOpen) {
+                            Box(Modifier.padding(start = 38.dp, bottom = 12.dp)) {
+                                TaskReminderChips(reminder) { reminder = it }
+                            }
                         }
                     }
-                }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    label(context.getString(R.string.ed_priority))
-                    val priorities = listOf(0 to context.getString(R.string.ed_none), 1 to context.getString(R.string.ed_high), 5 to context.getString(R.string.ed_medium), 9 to context.getString(R.string.ed_low))
-                    CompactSegmentedControl(
-                        options = priorities.map { it.second },
-                        selectedIndex = priorities.indexOfFirst { it.first == priority }.coerceAtLeast(0),
-                        onSelected = { priority = priorities[it].first },
-                        modifier = Modifier.fillMaxWidth(),
-                        semanticLabel = context.getString(R.string.ed_priority),
-                    )
-                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        label(context.getString(R.string.ed_progress), Modifier.weight(1f))
-                        Text("$percentComplete%", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
-                    }
-                    CalinoProgressSlider(
-                        percent = percentComplete,
-                        onPercentChange = { percentComplete = it; done = it == 100 },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    task.recurrence?.let { Text(formatRecurrenceRule(context, it, task.due ?: today), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }
-                }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                val subtasks = tasks.filter { it.parentTaskId == task.id }
-                if (subtasks.isEmpty()) {
-                    // Same shape as the empty notes row: nothing to list, so
-                    // the whole row is the way to add one.
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 54.dp)
-                            .clickable(role = Role.Button, onClickLabel = context.getString(R.string.ed_add_subtask), onClick = onAddSubtask),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.width(38.dp)) {
-                            CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                    Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        label(context.getString(R.string.ed_priority))
+                        val priorities = listOf(0 to context.getString(R.string.ed_none), 1 to context.getString(R.string.ed_high), 5 to context.getString(R.string.ed_medium), 9 to context.getString(R.string.ed_low))
+                        CompactSegmentedControl(
+                            options = priorities.map { it.second },
+                            selectedIndex = priorities.indexOfFirst { it.first == priority }.coerceAtLeast(0),
+                            onSelected = { priority = priorities[it].first },
+                            modifier = Modifier.fillMaxWidth(),
+                            semanticLabel = context.getString(R.string.ed_priority),
+                        )
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            label(context.getString(R.string.ed_progress), Modifier.weight(1f))
+                            Text("$percentComplete%", style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                         }
-                        Text(context.getString(R.string.ed_add_subtask), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                        CalinoProgressSlider(
+                            percent = percentComplete,
+                            onPercentChange = { percentComplete = it; done = it == 100 },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        task.recurrence?.let { Text(formatRecurrenceRule(context, it, task.due ?: today), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }
                     }
-                } else {
-                    Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
-                        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                    val subtasks = tasks.filter { it.parentTaskId == task.id }
+                    if (subtasks.isEmpty()) {
+                        // Same shape as the empty notes row: nothing to list, so
+                        // the whole row is the way to add one.
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 54.dp)
+                                .clickable(role = Role.Button, onClickLabel = context.getString(R.string.ed_add_subtask), onClick = onAddSubtask),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Box(Modifier.width(38.dp)) {
                                 CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
                             }
-                            label(context.getString(R.string.ed_subtasks), Modifier.weight(1f))
-                            Text(
-                                context.resources.getQuantityString(R.plurals.ed_task_subtask_count, subtasks.size, subtasks.count { it.done }, subtasks.size),
-                                style = CalinoTypography.labelSmall,
-                                color = CalinoColors.Ink3,
-                            )
-                            IconButton(onClick = onAddSubtask, modifier = Modifier.size(44.dp)) {
-                                CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Accent, modifier = Modifier.size(20.dp), contentDescription = context.getString(R.string.ed_add_subtask))
+                            Text(context.getString(R.string.ed_add_subtask), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
+                        }
+                    } else {
+                        Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
+                            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.width(38.dp)) {
+                                    CalinoIcon(CalinoIcon.Check, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                                }
+                                label(context.getString(R.string.ed_subtasks), Modifier.weight(1f))
+                                Text(
+                                    context.resources.getQuantityString(R.plurals.ed_task_subtask_count, subtasks.size, subtasks.count { it.done }, subtasks.size),
+                                    style = CalinoTypography.labelSmall,
+                                    color = CalinoColors.Ink3,
+                                )
+                                IconButton(onClick = onAddSubtask, modifier = Modifier.size(44.dp)) {
+                                    CalinoIcon(CalinoIcon.Plus, tint = CalinoColors.Accent, modifier = Modifier.size(20.dp), contentDescription = context.getString(R.string.ed_add_subtask))
+                                }
+                            }
+                            subtasks.forEach { child ->
+                                SubtaskRow(child, onOpen = { onOpenSubtask(child) }, onToggle = { onToggleSubtask(child) })
                             }
                         }
-                        subtasks.forEach { child ->
-                            SubtaskRow(child, onOpen = { onOpenSubtask(child) }, onToggle = { onToggleSubtask(child) })
-                        }
                     }
-                }
-                HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                if (editingNotes) {
-                    CalinoMarkdownEditor(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                        label = context.getString(R.string.ed_task_notes),
-                        placeholder = context.getString(R.string.ed_add_task_notes),
-                    )
-                } else if (notes.isBlank()) {
-                    // An empty field is one row, not a four-line editor and its
-                    // Write/Preview toolbar; the editor opens on tap.
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 54.dp)
-                            .clickable(role = Role.Button, onClickLabel = context.getString(R.string.ed_add_task_notes)) { editingNotes = true },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.width(38.dp)) {
-                            CalinoIcon(CalinoIcon.Note, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                    if (editingNotes) {
+                        CalinoMarkdownEditor(
+                            value = notes,
+                            onValueChange = { notes = it },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                            label = context.getString(R.string.ed_task_notes),
+                            placeholder = context.getString(R.string.ed_add_task_notes),
+                        )
+                    } else if (notes.isBlank()) {
+                        // An empty field is one row, not a four-line editor and its
+                        // Write/Preview toolbar; the editor opens on tap.
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 54.dp)
+                                .clickable(role = Role.Button, onClickLabel = context.getString(R.string.ed_add_task_notes)) { editingNotes = true },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.width(38.dp)) {
+                                CalinoIcon(CalinoIcon.Note, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                            }
+                            Text(context.getString(R.string.ed_add_notes), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
                         }
-                        Text(context.getString(R.string.ed_add_notes), style = CalinoTypography.bodyLarge, color = CalinoColors.Ink3)
-                    }
-                } else {
-                    // Tapping the text edits it; the checkboxes inside keep
-                    // their own taps, so a list can still be ticked off.
-                    Box(
-                        Modifier.clickable(role = Role.Button, onClickLabel = context.getString(R.string.ed_edit_notes)) { editingNotes = true },
-                    ) {
-                        DetailRow(CalinoIcon.Note, context.getString(R.string.ed_notes), notes, markdown = true) { taskIndex, checked ->
-                            if (!savingNotes) {
-                                val before = notes
-                                val changed = toggleCalinoMarkdownTask(before, taskIndex, checked)
-                                if (changed != before) {
-                                    notes = changed
-                                    savingNotes = true
-                                    coroutineScope.launch {
-                                        val input = task.asUpdate().copy(notes = changed.trim().ifEmpty { null })
-                                        val saved = onInlineNotesSave(input, done)
-                                        savingNotes = false
-                                        if (saved) savedNotes = changed else notes = before
+                    } else {
+                        // Tapping the text edits it; the checkboxes inside keep
+                        // their own taps, so a list can still be ticked off.
+                        Box(
+                            Modifier.clickable(role = Role.Button, onClickLabel = context.getString(R.string.ed_edit_notes)) { editingNotes = true },
+                        ) {
+                            DetailRow(CalinoIcon.Note, context.getString(R.string.ed_notes), notes, markdown = true) { taskIndex, checked ->
+                                if (!savingNotes) {
+                                    val before = notes
+                                    val changed = toggleCalinoMarkdownTask(before, taskIndex, checked)
+                                    if (changed != before) {
+                                        notes = changed
+                                        savingNotes = true
+                                        coroutineScope.launch {
+                                            val input = task.asUpdate().copy(notes = changed.trim().ifEmpty { null })
+                                            val saved = onInlineNotesSave(input, done)
+                                            savingNotes = false
+                                            if (saved) savedNotes = changed else notes = before
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                // The editor's own single-choice pills, offered from the same
-                // list; a category the task already carries stays selectable
-                // even if it has since left that list.
-                val choices = remember(categories, task.category) {
-                    (categories + listOfNotNull(task.category?.takeIf { it.isNotBlank() })).distinct()
-                }
-                if (choices.isNotEmpty()) {
-                    HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
-                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                        Box(Modifier.width(38.dp).padding(top = 7.dp)) {
-                            CalinoIcon(CalinoIcon.Filter, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
-                        }
-                        FlowRow(
-                            Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
-                            verticalArrangement = Arrangement.spacedBy(7.dp),
-                        ) {
-                            choices.forEach { choice ->
-                                val on = choice == category
-                                CalinoChip(
-                                    text = choice,
-                                    selected = on,
-                                    description = context.getString(R.string.ed_choose_category),
-                                    semanticsRole = Role.RadioButton,
-                                    onClick = { category = if (on) "" else choice },
-                                )
+                    // The editor's own single-choice pills, offered from the same
+                    // list; a category the task already carries stays selectable
+                    // even if it has since left that list.
+                    val choices = remember(categories, task.category) {
+                        (categories + listOfNotNull(task.category?.takeIf { it.isNotBlank() })).distinct()
+                    }
+                    if (choices.isNotEmpty()) {
+                        HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                            Box(Modifier.width(38.dp).padding(top = 7.dp)) {
+                                CalinoIcon(CalinoIcon.Filter, tint = CalinoColors.Ink2, modifier = Modifier.size(22.dp), contentDescription = null)
+                            }
+                            FlowRow(
+                                Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp),
+                            ) {
+                                choices.forEach { choice ->
+                                    val on = choice == category
+                                    CalinoChip(
+                                        text = choice,
+                                        selected = on,
+                                        description = context.getString(R.string.ed_choose_category),
+                                        semanticsRole = Role.RadioButton,
+                                        onClick = { category = if (on) "" else choice },
+                                    )
+                                }
                             }
                         }
                     }
+                    // The floating pill overlaps the card, so reserve its lane as
+                    // scrollable content rather than as a fixed blank footer.
+                    Spacer(Modifier.height(CalinoSpacing.PillClearance))
                 }
-                // The floating pill overlaps the card, so reserve its lane as
-                // scrollable content rather than as a fixed blank footer.
-                Spacer(Modifier.height(CalinoSpacing.PillClearance))
             }
         }
+        TaskDeleteSheet(
+            task = task.takeIf { scopeSheetOpen },
+            onDismiss = { scopeSheetOpen = false },
+            onDelete = { _, scope ->
+                scopeSheetOpen = false
+                deleteScope = scope
+                pendingDelete = true
+                confirmingDelete = false
+                shown = false
+            },
+        )
     }
 }
 
@@ -3811,7 +3912,7 @@ fun TaskDetail(
     onBack: () -> Unit = {},
     onSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> true },
     onInlineNotesSave: suspend (NewTask, Boolean) -> Boolean = { _, _ -> false },
-    onDelete: suspend () -> Boolean = { true },
+    onDelete: suspend (RecurrenceEditScope) -> Boolean = { true },
     onAddSubtask: () -> Unit = {},
     categories: List<String> = emptyList(),
     onOpenSubtask: (CalTask) -> Unit = {},

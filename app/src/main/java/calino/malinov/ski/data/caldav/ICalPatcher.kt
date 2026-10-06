@@ -132,6 +132,21 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
         return if (remaining == 0) PatchRemoval.Emptied else PatchRemoval.Patched(write(calendar))
     }
 
+    /**
+     * True when removing [task] and everything after it would leave no
+     * occurrence at all, i.e. [task] is the series' first. The caller then
+     * deletes the resource instead of capping a master that would never fire.
+     */
+    fun futureDeleteRemovesSeries(originalIcs: String, uid: String, task: CalTask): Boolean {
+        val calendar = parseSingle(originalIcs) ?: return false
+        val master = calendar.todos.firstOrNull { it.uid?.value == uid && it.recurrenceId == null } ?: return false
+        val anchor = (master.dateStart ?: master.dateDue)?.value ?: return false
+        val target = task.recurrenceDate?.toTaskDateOnly()
+            ?: task.recurrenceId?.let { ICalDate(Date.from(it), true) }
+            ?: return false
+        return runCatching { recurrenceAtOrAfter(anchor, target) }.getOrDefault(false)
+    }
+
     /** Applies VTODO THIS/FUTURE deletion without ever splitting the UID resource. */
     fun deleteTaskRecurrence(
         originalIcs: String,
@@ -156,7 +171,7 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                 master.addProperty(dates)
             }
             calino.malinov.ski.data.model.RecurrenceEditScope.Future -> {
-                val old = master.recurrenceRule?.value?.toString() ?: return@patch null
+                val old = recurrenceRuleText(master) ?: return@patch null
                 val until = if (target.hasTime()) {
                     DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
                         .withZone(java.time.ZoneOffset.UTC).format(task.recurrenceId!!.minusMillis(1))
@@ -172,6 +187,19 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
             }
         }
         calendar
+    }
+
+    /** The RRULE value as it is written to the wire, the way the mapper reads it back. */
+    private fun recurrenceRuleText(todo: VTodo): String? {
+        if (todo.recurrenceRule == null) return null
+        val calendar = ICalendar().also { it.addComponent(todo.copy()) }
+        return write(calendar)
+            .replace("\r\n ", "")
+            .lineSequence()
+            .firstOrNull { it.startsWith("RRULE:", ignoreCase = true) }
+            ?.substringAfter(':')
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
     }
 
     private fun sameRecurrence(left: ICalDate?, right: ICalDate): Boolean = when {
