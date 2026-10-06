@@ -274,6 +274,7 @@
     <string name="ed_reminder_chevron">Påmindelsesindstillinger</string>
     <string name="ed_add_reminder">Tilføj påmindelse</string>
     <string name="ed_change_task_reminder">Skift opgavepåmindelse</string>
+    <string name="ed_change_task_repeat">Skift opgavens gentagelse</string>
     <string name="ed_priority">Prioritet</string>
     <string name="ed_none">Ingen</string>
     <string name="ed_high">Høj</string>
@@ -448,6 +449,9 @@
     <string name="ed_repeat_yearly">Årligt</string>
     <string name="ed_repeat_on_day">Gentag den %1$s</string>
     <string name="ed_repeat_ends">Slutter</string>
+    <string name="ed_repeat_remove_end">Fjern slutdato</string>
+    <string name="ed_repeat_series_note">Ændringer gælder hele serien.</string>
+    <string name="ed_repeat_custom_note">Denne regel har særlige dele. Ændres den, erstattes de.</string>
     <string name="ed_repeat_apply_changes">Anvend ændringer på</string>
     <string name="ed_repeat_this_task">Denne opgave</string>
     <string name="ed_repeat_this_event">Denne begivenhed</string>

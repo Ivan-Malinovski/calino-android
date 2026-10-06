@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -1151,37 +1152,58 @@ private fun DescriptionSection(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit, pickUntil: () -> Unit) {
+    RecurrenceRuleEditor(
+        rule = draft.recurrence,
+        anchor = draft.date,
+        onRule = { onDraft(draft.copy(recurrence = it, recurrenceChanged = true)) },
+        pickUntil = pickUntil,
+    )
+}
+
+/**
+ * The repeat controls, independent of what is being edited: frequency, weekdays
+ * and an end date. [allowNever] is off where turning repeat off has another
+ * meaning (an existing series ends with an end date or a delete, not by
+ * silently becoming a single task on its first date).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun RecurrenceRuleEditor(
+    rule: String?,
+    anchor: LocalDate,
+    onRule: (String?) -> Unit,
+    pickUntil: () -> Unit,
+    allowNever: Boolean = true,
+    showLabel: Boolean = true,
+) {
     val context = LocalContext.current
     val editorDateFormat = localizedDateFormatter("EEE, d MMM")
-    val freq = recurrenceFreqOf(draft.recurrence) ?: RecurrenceFreq.Weekly
-    val days = recurrenceDaysOf(draft.recurrence)
+    val freq = recurrenceFreqOf(rule) ?: RecurrenceFreq.Weekly
+    // A weekly rule without BYDAY repeats on the anchor's weekday; show that day
+    // as chosen so removing it is possible and adding another keeps it.
+    val days = recurrenceDaysOf(rule).ifEmpty { if (freq == RecurrenceFreq.Weekly) setOf(anchor.dayOfWeek) else emptySet() }
+    val until = untilOf(rule)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        EditorLabel(stringResource(R.string.ed_editor_repeat))
+        if (showLabel) EditorLabel(stringResource(R.string.ed_editor_repeat))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            CalinoChip(
-                text = stringResource(R.string.ed_repeat_never),
-                selected = draft.recurrence == null,
-                description = stringResource(R.string.ed_repeat_do_not),
-                semanticsRole = Role.RadioButton,
-                onClick = { onDraft(draft.copy(recurrence = null, recurrenceChanged = true)) },
-            )
+            if (allowNever) {
+                CalinoChip(
+                    text = stringResource(R.string.ed_repeat_never),
+                    selected = rule == null,
+                    description = stringResource(R.string.ed_repeat_do_not),
+                    semanticsRole = Role.RadioButton,
+                    onClick = { onRule(null) },
+                )
+            }
             RecurrenceFreq.entries.forEach { entry ->
                 CalinoChip(
                     text = recurrenceFrequencyName(entry),
-                    selected = entry == freq,
+                    selected = rule != null && entry == freq,
                     description = stringResource(R.string.ed_repeat_frequency_description, recurrenceFrequencyName(entry).lowercase(LocalCalinoLocale)),
                     semanticsRole = Role.RadioButton,
-                    onClick = {
-                        onDraft(
-                            draft.copy(
-                                recurrence = recurrenceRule(entry, days, untilOf(draft.recurrence)),
-                                recurrenceChanged = true,
-                            ),
-                        )
-                    },
+                    onClick = { onRule(recurrenceRule(entry, if (entry == RecurrenceFreq.Weekly) days.ifEmpty { setOf(anchor.dayOfWeek) } else days, until)) },
                 )
             }
         }
@@ -1196,16 +1218,7 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
                         semanticsRole = Role.Checkbox,
                         onClick = {
                             val next = if (on) days - day else days + day
-                            onDraft(
-                                draft.copy(
-                                    recurrence = recurrenceRule(
-                                        RecurrenceFreq.Weekly,
-                                        next.ifEmpty { setOf(draft.date.dayOfWeek) },
-                                        untilOf(draft.recurrence),
-                                    ),
-                                    recurrenceChanged = true,
-                                ),
-                            )
+                            onRule(recurrenceRule(RecurrenceFreq.Weekly, next.ifEmpty { setOf(anchor.dayOfWeek) }, until))
                         },
                     )
                 }
@@ -1214,10 +1227,26 @@ private fun RecurrenceEditor(draft: EditorDraft, onDraft: (EditorDraft) -> Unit,
         EditorValueRow(
             icon = calino.malinov.ski.ui.components.CalinoIcon.Calendar,
             label = stringResource(R.string.ed_repeat_ends),
-            value = untilOf(draft.recurrence)?.format(editorDateFormat) ?: stringResource(R.string.ed_repeat_never),
+            value = until?.format(editorDateFormat) ?: stringResource(R.string.ed_repeat_never),
             onClick = pickUntil,
+            trailing = {
+                if (until != null) {
+                    Text(
+                        stringResource(R.string.ed_clear),
+                        style = CalinoTypography.bodyMedium,
+                        color = CalinoColors.Ink2,
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ed_repeat_remove_end), onClick = {
+                                onRule(recurrenceRule(freq, days, null))
+                            })
+                            .wrapContentHeight(Alignment.CenterVertically)
+                            .padding(horizontal = 12.dp),
+                    )
+                }
+            },
         )
-        Text(formatRecurrenceRule(context, draft.recurrence, draft.date), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+        Text(formatRecurrenceRule(context, rule, anchor), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
     }
 }
 

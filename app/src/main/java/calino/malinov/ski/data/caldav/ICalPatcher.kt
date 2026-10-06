@@ -109,6 +109,19 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
                 originalCompleted?.let(written::addProperty)
                 written.getComponents(VAlarm::class.java).toList().forEach(written::removeComponent)
                 originalAlarms.forEach(written::addComponent)
+                // RFC 5545: UNTIL must match the type of DTSTART. The editor
+                // always speaks UTC date-times, so a date-based series gets the
+                // date part (the editor's UNTIL is the end of the chosen day).
+                if (task.recurrenceChanged && (originalStart ?: originalDue)?.value?.hasTime() == false) {
+                    recurrenceRuleText(written)
+                        ?.takeIf { Regex("UNTIL=\\d{8}T", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+                        ?.replace(Regex("(UNTIL=\\d{8})T\\d{6}Z?", RegexOption.IGNORE_CASE), "$1")
+                        ?.let(ICalWriter::parseRecurrenceRule)
+                        ?.let {
+                            written.removeProperties(RecurrenceRule::class.java)
+                            written.addProperty(it)
+                        }
+                }
             }
             if (existing == null) calendar.addComponent(written)
             calendar

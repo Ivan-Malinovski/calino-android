@@ -376,6 +376,33 @@ class ICalPatcherTest {
         assertFalse(patcher.futureDeleteRemovesSeries(dueOnly, "bins", occurrence(LocalDate.of(2026, 3, 11))))
     }
 
+    private fun repeatEdit(day: LocalDate, rule: String?) = patcher.patchTask(
+        weeklyTask,
+        occurrenceOn(day).copy(recurrence = rule, recurrenceChanged = true, recurrenceScope = RecurrenceEditScope.All),
+        java.time.Instant.parse("2026-03-01T00:00:00Z"),
+    )!!
+
+    @Test
+    fun `changing the repeat days of an occurrence rewrites the series and keeps its anchor`() {
+        val patched = repeatEdit(LocalDate.of(2026, 3, 10), "FREQ=WEEKLY;BYDAY=TU,TH")
+
+        assertTrue(patched, patched.contains("BYDAY=TU,TH"))
+        assertTrue(patched, patched.contains("DTSTART;VALUE=DATE:20260303"))
+        assertEquals(1, Regex("BEGIN:VTODO").findAll(patched).count())
+    }
+
+    @Test
+    fun `ending a date-based series writes a date UNTIL`() {
+        val patched = repeatEdit(LocalDate.of(2026, 3, 10), "FREQ=WEEKLY;BYDAY=TU;UNTIL=20260320T235959Z")
+
+        assertTrue(patched, patched.contains("UNTIL=20260320") && !patched.contains("UNTIL=20260320T"))
+        val due = mapper.parse(
+            patched, "cal", 1L, "gym.ics",
+            windowStart = LocalDate.of(2026, 3, 1), windowEnd = LocalDate.of(2026, 4, 30),
+        ).tasks.map { it.due }
+        assertEquals(listOf(LocalDate.of(2026, 3, 3), LocalDate.of(2026, 3, 10), LocalDate.of(2026, 3, 17)), due)
+    }
+
     @Test
     fun `all-scope title edit from completed occurrence does not complete master`() {
         val resource = ics(

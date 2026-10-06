@@ -166,6 +166,10 @@ import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.EditorDraft
 import calino.malinov.ski.data.model.blankEditorDraft
 import calino.malinov.ski.data.model.RecurrenceEditScope
+import calino.malinov.ski.data.model.RecurrenceFreq
+import calino.malinov.ski.data.model.recurrenceDaysOf
+import calino.malinov.ski.data.model.recurrenceFreqOf
+import calino.malinov.ski.data.model.recurrenceRule
 import calino.malinov.ski.util.formatRecurrenceRule
 import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.repository.asUpdate
@@ -1845,6 +1849,15 @@ fun EventDeleteSheet(
     }
 }
 
+/** True when [rule] has parts the repeat editor cannot show (interval, count, month day...). */
+private fun hasCustomRepeatParts(rule: String): Boolean {
+    val known = setOf("FREQ", "BYDAY", "UNTIL")
+    return rule.removePrefix("RRULE:").split(';').any { part ->
+        val key = part.substringBefore('=').uppercase()
+        key.isNotEmpty() && key !in known && !(key == "INTERVAL" && part.substringAfter('=') == "1")
+    }
+}
+
 /**
  * The scope a task's delete should open on. One occurrence defaults to
  * [RecurrenceEditScope.This], so confirming without choosing never removes more
@@ -1989,6 +2002,9 @@ fun TaskDetailSurface(
     var dueTime by remember(task.id) { mutableStateOf(task.dueTime) }
     var reminder by remember(task.id) { mutableStateOf(task.reminder) }
     var reminderOpen by remember(task.id) { mutableStateOf(false) }
+    // A repeating task edits its rule for the whole series; a one-off has none.
+    var recurrence by remember(task.id) { mutableStateOf(task.recurrence) }
+    var repeatOpen by remember(task.id) { mutableStateOf(false) }
     var done by remember(task.id) { mutableStateOf(task.done) }
     var priority by remember(task.id) { mutableIntStateOf(task.priority) }
     var percentComplete by remember(task.id) { mutableIntStateOf(task.percentComplete) }
@@ -2013,6 +2029,14 @@ fun TaskDetailSurface(
     val pickDueTime = rememberTimePicker({ dueTime }, title = stringResource(R.string.ed_editor_due)) { picked ->
         if (due == null) due = today
         dueTime = picked
+    }
+    val repeatAnchor = task.recurrenceDate ?: task.due ?: today
+    val pickRepeatEnd = rememberDatePicker({ repeatAnchor.plusMonths(3) }) { picked ->
+        recurrence = recurrenceRule(
+            recurrenceFreqOf(recurrence) ?: RecurrenceFreq.Weekly,
+            recurrenceDaysOf(recurrence),
+            picked,
+        )
     }
 
     LaunchedEffect(shown) {
@@ -2047,7 +2071,7 @@ fun TaskDetailSurface(
                         percentComplete = if (savedDone) 100 else percentComplete.coerceAtMost(99),
                         status = if (savedDone) "COMPLETED" else if (percentComplete > 0) "IN-PROCESS" else "NEEDS-ACTION",
                         completedAt = task.completedAt,
-                        recurrence = task.recurrence,
+                        recurrence = recurrence,
                         uid = task.uid,
                         href = task.href,
                         etag = task.etag,
@@ -2056,6 +2080,7 @@ fun TaskDetailSurface(
                         recurrenceId = task.recurrenceId,
                         recurrenceDate = task.recurrenceDate,
                         sequence = task.sequence,
+                        recurrenceChanged = recurrence != task.recurrence,
                     ),
                     savedDone,
                 )
@@ -2097,6 +2122,7 @@ fun TaskDetailSurface(
                     dueTime != task.dueTime ||
                     taskStart != task.startDate || taskStartTime != task.startTime ||
                     reminder != task.reminder ||
+                    recurrence != task.recurrence ||
                     priority != task.priority ||
                     percentComplete != task.percentComplete
                 ModalActionPill(
@@ -2253,6 +2279,49 @@ fun TaskDetailSurface(
                         }
                     }
                     HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                    if (task.recurrence != null) {
+                        Column {
+                            val repeatChevron by animateFloatAsState(
+                                if (repeatOpen) 180f else 0f,
+                                CalinoMotion.expressiveSpatial(),
+                                label = "repeat chevron",
+                            )
+                            TaskRow(
+                                icon = CalinoIcon.Repeat,
+                                text = formatRecurrenceRule(context, recurrence, repeatAnchor),
+                                set = true,
+                                description = context.getString(R.string.ed_change_task_repeat),
+                                onClick = { repeatOpen = !repeatOpen },
+                            ) {
+                                CalinoIcon(
+                                    CalinoIcon.Down,
+                                    tint = CalinoColors.Ink3,
+                                    modifier = Modifier.size(18.dp).rotate(repeatChevron),
+                                    contentDescription = null,
+                                )
+                            }
+                            EditorReveal(repeatOpen) {
+                                Column(
+                                    Modifier.padding(start = 38.dp, bottom = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    RecurrenceRuleEditor(
+                                        rule = recurrence,
+                                        anchor = repeatAnchor,
+                                        onRule = { recurrence = it },
+                                        pickUntil = pickRepeatEnd,
+                                        allowNever = false,
+                                        showLabel = false,
+                                    )
+                                    if (task.recurrence?.let(::hasCustomRepeatParts) == true) {
+                                        Text(context.getString(R.string.ed_repeat_custom_note), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                                    }
+                                    Text(context.getString(R.string.ed_repeat_series_note), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
+                    }
                     Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         label(context.getString(R.string.ed_priority))
                         val priorities = listOf(0 to context.getString(R.string.ed_none), 1 to context.getString(R.string.ed_high), 5 to context.getString(R.string.ed_medium), 9 to context.getString(R.string.ed_low))
@@ -2272,7 +2341,6 @@ fun TaskDetailSurface(
                             onPercentChange = { percentComplete = it; done = it == 100 },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        task.recurrence?.let { Text(formatRecurrenceRule(context, it, task.due ?: today), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }
                     }
                     HorizontalDivider(color = CalinoColors.Ink.copy(.08f))
                     val subtasks = tasks.filter { it.parentTaskId == task.id }

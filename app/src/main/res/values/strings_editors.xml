@@ -278,6 +278,9 @@
     <string name="ed_repeat_yearly">Yearly</string>
     <string name="ed_repeat_on_day">Repeat on %1$s</string>
     <string name="ed_repeat_ends">Ends</string>
+    <string name="ed_repeat_remove_end">Remove end date</string>
+    <string name="ed_repeat_series_note">Changes apply to the whole series.</string>
+    <string name="ed_repeat_custom_note">This rule has custom parts. Changing it replaces them.</string>
     <string name="ed_repeat_apply_changes">Apply changes to</string>
     <string name="ed_repeat_this_task">This task</string>
     <string name="ed_repeat_this_event">This event</string>
@@ -417,6 +420,7 @@
     <string name="ed_reminder_chevron">Reminder options</string>
     <string name="ed_add_reminder">Add reminder</string>
     <string name="ed_change_task_reminder">Change task reminder</string>
+    <string name="ed_change_task_repeat">Change task repeat</string>
     <string name="ed_priority">Priority</string>
     <string name="ed_none">None</string>
     <string name="ed_high">High</string>
