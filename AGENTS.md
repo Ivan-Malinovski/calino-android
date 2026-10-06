@@ -19,6 +19,7 @@ Before substantial work, read [`HANDOFF.md`](HANDOFF.md) for current behavior, a
 - Wear OS uses only the local Data Layer. The phone stays authoritative; the watch gets no direct network/DAV access, credentials, contacts, journals, or reminder ownership. See `docs/wear-companion.md`.
 - The release application ID is `calino.malinov.ski`. Changing it requires an explicit migration/release task.
 - Never commit credentials, local environment files, keystores, generated build output, `.gradle/`, `.kotlin/`, or `local.properties`. Do not edit sibling Calino checkouts or the old `android-native-poc` copy.
+- The release signing key and its passwords are backed up in the Bitwarden vault item `Calino Android release signing key`, restored with `bw` (not `bws`). If `keystore/` is missing, follow the restore steps in `HANDOFF.md` before building a release; never generate a replacement key, because it cannot update the installed app.
 
 ## Shared state and data ownership
 
