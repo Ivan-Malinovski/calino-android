@@ -348,8 +348,19 @@ class FixtureRepository : CalinoRepository {
     }
 
     override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
-        if (snapshot().tasks.none { it.id == id }) return WriteResult.Applied(Unit)
-        update { current -> current.copy(tasks = current.tasks.filterNot { it.id == id }) }
+        val target = snapshot().tasks.firstOrNull { it.id == id } ?: return WriteResult.Applied(Unit)
+        // A fixture series is one row per occurrence, so a scope is a filter
+        // over the rows that share this one's series.
+        val series = target.recurrenceDate?.let { target.id.substringBefore('@') }
+        val removed: (CalTask) -> Boolean = { task ->
+            when {
+                series == null || task.id.substringBefore('@') != series -> task.id == id
+                scope == RecurrenceEditScope.All -> true
+                scope == RecurrenceEditScope.Future -> task.recurrenceDate?.isBefore(target.recurrenceDate) == false
+                else -> task.id == id
+            }
+        }
+        update { current -> current.copy(tasks = current.tasks.filterNot(removed)) }
         return WriteResult.Applied(Unit)
     }
 
@@ -738,6 +749,30 @@ private fun fixtureTasks(): List<CalTask> {
         // stand-in parent row exists for: subtasks on a day the parent is not.
         CalTask("task-ferry", "Book the ferry", Green, day.plusDays(2), category = "Travel", parentTaskId = "task-weekend"),
         CalTask("task-pack", "Pack the wetsuits", Green, day.plusDays(2), parentTaskId = "task-weekend"),
+    ) +
+        // Sample repeating tasks. Connected mode hands out one record per
+        // occurrence, so the sample does too: the series has no row of its own.
+        fixtureRepeatingTask(
+            "task-plants", "Water the plants", Green, "FREQ=WEEKLY;BYDAY=MO,TH", "Personal",
+            listOf(day.plusDays(3), day.plusDays(7), day.plusDays(10), day.plusDays(14)),
+        ) +
+        fixtureRepeatingTask(
+            "task-review", "Weekly review", Plum, "FREQ=WEEKLY;BYDAY=FR", "Work",
+            listOf(day.plusDays(4), day.plusDays(11)),
+        )
+}
+
+private fun fixtureRepeatingTask(
+    uid: String,
+    title: String,
+    color: Long,
+    rule: String,
+    category: String,
+    dates: List<LocalDate>,
+): List<CalTask> = dates.map { date ->
+    CalTask(
+        id = "$uid@$date", title = title, color = color, due = date, category = category,
+        uid = uid, recurrence = rule, recurrenceDate = date, recurrenceScope = RecurrenceEditScope.This,
     )
 }
 

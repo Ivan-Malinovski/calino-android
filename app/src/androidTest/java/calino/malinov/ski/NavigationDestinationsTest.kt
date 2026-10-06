@@ -174,7 +174,7 @@ class NavigationDestinationsTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Upcoming tasks in sidebar").performClick()
         compose.waitForIdle()
 
-        compose.onNodeWithContentDescription("Buy flowers, Personal")
+        compose.onNodeWithContentDescription("Review Q1 goals, Work")
             .performScrollTo()
             .performClick()
         compose.waitForIdle()
