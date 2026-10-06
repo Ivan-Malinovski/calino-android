@@ -51,9 +51,13 @@ fun formatRecurrenceRule(context: Context, recurrence: String?, anchor: LocalDat
             else context.getString(R.string.fmt_year_date, anchor.format(dateFormat))
         else -> return context.getString(R.string.fmt_repeating_event)
     }
-    return parseRecurrenceUntil(fields["UNTIL"])?.let {
-        context.getString(R.string.fmt_until, frequency, it.format(dateFormat))
-    } ?: frequency
+    parseRecurrenceUntil(fields["UNTIL"])?.let {
+        return context.getString(R.string.fmt_until, frequency, it.format(dateFormat))
+    }
+    fields["COUNT"]?.toIntOrNull()?.takeIf { it > 0 }?.let {
+        return context.resources.getQuantityString(R.plurals.fmt_repeat_times, it, frequency, it)
+    }
+    return frequency
 }
 
 /** Undo copy is presentation; the repository's reversible mutation stays locale-independent. */

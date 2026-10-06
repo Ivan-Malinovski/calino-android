@@ -1733,9 +1733,9 @@ private fun DeleteScopeButton(label: String, onClick: () -> Unit, modifier: Modi
     }
 }
 
-/** True when [rule] has parts the repeat editor cannot show (interval, count, month day...). */
+/** True when [rule] has parts the repeat editor cannot show (interval, month day...). */
 private fun hasCustomRepeatParts(rule: String): Boolean {
-    val known = setOf("FREQ", "BYDAY", "UNTIL")
+    val known = setOf("FREQ", "BYDAY", "UNTIL", "COUNT")
     return rule.removePrefix("RRULE:").split(';').any { part ->
         val key = part.substringBefore('=').uppercase()
         key.isNotEmpty() && key !in known && !(key == "INTERVAL" && part.substringAfter('=') == "1")

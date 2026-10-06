@@ -12,6 +12,10 @@
     <string name="fmt_year_date">Every year on %1$s</string>
     <string name="fmt_repeating_event">Repeating event</string>
     <string name="fmt_until">%1$s until %2$s</string>
+    <plurals name="fmt_repeat_times">
+        <item quantity="one">%1$s, %2$d time</item>
+        <item quantity="other">%1$s, %2$d times</item>
+    </plurals>
     <string name="fmt_completed">Completed %1$s</string>
     <string name="fmt_reopened">Reopened %1$s</string>
     <string name="fmt_rescheduled">Rescheduled %1$s to %2$s</string>

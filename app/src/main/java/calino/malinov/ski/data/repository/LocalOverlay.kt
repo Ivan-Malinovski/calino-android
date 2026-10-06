@@ -68,7 +68,24 @@ internal class LocalOverlay {
         merge(base, events) { it.id }.without(deletedEvents) { it.id }
 
     fun applyToTasks(base: List<CalTask>): List<CalTask> =
-        merge(base, tasks) { it.id }.without(deletedTasks) { it.id }
+        merge(base, tasks.supersededBy(base)) { it.id }.without(deletedTasks) { it.id }
+
+    /**
+     * A one-off that was just made to repeat is saved under its own id, but the
+     * server copy is expanded into per-occurrence ids. Once those exist, the
+     * local master row would show the first occurrence twice, so it steps aside.
+     */
+    private fun Map<String, CalTask>.supersededBy(server: List<CalTask>): Map<String, CalTask> {
+        if (isEmpty()) return this
+        val seriesUids = server.mapNotNullTo(HashSet()) { task -> task.uid.takeIf { task.recurrence != null } }
+        if (seriesUids.isEmpty()) return this
+        val serverIds = server.mapTo(HashSet()) { it.id }
+        return filterValues { local -> !local.isSupersededMaster(seriesUids, serverIds) }
+    }
+
+    private fun CalTask.isSupersededMaster(seriesUids: Set<String>, serverIds: Set<String>): Boolean =
+        recurrence != null && recurrenceDate == null && recurrenceId == null &&
+            id !in serverIds && uid != null && uid in seriesUids
 
     fun applyToJournals(base: List<JournalEntry>): List<JournalEntry> =
         merge(base, journals) { it.id }.without(deletedJournals) { it.id }
@@ -237,9 +254,12 @@ internal class LocalOverlay {
             local.id !in guardedIds &&
                 serverEvents.firstOrNull { it.id == local.id }?.sameContent(local) == true
         }
+        val seriesUids = serverTasks.mapNotNullTo(HashSet()) { task -> task.uid.takeIf { task.recurrence != null } }
+        val serverTaskIds = serverTasks.mapTo(HashSet()) { it.id }
         tasks.entries.removeIf { (_, local) ->
             local.id !in guardedIds &&
-                serverTasks.firstOrNull { it.id == local.id }?.sameContent(local) == true
+                (serverTasks.firstOrNull { it.id == local.id }?.sameContent(local) == true ||
+                    local.isSupersededMaster(seriesUids, serverTaskIds))
         }
         journals.entries.removeIf { (_, local) ->
             local.id !in guardedIds &&

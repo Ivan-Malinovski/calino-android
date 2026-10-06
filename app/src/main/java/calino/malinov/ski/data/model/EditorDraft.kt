@@ -424,14 +424,29 @@ fun editorDraftFor(entry: JournalEntry): EditorDraft = EditorDraft(
 private val UntilFormat = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'", Locale.US)
 
 /** Builds the RRULE subset `occursOn` and `nextOccurrences` understand. */
-fun recurrenceRule(freq: RecurrenceFreq, byDays: Set<DayOfWeek> = emptySet(), until: LocalDate? = null): String =
+fun recurrenceRule(
+    freq: RecurrenceFreq,
+    byDays: Set<DayOfWeek> = emptySet(),
+    until: LocalDate? = null,
+    count: Int? = null,
+): String =
     buildString {
         append("FREQ=").append(freq.name.uppercase(Locale.US))
         if (freq == RecurrenceFreq.Weekly && byDays.isNotEmpty()) {
             append(";BYDAY=").append(byDays.sorted().joinToString(",", transform = ::dayCode))
         }
+        // A rule ends by date or by count, never both (RFC 5545).
         if (until != null) append(";UNTIL=").append(until.atTime(23, 59, 59).format(UntilFormat))
+        else if (count != null) append(";COUNT=").append(count.coerceAtLeast(1))
     }
+
+/** The number of occurrences a rule is capped at, or null when it is not capped by count. */
+fun recurrenceCountOf(rule: String?): Int? = rule
+    ?.uppercase(Locale.US)
+    ?.split(';')
+    ?.firstNotNullOfOrNull { part -> part.removePrefix("COUNT=").takeIf { it != part } }
+    ?.toIntOrNull()
+    ?.takeIf { it > 0 }
 
 fun recurrenceFreqOf(rule: String?): RecurrenceFreq? {
     val value = rule?.uppercase(Locale.US)?.split(';')?.firstNotNullOfOrNull { part ->

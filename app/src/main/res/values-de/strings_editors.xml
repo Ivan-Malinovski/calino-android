@@ -449,7 +449,17 @@
     <string name="ed_repeat_yearly">Jährlich</string>
     <string name="ed_repeat_on_day">Am %1$s wiederholen</string>
     <string name="ed_repeat_ends">Endet</string>
-    <string name="ed_repeat_remove_end">Enddatum entfernen</string>
+    <string name="ed_repeat_ends_on_date">An einem Datum</string>
+    <string name="ed_repeat_ends_after">Nach</string>
+    <string name="ed_repeat_ends_never">Endet nie</string>
+    <string name="ed_repeat_ends_on_date_description">Endet an einem Datum</string>
+    <string name="ed_repeat_ends_after_description">Endet nach einer Anzahl von Malen</string>
+    <string name="ed_repeat_fewer">Ein Mal weniger</string>
+    <string name="ed_repeat_more">Ein Mal mehr</string>
+    <plurals name="ed_repeat_times">
+        <item quantity="one">%d Mal</item>
+        <item quantity="other">%d Mal</item>
+    </plurals>
     <string name="ed_repeat_series_note">Änderungen gelten für die ganze Serie.</string>
     <string name="ed_repeat_custom_note">Diese Regel hat benutzerdefinierte Teile. Eine Änderung ersetzt sie.</string>
     <string name="ed_repeat_apply_changes">Änderungen anwenden auf</string>

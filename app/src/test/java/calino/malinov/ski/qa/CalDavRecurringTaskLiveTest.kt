@@ -190,8 +190,27 @@ class CalDavRecurringTaskLiveTest {
         assertEquals(1, Regex("BEGIN:VTODO").findAll(text).count())
         val due = tasks().mapNotNull { it.due }.sorted()
         assertTrue(due.size > 20)
+        assertEquals("the first occurrence must not be listed twice", due.distinct(), due)
         assertEquals(LocalDate.of(2026, 3, 3), due.first())
         assertTrue(due.contains(LocalDate.of(2026, 3, 10)))
+    }
+
+    @Test
+    fun `a repeat capped by count yields exactly that many tasks`() = withSeries(rrule = null) {
+        val oneOff = tasks().single()
+        val result = repository.updateTask(
+            oneOff.id,
+            oneOff.asUpdate().copy(recurrence = "FREQ=WEEKLY;BYDAY=TU;COUNT=4", recurrenceChanged = true),
+            oneOff.done,
+        )
+        assertTrue(result.toString(), result is WriteResult.Applied)
+        sync()
+        val text = server()
+        assertTrue(text, text.contains("COUNT=4"))
+        assertEquals(
+            listOf(3, 10, 17, 24).map { LocalDate.of(2026, 3, it) },
+            tasks().mapNotNull { it.due }.sorted(),
+        )
     }
 
     private companion object {
