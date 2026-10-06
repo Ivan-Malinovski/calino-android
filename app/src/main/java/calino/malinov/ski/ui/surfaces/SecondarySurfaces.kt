@@ -1359,26 +1359,23 @@ private fun EventDetailContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(context.getString(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    eventDeleteScopes(event).forEach { option ->
-                        val label = when (option) {
-                            RecurrenceEditScope.This -> context.getString(R.string.ed_this_event)
-                            RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
-                            RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
-                        }
-                        CalinoChip(
-                            label,
-                            deleteScope == option,
-                            context.getString(R.string.ed_delete_scope, label),
-                            semanticsRole = Role.RadioButton,
-                            onClick = {
-                                deleteScope = option
-                                // Answering the scope question is what hands
-                                // the pill its confirmation.
-                                deleteStage = EventDeleteStage.Confirm
-                            },
-                        )
+                eventDeleteScopes(event).forEach { option ->
+                    val label = when (option) {
+                        RecurrenceEditScope.This -> context.getString(R.string.ed_this_event)
+                        RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
+                        RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
                     }
+                    DeleteScopeButton(
+                        label = label,
+                        selected = deleteStage == EventDeleteStage.Confirm && deleteScope == option,
+                        modifier = Modifier.testTag("event-delete-${option.name.lowercase()}"),
+                        onClick = {
+                            deleteScope = option
+                            // Answering the scope question is what hands
+                            // the pill its confirmation.
+                            deleteStage = EventDeleteStage.Confirm
+                        },
+                    )
                 }
             }
         }
@@ -1743,109 +1740,33 @@ fun eventDetailReadOnly(hostReadOnly: Boolean, event: CalEvent): Boolean =
     hostReadOnly || WebcalSubscription.isWebcalCalendarId(event.calendarId)
 
 /**
- * The shared delete confirmation. The detail card expands it inline; the
- * context menu shows it in [EventDeleteSheet]. Both must offer the same scope
- * choice, so the body lives here rather than in either host.
+ * One way of removing a repeating record: a full-width action in the delete
+ * prompts. [selected] marks the scope already chosen while a later step (the
+ * pill's own confirmation) is still waiting.
  */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
-fun EventDeleteConfirmBody(
-    event: CalEvent,
-    scope: RecurrenceEditScope,
-    onScope: (RecurrenceEditScope) -> Unit,
-    onCancel: () -> Unit,
-    onConfirm: () -> Unit,
+private fun DeleteScopeButton(
+    label: String,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
 ) {
-    val context = LocalContext.current
-    val recurring = isRecurringEvent(event)
-    Column(
-        modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    val chosen = stringResource(R.string.ed_selected)
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .semantics { if (selected) stateDescription = chosen },
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = CalinoColors.Rose.copy(alpha = if (selected) .30f else .16f),
+            contentColor = CalinoColors.Ink,
+        ),
+        border = if (selected) BorderStroke(1.5.dp, CalinoColors.Rose) else null,
+        elevation = null,
     ) {
-        Text(
-            if (recurring) context.getString(R.string.ed_remove_recurring_event) else context.getString(R.string.ed_remove_event),
-            style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-        )
-        if (recurring) {
-            Text(context.getString(R.string.ed_delete_series_question), style = CalinoTypography.bodySmall, color = CalinoColors.Ink3)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                eventDeleteScopes(event).forEach { option ->
-                    val label = when (option) {
-                        RecurrenceEditScope.This -> context.getString(R.string.ed_this_event)
-                        RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
-                        RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
-                    }
-                    CalinoChip(
-                        text = label,
-                        selected = scope == option,
-                        description = context.getString(R.string.ed_delete_scope, label),
-                        semanticsRole = Role.RadioButton,
-                        onClick = { onScope(option) },
-                    )
-                }
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onCancel) { Text(context.getString(R.string.ed_cancel)) }
-            Button(
-                onClick = onConfirm,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(CalinoColors.Rose),
-            ) { Text(context.getString(R.string.ed_delete)) }
-        }
-    }
-}
-
-/**
- * Delete confirmation for the event overflow menu, which is opened from the
- * agenda and calendar surfaces where there is no detail card to expand into.
- * [event] is null while nothing is pending, so the sheet keeps rendering the
- * last event through its exit animation.
- */
-@Composable
-fun EventDeleteSheet(
-    event: CalEvent?,
-    onDismiss: () -> Unit,
-    onDelete: (CalEvent, RecurrenceEditScope) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    var shown by remember { mutableStateOf<CalEvent?>(null) }
-    LaunchedEffect(event) { if (event != null) shown = event }
-    val target = event ?: shown ?: return
-    var scope by remember(target.id) { mutableStateOf(defaultEventDeleteScope(target)) }
-    BackHandler(enabled = event != null, onBack = onDismiss)
-    Box(modifier.fillMaxSize()) {
-        CalinoScrim(visible = event != null, onDismiss = onDismiss)
-        CalinoSheet(
-            visible = event != null,
-            onDismiss = onDismiss,
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    target.title,
-                    style = CalinoTypography.headlineSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                EventDeleteConfirmBody(
-                    event = target,
-                    scope = scope,
-                    onScope = { scope = it },
-                    onCancel = onDismiss,
-                    onConfirm = { onDelete(target, scope) },
-                )
-            }
-        }
+        Text(label, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
     }
 }
 
@@ -1906,21 +1827,11 @@ fun TaskDeleteSheet(
                             RecurrenceEditScope.Future -> context.getString(R.string.ed_this_and_future)
                             RecurrenceEditScope.All -> context.getString(R.string.ed_entire_series)
                         }
-                        Button(
+                        DeleteScopeButton(
+                            label = label,
                             onClick = { onDelete(target, option) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .testTag("task-delete-${option.name.lowercase()}"),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = CalinoColors.Rose.copy(alpha = .16f),
-                                contentColor = CalinoColors.Ink,
-                            ),
-                            elevation = null,
-                        ) {
-                            Text(label, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium))
-                        }
+                            modifier = Modifier.testTag("task-delete-${option.name.lowercase()}"),
+                        )
                     }
                     OutlinedButton(
                         onClick = onDismiss,
