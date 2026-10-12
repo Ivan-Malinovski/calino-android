@@ -10,6 +10,7 @@ import calino.malinov.ski.data.caldav.CalendarResource
 import calino.malinov.ski.data.caldav.ICalMapper
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.NewTask
+import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalDavSource
 import calino.malinov.ski.data.repository.CalinoSnapshot
@@ -422,6 +423,46 @@ END:VCALENDAR
             "Day off (changed elsewhere)",
             repository.snapshot().events.first { it.id == dayOff.id }.title,
         )
+    }
+
+    @Test
+    fun `editing a whole series leaves the series visible after the refetch`() = runBlocking {
+        val repository = repository(FakeCache())
+        serveAll(events = multiStatus(CalDavFixtures.Recurring))
+        repository.setSources(listOf(source(calendar("/dav.php/calendars/test-user/mail_events/"))))
+        repository.awaitSync()
+
+        val work = repository.snapshot().events.filter { it.title == "Work" }
+        assertTrue("fixture should expand to many rows", work.size > 5)
+        val target = work.first()
+        val saved = repository.updateEvent(
+            target.id,
+            NewEvent(
+                title = "Work edited",
+                date = target.start!!.toLocalDate(),
+                startTime = target.start!!.toLocalTime(),
+                durationMinutes = target.durationMinutes,
+                allDay = false,
+                calendarId = target.calendarId,
+                recurrence = target.recurrence,
+                recurrenceScope = RecurrenceEditScope.All,
+                sequence = target.sequence,
+            ),
+        )
+        assertTrue("write result: $saved", saved is WriteResult.Applied)
+
+        serveAll(
+            events = multiStatus(
+                CalDavFixtures.Recurring
+                    .replace("SUMMARY:Work", "SUMMARY:Work edited")
+                    .replace("\"work-1\"", "\"work-2\""),
+            ),
+        )
+        repository.refresh()
+        repository.awaitSync()
+
+        val after = repository.snapshot().events.count { it.title == "Work edited" }
+        assertEquals("the rewritten series must come back under its unchanged ids", work.size, after)
     }
 
     // --- the cache ------------------------------------------------------------

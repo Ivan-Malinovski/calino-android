@@ -562,6 +562,7 @@ class CalDavRepository(
                         deadLetterIds = pendingCalendarGuardedIds(deadLetters = true),
                         readStartedAt = readStartedAt,
                         guardedContactIds = pendingContactGuardedIds(),
+                        deadLetterContactIds = pendingContactGuardedIds(deadLetters = true),
                     )
                     syncState = SyncState.Ready(lastReadAt!!, warnings = loaded.warnings)
                     publish()
@@ -625,6 +626,7 @@ class CalDavRepository(
                 deadLetterIds = pendingCalendarGuardedIds(deadLetters = true),
                 readStartedAt = readStartedAt,
                 guardedContactIds = pendingContactGuardedIds(),
+                deadLetterContactIds = pendingContactGuardedIds(deadLetters = true),
             )
             syncState = SyncState.Ready(lastReadAt!!, warnings = loaded.warnings)
             publish()
@@ -1140,8 +1142,8 @@ class CalDavRepository(
         return WriteResult.Queued(record(prepared))
     }
 
-    private fun pendingContactGuardedIds(): Set<String> = pendingStore?.snapshot()
-        ?.filterNot { it.state == PendingChangeState.DEAD_LETTER }
+    private fun pendingContactGuardedIds(deadLetters: Boolean = false): Set<String> = pendingStore?.snapshot()
+        ?.filter { (it.state == PendingChangeState.DEAD_LETTER) == deadLetters }
         ?.filter { it.component.equals("VCARD", ignoreCase = true) }
         ?.flatMap { change ->
             val uid = change.uid ?: change.eventId

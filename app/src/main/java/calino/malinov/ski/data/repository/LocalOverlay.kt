@@ -28,7 +28,7 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
     private val contacts = LinkedHashMap<String, Contact>()
     private val deletedContacts = mutableSetOf<String>()
 
-    /** When each calendar-component layer was last written, for [reconcile]'s ETag rule. */
+    /** When each layer or tombstone was last written, so [reconcile] can tell which reads postdate it. */
     private val stampedAt = HashMap<String, Instant>()
 
     fun clear() {
@@ -68,6 +68,7 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
     }
 
     fun dropContact(id: String) {
+        stampedAt.remove(id)
         contacts.remove(id)
         deletedContacts.remove(id)
     }
@@ -153,6 +154,7 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
     }
 
     fun deleteEvent(id: String) {
+        stampedAt[id] = now()
         events.remove(id)
         deletedEvents += id
     }
@@ -164,6 +166,7 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
     }
 
     fun deleteTask(id: String) {
+        stampedAt[id] = now()
         tasks.remove(id)
         deletedTasks += id
     }
@@ -190,12 +193,13 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
     }
 
     fun deleteJournal(id: String) {
+        stampedAt[id] = now()
         journals.remove(id)
         deletedJournals += id
     }
 
     fun addContact(input: NewContact): Contact = contactFrom(newId("contact"), input)
-        .also { contacts[it.id] = it }
+        .also { stampedAt[it.id] = now(); contacts[it.id] = it }
 
     /**
      * These IDs become CalDAV/CardDAV UIDs and resource names. They therefore
@@ -205,6 +209,7 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
     private fun newId(kind: String): String = "local-$kind-${UUID.randomUUID()}"
 
     fun putContact(contact: Contact): Contact = contact.also {
+        stampedAt[it.id] = now()
         contacts[it.id] = it
         deletedContacts.remove(it.id)
     }
@@ -237,6 +242,7 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
     }
 
     fun deleteContact(id: String) {
+        stampedAt[id] = now()
         contacts.remove(id)
         deletedContacts += id
     }
@@ -250,7 +256,11 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
      * Drops only overlays which the server has now confirmed. A partial
      * component read may confirm a changed record, but it must not prove that
      * a missing record was deleted, hence the [authoritative] guard for
-     * tombstones.
+     * tombstones. A tombstone also lifts when a read that began after it still
+     * serves the record: the delete (or the hide that preceded a series
+     * rewrite) was acknowledged, so the server's copy is what exists now, be it
+     * a recreation or the rewritten series under unchanged ids. Dead-lettered
+     * tombstones stay until the person discards them.
      *
      * An acknowledged write leaves its layer behind carrying the ETag the
      * server answered with. If a later read serves that resource under a
@@ -272,14 +282,17 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
         deadLetterIds: Set<String> = emptySet(),
         readStartedAt: Instant = now(),
         guardedContactIds: Set<String> = emptySet(),
+        deadLetterContactIds: Set<String> = emptySet(),
     ) {
-        fun supersedes(local: String?, server: String?, id: String): Boolean =
-            id !in deadLetterIds && local.supersededBy(server) &&
-                stampedAt[id]?.let { readStartedAt.isAfter(it) } != false
+        fun readPostdates(id: String) = stampedAt[id]?.let { readStartedAt.isAfter(it) }
+        fun supersedes(local: String?, server: String?, id: String, deadLetters: Set<String>): Boolean =
+            id !in deadLetters && local.supersededBy(server) && readPostdates(id) != false
+        fun tombstoneLifts(id: String, served: Boolean, deadLetters: Set<String>): Boolean =
+            if (served) id !in deadLetters && readPostdates(id) == true else authoritative
         events.entries.removeIf { (_, local) ->
             local.id !in guardedIds && serverEvents.firstOrNull { it.id == local.id }?.let { server ->
                 server.sameContent(local) ||
-                    supersedes(local.etag, server.etag, local.id)
+                    supersedes(local.etag, server.etag, local.id, deadLetterIds)
             } == true
         }
         val seriesUids = serverTasks.mapNotNullTo(HashSet()) { task -> task.uid.takeIf { task.recurrence != null } }
@@ -288,27 +301,34 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
             local.id !in guardedIds &&
                 (serverTasks.firstOrNull { it.id == local.id }?.let { server ->
                     server.sameContent(local) ||
-                        supersedes(local.etag, server.etag, local.id)
+                        supersedes(local.etag, server.etag, local.id, deadLetterIds)
                 } == true ||
                     local.isSupersededMaster(seriesUids, serverTaskIds))
         }
         journals.entries.removeIf { (_, local) ->
             local.id !in guardedIds && serverJournals.firstOrNull { it.id == local.id }?.let { server ->
                 server.sameContent(local) ||
-                    supersedes(local.etag, server.etag, local.id)
+                    supersedes(local.etag, server.etag, local.id, deadLetterIds)
             } == true
         }
         contacts.entries.removeIf { (_, local) ->
-            local.id !in guardedContactIds &&
-                serverContacts.firstOrNull { it.sameIdentity(local) }?.sameContent(local) == true
+            local.id !in guardedContactIds && serverContacts.firstOrNull { it.sameIdentity(local) }?.let { server ->
+                server.sameContent(local) ||
+                    supersedes(local.etag, server.etag, local.id, deadLetterContactIds)
+            } == true
         }
-        if (authoritative) {
-            deletedEvents.removeIf { id -> id !in guardedIds && serverEvents.none { it.id == id } }
-            deletedTasks.removeIf { id -> id !in guardedIds && serverTasks.none { it.id == id } }
-            deletedJournals.removeIf { id -> id !in guardedIds && serverJournals.none { it.id == id } }
-            deletedContacts.removeIf { id ->
-                id !in guardedContactIds && serverContacts.none { it.id == id || it.uid == id }
-            }
+        deletedEvents.removeIf { id ->
+            id !in guardedIds && tombstoneLifts(id, serverEvents.any { it.id == id }, deadLetterIds)
+        }
+        deletedTasks.removeIf { id ->
+            id !in guardedIds && tombstoneLifts(id, serverTasks.any { it.id == id }, deadLetterIds)
+        }
+        deletedJournals.removeIf { id ->
+            id !in guardedIds && tombstoneLifts(id, serverJournals.any { it.id == id }, deadLetterIds)
+        }
+        deletedContacts.removeIf { id ->
+            id !in guardedContactIds &&
+                tombstoneLifts(id, serverContacts.any { it.id == id || it.uid == id }, deadLetterContactIds)
         }
     }
 

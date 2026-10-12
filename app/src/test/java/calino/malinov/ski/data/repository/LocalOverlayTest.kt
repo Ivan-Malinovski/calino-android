@@ -165,4 +165,93 @@ class LocalOverlayTest {
 
         assertEquals("Just saved", overlay.applyToEvents(listOf(invite("ACCEPTED", etag = "v3"))).single().title)
     }
+
+    @Test
+    fun `a hidden record returns once a later read serves it`() {
+        val overlay = LocalOverlay { wrote }
+        overlay.deleteEvent("event-1")
+
+        overlay.reconcileEvents(invite("NEEDS-ACTION", etag = "v3"))
+
+        assertEquals(1, overlay.applyToEvents(listOf(invite("NEEDS-ACTION", etag = "v3"))).size)
+    }
+
+    @Test
+    fun `a hidden record stays hidden from a read that began before it was hidden`() {
+        val overlay = LocalOverlay { wrote }
+        overlay.deleteEvent("event-1")
+
+        overlay.reconcileEvents(invite("NEEDS-ACTION", etag = "v1"), readStartedAt = wrote.minusSeconds(1))
+
+        assertTrue(overlay.applyToEvents(listOf(invite("NEEDS-ACTION", etag = "v1"))).isEmpty())
+    }
+
+    @Test
+    fun `a hidden record stays hidden while its delete is queued or dead-lettered`() {
+        val queued = LocalOverlay { wrote }.also { it.deleteEvent("event-1") }
+        queued.reconcileEvents(invite("NEEDS-ACTION", etag = "v1"), guardedIds = setOf("event-1"))
+        assertTrue(queued.applyToEvents(listOf(invite("NEEDS-ACTION", etag = "v1"))).isEmpty())
+
+        val failed = LocalOverlay { wrote }.also { it.deleteEvent("event-1") }
+        failed.reconcileEvents(invite("NEEDS-ACTION", etag = "v1"), deadLetterIds = setOf("event-1"))
+        assertTrue(failed.applyToEvents(listOf(invite("NEEDS-ACTION", etag = "v1"))).isEmpty())
+    }
+
+    private fun contact(name: String, etag: String?) = Contact(
+        id = "person-1",
+        addressBookId = "book",
+        accountId = "account",
+        displayName = name,
+        uid = "person-1",
+        href = "/dav/person-1.vcf",
+        etag = etag,
+    )
+
+    private fun LocalOverlay.reconcileContacts(
+        server: Contact,
+        guardedContactIds: Set<String> = emptySet(),
+        deadLetterContactIds: Set<String> = emptySet(),
+    ) = reconcile(
+        serverEvents = emptyList(),
+        serverTasks = emptyList(),
+        serverJournals = emptyList(),
+        serverContacts = listOf(server),
+        authoritative = true,
+        guardedContactIds = guardedContactIds,
+        deadLetterContactIds = deadLetterContactIds,
+        readStartedAt = readLater,
+    )
+
+    @Test
+    fun `an acknowledged contact edit steps aside when the card changes behind it`() {
+        val overlay = LocalOverlay { wrote }.also { it.putContact(contact("Saved here", etag = "v2")) }
+
+        overlay.reconcileContacts(contact("Changed elsewhere", etag = "v3"))
+
+        assertEquals(
+            "Changed elsewhere",
+            overlay.applyToContacts(listOf(contact("Changed elsewhere", etag = "v3"))).single().displayName,
+        )
+    }
+
+    @Test
+    fun `a queued or dead-lettered contact edit is protected from a changed card`() {
+        listOf(
+            { o: LocalOverlay -> o.reconcileContacts(contact("Other", etag = "v3"), guardedContactIds = setOf("person-1")) },
+            { o: LocalOverlay -> o.reconcileContacts(contact("Other", etag = "v3"), deadLetterContactIds = setOf("person-1")) },
+        ).forEach { reconcile ->
+            val overlay = LocalOverlay { wrote }.also { it.putContact(contact("Offline edit", etag = "v1")) }
+            reconcile(overlay)
+            assertEquals("Offline edit", overlay.applyToContacts(listOf(contact("Other", etag = "v3"))).single().displayName)
+        }
+    }
+
+    @Test
+    fun `a hidden contact returns once a later read serves its card`() {
+        val overlay = LocalOverlay { wrote }.also { it.deleteContact("person-1") }
+
+        overlay.reconcileContacts(contact("Recreated", etag = "v1"))
+
+        assertEquals(1, overlay.applyToContacts(listOf(contact("Recreated", etag = "v1"))).size)
+    }
 }
