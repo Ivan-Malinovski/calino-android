@@ -530,6 +530,7 @@ class CalDavRepository(
                 if (token != generation) return@withLock
                 drainQueue(isCurrent = { token == generation })
                 if (token != generation) return@withLock
+                val readStartedAt = Instant.now()
                 runCatching { loadAll(start, end) { token == generation } }
                 .onSuccess { loaded ->
                     if (token != generation) return@onSuccess
@@ -558,6 +559,8 @@ class CalDavRepository(
                         serverContacts = loaded.data.contacts,
                         authoritative = loaded.authoritative,
                         guardedIds = pendingCalendarGuardedIds(),
+                        deadLetterIds = pendingCalendarGuardedIds(deadLetters = true),
+                        readStartedAt = readStartedAt,
                         guardedContactIds = pendingContactGuardedIds(),
                     )
                     syncState = SyncState.Ready(lastReadAt!!, warnings = loaded.warnings)
@@ -597,6 +600,7 @@ class CalDavRepository(
         return try {
             drainQueue(isCurrent, deferReloads = true)
             if (token != generation || !isCurrent()) return RepositorySyncResult.AccountsRemoved
+            val readStartedAt = Instant.now()
             val loaded = loadAll(start, end, isCurrent)
             if (token != generation || !isCurrent()) return RepositorySyncResult.AccountsRemoved
 
@@ -618,6 +622,8 @@ class CalDavRepository(
                 serverContacts = loaded.data.contacts,
                 authoritative = loaded.authoritative,
                 guardedIds = pendingCalendarGuardedIds(),
+                deadLetterIds = pendingCalendarGuardedIds(deadLetters = true),
+                readStartedAt = readStartedAt,
                 guardedContactIds = pendingContactGuardedIds(),
             )
             syncState = SyncState.Ready(lastReadAt!!, warnings = loaded.warnings)
@@ -1009,9 +1015,9 @@ class CalDavRepository(
      * not only the selected row's id. Keep every visible member of that UID
      * guarded until the server has confirmed the resource.
      */
-    private fun pendingCalendarGuardedIds(): Set<String> {
+    private fun pendingCalendarGuardedIds(deadLetters: Boolean = false): Set<String> {
         val changes = pendingStore?.snapshot()
-            ?.filterNot { it.state == PendingChangeState.DEAD_LETTER }
+            ?.filter { (it.state == PendingChangeState.DEAD_LETTER) == deadLetters }
             .orEmpty()
             .filterNot { it.component.equals("VCARD", ignoreCase = true) }
         if (changes.isEmpty()) return emptySet()

@@ -8,6 +8,7 @@ import calino.malinov.ski.data.model.JournalEntry
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -16,7 +17,7 @@ import java.util.UUID
  * the UI does not wait for a second REPORT; [reconcile] removes that temporary
  * layer once the server sends the same record back.
  */
-internal class LocalOverlay {
+internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
 
     private val events = LinkedHashMap<String, CalEvent>()
     private val deletedEvents = mutableSetOf<String>()
@@ -27,7 +28,11 @@ internal class LocalOverlay {
     private val contacts = LinkedHashMap<String, Contact>()
     private val deletedContacts = mutableSetOf<String>()
 
+    /** When each calendar-component layer was last written, for [reconcile]'s ETag rule. */
+    private val stampedAt = HashMap<String, Instant>()
+
     fun clear() {
+        stampedAt.clear()
         events.clear()
         deletedEvents.clear()
         tasks.clear()
@@ -45,16 +50,19 @@ internal class LocalOverlay {
 
     /** Drops one pending layer when a person discards its dead-lettered write. */
     fun dropEvent(id: String) {
+        stampedAt.remove(id)
         events.remove(id)
         deletedEvents.remove(id)
     }
 
     fun dropTask(id: String) {
+        stampedAt.remove(id)
         tasks.remove(id)
         deletedTasks.remove(id)
     }
 
     fun dropJournal(id: String) {
+        stampedAt.remove(id)
         journals.remove(id)
         deletedJournals.remove(id)
     }
@@ -139,6 +147,7 @@ internal class LocalOverlay {
     }
 
     fun putEvent(event: CalEvent): CalEvent = event.also {
+        stampedAt[it.id] = now()
         events[it.id] = it
         deletedEvents.remove(it.id)
     }
@@ -149,6 +158,7 @@ internal class LocalOverlay {
     }
 
     fun putTask(task: CalTask): CalTask = task.also {
+        stampedAt[it.id] = now()
         tasks[it.id] = it
         deletedTasks.remove(it.id)
     }
@@ -174,6 +184,7 @@ internal class LocalOverlay {
     }
 
     fun putJournal(entry: JournalEntry): JournalEntry = entry.also {
+        stampedAt[it.id] = now()
         journals[it.id] = it
         deletedJournals.remove(it.id)
     }
@@ -240,6 +251,16 @@ internal class LocalOverlay {
      * component read may confirm a changed record, but it must not prove that
      * a missing record was deleted, hence the [authoritative] guard for
      * tombstones.
+     *
+     * An acknowledged write leaves its layer behind carrying the ETag the
+     * server answered with. If a later read serves that resource under a
+     * different ETag, someone else changed it (an attendee's RSVP, another
+     * client): the layer is stale and would mask the newer server copy for as
+     * long as the process lives. Layers whose write has not been acknowledged
+     * -- still queued ([guardedIds]) or dead-lettered ([deadLetterIds]) -- keep
+     * their pre-write ETag, so they are exempt from that comparison. A read
+     * that started before the layer was written ([readStartedAt]) may simply
+     * predate the write, so it cannot supersede it either.
      */
     fun reconcile(
         serverEvents: List<CalEvent>,
@@ -248,22 +269,34 @@ internal class LocalOverlay {
         serverContacts: List<Contact> = emptyList(),
         authoritative: Boolean,
         guardedIds: Set<String> = emptySet(),
+        deadLetterIds: Set<String> = emptySet(),
+        readStartedAt: Instant = now(),
         guardedContactIds: Set<String> = emptySet(),
     ) {
+        fun supersedes(local: String?, server: String?, id: String): Boolean =
+            id !in deadLetterIds && local.supersededBy(server) &&
+                stampedAt[id]?.let { readStartedAt.isAfter(it) } != false
         events.entries.removeIf { (_, local) ->
-            local.id !in guardedIds &&
-                serverEvents.firstOrNull { it.id == local.id }?.sameContent(local) == true
+            local.id !in guardedIds && serverEvents.firstOrNull { it.id == local.id }?.let { server ->
+                server.sameContent(local) ||
+                    supersedes(local.etag, server.etag, local.id)
+            } == true
         }
         val seriesUids = serverTasks.mapNotNullTo(HashSet()) { task -> task.uid.takeIf { task.recurrence != null } }
         val serverTaskIds = serverTasks.mapTo(HashSet()) { it.id }
         tasks.entries.removeIf { (_, local) ->
             local.id !in guardedIds &&
-                (serverTasks.firstOrNull { it.id == local.id }?.sameContent(local) == true ||
+                (serverTasks.firstOrNull { it.id == local.id }?.let { server ->
+                    server.sameContent(local) ||
+                        supersedes(local.etag, server.etag, local.id)
+                } == true ||
                     local.isSupersededMaster(seriesUids, serverTaskIds))
         }
         journals.entries.removeIf { (_, local) ->
-            local.id !in guardedIds &&
-                serverJournals.firstOrNull { it.id == local.id }?.sameContent(local) == true
+            local.id !in guardedIds && serverJournals.firstOrNull { it.id == local.id }?.let { server ->
+                server.sameContent(local) ||
+                    supersedes(local.etag, server.etag, local.id)
+            } == true
         }
         contacts.entries.removeIf { (_, local) ->
             local.id !in guardedContactIds &&
@@ -353,6 +386,10 @@ internal class LocalOverlay {
         note = input.note.trim(),
         categories = input.categories,
     )
+
+    /** Both tags known and different; an unknown tag proves nothing. */
+    private fun String?.supersededBy(server: String?): Boolean =
+        this != null && server != null && this != server
 
     private fun CalEvent.sameContent(other: CalEvent): Boolean =
         copy(uid = null, href = null, etag = null) == other.copy(uid = null, href = null, etag = null)

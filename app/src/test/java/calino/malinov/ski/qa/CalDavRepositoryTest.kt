@@ -384,6 +384,46 @@ END:VCALENDAR
         )
     }
 
+    @Test
+    fun `a saved event shows a later server change to the same resource without a restart`() = runBlocking {
+        val repository = repository(FakeCache())
+        enqueueAll()
+        repository.setSources(listOf(source(calendar("/test-user/bed21d90-1639-2490-b6f5-721e0517aee6/"))))
+        repository.awaitSync()
+
+        val dayOff = repository.snapshot().events.first { it.title == "Day off" }
+        val saved = repository.updateEvent(
+            dayOff.id,
+            NewEvent(
+                title = "Day off (edited here)",
+                date = dayOff.date!!,
+                allDay = true,
+                calendarId = dayOff.calendarId,
+                sequence = dayOff.sequence,
+            ),
+        )
+        assertTrue("write result: $saved", saved is WriteResult.Applied)
+        assertEquals("written", (saved as WriteResult.Applied).record.etag)
+
+        // Someone else (an attendee's RSVP, another client) now changes the
+        // same resource, so the server serves it under a new ETag.
+        serveAll(
+            events = multiStatus(
+                CalDavFixtures.Events
+                    .replace("SUMMARY:Day off", "SUMMARY:Day off (changed elsewhere)")
+                    .replace("3a32a3c8d9ed05d14625e4bd031336b8795bc68e5969ef305c7dd7d137bcce5d", "changed-elsewhere"),
+            ),
+        )
+        repository.refresh()
+        repository.awaitSync()
+
+        assertEquals(
+            "an acknowledged edit must not mask what the server now holds",
+            "Day off (changed elsewhere)",
+            repository.snapshot().events.first { it.id == dayOff.id }.title,
+        )
+    }
+
     // --- the cache ------------------------------------------------------------
 
     @Test
