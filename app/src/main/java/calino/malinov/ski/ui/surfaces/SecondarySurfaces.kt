@@ -240,6 +240,7 @@ import calino.malinov.ski.ui.components.calinoLongPressDrag
 import calino.malinov.ski.util.formatRecurrenceSummary
 import calino.malinov.ski.state.CalinoSurfaceKind
 import calino.malinov.ski.state.CalinoSurfaceMode
+import calino.malinov.ski.util.sortAgendaEvents
 import calino.malinov.ski.util.startOfWeek
 import calino.malinov.ski.state.isRecurringTask
 import calino.malinov.ski.state.isSometimeThisWeek
@@ -393,9 +394,7 @@ fun QuickAddKind.toParserKind(): PocQuickAddKind = when (this) {
 }
 
 private fun dayEventsFor(events: List<CalEvent>, date: LocalDate): List<CalEvent> =
-    events.filter { event ->
-        event.occursOn(date)
-    }
+    sortAgendaEvents(events.filter { event -> event.occursOn(date) })
 
 /** Materialised instances keep recurrence readable; the UI never exposes RRULE text. */
 @Composable
