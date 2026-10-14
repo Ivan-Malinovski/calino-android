@@ -2,6 +2,7 @@ package calino.malinov.ski.qa
 
 import calino.malinov.ski.data.model.CalTask
 import java.time.LocalDate
+import java.time.LocalTime
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -210,11 +211,18 @@ enum class TaskBucket {
     DONE,
 }
 
-/** Fixture task grouping, anchored to an explicit date rather than the device clock. */
-fun taskBucket(task: CalTask, today: LocalDate): TaskBucket = when {
+/**
+ * Fixture task grouping, anchored to an explicit date rather than the device clock.
+ *
+ * With [now], a task due today at a time that has already passed is overdue
+ * too, not just one due on an earlier day. A date-only task due today stays
+ * under today until the day is over.
+ */
+fun taskBucket(task: CalTask, today: LocalDate, now: LocalTime? = null): TaskBucket = when {
     task.done -> TaskBucket.DONE
     task.due == null -> TaskBucket.NO_DATE
     task.due.isBefore(today) -> TaskBucket.OVERDUE
+    task.due == today && now != null && task.dueTime != null && task.dueTime.isBefore(now) -> TaskBucket.OVERDUE
     task.due == today -> TaskBucket.TODAY
     task.due.isBefore(today.plusDays(7)) -> TaskBucket.THIS_WEEK
     else -> TaskBucket.LATER

@@ -2,6 +2,7 @@ package calino.malinov.ski.qa
 
 import calino.malinov.ski.data.model.CalTask
 import java.time.LocalDate
+import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -61,12 +62,31 @@ class PocStateRulesTest {
         assertEquals(TaskBucket.DONE, taskBucket(doneOverdue, fixtureDate))
     }
 
-    private fun task(id: String, due: LocalDate?, done: Boolean = false) = CalTask(
+    @Test
+    fun taskBuckets_timedTaskDueToday_isOverdueOnceItsTimePasses() {
+        val now = LocalTime.of(11, 20)
+        val passed = task("passed", fixtureDate, dueTime = LocalTime.of(9, 0))
+        val later = task("later", fixtureDate, dueTime = LocalTime.of(17, 0))
+        val atNow = task("at-now", fixtureDate, dueTime = now)
+        val allDay = task("all-day", fixtureDate)
+        val donePassed = task("done-passed", fixtureDate, done = true, dueTime = LocalTime.of(9, 0))
+
+        assertEquals(TaskBucket.OVERDUE, taskBucket(passed, fixtureDate, now))
+        assertEquals(TaskBucket.TODAY, taskBucket(later, fixtureDate, now))
+        assertEquals(TaskBucket.TODAY, taskBucket(atNow, fixtureDate, now))
+        assertEquals(TaskBucket.TODAY, taskBucket(allDay, fixtureDate, now))
+        assertEquals(TaskBucket.DONE, taskBucket(donePassed, fixtureDate, now))
+        // Without a time of day the rule stays date-only.
+        assertEquals(TaskBucket.TODAY, taskBucket(passed, fixtureDate))
+    }
+
+    private fun task(id: String, due: LocalDate?, done: Boolean = false, dueTime: LocalTime? = null) = CalTask(
         id = id,
         title = id,
         color = 0xFF5D9A78,
         due = due,
         done = done,
         category = "QA",
+        dueTime = dueTime,
     )
 }
