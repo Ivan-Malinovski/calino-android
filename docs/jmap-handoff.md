@@ -60,7 +60,7 @@ disagree, the code and its tests are right.
 | Scheduling | `JmapClient.schedulingInfo`, writer | `sendSchedulingMessages` when the account advertises it |
 | Push | `JmapPushController` | EventSource while the app is visible, only ever a hint to run the normal sync |
 | Contacts | `VCardToJsContact`, `JsContactToVCard`, `JsContactDiff`, `JmapContacts*` | Flat RFC 9610 cards on write; the `jsCard` envelope is tolerated on read |
-| Dev server, live test | `scripts/live-jmap/`, `JmapLiveTest` | Throwaway Stalwart; the live test skips without `CALINO_JMAP_*` |
+| Dev server, live test | `scripts/live-jmap/`, `JmapLiveTest`, `JmapLiveSchedulingTest` | Throwaway Stalwart; the live tests skip without `CALINO_JMAP_*`. Two-user invitation, reply, cancellation and event-stream wake-ups pass against Stalwart 0.16 |
 
 Decisions taken (change them with the person, not silently):
 

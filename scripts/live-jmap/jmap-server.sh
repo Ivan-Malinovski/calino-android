@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # A throwaway local Stalwart for Calino's JMAP live tests and emulator checks.
-# Rootless podman, state under scripts/live-jmap/state (git-ignored), bound to 127.0.0.1.
+# Rootless podman, bound to 127.0.0.1. The image keeps its state in /etc/stalwart and
+# /var/lib/stalwart, so those are named volumes (<name>-etc, <name>-lib) that `down`
+# keeps; the generated admin secret lives in scripts/live-jmap/state (git-ignored).
 #
 #   scripts/live-jmap/jmap-server.sh up      start (and bootstrap on first run)
-#   scripts/live-jmap/jmap-server.sh down    stop and remove the container, keep data
-#   scripts/live-jmap/jmap-server.sh reset   stop, delete the data directory, start fresh
+#   scripts/live-jmap/jmap-server.sh down    stop and remove the container, keep its volumes
+#   scripts/live-jmap/jmap-server.sh reset   stop, delete its volumes and secret, start fresh
 #   scripts/live-jmap/jmap-server.sh env     print the CALINO_JMAP_* exports
 #
 # Overrides: CALINO_JMAP_PORT (18080), CALINO_JMAP_NAME (calino-stalwart),
@@ -53,14 +55,16 @@ up() {
     podman run -d --name "$NAME" \
       -p "127.0.0.1:$PORT:8080" \
       -e "STALWART_RECOVERY_ADMIN=admin:$RECOVERY_PASSWORD" \
-      -v "$DATA:/opt/stalwart:Z" "$IMAGE" >/dev/null
+      -v "$NAME-etc:/etc/stalwart" -v "$NAME-lib:/var/lib/stalwart" "$IMAGE" >/dev/null
   else
     podman start "$NAME" >/dev/null 2>&1 || true
   fi
   wait_http
 
-  # A fresh data directory starts in bootstrap mode; finish it once.
-  if [ ! -s "$ADMIN_SECRET_FILE" ]; then
+  # A fresh server starts in bootstrap mode; finish it once. The secret file alone does
+  # not prove it was finished (the volumes may be gone), so check that it still logs in.
+  if [ ! -s "$ADMIN_SECRET_FILE" ] ||
+    ! curl -sf -o /dev/null -u "admin@$DOMAIN:$(<"$ADMIN_SECRET_FILE")" "$BASE/jmap/session"; then
     echo "Completing Stalwart bootstrap..."
     local reply
     reply=$(jmap admin "$RECOVERY_PASSWORD" "$USING" \
@@ -115,6 +119,7 @@ up) up ;;
 down) podman rm -f "$NAME" >/dev/null 2>&1 || true ;;
 reset)
   podman rm -f "$NAME" >/dev/null 2>&1 || true
+  podman volume rm -f "$NAME-etc" "$NAME-lib" >/dev/null 2>&1 || true
   rm -rf "$DATA"
   up
   ;;

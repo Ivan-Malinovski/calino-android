@@ -11,7 +11,7 @@ The image is about 300 MB; run `df -h /` first, this machine's disk is small.
 
 ```bash
 scripts/live-jmap/jmap-server.sh up       # first run bootstraps Stalwart and creates two users
-scripts/live-jmap/jmap-server.sh down     # remove the container, keep the data
+scripts/live-jmap/jmap-server.sh down     # remove the container, keep its data (named podman volumes)
 scripts/live-jmap/jmap-server.sh reset    # wipe the data and start fresh
 scripts/live-jmap/jmap-server.sh env      # the CALINO_JMAP_* exports
 ```
@@ -30,12 +30,17 @@ If that file is lost, `reset`.
 
 ```bash
 eval "$(scripts/live-jmap/jmap-server.sh env)"   # bash/zsh; fish: run it from bash -c
-./gradlew :app:testDebugUnitTest --tests "*JmapLiveTest*"
+./gradlew :app:testDebugUnitTest --tests "*JmapLive*"
 ```
 
 `JmapLiveTest` creates, re-creates (a lost-answer retry must not duplicate), edits
 and deletes an event and a contact. Without the variables it skips itself, which is
-why a normal run reports a couple of skips.
+why a normal run reports a few skips.
+
+`JmapLiveSchedulingTest` uses both users (alice and bob): an invitation reaches Bob's calendar,
+his acceptance reaches Alice's copy, and Alice's cancellation marks his copy cancelled. It also
+checks that the event stream reports a change made by another client and one made by another
+user's reply. Delivery between users is asynchronous, so those steps poll for up to 20 seconds.
 
 ## Connecting the app on the emulator
 
