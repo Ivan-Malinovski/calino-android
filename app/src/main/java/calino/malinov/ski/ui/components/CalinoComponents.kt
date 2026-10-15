@@ -145,6 +145,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -190,6 +191,8 @@ import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalCalinoSync
 import calino.malinov.ski.state.LocalTimeFormat
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.eventCountdown
+import calino.malinov.ski.util.formatEventCountdown
 import calino.malinov.ski.util.LocalCalinoLocale
 import calino.malinov.ski.util.localizedDateFormatter
 import calino.malinov.ski.state.SyncBadge
@@ -913,6 +916,9 @@ fun AgendaRow(
     onDragEnd: ((Offset) -> Unit)? = null,
     trailingDescription: String? = null,
     struck: Boolean = false,
+    /** How long until the event starts, on the row's right edge; [countdownSoon] weights it once it is under a day. */
+    countdown: String? = null,
+    countdownSoon: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(CalinoShapes.Row)
@@ -963,6 +969,7 @@ fun AgendaRow(
                     append(title)
                     time?.let { append(", ").append(it) }
                     subtitle?.let { append(", ").append(it) }
+                    countdown?.let { append(", ").append(it) }
                     trailingDescription?.let { append(", ").append(it) }
                 }
             }
@@ -1010,6 +1017,23 @@ fun AgendaRow(
                 lineHeight = 18.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        // Quiet by default so a run of cards reads as a ladder of distances
+        // down the right edge; the title gives way first when space is short.
+        countdown?.let {
+            Text(
+                it,
+                modifier = Modifier.padding(end = 12.dp),
+                style = androidx.compose.ui.text.TextStyle(
+                    color = if (countdownSoon) CalinoColors.Accent else CalinoColors.Ink3,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = if (countdownSoon) FontWeight.Medium else FontWeight.Normal,
+                    fontFeatureSettings = "tnum",
+                ),
+                maxLines = 1,
+                softWrap = false,
             )
         }
         trailing?.let {
@@ -1091,6 +1115,12 @@ fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRow
     val locale = LocalCalinoLocale
     val weeklyLabel = stringResource(R.string.cal_repeats_weekly)
     val showLocations = LocalCalinoPreferences.current.showLocations
+    val showCountdowns = LocalCalinoPreferences.current.showListCountdowns
+    val context = LocalContext.current
+    val now = LocalCalinoNow.current.dateTime
+    val countdown = remember(event.allDay, event.start, now, showCountdowns) {
+        if (!showCountdowns || event.allDay) null else eventCountdown(event.start, now)
+    }
     AgendaRow(
         title = event.title,
         color = eventColor(event.color),
@@ -1100,6 +1130,8 @@ fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRow
         modifier = modifier,
         variant = variant,
         onClick = onClick,
+        countdown = countdown?.let { formatEventCountdown(context, it) },
+        countdownSoon = countdown?.soon == true,
     )
 }
 

@@ -41,6 +41,11 @@
     <string name="set_include_how_long_an_event_runs">Vis begivenhedens varighed</string>
     <string name="set_show_locations">Vis steder</string>
     <string name="set_include_places_below_event_titles">Vis steder under begivenhedens titel</string>
+    <string name="set_countdown_on_lists">Nedtælling på lister</string>
+    <string name="set_countdown_on_lists_description">Hvor længe der er til en begivenhed starter, til højre på hver række i lister</string>
+    <string name="set_countdown_on_event_cards">Nedtælling på begivenhedskort</string>
+    <string name="set_countdown_on_event_cards_description">Hvor længe der er til en begivenhed starter, ved siden af kategorien på et åbnet kort</string>
+    <string name="set_search_terms_countdown">nedtælling tid til start tilbage</string>
     <string name="set_categories">Kategorier</string>
     <string name="set_tags_like_work_or_health_that_you_can_put_on_events_and_task">Mærker som Arbejde eller Sundhed, du kan sætte på begivenheder og opgaver. De synkroniseres med din kalender. Kategorier, du tilføjer her, vises i redigeringen sammen med dem, der allerede bruges.</string>
     <string name="set_new_category">Ny kategori</string>

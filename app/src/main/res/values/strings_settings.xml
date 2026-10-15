@@ -41,6 +41,11 @@
     <string name="set_include_how_long_an_event_runs">Include how long an event runs</string>
     <string name="set_show_locations">Show locations</string>
     <string name="set_include_places_below_event_titles">Include places below event titles</string>
+    <string name="set_countdown_on_lists">Countdown on lists</string>
+    <string name="set_countdown_on_lists_description">How long until an event starts, on the right of each row in lists</string>
+    <string name="set_countdown_on_event_cards">Countdown on event cards</string>
+    <string name="set_countdown_on_event_cards_description">How long until an event starts, beside the category on an opened card</string>
+    <string name="set_search_terms_countdown">countdown time until start remaining</string>
     <string name="set_categories">Categories</string>
     <string name="set_tags_like_work_or_health_that_you_can_put_on_events_and_task">Tags like Work or Health that you can put on events and tasks. They sync with your calendar. Categories added here are offered in the editor alongside the ones your records already use.</string>
     <string name="set_new_category">New category</string>

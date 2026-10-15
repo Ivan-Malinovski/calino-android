@@ -29,6 +29,17 @@ fun formatCalinoDuration(context: Context, minutes: Int): String {
     }
 }
 
+/** "in 3 days", "in 1 day, 4 hours", "in 1 hour, 25 minutes"; a zero part is left out. */
+fun formatEventCountdown(context: Context, countdown: EventCountdown): String {
+    val res = context.resources
+    val parts = listOfNotNull(
+        countdown.days.takeIf { it > 0 }?.let { res.getQuantityString(R.plurals.fmt_countdown_days, it, it) },
+        countdown.hours.takeIf { it > 0 }?.let { res.getQuantityString(R.plurals.fmt_countdown_hours, it, it) },
+        countdown.minutes.takeIf { it > 0 }?.let { res.getQuantityString(R.plurals.fmt_countdown_minutes, it, it) },
+    )
+    return context.getString(R.string.fmt_countdown_in, parts.joinToString(", "))
+}
+
 fun formatRecurrenceSummary(context: Context, event: CalEvent): String =
     formatRecurrenceRule(context, event.recurrence, event.placementDate())
 

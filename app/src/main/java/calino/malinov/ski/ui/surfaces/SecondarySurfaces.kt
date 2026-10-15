@@ -177,6 +177,8 @@ import calino.malinov.ski.data.model.RecurrenceFreq
 import calino.malinov.ski.data.model.recurrenceDaysOf
 import calino.malinov.ski.data.model.recurrenceFreqOf
 import calino.malinov.ski.data.model.recurrenceRule
+import calino.malinov.ski.util.eventCountdown
+import calino.malinov.ski.util.formatEventCountdown
 import calino.malinov.ski.util.formatRecurrenceRule
 import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.repository.asUpdate
@@ -1099,15 +1101,49 @@ private fun EventDetailContent(
     Column(Modifier.fillMaxSize()) {
         HeroMasthead(tint) {
             val kicker = eventKicker(event, context.getString(R.string.ed_repeating), LocalCalinoLocale)
+            // Counts to the draft, so moving the start in the editor moves it.
+            val now = LocalCalinoNow.current.dateTime
+            val showCountdown = LocalCalinoPreferences.current.showCardCountdowns
+            val countdown = remember(draft.date, draft.startTime, now, showCountdown) {
+                draft.startTime?.takeIf { showCountdown }?.let { eventCountdown(draft.date.atTime(it), now) }
+            }
             Column(
                 // An event with nothing to say above its title would otherwise
                 // start one line higher than every other card, with the title
                 // pressed against the handle. The kicker's line is held open
                 // whether or not there is a kicker in it.
-                Modifier.fillMaxWidth().padding(top = if (kicker == null) 14.dp else 0.dp),
+                Modifier.fillMaxWidth().padding(top = if (kicker == null && countdown == null) 14.dp else 0.dp),
             ) {
-                kicker?.let {
-                    Text(it, style = CalinoTypography.labelSmall, color = eventColor(event))
+                if (kicker != null || countdown != null) {
+                    // The kicker keeps the left; the count sits opposite it, as
+                    // quiet as the list's, and only turns copper inside a day.
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            kicker.orEmpty(),
+                            modifier = Modifier.weight(1f),
+                            style = CalinoTypography.labelSmall,
+                            color = eventColor(event),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        countdown?.let {
+                            Text(
+                                formatEventCountdown(context, it),
+                                modifier = Modifier.padding(start = 12.dp),
+                                style = androidx.compose.ui.text.TextStyle(
+                                    color = if (it.soon) CalinoColors.Accent else CalinoColors.Ink3,
+                                    fontSize = 12.sp,
+                                    // The kicker's own line height, so a card
+                                    // with a count and one without sit alike.
+                                    lineHeight = 12.sp,
+                                    fontWeight = if (it.soon) FontWeight.Medium else FontWeight.Normal,
+                                    fontFeatureSettings = "tnum",
+                                ),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
                 }
                 BasicTextField(
                     value = draft.title,

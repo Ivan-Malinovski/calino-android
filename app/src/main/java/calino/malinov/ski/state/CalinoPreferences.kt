@@ -130,6 +130,12 @@ data class CalinoPreferences(
     val setShowEndTimes: (Boolean) -> Unit = {},
     val showLocations: Boolean = true,
     val setShowLocations: (Boolean) -> Unit = {},
+    /** "in 3 hours" on the right edge of event rows in lists. */
+    val showListCountdowns: Boolean = true,
+    val setShowListCountdowns: (Boolean) -> Unit = {},
+    /** The same count on the opened event card, opposite its kicker. */
+    val showCardCountdowns: Boolean = true,
+    val setShowCardCountdowns: (Boolean) -> Unit = {},
     val eventSyncRange: CalinoEventSyncRange = CalinoEventSyncRange.Default,
     val setEventSyncRange: (CalinoEventSyncRange) -> Unit = {},
     val journalEnabled: Boolean = false,
@@ -234,6 +240,10 @@ interface CalinoPreferenceStore {
     fun saveShowEndTimes(show: Boolean)
     fun loadShowLocations(): Boolean
     fun saveShowLocations(show: Boolean)
+    fun loadShowListCountdowns(): Boolean
+    fun saveShowListCountdowns(show: Boolean)
+    fun loadShowCardCountdowns(): Boolean
+    fun saveShowCardCountdowns(show: Boolean)
     fun loadEventSyncRange(): CalinoEventSyncRange
     fun saveEventSyncRange(range: CalinoEventSyncRange)
     fun loadJournalEnabled(): Boolean
@@ -317,6 +327,8 @@ interface CalinoPreferenceStore {
         private var endTimes = true
         private var rangeMultiDayEventsInHeader = true
         private var locations = true
+        private var listCountdowns = true
+        private var cardCountdowns = true
         private var syncRange = CalinoEventSyncRange.Default
         private var journal = false
         private var contacts = false
@@ -363,6 +375,10 @@ interface CalinoPreferenceStore {
         override fun saveShowEndTimes(show: Boolean) { endTimes = show }
         override fun loadShowLocations() = locations
         override fun saveShowLocations(show: Boolean) { locations = show }
+        override fun loadShowListCountdowns() = listCountdowns
+        override fun saveShowListCountdowns(show: Boolean) { listCountdowns = show }
+        override fun loadShowCardCountdowns() = cardCountdowns
+        override fun saveShowCardCountdowns(show: Boolean) { cardCountdowns = show }
         override fun loadEventSyncRange() = syncRange
         override fun saveEventSyncRange(range: CalinoEventSyncRange) { syncRange = range }
         override fun loadJournalEnabled() = journal
@@ -492,6 +508,10 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
 
     override fun loadShowLocations(): Boolean = prefs.getBoolean(ShowLocationsKey, true)
     override fun saveShowLocations(show: Boolean) = putBoolean(ShowLocationsKey, show)
+    override fun loadShowListCountdowns(): Boolean = prefs.getBoolean(ShowListCountdownsKey, true)
+    override fun saveShowListCountdowns(show: Boolean) = putBoolean(ShowListCountdownsKey, show)
+    override fun loadShowCardCountdowns(): Boolean = prefs.getBoolean(ShowCardCountdownsKey, true)
+    override fun saveShowCardCountdowns(show: Boolean) = putBoolean(ShowCardCountdownsKey, show)
     override fun loadEventSyncRange(): CalinoEventSyncRange =
         CalinoEventSyncRange.fromName(name(EventSyncRangeKey))
     override fun saveEventSyncRange(range: CalinoEventSyncRange) = putString(EventSyncRangeKey, range.name)
@@ -566,6 +586,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ShowEndTimesKey = "show_end_times"
         const val RangeMultiDayEventsInHeaderKey = "range_multi_day_events_in_header"
         const val ShowLocationsKey = "show_locations"
+        const val ShowListCountdownsKey = "show_list_countdowns"
+        const val ShowCardCountdownsKey = "show_card_countdowns"
         const val EventSyncRangeKey = "event_sync_range"
         const val JournalEnabledKey = "journal_enabled"
         const val ContactsEnabledKey = "contacts_enabled"
@@ -619,6 +641,8 @@ fun rememberCalinoPreferences(
     var showEndTimes by remember(store) { mutableStateOf(store.loadShowEndTimes()) }
     var rangeMultiDayEventsInHeader by remember(store) { mutableStateOf(store.loadRangeMultiDayEventsInHeader()) }
     var showLocations by remember(store) { mutableStateOf(store.loadShowLocations()) }
+    var showListCountdowns by remember(store) { mutableStateOf(store.loadShowListCountdowns()) }
+    var showCardCountdowns by remember(store) { mutableStateOf(store.loadShowCardCountdowns()) }
     var eventSyncRange by remember(store) { mutableStateOf(store.loadEventSyncRange()) }
     var journalEnabled by remember(store) { mutableStateOf(store.loadJournalEnabled()) }
     var contactsEnabled by remember(store) { mutableStateOf(store.loadContactsEnabled()) }
@@ -676,6 +700,10 @@ fun rememberCalinoPreferences(
         setShowEndTimes = { value -> showEndTimes = value; store.saveShowEndTimes(value) },
         showLocations = showLocations,
         setShowLocations = { value -> showLocations = value; store.saveShowLocations(value) },
+        showListCountdowns = showListCountdowns,
+        setShowListCountdowns = { value -> showListCountdowns = value; store.saveShowListCountdowns(value) },
+        showCardCountdowns = showCardCountdowns,
+        setShowCardCountdowns = { value -> showCardCountdowns = value; store.saveShowCardCountdowns(value) },
         eventSyncRange = eventSyncRange,
         setEventSyncRange = { value -> eventSyncRange = value; store.saveEventSyncRange(value) },
         journalEnabled = journalEnabled,

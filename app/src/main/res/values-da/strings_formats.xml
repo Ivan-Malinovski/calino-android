@@ -16,6 +16,19 @@
         <item quantity="one">%1$s, %2$d gang</item>
         <item quantity="other">%1$s, %2$d gange</item>
     </plurals>
+    <string name="fmt_countdown_in">om %1$s</string>
+    <plurals name="fmt_countdown_days">
+        <item quantity="one">%1$d dag</item>
+        <item quantity="other">%1$d dage</item>
+    </plurals>
+    <plurals name="fmt_countdown_hours">
+        <item quantity="one">%1$d time</item>
+        <item quantity="other">%1$d timer</item>
+    </plurals>
+    <plurals name="fmt_countdown_minutes">
+        <item quantity="one">%1$d minut</item>
+        <item quantity="other">%1$d minutter</item>
+    </plurals>
     <string name="fmt_completed">Fuldførte %1$s</string>
     <string name="fmt_reopened">Genåbnede %1$s</string>
     <string name="fmt_rescheduled">Flyttede %1$s til %2$s</string>

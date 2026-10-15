@@ -3,6 +3,9 @@ package calino.malinov.ski.ui.surfaces
 import calino.malinov.ski.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
+import calino.malinov.ski.data.model.occurrenceStartCovering
+import calino.malinov.ski.util.eventCountdown
+import calino.malinov.ski.util.formatEventCountdown
 import calino.malinov.ski.util.localizedDateFormatter
 import calino.malinov.ski.util.LocalCalinoLocale
 
@@ -55,6 +58,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -543,6 +547,9 @@ internal fun AgendaDayBlock(
 ) {
     val timeFormat = LocalTimeFormat
     val locale = LocalCalinoLocale
+    val context = LocalContext.current
+    val now = LocalCalinoNow.current.dateTime
+    val showCountdowns = LocalCalinoPreferences.current.showListCountdowns
     val dayEvents = remember(events) { sortAgendaEvents(events) }
     Column(
         modifier.animateContentSize(tween(CalinoMotion.ContentEnterMillis)),
@@ -561,10 +568,18 @@ internal fun AgendaDayBlock(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 dayEvents.forEach { event ->
                     var menuOpen by remember(event.id) { mutableStateOf(false) }
+                    val countdown = remember(day, event, now, showCountdowns) {
+                        // A repeat's rows share the series' first start, so count to
+                        // this day's occurrence rather than to the original date.
+                        val begins = event.start?.let { s -> event.occurrenceStartCovering(day)?.atTime(s.toLocalTime()) }
+                        if (!showCountdowns || event.allDay) null else eventCountdown(begins, now)
+                    }
                     Box {
                         AgendaRow(
                             title = event.title,
                             color = eventColor(event.color),
+                            countdown = countdown?.let { formatEventCountdown(context, it) },
+                            countdownSoon = countdown?.soon == true,
                             time = if (event.allDay) null else event.start?.let { timeFormat.format(it, locale) },
                             subtitle = event.location ?: if (event.recurrence != null) stringResource(R.string.cal_repeats_weekly) else null,
                             variant = AgendaRowVariant.Card,

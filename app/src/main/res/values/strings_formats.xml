@@ -16,6 +16,19 @@
         <item quantity="one">%1$s, %2$d time</item>
         <item quantity="other">%1$s, %2$d times</item>
     </plurals>
+    <string name="fmt_countdown_in">in %1$s</string>
+    <plurals name="fmt_countdown_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="fmt_countdown_hours">
+        <item quantity="one">%1$d hour</item>
+        <item quantity="other">%1$d hours</item>
+    </plurals>
+    <plurals name="fmt_countdown_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
     <string name="fmt_completed">Completed %1$s</string>
     <string name="fmt_reopened">Reopened %1$s</string>
     <string name="fmt_rescheduled">Rescheduled %1$s to %2$s</string>

@@ -190,6 +190,8 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry(R.string.set_show_end_times, SettingsSection.EventsTasks, R.string.set_display, "Show end times"),
     SettingsSearchEntry(R.string.set_range_multi_day_events_in_header, SettingsSection.EventsTasks, R.string.set_display, "Multi-day events in Range header"),
     SettingsSearchEntry(R.string.set_show_locations, SettingsSection.EventsTasks, R.string.set_display, "Show locations"),
+    SettingsSearchEntry(R.string.set_countdown_on_lists, SettingsSection.EventsTasks, R.string.set_display, "countdown time until start", R.string.set_search_terms_countdown),
+    SettingsSearchEntry(R.string.set_countdown_on_event_cards, SettingsSection.EventsTasks, R.string.set_display, "countdown time until start", R.string.set_search_terms_countdown),
     SettingsSearchEntry(R.string.set_categories, SettingsSection.EventsTasks, R.string.set_categories, "labels tags", R.string.set_search_terms_categories),
     SettingsSearchEntry(R.string.set_keyword_rules, SettingsSection.EventsTasks, R.string.set_keyword_rules, "auto categorize categories labels", R.string.set_search_terms_keyword_rules),
     SettingsSearchEntry(R.string.set_default_reminder, SettingsSection.Reminders, R.string.set_new_event_reminder, "Default reminder"),
@@ -895,6 +897,18 @@ private fun EventSettings() {
                 t(R.string.set_include_places_below_event_titles),
                 preferences.showLocations,
                 preferences.setShowLocations,
+            )
+            SettingToggleRow(
+                t(R.string.set_countdown_on_lists),
+                t(R.string.set_countdown_on_lists_description),
+                preferences.showListCountdowns,
+                preferences.setShowListCountdowns,
+            )
+            SettingToggleRow(
+                t(R.string.set_countdown_on_event_cards),
+                t(R.string.set_countdown_on_event_cards_description),
+                preferences.showCardCountdowns,
+                preferences.setShowCardCountdowns,
             )
         }
         SettingsGroup(t(R.string.set_tasks_in_calendar)) {

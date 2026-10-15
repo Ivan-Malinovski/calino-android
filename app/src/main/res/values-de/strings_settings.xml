@@ -41,6 +41,11 @@
     <string name="set_include_how_long_an_event_runs">Termindauer anzeigen</string>
     <string name="set_show_locations">Orte anzeigen</string>
     <string name="set_include_places_below_event_titles">Orte unter Termintiteln anzeigen</string>
+    <string name="set_countdown_on_lists">Countdown in Listen</string>
+    <string name="set_countdown_on_lists_description">Wie lange es bis zum Beginn eines Termins dauert, rechts in jeder Zeile von Listen</string>
+    <string name="set_countdown_on_event_cards">Countdown auf Terminkarten</string>
+    <string name="set_countdown_on_event_cards_description">Wie lange es bis zum Beginn eines Termins dauert, neben der Kategorie auf einer geöffneten Karte</string>
+    <string name="set_search_terms_countdown">countdown zeit bis beginn verbleibend</string>
     <string name="set_categories">Kategorien</string>
     <string name="set_tags_like_work_or_health_that_you_can_put_on_events_and_task">Kennzeichnungen wie Arbeit oder Gesundheit für Termine und Aufgaben. Sie werden mit deinem Kalender synchronisiert. Hier hinzugefügte Kategorien stehen im Editor neben den bereits verwendeten Kategorien zur Auswahl.</string>
     <string name="set_new_category">Neue Kategorie</string>

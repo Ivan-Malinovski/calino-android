@@ -3,6 +3,7 @@ package calino.malinov.ski.util
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.placementDate
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -94,6 +95,36 @@ fun formatCalinoDuration(minutes: Int): String = when {
 }
 
 private const val MinutesPerDay = 24 * 60
+
+/**
+ * How long until an event starts, in the units a person reads it in.
+ *
+ * The count gets coarser the further off the event is: minutes appear only
+ * inside the last two hours, hours up to three days out, and from three days
+ * on just whole days. Each unit is floored, so "in 3 hours" never rounds up to
+ * a start that is still 2 h 10 min away. A unit that is zero is simply absent.
+ */
+data class EventCountdown(val days: Int, val hours: Int, val minutes: Int = 0) {
+    /** Less than a day away: the point where the countdown is worth more weight. */
+    val soon: Boolean get() = days == 0
+}
+
+/** Null once the event has started, and for an event with no start time. */
+fun eventCountdown(start: LocalDateTime?, now: LocalDateTime): EventCountdown? {
+    if (start == null || !start.isAfter(now)) return null
+    // Under a minute still reads as "in 1 minute": it has not started yet.
+    val minutes = Duration.between(now, start).toMinutes().coerceAtLeast(1).toInt()
+    if (minutes < CountdownMinutesBelow) return EventCountdown(days = 0, hours = minutes / 60, minutes = minutes % 60)
+    val totalHours = minutes / 60
+    val days = totalHours / 24
+    return EventCountdown(days = days, hours = if (days >= CountdownHoursDropAtDays) 0 else totalHours % 24)
+}
+
+/** Minutes are shown only while the start is closer than this many minutes. */
+private const val CountdownMinutesBelow = 120
+
+/** From this many days out the hours are dropped. */
+private const val CountdownHoursDropAtDays = 3
 
 fun formatEventDate(event: CalEvent, locale: Locale = Locale.US): String? =
     event.start?.let { formatCalinoDate(it.toLocalDate(), locale) }
