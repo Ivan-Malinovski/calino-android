@@ -5,6 +5,8 @@ import calino.malinov.ski.data.caldav.readInlineAttachment
 import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.caldav.CachedAddressBook
 import calino.malinov.ski.data.caldav.CardDavFetcher
+import calino.malinov.ski.data.caldav.ContactFetching
+import calino.malinov.ski.data.caldav.ContactWriting
 import calino.malinov.ski.data.caldav.CardDavWriter
 import calino.malinov.ski.data.caldav.CardResource
 import calino.malinov.ski.data.caldav.CalendarFetching
@@ -218,10 +220,10 @@ class CalDavRepository(
     windowMonths: Long = DefaultWindowMonths,
     /** Injected so tests can drive the fetch on their own scheduler. */
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
-    private val cardFetcher: CardDavFetcher = CardDavFetcher(),
+    private val cardFetcher: ContactFetching = CardDavFetcher(),
     private val vCardMapper: VCardMapper = VCardMapper(),
     private val writer: CalendarWriting = CalDavWriter(cache = cache),
-    private val cardWriter: CardDavWriter = CardDavWriter(cache = cache),
+    private val cardWriter: ContactWriting = CardDavWriter(cache = cache),
     private val pendingStore: PendingChangeStore? = null,
 ) : CalinoRepository {
 

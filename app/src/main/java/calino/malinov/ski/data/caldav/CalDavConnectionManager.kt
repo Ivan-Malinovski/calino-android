@@ -2,6 +2,7 @@ package calino.malinov.ski.data.caldav
 
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.CalDavCalendar
+import calino.malinov.ski.data.jmap.JmapContactsDiscovery
 import calino.malinov.ski.data.jmap.JmapDiscovery
 import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.model.ContactAddressBook
@@ -35,6 +36,7 @@ class CalDavConnectionManager(
     private val jmapDiscovery: JmapDiscovery = JmapDiscovery(),
     private val scope: CoroutineScope,
     private val cardDiscovery: CardDavDiscovery = CardDavDiscovery(),
+    private val jmapContactsDiscovery: JmapContactsDiscovery = JmapContactsDiscovery(),
 ) {
 
     /** Discovered collections per account, so a toggle needs no round trip. */
@@ -186,6 +188,7 @@ class CalDavConnectionManager(
                     readOnly = book.readOnly,
                     ctag = book.ctag,
                     syncToken = book.syncToken,
+                    protocol = account.protocol,
                 )
             }
         }
@@ -228,7 +231,12 @@ class CalDavConnectionManager(
         }
         if (!isCurrent()) return
         withContext(Dispatchers.IO) {
-            runCatching { cardDiscovery.discoverAccount(account.serverUrl, credentials) }
+            runCatching {
+                when (account.protocol) {
+                    CalendarProtocol.Jmap -> jmapContactsDiscovery.discoverAccount(account.serverUrl, credentials)
+                    CalendarProtocol.CalDav -> cardDiscovery.discoverAccount(account.serverUrl, credentials)
+                }
+            }
         }.getOrNull()?.let { found ->
             if (!isCurrent()) return
             val stillStored = accountStore.accounts().firstOrNull { it.id == account.id } ?: return

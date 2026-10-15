@@ -45,6 +45,15 @@ class JmapClient(
             type = "accountNotFound",
         )
 
+    /** The primary contacts account, which can differ from the calendars account. */
+    val contactsAccountId: String
+        get() = session.contactsAccountId ?: throw JmapException(
+            CalDavErrorCode.NotFound,
+            "JMAP session has no primary contacts account",
+            status = 404,
+            type = "accountNotFound",
+        )
+
     val username: String get() = session.username
     val apiUrl: String get() = session.apiUrl
     val uploadUrl: String get() = session.uploadUrl
@@ -119,18 +128,26 @@ class JmapClient(
         return http.openStream(url, credentials, headers)
     }
 
-    /** One method against the primary calendar account; returns its result object. */
+    /**
+     * One method against the primary calendar account, or [account] when given;
+     * returns its result object.
+     */
     suspend fun invoke(
         method: String,
         arguments: JSONObject = JSONObject(),
         using: List<String> = listOf(JmapCore, JmapCalendars),
+        account: String? = null,
     ): JSONObject {
-        val args = JSONObject().put("accountId", accountId)
+        val args = JSONObject().put("accountId", account ?: accountId)
         arguments.keyList().forEach { args.put(it, arguments.opt(it)) }
         val response = call(listOf(JmapInvocation(method, args, "backend")), using)
         return response.methodResponses.firstOrNull { it.name == method && it.callId == "backend" }?.arguments
             ?: throw invalidResponse("JMAP response omitted method result")
     }
+
+    /** One method against the primary contacts account. */
+    suspend fun invokeContacts(method: String, arguments: JSONObject = JSONObject()): JSONObject =
+        invoke(method, arguments, listOf(JmapCore, JmapContacts), contactsAccountId)
 
     /**
      * Runs the calls and returns one logical response per call, with the

@@ -29,7 +29,7 @@ class CardDavWriter(
     private val cache: CalendarCache = CalendarCache.None,
     private val vCardWriter: VCardWriter = VCardWriter(),
     private val now: () -> Instant = { Instant.now() },
-) {
+) : ContactWriting {
 
     /** Creates or updates based on whether the contact has a server href. */
     suspend fun putContact(
@@ -118,7 +118,7 @@ class CardDavWriter(
     ): CardResource = createContact(book, credentials, contact, uid)
 
     /** Prepares a full-model contact using conditional create/update semantics. */
-    fun prepareContact(
+    override fun prepareContact(
         book: DiscoveredAddressBook,
         contact: Contact,
     ): PreparedCardWrite {
@@ -151,7 +151,7 @@ class CardDavWriter(
     }
 
     /** Sends a previously prepared vCard and updates the raw address-book cache. */
-    suspend fun putPrepared(
+    override suspend fun putPrepared(
         book: DiscoveredAddressBook,
         credentials: DavCredentials,
         prepared: PreparedCardWrite,
@@ -164,7 +164,7 @@ class CardDavWriter(
     )
 
     /** Re-reads both vCard bytes and ETag before a stale conditional retry. */
-    suspend fun refreshResource(
+    override suspend fun refreshResource(
         book: DiscoveredAddressBook,
         credentials: DavCredentials,
         href: String,
@@ -209,11 +209,11 @@ class CardDavWriter(
      * Deletes a resource by href. If [etag] is absent, the matching cached
      * resource can provide it; without either source, deletion is refused.
      */
-    suspend fun delete(
+    override suspend fun delete(
         book: DiscoveredAddressBook,
         credentials: DavCredentials,
         href: String,
-        etag: String? = null,
+        etag: String?,
     ) {
         deleteResource(
             book = book,

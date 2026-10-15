@@ -1,5 +1,6 @@
 package calino.malinov.ski.data.caldav
 
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.model.ContactAddressBook
 import java.net.URI
 import org.w3c.dom.Element
@@ -12,6 +13,7 @@ data class DiscoveredAddressBook(
     val readOnly: Boolean = false,
     val ctag: String? = null,
     val syncToken: String? = null,
+    val protocol: CalendarProtocol = CalendarProtocol.CalDav,
 )
 
 /** The CardDAV half of an account discovery walk. */

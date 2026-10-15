@@ -75,3 +75,45 @@ internal fun parseJmapUrl(
         eventId = if (event) decodeUriComponent(parts[1]) else null,
     )
 }
+
+// --- address books ----------------------------------------------------------------------
+
+/**
+ * Contacts live beside calendars under the same synthetic root, behind an `ab`
+ * segment, in the *contacts* account (which can differ from the calendars one):
+ *
+ *     <origin>/.jmap/<accountId>/ab/<addressBookId>/            address book
+ *     <origin>/.jmap/<accountId>/ab/<addressBookId>/<cardId>    card
+ *
+ * Calendar URLs have two segments after the account and these have three, so the
+ * shapes cannot be confused whatever a calendar is called.
+ */
+internal data class JmapContactId(val addressBookId: String, val cardId: String?)
+
+internal fun jmapAddressBookUrl(serverUrl: String, accountId: String, bookId: String): String =
+    jmapAccountPrefix(serverUrl, accountId) + "ab/" + encodeUriComponent(bookId) + "/"
+
+internal fun jmapCardUrl(serverUrl: String, accountId: String, bookId: String, cardId: String): String =
+    jmapAddressBookUrl(serverUrl, accountId, bookId) + encodeUriComponent(cardId)
+
+internal fun parseJmapContactUrl(
+    href: String,
+    serverUrl: String,
+    accountId: String,
+    card: Boolean,
+): JmapContactId {
+    fun invalid(): Nothing = throw JmapException(
+        CalDavErrorCode.Rejected, "Contact is outside this JMAP account",
+        status = 400, type = "invalidArguments",
+    )
+    val prefix = jmapAccountPrefix(serverUrl, accountId) + "ab/"
+    val url = runCatching { href.toHttpUrl() }.getOrNull() ?: invalid()
+    if (!href.startsWith(prefix) || url.query != null || url.fragment != null) invalid()
+    val parts = href.substring(prefix.length).split('/')
+    if (parts.size != 2 || parts[0].isEmpty()) invalid()
+    if (card == parts[1].isEmpty()) invalid()
+    return JmapContactId(
+        addressBookId = decodeUriComponent(parts[0]),
+        cardId = if (card) decodeUriComponent(parts[1]) else null,
+    )
+}

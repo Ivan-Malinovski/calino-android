@@ -32,7 +32,7 @@ class JmapEventStreamTest {
 
     @Test
     fun theParserFramesEventsAcrossChunksAndLineEndings() {
-        val (events, _) = parse("﻿event: state\r", "\ndata: {\"a\":", "1}\r\nid: 7\r\n\r", "\n: comment\ndata: x\ndata: y\n\n")
+        val (events, _) = parse("\uFEFFevent: state\r", "\ndata: {\"a\":", "1}\r\nid: 7\r\n\r", "\n: comment\ndata: x\ndata: y\n\n")
         assertEquals(2, events.size)
         assertEquals(SseEvent("state", "{\"a\":1}", "7"), events[0])
         assertEquals(SseEvent("message", "x\ny", "7"), events[1])

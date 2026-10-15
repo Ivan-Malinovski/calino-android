@@ -45,7 +45,7 @@ internal fun diffObjects(before: JSONObject, after: JSONObject, ignored: Set<Str
 // --- editing an event the server holds ------------------------------------------------
 
 /** Applies [next] to [server] but only where the converter's [projected] view of the server changed. */
-private fun reconcile(server: Any?, projected: Any?, next: Any?): Any? {
+internal fun reconcile(server: Any?, projected: Any?, next: Any?): Any? {
     if (equalJson(projected, next) && server != null) return deepCopy(server)
     if (server !is JSONObject || projected !is JSONObject || next !is JSONObject) return deepCopy(next)
     val result = server.copy()

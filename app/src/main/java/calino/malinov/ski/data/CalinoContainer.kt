@@ -10,7 +10,10 @@ import calino.malinov.ski.data.caldav.AccountRediscoveryResult
 import calino.malinov.ski.data.caldav.CalDavDiscovery
 import calino.malinov.ski.data.caldav.CalDavFetcher
 import calino.malinov.ski.data.caldav.CalDavWriter
+import calino.malinov.ski.data.caldav.CardDavFetcher
 import calino.malinov.ski.data.caldav.ProtocolCalendarFetcher
+import calino.malinov.ski.data.caldav.ProtocolContactFetcher
+import calino.malinov.ski.data.caldav.ProtocolContactWriter
 import calino.malinov.ski.data.caldav.ProtocolCalendarWriter
 import calino.malinov.ski.data.caldav.CardDavWriter
 import calino.malinov.ski.data.caldav.CredentialStore
@@ -20,6 +23,9 @@ import calino.malinov.ski.data.caldav.KeystoreCredentialStore
 import calino.malinov.ski.data.caldav.SharedPreferencesAccountPersistence
 import calino.malinov.ski.data.jmap.JmapCalendarFetcher
 import calino.malinov.ski.data.jmap.JmapCalendarWriter
+import calino.malinov.ski.data.jmap.JmapContactsDiscovery
+import calino.malinov.ski.data.jmap.JmapContactsFetcher
+import calino.malinov.ski.data.jmap.JmapContactsWriter
 import calino.malinov.ski.data.jmap.JmapClientProvider
 import calino.malinov.ski.data.jmap.JmapPushController
 import calino.malinov.ski.data.jmap.JmapDiscovery
@@ -166,6 +172,8 @@ class CalinoContainer private constructor(context: Context) {
 
     private val calendarCache = FileCalendarCache(File(application.filesDir, "caldav-cache"))
     private val jmapFetcher = JmapCalendarFetcher(jmapClients)
+    private val jmapContactsFetcher = JmapContactsFetcher(jmapClients)
+    private val jmapContactsDiscovery = JmapContactsDiscovery(http, jmapClients)
     private val jmapPush = JmapPushController(
         scope = scope,
         accounts = { accountStore.accounts() },
@@ -174,6 +182,7 @@ class CalinoContainer private constructor(context: Context) {
         requestSync = { syncConnectedAccounts() },
     )
     private val calDavWriter = CalDavWriter(http, calendarCache)
+    private val cardDavWriter = CardDavWriter(http, calendarCache)
 
     private val pendingChangeStore =
         FilePendingChangeStore(File(application.filesDir, "caldav-write-queue.json"))
@@ -189,7 +198,14 @@ class CalinoContainer private constructor(context: Context) {
             caldav = calDavWriter,
             jmap = JmapCalendarWriter(jmapClients, jmapFetcher, calDavWriter, calendarCache),
         ),
-        cardWriter = CardDavWriter(http, calendarCache),
+        cardFetcher = ProtocolContactFetcher(
+            carddav = CardDavFetcher(http),
+            jmap = jmapContactsFetcher,
+        ),
+        cardWriter = ProtocolContactWriter(
+            carddav = cardDavWriter,
+            jmap = JmapContactsWriter(jmapClients, jmapContactsFetcher, cardDavWriter, calendarCache),
+        ),
         pendingStore = pendingChangeStore,
     )
 
@@ -199,6 +215,7 @@ class CalinoContainer private constructor(context: Context) {
         repository = calDavRepository,
         discovery = calDavDiscovery,
         jmapDiscovery = jmapDiscovery,
+        jmapContactsDiscovery = jmapContactsDiscovery,
         scope = scope,
     )
 

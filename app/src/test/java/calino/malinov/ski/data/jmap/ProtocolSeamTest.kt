@@ -4,7 +4,12 @@ import calino.malinov.ski.data.caldav.CalDavAccountJson
 import calino.malinov.ski.data.caldav.CalDavErrorCode
 import calino.malinov.ski.data.caldav.CalDavException
 import calino.malinov.ski.data.caldav.CalDavFetcher
+import calino.malinov.ski.data.caldav.CardDavFetcher
+import calino.malinov.ski.data.caldav.CardDavWriter
 import calino.malinov.ski.data.caldav.DavCredentials
+import calino.malinov.ski.data.caldav.DiscoveredAddressBook
+import calino.malinov.ski.data.caldav.ProtocolContactFetcher
+import calino.malinov.ski.data.caldav.ProtocolContactWriter
 import calino.malinov.ski.data.caldav.DiscoveredCalendar
 import calino.malinov.ski.data.caldav.ProtocolCalendarFetcher
 import calino.malinov.ski.data.model.CalDavAccount
@@ -45,5 +50,24 @@ class ProtocolSeamTest {
             }
         }.exceptionOrNull()
         assertTrue(error is CalDavException && error.code == CalDavErrorCode.NotCalDav)
+    }
+
+    private val jmapBook = DiscoveredAddressBook(
+        url = "https://x/.jmap/a/ab/b/", displayName = "B", protocol = CalendarProtocol.Jmap,
+    )
+
+    @Test
+    fun jmapAddressBookWithoutABackendFailsLoudlyInsteadOfSpeakingCardDav() {
+        val read = runCatching {
+            runBlocking { ProtocolContactFetcher(CardDavFetcher()).fetch(jmapBook, DavCredentials("u", "p")) }
+        }.exceptionOrNull()
+        assertTrue(read is CalDavException && read.code == CalDavErrorCode.NotCalDav)
+        val write = runCatching {
+            runBlocking {
+                val writer = ProtocolContactWriter(CardDavWriter())
+                writer.refreshResource(jmapBook, DavCredentials("u", "p"), "https://x/.jmap/a/ab/b/c")
+            }
+        }.exceptionOrNull()
+        assertTrue(write is CalDavException && write.code == CalDavErrorCode.NotCalDav)
     }
 }

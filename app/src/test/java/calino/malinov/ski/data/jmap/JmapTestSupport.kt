@@ -15,6 +15,8 @@ class FakeJmapServer(
         "maxCallsInRequest" to 4, "maxObjectsInGet" to 2, "maxObjectsInSet" to 2,
     ),
     private val advertisedHost: (base: String) -> String = { it },
+    /** Also advertises a primary contacts account (`a`). */
+    private val contacts: Boolean = false,
 ) : Dispatcher() {
     val server = MockWebServer()
 
@@ -41,18 +43,22 @@ class FakeJmapServer(
         return JSONObject().apply {
             put(
                 "capabilities",
-                jsonObject(JmapCore to coreCapabilities, JmapCalendars to JSONObject()),
+                jsonObject(JmapCore to coreCapabilities, JmapCalendars to JSONObject()).also {
+                    if (contacts) it.put(JmapContacts, JSONObject())
+                },
             )
             put(
                 "accounts",
                 jsonObject(
                     "a" to jsonObject(
                         "name" to "Personal", "isPersonal" to true, "isReadOnly" to false,
-                        "accountCapabilities" to jsonObject(JmapCalendars to JSONObject()),
+                        "accountCapabilities" to jsonObject(JmapCalendars to JSONObject()).also {
+                            if (contacts) it.put(JmapContacts, JSONObject())
+                        },
                     ),
                 ),
             )
-            put("primaryAccounts", jsonObject(JmapCalendars to "a"))
+            put("primaryAccounts", jsonObject(JmapCalendars to "a").also { if (contacts) it.put(JmapContacts, "a") })
             put("username", "ann@example.com")
             put("apiUrl", "$base/jmap/api")
             put("uploadUrl", "$base/upload/{accountId}")

@@ -45,9 +45,9 @@ data class IncrementalCardFetchResult(
 class CardDavFetcher(
     private val http: DavHttp = DavHttp(),
     private val incrementalSync: IncrementalSync = IncrementalSync(http),
-) {
+) : ContactFetching {
 
-    suspend fun fetch(book: DiscoveredAddressBook, credentials: DavCredentials): CardFetchResult {
+    override suspend fun fetch(book: DiscoveredAddressBook, credentials: DavCredentials): CardFetchResult {
         val response = http.request(
             method = "REPORT",
             url = book.url,
@@ -66,11 +66,11 @@ class CardDavFetcher(
      * reports hrefs and ETags only, so changed cards are read with GET before
      * the new token is returned to the repository for persistence.
      */
-    suspend fun fetchIncremental(
+    override suspend fun fetchIncremental(
         book: DiscoveredAddressBook,
         credentials: DavCredentials,
         cachedResources: List<CardResource>?,
-        storedCursor: CollectionCursor? = null,
+        storedCursor: CollectionCursor?,
     ): IncrementalCardFetchResult {
         val previous = storedCursor ?: CollectionCursor(book.ctag, book.syncToken)
         if (!previous.hasSyncToken) {
