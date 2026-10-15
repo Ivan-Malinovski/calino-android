@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -133,6 +134,25 @@ class JmapEventStreamTest {
         val done = CompletableDeferred<Unit>()
         watch({ done.complete(Unit) }, done)
         assertTrue(connections.get() >= 2)
+    }
+
+    @Test
+    fun cancellingTheWatcherClosesAStreamThatIsBlockedInARead() = runBlocking {
+        // A quiet server and a patient watchdog: only closing the connection can end the read.
+        fake.events = {
+            MockResponse().setHeader("Content-Type", "text/event-stream").setBody("event: ping\ndata: {}\n\n")
+                .setBodyDelay(4, TimeUnit.SECONDS)
+        }
+        fake.start()
+        val client = JmapClient(fake.baseUrl, DavCredentials("ann@example.com", "secret"))
+        client.connect()
+        val patient = EventStreamTiming(watchdogMillis = { 60_000 })
+        val job = launch(Dispatchers.Default) { client.watchStateChanges(listOf("CalendarEvent"), patient) { } }
+        withTimeout(5_000) { while (fake.eventRequests.isEmpty()) kotlinx.coroutines.delay(20) }
+        kotlinx.coroutines.delay(300)
+        // Well inside the server's four-second silence, so only closing the call can explain it.
+        withTimeout(2_000) { job.cancelAndJoin() }
+        assertTrue(job.isCancelled)
     }
 
     @Test

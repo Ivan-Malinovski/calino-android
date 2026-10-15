@@ -4,6 +4,7 @@ import calino.malinov.ski.data.caldav.CalDavErrorCode
 import calino.malinov.ski.data.caldav.CalDavException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -146,6 +147,16 @@ internal suspend fun JmapClient.watchStateChanges(
                             delay(limit - idle)
                         }
                     }
+                    // A blocked socket read cannot be interrupted by cancelling its coroutine, and a
+                    // quiet server may not send anything for a long time. Closing the call is what
+                    // makes the read return, so do it whenever the watcher is cancelled.
+                    val closer = launch {
+                        try {
+                            awaitCancellation()
+                        } finally {
+                            open.cancel()
+                        }
+                    }
                     try {
                         withContext(Dispatchers.IO) {
                             val buffer = ByteArray(4096)
@@ -159,6 +170,7 @@ internal suspend fun JmapClient.watchStateChanges(
                         }
                     } finally {
                         watchdog.cancel()
+                        closer.cancel()
                     }
                 }
             }
