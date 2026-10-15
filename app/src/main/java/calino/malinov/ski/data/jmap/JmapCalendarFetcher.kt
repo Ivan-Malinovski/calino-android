@@ -38,8 +38,15 @@ private const val MaxQueryAttempts = 3
  * make a `If-Match`-style comparison. It is stored bare, like any other ETag.
  */
 internal fun eventEtag(event: JSONObject): String =
-    MessageDigest.getInstance("SHA-256").digest(canonicalJson(event).toByteArray(Charsets.UTF_8))
+    MessageDigest.getInstance("SHA-256").digest(canonicalJson(hashedFields(event)).toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
+
+/**
+ * Calendar membership is not part of the validator. A move into another
+ * calendar adds a membership first and removes the old one afterwards, and the
+ * second step must still match the validator the first step started from.
+ */
+private fun hashedFields(event: JSONObject): JSONObject = event.copy().also { it.remove("calendarIds") }
 
 internal fun utcQueryTime(instant: Instant): String = UtcSeconds.format(instant)
 
@@ -144,6 +151,10 @@ class JmapCalendarFetcher(
         listResources(calendar, credentials, null).resources.firstOrNull { resource ->
             resource.ics.lineSequence().any { it.trimEnd('\r') == "UID:$uid" }
         }
+
+    /** Every event in [calendarId], unfiltered by time. */
+    internal suspend fun eventsInCalendar(client: JmapClient, calendarId: String): List<JSONObject> =
+        getEvents(client, queryIds(client, calendarId, null)).filter { isMember(it, calendarId) }
 
     private fun window(start: LocalDate, end: LocalDate) = QueryWindow(
         after = utcQueryTime(start.atStartOfDay(zone).toInstant()),
@@ -291,7 +302,7 @@ class JmapCalendarFetcher(
     }
 
     /** `CalendarEvent/get` for [ids]; the client splits it to the server's limits. */
-    private suspend fun getEvents(client: JmapClient, ids: List<String>): List<JSONObject> {
+    internal suspend fun getEvents(client: JmapClient, ids: List<String>): List<JSONObject> {
         if (ids.isEmpty()) return emptyList()
         val result = client.invoke("CalendarEvent/get", JSONObject().put("ids", jsonArray(ids)))
         return result.arrayOrNull("list")?.toList()?.filterIsInstance<JSONObject>()
