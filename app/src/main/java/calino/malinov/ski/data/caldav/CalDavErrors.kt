@@ -57,7 +57,7 @@ enum class CalDavErrorCode {
  * a collision and delete the source of a move. [body] is truncated because it is
  * only ever pattern-matched, never displayed.
  */
-class CalDavException(
+open class CalDavException(
     val code: CalDavErrorCode,
     override val message: String,
     override val cause: Throwable? = null,
