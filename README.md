@@ -1,6 +1,6 @@
 # Calino for Android
 
-**A calm, native Android calendar for your own CalDAV and CardDAV server.**
+**A calm, native Android calendar for your own CalDAV, CardDAV or JMAP server.**
 
 Calino connects straight to the calendar and contacts server you already use, with no Calino account, hosted backend or telemetry in between. Events, tasks, journals and contacts live on your server; Calino keeps a local cache so it stays fast and works offline, and queues your edits until the connection is back.
 
@@ -27,7 +27,7 @@ It is written in Kotlin and Jetpack Compose and is the Android sister project to
 
 - **One calendar that zooms.** Pull the week strip down into a month, pull again for detail, or switch between agenda, 1/3/7-day range and month views. Paging and zoom follow your finger.
 - **Events, tasks and journals.** Recurrence (with this / this-and-following / all edits), reminders, attendees, categories, travel time, priorities and completion, all stored as standard iCalendar.
-- **Contacts** through CardDAV, including birthday and anniversary reminders.
+- **Contacts** through CardDAV or JMAP, including birthday and anniversary reminders.
 - **Reminders that arrive**: exact alarms with event and task actions, and a clear explanation in-app when Android is holding them back.
 - **Home-screen widgets** for agenda, calendar card and tasks, backed by the same cache as the app.
 - **Fits into Android**: calendar intents, `.ics` import and sharing, map links, launcher shortcuts, optional device-calendar import, and opt-in phone search and assistant access (both off by default, and they never write without you).
@@ -37,11 +37,21 @@ It is written in Kotlin and Jetpack Compose and is the Android sister project to
 
 ## Privacy and how it works
 
-- Talks only to your CalDAV/CardDAV server. No telemetry, no Calino cloud.
+- Talks only to the one server you enter for an account, over CalDAV/CardDAV or, when that server offers it, JMAP on the same address. No telemetry, no Calino cloud.
 - Passwords are kept in Android Keystore and never enter the cache or logs.
 - Edits use ETags and conditional requests. If the server copy changed, Calino rebases just the fields you edited and keeps every property it does not understand, so other clients' data is not flattened.
 - Offline edits wait in a durable queue and sync when the connection returns.
 - Once a day, when opened, Calino may ask its GitHub Releases page whether a newer stable version exists. No calendar or account data is sent.
+
+## JMAP servers
+
+If the server you enter answers `/.well-known/jmap` with calendars (for example Stalwart 0.16), Calino connects over JMAP instead of CalDAV and shows which one in the account's settings, where you can switch that account back to CalDAV. JMAP Calendars is still a draft and only Stalwart has been tried. What differs from CalDAV:
+
+- **Tasks and journals stay out of JMAP calendars.** Stalwart offers none over JMAP, so tasks go to a CalDAV or device calendar, and a JMAP calendar only takes events.
+- **Vendor properties are not kept.** JSCalendar cannot hold unknown `X-` properties, so an event or contact that Calino saves over JMAP loses any the server had stored for it.
+- **Attachments are links only.** Picking a file to embed is turned off for JMAP calendars until blob upload is implemented; events that already carry embedded files still show them. Contact photos stored only as server blobs are not downloaded or shown, and are left untouched on the server.
+- **Free/busy lookups are not offered**, since Calino has nowhere to show them. Invitations and replies are sent by the server; delivery to addresses outside it has not been verified.
+- Updates arrive by pull, with a push hint while the app is open, and calendar sync keeps its cache and offline queue exactly as for CalDAV.
 
 ## Install
 

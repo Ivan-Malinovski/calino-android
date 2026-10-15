@@ -2,6 +2,7 @@ package calino.malinov.ski.data.repository
 
 import calino.malinov.ski.data.caldav.CachedCalendar
 import calino.malinov.ski.data.caldav.readInlineAttachment
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.model.EventAttachment
 import calino.malinov.ski.data.caldav.CachedAddressBook
 import calino.malinov.ski.data.caldav.CardDavFetcher
@@ -4338,6 +4339,7 @@ class CalDavRepository(
                 components = source.calendar.components,
                 visible = source.visible,
                 showTasksInViews = source.showTasksInViews,
+                inlineAttachments = source.calendar.protocol != CalendarProtocol.Jmap,
             )
         } + webcal.calendars
         val events = overlay.applyToEvents(fetched.events + webcal.events)

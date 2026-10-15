@@ -14,6 +14,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -117,6 +118,8 @@ class JmapDetectorTest {
                             jsonObject("id" to "c1", "name" to "Work", "color" to "#ff0000", "myRights" to jsonObject("mayWriteAll" to true)),
                             jsonObject("id" to "c/2", "name" to "Family", "myRights" to jsonObject("mayWriteAll" to false, "mayReadItems" to true)),
                             jsonObject("id" to "c3", "name" to "Feed", "isSubscribed" to true),
+                            // Stalwart flags the person's own default calendar as subscribed too.
+                            jsonObject("id" to "c4", "name" to "Own", "isSubscribed" to true, "myRights" to jsonObject("mayWriteAll" to true)),
                         ),
                     ),
                 )
@@ -126,8 +129,9 @@ class JmapDetectorTest {
         fake.start()
         val account = JmapDiscovery().discoverAccount(fake.baseUrl, credentials)
         fake.stop()
-        assertEquals(3, account.calendars.size)
-        val (work, family, feed) = account.calendars
+        assertEquals(4, account.calendars.size)
+        val (work, family, feed, own) = account.calendars
+        assertFalse("a subscribed calendar with write rights is the person's own", own.readOnly)
         assertEquals("${fake.baseUrl}/.jmap/a/c1/", work.url)
         assertEquals("${fake.baseUrl}/.jmap/a/c%2F2/", family.url)
         assertEquals(0xFFFF0000, work.color)

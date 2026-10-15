@@ -14,3 +14,4 @@ scripts/live-caldav/state/
 # Local development notes
 /HANDOFF.md
 /TODO.md
+scripts/live-jmap/state/

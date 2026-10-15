@@ -3,7 +3,8 @@
 Written 2026-10-06 from the Calino **web** implementation, which shipped in
 `Ivan-Malinovski/calino` as squash commit `8075a082` (PR #203, closes issue #15)
 and was verified against a local Stalwart 0.16. Nothing described here exists in
-this repository yet. This is an implementation brief, in the same spirit as
+this repository when it was written. It has since been implemented (see
+"Implementation status" below). This is an implementation brief, in the same spirit as
 [`custom-dav-headers-handoff.md`](custom-dav-headers-handoff.md): it records what
 was learned, so the Android app can get the same support without rediscovering
 every trap.
@@ -45,6 +46,46 @@ this file on the converters; read them next to the code you are porting.
 6. Do not push, and do not put credentials in the repo, in logs, or in this file.
    Stalwart's dev credentials come from the dev script's `env` output; they are
    throwaway values and are deliberately not copied here.
+
+## Implementation status (Android)
+
+Phases 0 to 10 are built, each as its own commit. Where this document and the code
+disagree, the code and its tests are right.
+
+| Area | Where it lives | Notes |
+| --- | --- | --- |
+| Seam | `data/caldav/CalendarBackends.kt`, `ContactBackends.kt` | `Protocol*` routers choose by `DiscoveredCalendar.protocol` / `DiscoveredAddressBook.protocol`; a JMAP collection with no backend fails loudly instead of speaking DAV |
+| Transport, detection | `data/jmap/JmapClient.kt`, `JmapDetector`, `ProtocolDiscovery` | Always the origin the person typed; loopback URLs Stalwart advertises are rebased |
+| Calendars | `JsCalendarToIcs`, `IcsToJsCalendar`, `JsCalendarDiff`, `JmapCalendarFetcher`, `JmapCalendarWriter` | Synthetic `/.jmap/<account>/<calendar>/` hrefs; etag is a hash of the event |
+| Scheduling | `JmapClient.schedulingInfo`, writer | `sendSchedulingMessages` when the account advertises it |
+| Push | `JmapPushController` | EventSource while the app is visible, only ever a hint to run the normal sync |
+| Contacts | `VCardToJsContact`, `JsContactToVCard`, `JsContactDiff`, `JmapContacts*` | Flat RFC 9610 cards on write; the `jsCard` envelope is tolerated on read |
+| Dev server, live test | `scripts/live-jmap/`, `JmapLiveTest` | Throwaway Stalwart; the live test skips without `CALINO_JMAP_*` |
+
+Decisions taken (change them with the person, not silently):
+
+- **Tasks and journals stay out of JMAP.** JMAP calendars advertise `VEVENT` only, so the
+  existing `accepts("VTODO")` checks already route new tasks to a CalDAV or device
+  calendar, or show the "no task calendar" message. Nothing is queued forever.
+- **Inline file attachments are off for JMAP calendars** (`CalinoCalendar.inlineAttachments`):
+  no blob upload yet. Links work, and embedded `data:` attachments already on an event are
+  still read and kept.
+- **Free/busy (`Principal/getAvailability`) is not built**: Calino has no surface to show it.
+- **Settings sync** is not ported: Android has no hidden-calendar settings sync.
+- **Blob-only contact photos** are neither downloaded nor shown (no binary transport) and
+  are left alone on the server, because patches are diff-only. Inline `data:` and URI photos
+  are read and written.
+- **Vendor and `X-` properties** do not travel over JMAP, for events or contacts.
+- **Ids and search.** Record ids and the deep links built from them are href-derived for
+  CalDAV already; JMAP adds the same kind of value, never a new host. The JMAP code does not
+  log, and credentials stay in `KeystoreCredentialStore`.
+
+Found only by the live test, not by any fake: `isSubscribed` is true on a person's own
+calendar (fixed in `discoveredCalendar`; see 5.2).
+
+Still unverified: iMIP delivery to addresses outside the server; Cyrus, Fastmail and other
+servers; groups on Stalwart; attendee-copy RSVP of detached instances; the emulator pass
+(`emulator-5554` only). Not started: JMAP blob upload/download for attachments and photos.
 
 ## 1. Plan
 
@@ -326,7 +367,7 @@ are secrets with the same origin rule.
 ### 5.2 Calendars list
 
 `Calendar/get` with `ids: null`. Map name; `color` through the existing colour
-normalisation; `isVisible`; `isSubscribed` (treat as read-only); `isDefault`;
+normalisation; `isVisible`; `isSubscribed` (**not** a read-only signal: Stalwart sets it on the person's own default calendar, which grants every write right; the rights decide, and a subscribed calendar that states none is treated as a read-only feed); `isDefault`;
 `sortOrder`; and `myRights` to `readOnly`: writable when any of `mayWriteAll` or
 `mayWriteOwn` is true (current drafts and Stalwart; older drafts used per-item
 add/modify/remove rights, which the web also accepts). Components are

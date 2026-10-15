@@ -3,6 +3,17 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## Unreleased
+
+### Added
+
+- **JMAP accounts.** A server that offers JMAP Calendars (tested with Stalwart 0.16) now connects over JMAP: events, recurrence and overrides, reminders, attendees, invitations and replies, moves, deletes, incremental sync and a push hint while the app is open, all through the same cache and offline queue as CalDAV. The account settings show which protocol is in use and can switch back to CalDAV.
+- **JMAP contacts.** Address books on a JMAP account are read and edited as JSContact and shown as the same contacts as CardDAV ones.
+
+### Changed
+
+- JMAP calendars take events only, and the editor hides "Add file" for them, because embedded attachments need blob upload that is not built yet. Vendor `X-` properties are not carried over JMAP.
+
 ## 0.11.0 — 2026-10-05
 
 Calino 0.11.0 translates the app into Danish and German, shows multi-day events in the Range header, and makes the Year, Agenda and Month transitions follow your finger.

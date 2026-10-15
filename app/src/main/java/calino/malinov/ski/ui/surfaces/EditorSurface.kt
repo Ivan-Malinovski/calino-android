@@ -564,6 +564,7 @@ private fun EventEditorFields(
     EditorDivider()
     MoreSection(
         draft = draft,
+        inlineAttachments = calendars.firstOrNull { it.id == draft.calendarId }?.inlineAttachments ?: true,
         open = moreOpen,
         categories = categories,
         onToggle = onMoreOpen,
@@ -1379,6 +1380,7 @@ private fun CategoriesSection(
 @Composable
 private fun MoreSection(
     draft: EditorDraft,
+    inlineAttachments: Boolean,
     open: Boolean,
     categories: List<String>,
     onToggle: () -> Unit,
@@ -1474,7 +1476,7 @@ private fun MoreSection(
                         )
                     }
                 }
-                AttachmentLinksSection(draft, onDraft)
+                AttachmentLinksSection(draft, inlineAttachments, onDraft)
                 CalinoColorSwatchRow(Color(draft.color)) { picked ->
                     onDraft(draft.copy(color = picked.toArgb().toLong() and 0xffffffffL))
                 }
@@ -1592,7 +1594,7 @@ private fun EditorDraft.rematchedFrom(previous: EditorDraft, rules: List<AutoCat
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) -> Unit) {
+private fun AttachmentLinksSection(draft: EditorDraft, inlineAttachments: Boolean, onDraft: (EditorDraft) -> Unit) {
     var input by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
     var note by remember { mutableStateOf<String?>(null) }
     val attachments = draft.attachments.orEmpty()
@@ -1650,10 +1652,16 @@ private fun AttachmentLinksSection(draft: EditorDraft, onDraft: (EditorDraft) ->
             },
         ) { Text(stringResource(R.string.ed_editor_add)) }
     }
-    TextButton(
-        onClick = { note = null; picker.launch(arrayOf("*/*")) },
-        modifier = Modifier.heightIn(min = 44.dp),
-    ) { Text(stringResource(R.string.ed_attachment_add_file)) }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = inlineAttachments,
+        enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + androidx.compose.animation.expandVertically(tween(CalinoMotion.ContentEnterMillis)),
+        exit = fadeOut(tween(CalinoMotion.ContentExitMillis)) + androidx.compose.animation.shrinkVertically(tween(CalinoMotion.ContentExitMillis)),
+    ) {
+        TextButton(
+            onClick = { note = null; picker.launch(arrayOf("*/*")) },
+            modifier = Modifier.heightIn(min = 44.dp),
+        ) { Text(stringResource(R.string.ed_attachment_add_file)) }
+    }
     androidx.compose.animation.AnimatedVisibility(
         visible = note != null,
         enter = fadeIn(tween(CalinoMotion.ContentEnterMillis)) + androidx.compose.animation.expandVertically(tween(CalinoMotion.ContentEnterMillis)),

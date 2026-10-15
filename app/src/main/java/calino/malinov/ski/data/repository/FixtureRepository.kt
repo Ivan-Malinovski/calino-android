@@ -59,6 +59,12 @@ data class CalinoCalendar(
      * seeing events, not being paged by the publisher's alarms.
      */
     val notifyReminders: Boolean = true,
+    /**
+     * Whether the editor may embed a picked file as an inline attachment. A JMAP
+     * account has no blob transport here yet, so its calendars say no and links
+     * stay the only way to attach something.
+     */
+    val inlineAttachments: Boolean = true,
 )
 
 /**

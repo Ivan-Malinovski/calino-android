@@ -57,8 +57,10 @@ internal fun discoveredCalendar(
 ): DiscoveredCalendar {
     val rights = calendar.objectOrNull("myRights")
     val writable = rights == null || WriteRights.any { rights.boolOrNull(it) == true }
-    // A subscribed calendar is somebody else's feed: never write to it.
-    val subscribed = calendar.boolOrNull("isSubscribed") == true
+    // `isSubscribed` only says the calendar is in the person's list: Stalwart sets it on their own
+    // default calendar too, which grants every write right. The rights decide; a subscribed
+    // calendar that states none is treated as somebody else's feed and never written to.
+    val subscribed = rights == null && calendar.boolOrNull("isSubscribed") == true
     return DiscoveredCalendar(
         url = jmapCalendarUrl(serverUrl, accountId, id),
         displayName = calendar.stringOrNull("name") ?: "Unnamed Calendar",
