@@ -19,6 +19,8 @@ data class CalDavAccount(
     val calendarUserAddresses: Set<String> = emptySet(),
     /** True only when discovery observed DAV: calendar-auto-schedule. */
     val autoSchedule: Boolean = false,
+    /** Detected when the account connected; the person can override it. */
+    val protocol: CalendarProtocol = CalendarProtocol.CalDav,
 )
 
 /**

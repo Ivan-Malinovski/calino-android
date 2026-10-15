@@ -3,6 +3,7 @@ package calino.malinov.ski.data.caldav
 import android.content.Context
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.CalDavCalendar
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.model.ContactAddressBook
 import calino.malinov.ski.data.repository.CalDavAccountPersistence
 import org.json.JSONArray
@@ -57,6 +58,7 @@ object CalDavAccountJson {
                     .put("username", account.username)
                     .put("calendarUserAddresses", JSONArray(account.calendarUserAddresses.toList()))
                     .put("autoSchedule", account.autoSchedule)
+                    .put("protocol", account.protocol.name)
                     .put("calendars", calendars)
                     .put("addressBooks", addressBooks),
             )
@@ -125,6 +127,9 @@ object CalDavAccountJson {
                 (0 until values.length()).mapNotNull { values.optString(it).takeIf(String::isNotBlank) }.toSet()
             }.orEmpty(),
             autoSchedule = json.optBoolean("autoSchedule", false),
+            // Accounts saved before JMAP have no field and are CalDAV.
+            protocol = CalendarProtocol.entries.firstOrNull { it.name == json.optString("protocol") }
+                ?: CalendarProtocol.CalDav,
         )
     }
 }

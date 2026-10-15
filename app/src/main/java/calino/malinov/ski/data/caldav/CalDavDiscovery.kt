@@ -2,6 +2,7 @@ package calino.malinov.ski.data.caldav
 
 import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalDavForm
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.state.CalDavConnectResult
 import calino.malinov.ski.state.normalizeServerUrl
 import calino.malinov.ski.data.repository.CalDavClient
@@ -22,6 +23,8 @@ data class DiscoveredCalendar(
     val components: Set<String>,
     val ctag: String? = null,
     val syncToken: String? = null,
+    /** Which backend reads and writes this collection; JMAP ones carry a synthetic [url]. */
+    val protocol: CalendarProtocol = CalendarProtocol.CalDav,
 )
 
 /** Everything a fetch needs after a successful connect. */

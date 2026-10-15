@@ -40,7 +40,7 @@ class CalDavWriter(
     private val writer: ICalWriter = ICalWriter(),
     private val patcher: ICalPatcher = ICalPatcher(writer),
     private val now: () -> Instant = { Instant.now() },
-) {
+) : CalendarWriting {
 
     suspend fun putEvent(
         calendar: DiscoveredCalendar,
@@ -50,7 +50,7 @@ class CalDavWriter(
         return putPrepared(calendar, credentials, prepareEvent(calendar, event))
     }
 
-    fun prepareEvent(calendar: DiscoveredCalendar, event: CalEvent): PreparedCalendarWrite {
+    override fun prepareEvent(calendar: DiscoveredCalendar, event: CalEvent): PreparedCalendarWrite {
         val record = event.copy(uid = event.uid ?: event.id)
         return prepare(
             calendar = calendar,
@@ -63,14 +63,14 @@ class CalDavWriter(
         )
     }
 
-    fun prepareRsvp(
+    override fun prepareRsvp(
         calendar: DiscoveredCalendar,
         event: CalEvent,
         address: String,
         status: String,
         expectedStatus: String,
         scope: RecurrenceEditScope,
-        etag: String? = event.etag,
+        etag: String?,
     ): PreparedCalendarWrite = prepare(
         calendar = calendar,
         href = hrefFor(calendar.url, event.href, event.uid ?: event.id),
@@ -91,7 +91,7 @@ class CalDavWriter(
         return putPrepared(calendar, credentials, prepareTask(calendar, task))
     }
 
-    fun prepareTask(calendar: DiscoveredCalendar, task: CalTask): PreparedCalendarWrite {
+    override fun prepareTask(calendar: DiscoveredCalendar, task: CalTask): PreparedCalendarWrite {
         val record = task.copy(uid = task.uid ?: task.id)
         return prepare(
             calendar = calendar,
@@ -112,7 +112,7 @@ class CalDavWriter(
         return putPrepared(calendar, credentials, prepareJournal(calendar, entry))
     }
 
-    fun prepareJournal(calendar: DiscoveredCalendar, entry: JournalEntry): PreparedCalendarWrite {
+    override fun prepareJournal(calendar: DiscoveredCalendar, entry: JournalEntry): PreparedCalendarWrite {
         val record = entry.copy(uid = entry.uid ?: entry.id)
         return prepare(
             calendar = calendar,
@@ -125,7 +125,7 @@ class CalDavWriter(
         )
     }
 
-    suspend fun putPrepared(
+    override suspend fun putPrepared(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
         prepared: PreparedCalendarWrite,
@@ -158,7 +158,7 @@ class CalDavWriter(
      * patch: using the old cached component with the new tag could overwrite
      * another client's fields.
      */
-    suspend fun refreshResource(
+    override suspend fun refreshResource(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
         href: String,
@@ -188,13 +188,13 @@ class CalDavWriter(
      * Removes a component from its resource, or deletes the resource when it
      * was the last schedulable component in it.
      */
-    suspend fun delete(
+    override suspend fun delete(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
         href: String,
         uid: String,
         etag: String?,
-        component: String? = null,
+        component: String?,
     ) {
         val resourceUrl = hrefFor(calendar.url, href, uid)
         val expectedEtag = requireEtag(resourceUrl, etag)

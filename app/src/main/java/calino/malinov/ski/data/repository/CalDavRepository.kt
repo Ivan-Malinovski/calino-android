@@ -7,7 +7,8 @@ import calino.malinov.ski.data.caldav.CachedAddressBook
 import calino.malinov.ski.data.caldav.CardDavFetcher
 import calino.malinov.ski.data.caldav.CardDavWriter
 import calino.malinov.ski.data.caldav.CardResource
-import calino.malinov.ski.data.caldav.CalDavFetcher
+import calino.malinov.ski.data.caldav.CalendarFetching
+import calino.malinov.ski.data.caldav.CalendarWriting
 import calino.malinov.ski.data.caldav.CalDavWriter
 import calino.malinov.ski.data.caldav.ICalTimezones
 import calino.malinov.ski.data.caldav.CalendarCache
@@ -208,7 +209,7 @@ data class WebcalOverlay(
  * second server cache.
  */
 class CalDavRepository(
-    private val fetcher: CalDavFetcher,
+    private val fetcher: CalendarFetching,
     private val scope: CoroutineScope,
     /** Last successful read per calendar, so a cold start is not a blank one. */
     private val cache: CalendarCache = CalendarCache.None,
@@ -219,7 +220,7 @@ class CalDavRepository(
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
     private val cardFetcher: CardDavFetcher = CardDavFetcher(),
     private val vCardMapper: VCardMapper = VCardMapper(),
-    private val writer: CalDavWriter = CalDavWriter(cache = cache),
+    private val writer: CalendarWriting = CalDavWriter(cache = cache),
     private val cardWriter: CardDavWriter = CardDavWriter(cache = cache),
     private val pendingStore: PendingChangeStore? = null,
 ) : CalinoRepository {

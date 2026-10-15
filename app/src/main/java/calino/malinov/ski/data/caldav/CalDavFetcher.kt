@@ -93,14 +93,14 @@ class CalDavFetcher(
     private val http: DavHttp = DavHttp(),
     private val incrementalSync: IncrementalSync = IncrementalSync(http),
     private val zone: ZoneId = ZoneId.systemDefault(),
-) {
+) : CalendarFetching {
     /** Complete VEVENT collection for an explicit user export; never windowed or cached as sync data. */
-    suspend fun fetchAllEvents(
+    override suspend fun fetchAllEvents(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
     ): List<CalendarResource> = report(calendar, credentials, componentQuery(Vevent))
 
-    suspend fun fetch(
+    override suspend fun fetch(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
         windowStart: LocalDate,
@@ -165,13 +165,13 @@ class CalDavFetcher(
      * carried onto a successful result; this lets a caller pass an older
      * stored cursor while discovery supplies a fresh ctag.
      */
-    suspend fun fetchIncremental(
+    override suspend fun fetchIncremental(
         calendar: DiscoveredCalendar,
         credentials: DavCredentials,
         cachedResources: List<CalendarResource>?,
         windowStart: LocalDate,
         windowEnd: LocalDate,
-        storedCursor: CollectionCursor? = null,
+        storedCursor: CollectionCursor?,
     ): IncrementalFetchResult {
         val previous = storedCursor ?: CollectionCursor(
             ctag = calendar.ctag,

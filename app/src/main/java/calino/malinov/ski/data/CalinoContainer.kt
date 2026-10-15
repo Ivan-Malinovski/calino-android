@@ -10,6 +10,8 @@ import calino.malinov.ski.data.caldav.AccountRediscoveryResult
 import calino.malinov.ski.data.caldav.CalDavDiscovery
 import calino.malinov.ski.data.caldav.CalDavFetcher
 import calino.malinov.ski.data.caldav.CalDavWriter
+import calino.malinov.ski.data.caldav.ProtocolCalendarFetcher
+import calino.malinov.ski.data.caldav.ProtocolCalendarWriter
 import calino.malinov.ski.data.caldav.CardDavWriter
 import calino.malinov.ski.data.caldav.CredentialStore
 import calino.malinov.ski.data.caldav.DavHttp
@@ -158,10 +160,10 @@ class CalinoContainer private constructor(context: Context) {
         FilePendingChangeStore(File(application.filesDir, "caldav-write-queue.json"))
 
     val calDavRepository = CalDavRepository(
-        fetcher = CalDavFetcher(http),
+        fetcher = ProtocolCalendarFetcher(caldav = CalDavFetcher(http)),
         scope = scope,
         cache = calendarCache,
-        writer = CalDavWriter(http, calendarCache),
+        writer = ProtocolCalendarWriter(caldav = CalDavWriter(http, calendarCache)),
         cardWriter = CardDavWriter(http, calendarCache),
         pendingStore = pendingChangeStore,
     )

@@ -158,6 +158,7 @@ class CalDavConnectionManager(
                     readOnly = calendar.readOnly,
                     ctag = calendar.ctag,
                     syncToken = calendar.syncToken,
+                    protocol = account.protocol,
                     // Unknown until discovery answers, and unused: the fetcher
                     // queries every component regardless of what a collection
                     // advertises. See CalDavFetcher.fetch.
