@@ -21,6 +21,7 @@ import calino.malinov.ski.data.caldav.SharedPreferencesAccountPersistence
 import calino.malinov.ski.data.jmap.JmapCalendarFetcher
 import calino.malinov.ski.data.jmap.JmapCalendarWriter
 import calino.malinov.ski.data.jmap.JmapClientProvider
+import calino.malinov.ski.data.jmap.JmapPushController
 import calino.malinov.ski.data.jmap.JmapDiscovery
 import calino.malinov.ski.data.jmap.ProtocolDiscovery
 import calino.malinov.ski.data.model.CalDavCalendar
@@ -165,6 +166,13 @@ class CalinoContainer private constructor(context: Context) {
 
     private val calendarCache = FileCalendarCache(File(application.filesDir, "caldav-cache"))
     private val jmapFetcher = JmapCalendarFetcher(jmapClients)
+    private val jmapPush = JmapPushController(
+        scope = scope,
+        accounts = { accountStore.accounts() },
+        credentials = { credentialStore.load(it) },
+        clients = jmapClients,
+        requestSync = { syncConnectedAccounts() },
+    )
     private val calDavWriter = CalDavWriter(http, calendarCache)
 
     private val pendingChangeStore =
@@ -437,10 +445,14 @@ class CalinoContainer private constructor(context: Context) {
             sync = activeRepository.snapshot().sync,
         )
 
+    /** The app is visible: hold the JMAP event streams. Hidden: let them go. */
+    fun setForeground(active: Boolean) = jmapPush.setForeground(active)
+
     fun onAccountConnected(form: CalDavForm, calendars: List<CalDavCalendar>) {
         val account = accountStore.addAccount(form, calendars)
         connected = true
         connections.onAccountConnected(account, form.password)
+        jmapPush.reconcile()
         updateActiveRepository()
         syncAndroidAccounts()
         reconcileBackgroundSchedule()
@@ -456,6 +468,7 @@ class CalinoContainer private constructor(context: Context) {
         if (calDavRepository.pendingChanges().any { it.accountId == accountId }) return false
         accountStore.setProtocol(accountId, protocol)
         connections.onProtocolChanged(accountId)
+        jmapPush.reconcile()
         updateActiveRepository()
         return true
     }
@@ -463,6 +476,7 @@ class CalinoContainer private constructor(context: Context) {
     fun onAccountRemoved(accountId: String) {
         accountStore.removeAccount(accountId)
         connections.onAccountRemoved(accountId)
+        jmapPush.reconcile()
         updateActiveRepository()
         syncAndroidAccounts()
         reconcileBackgroundSchedule()

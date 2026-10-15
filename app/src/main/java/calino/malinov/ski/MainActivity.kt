@@ -474,6 +474,16 @@ class MainActivity : ComponentActivity() {
         setContent { CalinoApp() }
     }
 
+    override fun onStart() {
+        super.onStart()
+        CalinoContainer.get(application).setForeground(true)
+    }
+
+    override fun onStop() {
+        CalinoContainer.get(application).setForeground(false)
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

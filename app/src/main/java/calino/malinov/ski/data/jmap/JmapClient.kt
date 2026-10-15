@@ -4,6 +4,7 @@ import calino.malinov.ski.data.caldav.CalDavErrorCode
 import calino.malinov.ski.data.caldav.CalDavException
 import calino.malinov.ski.data.caldav.DavCredentials
 import calino.malinov.ski.data.caldav.DavHttp
+import calino.malinov.ski.data.caldav.DavStream
 import calino.malinov.ski.data.caldav.calDavErrorForThrowable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -95,6 +96,27 @@ class JmapClient(
         sessionLock.withLock {
             if (state != session.state) connect()
         }
+    }
+
+    /**
+     * Opens the server-sent event stream (RFC 8620 section 7.3) for [types].
+     * The URL is read from the current session on every call, so a reconnect
+     * after a session refresh follows the server's new endpoint.
+     */
+    internal suspend fun openEventStream(types: List<String>, lastEventId: String?, pingSeconds: Int): DavStream {
+        val url = expandTemplate(
+            eventSourceUrl,
+            mapOf("types" to (types.joinToString(",").ifEmpty { "*" }), "closeafter" to "no", "ping" to pingSeconds.toString()),
+        )
+        if (!sameJmapOrigin(url, sessionUrl ?: serverUrl)) {
+            throw JmapException(CalDavErrorCode.NotCalDav, "The event stream is not on the server's own origin.", type = "invalidSession")
+        }
+        val headers = buildMap {
+            put("Accept", "text/event-stream")
+            put("Cache-Control", "no-cache")
+            lastEventId?.let { put("Last-Event-ID", it) }
+        }
+        return http.openStream(url, credentials, headers)
     }
 
     /** One method against the primary calendar account; returns its result object. */

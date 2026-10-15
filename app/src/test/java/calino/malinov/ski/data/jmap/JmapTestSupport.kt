@@ -22,6 +22,9 @@ class FakeJmapServer(
     val apiRequests = CopyOnWriteArrayList<JSONObject>()
     val requestHeaders = CopyOnWriteArrayList<Map<String, String>>()
     var respond: (name: String, args: JSONObject, callId: String) -> JSONObject? = { _, _, _ -> null }
+    /** Answers `/events` requests; each request is also recorded in [eventRequests]. */
+    var events: (RecordedRequest) -> MockResponse = { MockResponse().setResponseCode(404) }
+    val eventRequests = CopyOnWriteArrayList<RecordedRequest>()
     var sessionOverride: ((JSONObject) -> Unit)? = null
 
     val baseUrl: String get() = server.url("/").toString().trimEnd('/')
@@ -88,6 +91,10 @@ class FakeJmapServer(
                 MockResponse().setHeader("Content-Type", "application/json").setBody(
                     JSONObject().put("methodResponses", out).put("sessionState", sessionState()).toString(),
                 )
+            }
+            path.startsWith("/events") -> {
+                eventRequests += request
+                events(request)
             }
             else -> MockResponse().setResponseCode(404)
         }

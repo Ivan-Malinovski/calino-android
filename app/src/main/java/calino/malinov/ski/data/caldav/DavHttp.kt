@@ -4,7 +4,9 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -120,6 +122,35 @@ class DavHttp(client: OkHttpClient? = null) {
         headers = precondition.headers(),
     )
 
+    /**
+     * Opens a long-lived GET whose body is read incrementally (server-sent events).
+     * The shared timeouts do not apply to the open stream: the caller runs its
+     * own silence watchdog and cancels through [DavStream.cancel]. No redirect is
+     * followed, so credentials never leave the origin they were sent to.
+     */
+    suspend fun openStream(
+        url: String,
+        credentials: DavCredentials?,
+        headers: Map<String, String> = emptyMap(),
+    ): DavStream {
+        val builder = Request.Builder().url(url).get()
+        headers.forEach { (name, value) -> builder.header(name, value) }
+        credentials?.let { builder.header("Authorization", it.basicAuthHeader()) }
+        val call = client.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build().newCall(builder.build())
+        return withContext(Dispatchers.IO) {
+            suspendCancellableCoroutine { continuation ->
+                continuation.invokeOnCancellation { runCatching { call.cancel() } }
+                try {
+                    val response = call.execute()
+                    if (continuation.isActive) continuation.resume(DavStream(call, response))
+                    else response.close()
+                } catch (error: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                }
+            }
+        }
+    }
+
     private suspend fun Call.await(): DavResponse = suspendCancellableCoroutine { continuation ->
         continuation.invokeOnCancellation { runCatching { cancel() } }
         enqueue(object : Callback {
@@ -152,6 +183,27 @@ class DavHttp(client: OkHttpClient? = null) {
         val XmlMediaType: MediaType = "application/xml; charset=utf-8".toMediaType()
         val CalendarMediaType: MediaType = "text/calendar; charset=utf-8".toMediaType()
         val VCardMediaType: MediaType = "text/vcard; charset=utf-8".toMediaType()
+    }
+}
+
+/** An open response body that is read in pieces; [read] blocks, so call it off the main thread. */
+class DavStream internal constructor(private val call: Call, private val response: Response) : java.io.Closeable {
+    val status: Int get() = response.code
+    val url: String get() = response.request.url.toString()
+
+    fun header(name: String): String? = response.header(name)
+
+    /** Reads up to [buffer].size bytes; -1 at the end of the stream. */
+    fun read(buffer: ByteArray): Int = response.body?.byteStream()?.read(buffer) ?: -1
+
+    /** The body when the server did not open a stream (an error page), bounded. */
+    fun readBounded(limit: Long = 8192): String =
+        runCatching { response.peekBody(limit).string() }.getOrDefault("")
+
+    fun cancel() = call.cancel()
+
+    override fun close() {
+        runCatching { response.close() }
     }
 }
 
