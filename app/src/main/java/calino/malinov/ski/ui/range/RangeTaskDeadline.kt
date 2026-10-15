@@ -41,13 +41,15 @@ internal fun RangeTaskDeadline(
     val dueDescription = stringResource(R.string.cal_task_due_label, task.title, dueLabel)
     val openDescription = stringResource(R.string.cal_mark_named_task_open, task.title)
     val completeDescription = stringResource(R.string.cal_complete_named_task, task.title)
+    val badgeHeight = 24.dp
+    val doneIconSize = 16.dp
     BoxWithConstraints(modifier.fillMaxWidth().height(44.dp)
         .combinedClickable(onClick = { onOpen(task) }, onLongClick = { menu = true })
         .semantics { contentDescription = dueDescription }) {
         val wide = maxWidth >= 120.dp
         // Paint a small badge on the deadline, leaving the rest of its touch
         // lane transparent so it cannot read as a forty-minute task block.
-        Row(Modifier.fillMaxWidth().height(24.dp)
+        Row(Modifier.fillMaxWidth().height(badgeHeight)
             .background(CalinoColors.Panel, shape).border(1.dp, color.copy(alpha = .5f), shape)
             .padding(start = 3.dp, end = if (wide) 44.dp else 3.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -58,9 +60,12 @@ internal fun RangeTaskDeadline(
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 textDecoration = if (task.done) TextDecoration.LineThrough else null)
         }
+        // The 44dp touch target hangs below the 24dp badge, so the icon is
+        // centred on the badge rather than on the target.
         if (wide) Box(Modifier.align(Alignment.TopEnd).size(44.dp).clickable { onDone(task, !task.done) }
-            .semantics { contentDescription = if (task.done) openDescription else completeDescription }, contentAlignment = Alignment.Center) {
-            CalinoIcon(if (task.done) CalinoIcon.Check else CalinoIcon.Clock, tint = color, modifier = Modifier.size(16.dp))
+            .semantics { contentDescription = if (task.done) openDescription else completeDescription }, contentAlignment = Alignment.TopCenter) {
+            CalinoIcon(if (task.done) CalinoIcon.Check else CalinoIcon.Clock, tint = color,
+                modifier = Modifier.padding(top = (badgeHeight - doneIconSize) / 2).size(doneIconSize))
         }
         TaskActionMenu(task, expanded = menu, onDismiss = { menu = false }, onAction = { onAction(it, task) })
     }
