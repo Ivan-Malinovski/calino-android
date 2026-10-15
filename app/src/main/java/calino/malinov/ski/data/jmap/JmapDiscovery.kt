@@ -35,11 +35,14 @@ class JmapDiscovery(private val http: DavHttp = DavHttp()) {
             discoveredCalendar(serverUrl, accountId, id, calendar, accountReadOnly, eventState)
         }
         val prefix = jmapAccountPrefix(serverUrl, accountId)
+        val scheduling = client.schedulingInfo()
         return DiscoveredAccount(
             baseUrl = serverOrigin(serverUrl),
             principalUrl = prefix,
             homeSetUrl = prefix,
             calendars = found,
+            calendarUserAddresses = if (scheduling.enabled) scheduling.addresses else emptySet(),
+            autoSchedule = scheduling.enabled,
         )
     }
 }

@@ -387,6 +387,16 @@ class JmapCalendarWriterTest {
         assertFalse(setCalls.single().has("sendSchedulingMessages"))
     }
 
+    @Test
+    fun anRsvpIsAPatchOfTheOneParticipantsStatus() {
+        val resource = cached(serverEvent("e1", "c1", participants = alice))
+        put(edit(resource, "PARTSTAT=NEEDS-ACTION", "PARTSTAT=ACCEPTED"))
+        val update = setCalls.single().obj("update").obj("e1")
+        assertEquals(setOf("participants/p1/participationStatus"), update.keyList().toSet())
+        assertEquals("accepted", update.getString("participants/p1/participationStatus"))
+        assertEquals("accepted", events.getValue("e1").obj("participants").obj("p1").getString("participationStatus"))
+    }
+
     // --- delete ---------------------------------------------------------------------------
 
     @Test
