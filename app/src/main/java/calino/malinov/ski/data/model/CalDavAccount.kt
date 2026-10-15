@@ -52,4 +52,6 @@ data class CalDavForm(
     val username: String = "",
     val password: String = "",
     val displayName: String = "",
+    /** Set by detection, never typed; the sheet fills it in once discovery answers. */
+    val protocol: CalendarProtocol = CalendarProtocol.CalDav,
 )

@@ -97,6 +97,19 @@ class JmapClient(
         }
     }
 
+    /** One method against the primary calendar account; returns its result object. */
+    suspend fun invoke(
+        method: String,
+        arguments: JSONObject = JSONObject(),
+        using: List<String> = listOf(JmapCore, JmapCalendars),
+    ): JSONObject {
+        val args = JSONObject().put("accountId", accountId)
+        arguments.keyList().forEach { args.put(it, arguments.opt(it)) }
+        val response = call(listOf(JmapInvocation(method, args, "backend")), using)
+        return response.methodResponses.firstOrNull { it.name == method && it.callId == "backend" }?.arguments
+            ?: throw invalidResponse("JMAP response omitted method result")
+    }
+
     /**
      * Runs the calls and returns one logical response per call, with the
      * caller's own call ids, even when an oversized `/get` or `/set` had to be

@@ -397,4 +397,10 @@ Last successful sync: %2$s</string>
     <string name="set_search_terms_assistants">Gemini AppFunctions</string>
     <string name="set_search_terms_ai_photo_import">provider API key model</string>
     <string name="set_search_terms_advanced_motion">animation container transform</string>
+    <string name="set_connection">Connection</string>
+    <string name="set_connected_over_jmap">Connected over JMAP</string>
+    <string name="set_connected_over_caldav">Connected over CalDAV</string>
+    <string name="set_use_caldav_instead">Use CalDAV instead</string>
+    <string name="set_use_caldav_instead_detail">If this server also offers CalDAV, Calino reads its calendars that way instead. Calendars are listed again.</string>
+    <string name="set_sync_or_discard_waiting_changes_before_switching">Sync or discard the changes waiting for this account before switching.</string>
 </resources>

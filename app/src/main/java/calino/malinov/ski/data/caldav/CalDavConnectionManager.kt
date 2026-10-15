@@ -2,6 +2,8 @@ package calino.malinov.ski.data.caldav
 
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.CalDavCalendar
+import calino.malinov.ski.data.jmap.JmapDiscovery
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.model.ContactAddressBook
 import calino.malinov.ski.data.repository.CalDavAccountStore
 import calino.malinov.ski.data.repository.CalDavRepository
@@ -30,6 +32,7 @@ class CalDavConnectionManager(
     private val credentialStore: CredentialStore,
     private val repository: CalDavRepository,
     private val discovery: CalDavDiscovery,
+    private val jmapDiscovery: JmapDiscovery = JmapDiscovery(),
     private val scope: CoroutineScope,
     private val cardDiscovery: CardDavDiscovery = CardDavDiscovery(),
 ) {
@@ -69,6 +72,16 @@ class CalDavConnectionManager(
         committedAddressBookCursors.remove(account.id)
         freshCalendarMetadata.remove(account.id)
         freshAddressBookMetadata.remove(account.id)
+    }
+
+    /** Forgets everything learned under the old protocol, then lists the collections afresh. */
+    fun onProtocolChanged(accountId: String) {
+        discovered.remove(accountId)
+        committedCursors.remove(accountId)
+        freshCalendarMetadata.remove(accountId)
+        applySources(refreshAfterSourceChange = false)
+        val account = accountStore.accounts().firstOrNull { it.id == accountId } ?: return
+        scope.launch { rediscover(account) }
     }
 
     fun onAccountRemoved(accountId: String) {
@@ -189,7 +202,12 @@ class CalDavConnectionManager(
         credentials ?: return
         if (accountStore.accounts().none { it.id == account.id } || !isCurrent()) return
         val calendarResult = withContext(Dispatchers.IO) {
-            runCatching { discovery.discoverAccount(account.serverUrl, credentials) }
+            runCatching {
+                when (account.protocol) {
+                    CalendarProtocol.Jmap -> jmapDiscovery.discoverAccount(account.serverUrl, credentials)
+                    CalendarProtocol.CalDav -> discovery.discoverAccount(account.serverUrl, credentials)
+                }
+            }
         }
         if (!isCurrent()) return
         calendarResult.getOrNull()?.let { found ->

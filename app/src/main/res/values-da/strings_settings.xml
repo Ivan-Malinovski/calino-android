@@ -397,4 +397,10 @@ Seneste vellykkede synkronisering: %2$s</string>
     <string name="set_search_terms_assistants">Gemini AppFunctions</string>
     <string name="set_search_terms_ai_photo_import">udbyder API nøgle model</string>
     <string name="set_search_terms_advanced_motion">animation bevægelse container overgang</string>
+    <string name="set_connection">Forbindelse</string>
+    <string name="set_connected_over_jmap">Forbundet via JMAP</string>
+    <string name="set_connected_over_caldav">Forbundet via CalDAV</string>
+    <string name="set_use_caldav_instead">Brug CalDAV i stedet</string>
+    <string name="set_use_caldav_instead_detail">Hvis serveren også tilbyder CalDAV, læser Calino kalenderne den vej i stedet. Kalenderne hentes igen.</string>
+    <string name="set_sync_or_discard_waiting_changes_before_switching">Synkroniser eller kassér de ventende ændringer for denne konto, før du skifter.</string>
 </resources>

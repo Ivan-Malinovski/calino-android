@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableStateOf
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalDavForm
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.model.ContactAddressBook
 import calino.malinov.ski.state.accountId
 import calino.malinov.ski.state.defaultDisplayName
@@ -70,6 +71,7 @@ class CalDavAccountStore(
             username = form.username.trim(),
             calendars = calendars,
             addressBooks = addressBooks,
+            protocol = form.protocol,
         )
         update { existing ->
             val without = existing.filterNot { it.id == account.id }
@@ -114,6 +116,21 @@ class CalDavAccountStore(
                         )
                     },
                 )
+            }
+        }
+    }
+
+    /**
+     * Moves an account to the other protocol. The collections are dropped, not
+     * migrated: a DAV href and a JMAP synthetic href differ, and a sync token is
+     * not a state string, so reusing either across protocols would be nonsense.
+     * The next discovery lists them afresh.
+     */
+    fun setProtocol(accountId: String, protocol: CalendarProtocol) {
+        update { accounts ->
+            accounts.map { account ->
+                if (account.id != accountId || account.protocol == protocol) account
+                else account.copy(protocol = protocol, calendars = emptyList(), addressBooks = account.addressBooks)
             }
         }
     }

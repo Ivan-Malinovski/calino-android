@@ -99,6 +99,7 @@ import calino.malinov.ski.data.caldav.KeystoreCredentialStore
 import calino.malinov.ski.data.caldav.SharedPreferencesAccountPersistence
 import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalDavForm
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.ical.IcsImportBatch
 import calino.malinov.ski.data.ical.IcsInterop
 import calino.malinov.ski.data.caldav.FileCalendarCache
@@ -827,6 +828,10 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     fun onAddressBookEnabled(accountId: String, addressBookId: String, enabled: Boolean) {
         container.accountStore.setAddressBookEnabled(accountId, addressBookId, enabled)
         container.onCalendarsToggled()
+    }
+
+    fun onAccountProtocolChanged(accountId: String, protocol: CalendarProtocol) {
+        if (container.onAccountProtocolChanged(accountId, protocol)) syncState()
     }
 
     fun onAccountRemoved(accountId: String) {
@@ -2583,6 +2588,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             pocViewModel.onAddressBookEnabled(accountId, addressBookId, enabled)
                         },
                         onRemoveAccount = { pocViewModel.onAccountRemoved(it) },
+                        onAccountProtocolChanged = { accountId, protocol ->
+                            pocViewModel.onAccountProtocolChanged(accountId, protocol)
+                        },
                         projectedCalendarIds = pocViewModel.projectedCalendarIds,
                         onProjectedCalendarsChanged = { pocViewModel.onProjectedCalendarsChanged(it) },
                         syncState = snapshot.sync,

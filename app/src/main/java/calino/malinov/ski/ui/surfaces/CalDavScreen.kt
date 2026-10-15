@@ -74,6 +74,7 @@ import calino.malinov.ski.util.LocalCalinoLocale
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalDavForm
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.repository.CalDavClient
 import calino.malinov.ski.data.repository.PendingChange
 import calino.malinov.ski.data.repository.SyncState
@@ -124,6 +125,7 @@ fun CalendarAccountsSurface(
     onCalendarEnabled: (accountId: String, calendarId: String, enabled: Boolean) -> Unit,
     onAddressBookEnabled: (accountId: String, addressBookId: String, enabled: Boolean) -> Unit = { _, _, _ -> },
     onRemoveAccount: (accountId: String) -> Unit,
+    onAccountProtocolChanged: (accountId: String, protocol: CalendarProtocol) -> Unit = { _, _ -> },
     /** The calendars currently published into Android's calendar store. */
     projectedCalendarIds: Set<String> = emptySet(),
     onProjectedCalendarsChanged: (Set<String>) -> Unit = {},
@@ -321,6 +323,8 @@ fun CalendarAccountsSurface(
                                 onAddressBookEnabled(account.id, addressBookId, enabled)
                             },
                             onRemove = { onRemoveAccount(account.id) },
+                            hasPendingChanges = pendingChanges.any { it.accountId == account.id },
+                            onUseCalDav = { onAccountProtocolChanged(account.id, CalendarProtocol.CalDav) },
                             projectedCalendarIds = projectedCalendarIds,
                             onProjectionChanged = { calendarId, published ->
                                 setProjected(
@@ -605,6 +609,8 @@ private fun AccountCard(
     onCalendarEnabled: (calendarId: String, enabled: Boolean) -> Unit,
     onAddressBookEnabled: (addressBookId: String, enabled: Boolean) -> Unit,
     onRemove: () -> Unit,
+    hasPendingChanges: Boolean,
+    onUseCalDav: () -> Unit,
     projectedCalendarIds: Set<String>,
     onProjectionChanged: (calendarId: String, published: Boolean) -> Unit,
 ) = EditorSection(null) {
@@ -623,6 +629,29 @@ private fun AccountCard(
                 color = CalinoColors.Ink3,
             )
         }
+    }
+    HorizontalDivider(color = CalinoColors.Line)
+    EditorLabel(t(R.string.set_connection))
+    Text(
+        when (account.protocol) {
+            CalendarProtocol.Jmap -> t(R.string.set_connected_over_jmap)
+            CalendarProtocol.CalDav -> t(R.string.set_connected_over_caldav)
+        },
+        style = CalinoTypography.bodyMedium,
+        color = CalinoColors.Ink2,
+    )
+    if (account.protocol == CalendarProtocol.Jmap) {
+        TextButton(
+            onClick = onUseCalDav,
+            enabled = !hasPendingChanges,
+            modifier = Modifier.heightIn(min = 44.dp),
+        ) { Text(t(R.string.set_use_caldav_instead)) }
+        Text(
+            if (hasPendingChanges) t(R.string.set_sync_or_discard_waiting_changes_before_switching)
+            else t(R.string.set_use_caldav_instead_detail),
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink3,
+        )
     }
     HorizontalDivider(color = CalinoColors.Line)
     EditorLabel(t(R.string.set_calendars))
@@ -711,6 +740,7 @@ fun AddCalDavAccountSheet(
     var showErrors by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
     var discovered by remember { mutableStateOf<List<CalDavCalendar>>(emptyList()) }
+    var detectedProtocol by remember { mutableStateOf(CalendarProtocol.CalDav) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var revealPassword by remember { mutableStateOf(false) }
 
@@ -736,6 +766,7 @@ fun AddCalDavAccountSheet(
         when (val result = client.discover(form)) {
             is CalDavConnectResult.Discovered -> {
                 discovered = result.calendars
+                detectedProtocol = result.protocol
                 selected = result.calendars.map { it.id }.toSet()
                 failure = null
                 step = CalDavStep.ChooseCalendars
@@ -818,7 +849,7 @@ fun AddCalDavAccountSheet(
                 },
                 onAdd = {
                     val chosen = discovered.map { it.copy(enabled = it.id in selected) }
-                    val saved = form
+                    val saved = form.copy(protocol = detectedProtocol)
                     closeAfterAnimation { onConnected(saved, chosen) }
                 },
             )

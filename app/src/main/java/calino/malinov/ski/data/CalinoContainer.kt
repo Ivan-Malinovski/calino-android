@@ -18,8 +18,11 @@ import calino.malinov.ski.data.caldav.DavHttp
 import calino.malinov.ski.data.caldav.FileCalendarCache
 import calino.malinov.ski.data.caldav.KeystoreCredentialStore
 import calino.malinov.ski.data.caldav.SharedPreferencesAccountPersistence
+import calino.malinov.ski.data.jmap.JmapDiscovery
+import calino.malinov.ski.data.jmap.ProtocolDiscovery
 import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.data.model.CalDavForm
 import calino.malinov.ski.data.model.WebcalForm
@@ -152,7 +155,9 @@ class CalinoContainer private constructor(context: Context) {
     private var appliedSearchIndexSequence = -1L
     private var latestSearchIndexRequest: SearchIndexRequest? = null
 
-    val calDavClient: CalDavClient = CalDavDiscovery(http)
+    private val calDavDiscovery = CalDavDiscovery(http)
+    private val jmapDiscovery = JmapDiscovery(http)
+    val calDavClient: CalDavClient = ProtocolDiscovery(calDavDiscovery, jmapDiscovery, http)
 
     private val calendarCache = FileCalendarCache(File(application.filesDir, "caldav-cache"))
 
@@ -172,7 +177,8 @@ class CalinoContainer private constructor(context: Context) {
         accountStore = accountStore,
         credentialStore = credentialStore,
         repository = calDavRepository,
-        discovery = CalDavDiscovery(http),
+        discovery = calDavDiscovery,
+        jmapDiscovery = jmapDiscovery,
         scope = scope,
     )
 
@@ -428,6 +434,18 @@ class CalinoContainer private constructor(context: Context) {
         reconcileBackgroundSchedule()
         enqueueImmediateBackgroundSync()
         scope.launch { syncConnectedAccounts() }
+    }
+
+    /**
+     * Switches an account's protocol. Refused while the account still has queued
+     * writes, because those carry hrefs and payloads of the old protocol.
+     */
+    fun onAccountProtocolChanged(accountId: String, protocol: CalendarProtocol): Boolean {
+        if (calDavRepository.pendingChanges().any { it.accountId == accountId }) return false
+        accountStore.setProtocol(accountId, protocol)
+        connections.onProtocolChanged(accountId)
+        updateActiveRepository()
+        return true
     }
 
     fun onAccountRemoved(accountId: String) {

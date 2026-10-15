@@ -2,6 +2,7 @@ package calino.malinov.ski.state
 
 import calino.malinov.ski.data.model.CalDavCalendar
 import calino.malinov.ski.data.model.CalDavForm
+import calino.malinov.ski.data.model.CalendarProtocol
 import java.util.Locale
 
 /** The three steps the add-account sheet moves through. */
@@ -14,7 +15,10 @@ data class CalDavFieldError(val field: CalDavField, val message: String)
 
 /** The outcome of a discovery attempt. */
 sealed interface CalDavConnectResult {
-    data class Discovered(val calendars: List<CalDavCalendar>) : CalDavConnectResult
+    data class Discovered(
+        val calendars: List<CalDavCalendar>,
+        val protocol: CalendarProtocol = CalendarProtocol.CalDav,
+    ) : CalDavConnectResult
     data class Failed(val message: String) : CalDavConnectResult
 }
 
