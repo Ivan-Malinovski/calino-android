@@ -93,6 +93,7 @@ import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.model.WebcalSubscription
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.state.LocalCalinoPreferences
+import calino.malinov.ski.state.TaskManualOrder
 import calino.malinov.ski.ui.surfaces.PockRoute
 import calino.malinov.ski.ui.surfaces.TaskActionMenu
 import calino.malinov.ski.ui.surfaces.TaskMenuAction
@@ -100,6 +101,7 @@ import calino.malinov.ski.util.CalinoWeekStart
 import calino.malinov.ski.util.leadingCells
 import calino.malinov.ski.util.weekdayLetters
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.YearMonth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -659,7 +661,12 @@ private fun SidebarUpcomingTasks(
     val upcoming = tasks
         .filter { !it.done }
         .filter { it.parentTaskId == null }
-        .sortedBy { it.due ?: LocalDate.MAX }
+        // Same day: timed tasks by time, untimed ones in their manual order.
+        .sortedWith(
+            compareBy<CalTask> { it.due ?: LocalDate.MAX }
+                .thenBy { it.dueTime ?: LocalTime.MIN }
+                .then(TaskManualOrder),
+        )
         .take(10)
     val cardShape = RoundedCornerShape(12.dp)
     val upcomingTasksLabel = stringResource(R.string.cal_upcoming_tasks_sidebar)
