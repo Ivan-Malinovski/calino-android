@@ -21,7 +21,7 @@ fun CalTask.isSometimeThisWeek(first: LocalDate, last: LocalDate): Boolean =
 
 fun weekTasksInRange(tasks: List<CalTask>, first: LocalDate, last: LocalDate): List<CalTask> = tasks
     .filter { it.isWeekTask() && !it.due!!.isBefore(first) && !it.startDate!!.isAfter(last) }
-    .sortedWith(compareBy<CalTask> { it.startDate }.thenBy { it.due }
+    .sortedWith(compareBy<CalTask> { it.startDate }.thenBy { it.due }.then(TaskManualOrder)
         .thenBy { it.title.lowercase(Locale.ROOT) }.thenBy { it.id })
 
 /** Preserve every modeled field and identity through the ordinary conditional update path. */

@@ -79,6 +79,8 @@ data class EditorDraft(
     /** An imported task with no DUE stays undated until its date/time is picked. */
     val taskDueAbsent: Boolean = false,
     val taskDueChanged: Boolean = false,
+    /** Hidden `X-APPLE-SORT-ORDER`, carried so an edit keeps the task's place. */
+    val taskSortOrder: Long? = null,
     /** Categories keyword rules put on this draft; see [withAutoCategories]. */
     val autoCategories: Set<String> = emptySet(),
     /** Rule categories the person took off; the rules do not add them back. */
@@ -223,6 +225,7 @@ data class EditorDraft(
         reminder = reminders.firstOrNull(),
         calendarId = calendarId,
         parentTaskId = parentTaskId,
+        sortOrder = taskSortOrder,
         priority = priority,
         percentComplete = percentComplete,
         status = taskStatus,
@@ -405,6 +408,7 @@ fun editorDraftFor(task: CalTask, fallbackDate: LocalDate): EditorDraft = Editor
     taskStartDate = task.startDate,
     taskStartTime = task.startTime,
     taskDueAbsent = task.due == null,
+    taskSortOrder = task.sortOrder,
     recurrenceScope = if (task.recurrenceId != null || task.recurrenceDate != null) RecurrenceEditScope.This else RecurrenceEditScope.All,
 )
 

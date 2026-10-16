@@ -54,6 +54,7 @@ fun CalTask.asUpdate(parentTaskId: String? = this.parentTaskId, due: java.time.L
         etag = etag,
         calendarId = calendarId,
         parentTaskId = parentTaskId,
+        sortOrder = sortOrder,
         recurrenceId = recurrenceId,
         recurrenceDate = recurrenceDate,
         sequence = sequence,

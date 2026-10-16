@@ -260,6 +260,7 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
             parentLinks.forEach(vtodo::removeProperty)
             parentId?.let { vtodo.addRelatedTo(RelatedTo(it)) }
         }
+        vtodo.writeAppleSortOrder(task)
         // Per-occurrence VALARM is deliberately unsupported. A generated
         // occurrence inherits the master's reminder for display, but must not
         // copy it into a detached VTODO when completed or edited.

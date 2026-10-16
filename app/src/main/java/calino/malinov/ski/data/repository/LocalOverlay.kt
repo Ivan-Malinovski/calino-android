@@ -326,6 +326,7 @@ internal class LocalOverlay {
         reminder = input.reminder,
         calendarId = input.calendarId,
         parentTaskId = input.parentTaskId,
+        sortOrder = input.sortOrder,
         recurrence = input.recurrence,
         recurrenceId = input.recurrenceId,
         recurrenceDate = input.recurrenceDate,

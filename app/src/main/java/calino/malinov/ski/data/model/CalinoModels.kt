@@ -223,6 +223,12 @@ data class CalTask(
     val calendarId: String = "personal",
     /** UID of the immediate parent VTODO, encoded as RELATED-TO. */
     val parentTaskId: String? = null,
+    /**
+     * Manual order from `X-APPLE-SORT-ORDER`; lower comes first. It only breaks
+     * ties inside a day, a group or a set of siblings. An occurrence without
+     * its own value carries its master's.
+     */
+    val sortOrder: Long? = null,
     val recurrence: String? = null,
     val recurrenceId: Instant? = null,
     val recurrenceDate: LocalDate? = null,
@@ -315,6 +321,8 @@ data class NewTask(
     val etag: String? = null,
     val calendarId: String = "personal",
     val parentTaskId: String? = null,
+    /** `X-APPLE-SORT-ORDER`; carried through edits so the local copy keeps its place. */
+    val sortOrder: Long? = null,
     val recurrenceId: Instant? = null,
     val recurrenceDate: LocalDate? = null,
     val sequence: Int? = null,

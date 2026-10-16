@@ -43,6 +43,7 @@ import calino.malinov.ski.data.model.NewContact
 import calino.malinov.ski.data.model.NewJournal
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
+import calino.malinov.ski.state.withNewSubtaskOrder
 import biweekly.component.ICalComponent
 import biweekly.component.VEvent
 import java.io.Closeable
@@ -1594,18 +1595,19 @@ class CalDavRepository(
     }
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
-        recurringTaskValidationCode(input, tasks())?.let { return WriteResult.Rejected(it) }
-        val source = sourceForCreate("VTODO", preferredId = input.calendarId, href = input.href)
+        val ordered = input.withNewSubtaskOrder(tasks())
+        recurringTaskValidationCode(ordered, tasks())?.let { return WriteResult.Rejected(it) }
+        val source = sourceForCreate("VTODO", preferredId = ordered.calendarId, href = ordered.href)
         writableRejection(source, "VTODO")?.let { return it }
         source ?: return WriteResult.Rejected(WriteRejectionCode.NO_CALENDAR_CONNECTED)
 
-        val local = overlay.newTask(input.copy(calendarId = source.calendar.url))
-        val uid = input.uid ?: local.id
+        val local = overlay.newTask(ordered.copy(calendarId = source.calendar.url))
+        val uid = ordered.uid ?: local.id
         val candidate = local.copy(
             id = uid,
             uid = uid,
-            href = input.href,
-            etag = input.etag,
+            href = ordered.href,
+            etag = ordered.etag,
         )
         return when (val result = putTaskOnServer(source, candidate, PendingChangeType.CREATE)) {
             is WriteResult.Applied -> result.also {
