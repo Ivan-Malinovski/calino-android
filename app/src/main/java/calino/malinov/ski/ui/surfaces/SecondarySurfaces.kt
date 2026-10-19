@@ -2628,7 +2628,8 @@ fun TasksSurface(
     val shortTaskDateFormat = localizedDateFormatter("MMM d")
     val taskDateFormat = localizedDateFormatter("EEE, MMM d")
     val taskWeekdayFormat = localizedDateFormatter("EEE")
-    val today = LocalCalinoNow.current.today
+    val calinoNow = LocalCalinoNow.current
+    val today = calinoNow.today
     var filter by remember { mutableStateOf(TaskFilter.All) }
     var pendingCompletionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var reschedulingTaskId by remember { mutableStateOf<String?>(null) }
@@ -2685,7 +2686,7 @@ fun TasksSurface(
     // under "This week" whatever its due date, matching the Range shelf.
     val displayBucket = { task: CalTask ->
         val shown = if (isPending(task)) task.copy(done = false) else task
-        if (shown.isSometimeThisWeek(weekFirst, weekLast)) TaskBucket.THIS_WEEK else taskBucket(shown, today)
+        if (shown.isSometimeThisWeek(weekFirst, weekLast)) TaskBucket.THIS_WEEK else taskBucket(shown, today, calinoNow.time)
     }
 
     // A collapsed parent hides the subtasks listed beneath it. A subtask that
@@ -2756,7 +2757,7 @@ fun TasksSurface(
     // order. Keep the drag target calculation in that same order so the row
     // highlighted under a dragged task is also the row that receives the
     // reparent operation.
-    val dragOrder = remember(tasks, filter, pendingCompletionIds, collapsedTaskIds) {
+    val dragOrder = remember(tasks, filter, pendingCompletionIds, collapsedTaskIds, calinoNow) {
         val candidates = when (filter) {
             TaskFilter.All -> tasks
             TaskFilter.Active -> openTasks
