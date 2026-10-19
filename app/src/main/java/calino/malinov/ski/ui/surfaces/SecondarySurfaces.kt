@@ -3767,7 +3767,8 @@ private fun taskMetaLine(task: CalTask, today: LocalDate, grouped: Boolean): Tas
     }
     val date = due.format(taskDateFormat) +
         (task.dueTime?.let { " · ${timeFormat.format(it, locale)}" } ?: "")
-    val late = due.isBefore(today) && !task.done
+    // Same rule as the Overdue group: a timed task whose time has passed today is late too.
+    val late = taskBucket(task, today, LocalCalinoNow.current.time) == TaskBucket.OVERDUE
     return TaskMeta(date, if (late) CalinoColors.Rose else CalinoColors.Accent, relativeDayLabel(due, today, context))
 }
 
