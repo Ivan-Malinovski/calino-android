@@ -202,7 +202,7 @@ fun EditorSurface(
 
 
     val pickStartDate = rememberDatePicker({ draft.date }) {
-        draft = draft.copy(date = it, taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
+        draft = draft.withDate(it).copy(taskDueChanged = draft.taskDueChanged || draft.kind == PocQuickAddKind.Task,
             touched = draft.touched + EditorField.Date)
     }
     val pickStartTime = rememberTimePicker({ draft.startTime }, title = if (draft.kind == PocQuickAddKind.Task) stringResource(R.string.ed_editor_due) else stringResource(R.string.ed_editor_starts)) {
@@ -210,7 +210,8 @@ fun EditorSurface(
             touched = draft.touched + EditorField.Time)
     }
     val pickEndDate = rememberDatePicker({ draft.endDate }) { picked ->
-        draft.endTime?.let { draft = draft.withEnd(picked, it) }
+        if (draft.allDay) draft = draft.withAllDayEnd(picked)
+        else draft.endTime?.let { draft = draft.withEnd(picked, it) }
     }
     val pickEndTime = rememberTimePicker({ draft.endTime }, title = stringResource(R.string.ed_editor_ends)) { picked ->
         draft = draft.withEnd(draft.endDate, picked)
@@ -758,14 +759,15 @@ private fun EventDateTimeSection(
         modifier = Modifier.padding(start = 40.dp, end = 40.dp, top = 14.dp, bottom = 14.dp),
         onStartDate = pickStartDate,
         onStartTime = if (draft.allDay) null else pickStartTime,
-        // An end has nothing to hang off until the start is set.
-        onEndDate = if (!draft.allDay && draft.startTime != null) pickEndDate else null,
+        // A timed end has nothing to hang off until the start is set; an
+        // all-day one is just a last day.
+        onEndDate = if (draft.allDay || draft.startTime != null) pickEndDate else null,
         onEndTime = if (!draft.allDay && draft.startTime != null) pickEndTime else null,
         // Across two zones the wall clocks no longer subtract to the length.
         spanMinutes = draft.durationMinutes.takeIf { draft.endZoneId != null },
         // A long press types the same values the pickers would set.
         onStartTimeTyped = { onDraft(draft.copy(startTime = it, touched = draft.touched + EditorField.Time)) },
-        onStartDateTyped = { onDraft(draft.copy(date = it, touched = draft.touched + EditorField.Date)) },
+        onStartDateTyped = { onDraft(draft.withDate(it).copy(touched = draft.touched + EditorField.Date)) },
         onEndTimeTyped = { onDraft(draft.withEnd(draft.endDate, it)) },
         onEndDateTyped = { picked -> draft.endTime?.let { onDraft(draft.withEnd(picked, it)) } },
         onSlide = { startBy, endBy -> draft.slid(startBy, endBy)?.let(onDraft) },

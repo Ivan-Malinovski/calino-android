@@ -324,4 +324,42 @@ class EditorDraftTest {
         assertTrue(event.occursOn(LocalDate.of(2026, 5, 20)))
         assertFalse(event.occursOn(LocalDate.of(2026, 5, 21)))
     }
+
+    @Test
+    fun allDayEnd_makesAMultiDayEventAndFollowsTheStart() {
+        val draft = eventDraft().copy(title = "Trip", allDay = true, startTime = null)
+            .withAllDayEnd(fixtureDate.plusDays(2))
+
+        assertEquals(fixtureDate.plusDays(2), draft.endDate)
+        assertEquals(fixtureDate.plusDays(2), draft.toNewEvent().endDate)
+
+        // Moving the start keeps the length of the span.
+        val moved = draft.withDate(fixtureDate.plusDays(7))
+        assertEquals(fixtureDate.plusDays(9), moved.endDate)
+
+        // An end that is not after the start collapses to one day.
+        val single = draft.withAllDayEnd(fixtureDate)
+        assertEquals(fixtureDate, single.endDate)
+        assertNull(single.toNewEvent().endDate)
+    }
+
+    @Test
+    fun editingAMultiDayAllDayEvent_keepsItsLastDay() {
+        val event = CalEvent(
+            id = "evt-span",
+            title = "Conference",
+            color = 0xFF5B7FB5,
+            start = null,
+            durationMinutes = null,
+            date = fixtureDate,
+            endDate = fixtureDate.plusDays(3),
+            allDay = true,
+            calendarId = "personal",
+        )
+
+        val draft = editorDraftFor(event)
+
+        assertEquals(fixtureDate.plusDays(3), draft.endDate)
+        assertEquals(fixtureDate.plusDays(3), draft.toNewEvent().endDate)
+    }
 }

@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -454,6 +456,23 @@ private fun AllDayHero(
                     Box(Modifier.size(5.dp).background(accent, CircleShape))
                     Text(stringResource(R.string.cal_all_day_caps), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                 }
+            }
+            // A single day still has to be extendable: without this the end
+            // picker is only reachable on events that already span days.
+            if (onEndDate != null) {
+                val addEndLabel = stringResource(R.string.cal_add_end_date)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    addEndLabel,
+                    style = CalinoTypography.labelSmall,
+                    color = CalinoColors.Ink3,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .heightIn(min = 44.dp)
+                        .clickable(role = Role.Button, onClick = onEndDate)
+                        .wrapContentHeight(Alignment.CenterVertically),
+                )
             }
         }
     }

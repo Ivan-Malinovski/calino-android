@@ -124,6 +124,7 @@
     <string name="cal_days">%1$d days</string>
     <string name="cal_all_day_give_it_time">All day, give it a time</string>
     <string name="cal_all_day_caps">ALL DAY</string>
+    <string name="cal_add_end_date">+ END DATE</string>
     <string name="cal_type">Type</string>
     <string name="cal_dismiss_notification">Dismiss notification</string>
     <string name="cal_task_label">%1$s, task</string>

@@ -10,6 +10,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 /** The fields the natural-language line can fill, and so also give up to a hand edit. */
@@ -31,6 +32,8 @@ data class EditorDraft(
     val startTime: LocalTime? = null,
     val durationMinutes: Int? = null,
     val allDay: Boolean = false,
+    /** Last day of an all-day event, inclusive; null (or not after [date]) is a single day. */
+    val allDayEnd: LocalDate? = null,
     val availability: Availability = Availability.Busy,
     val recurrence: String? = null,
     val location: String? = null,
@@ -113,6 +116,7 @@ data class EditorDraft(
     /** The end can spill past midnight, so it carries its own date. */
     val endDate: LocalDate
         get() {
+            if (allDay) return allDayEnd?.takeIf { it.isAfter(date) } ?: date
             val start = startTime ?: return date
             if (endZoneId != null) return zonedEnd?.toLocalDate() ?: date
             val minutes = start.toSecondOfDay() / 60 + (durationMinutes ?: DefaultDurationMinutes)
@@ -145,6 +149,14 @@ data class EditorDraft(
         !(kind == PocQuickAddKind.Task && recurrence != null && parentTaskId != null) &&
         !(kind == PocQuickAddKind.Task && recurrenceScope == RecurrenceEditScope.Future &&
             (recurrence != null || recurrenceId != null || recurrenceDate != null))
+
+    /** Moves the start day; an all-day span keeps its length. */
+    fun withDate(picked: LocalDate): EditorDraft =
+        copy(date = picked, allDayEnd = allDayEnd?.plusDays(ChronoUnit.DAYS.between(date, picked)))
+
+    /** Sets the last day of an all-day event; a day that is not after the start leaves a single day. */
+    fun withAllDayEnd(last: LocalDate): EditorDraft =
+        copy(allDayEnd = last.takeIf { it.isAfter(date) }, touched = touched + EditorField.Duration)
 
     /** Moves the end, expressed as a duration so the rest of the app stays unchanged. */
     fun withEnd(endDate: LocalDate, endTime: LocalTime): EditorDraft {
@@ -187,6 +199,7 @@ data class EditorDraft(
         startTime = if (allDay) null else startTime,
         durationMinutes = if (allDay) null else durationMinutes ?: DefaultDurationMinutes,
         allDay = allDay || startTime == null,
+        endDate = if (allDay) endDate.takeIf { it.isAfter(date) } else null,
         color = color,
         recurrence = recurrence,
         location = location?.trim()?.ifEmpty { null },
@@ -343,6 +356,7 @@ private fun editorDraftInDevice(event: CalEvent, anchor: LocalDate): EditorDraft
         startTime = event.start?.toLocalTime(),
         durationMinutes = event.durationMinutes,
         allDay = event.allDay,
+        allDayEnd = event.endDate?.takeIf { event.allDay && it.isAfter(anchor) },
         availability = event.availability,
         recurrence = event.recurrence,
         location = event.location,

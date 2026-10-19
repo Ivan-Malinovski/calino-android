@@ -124,6 +124,7 @@
     <string name="cal_days">%1$d Tage</string>
     <string name="cal_all_day_give_it_time">Ganztägig, Uhrzeit festlegen</string>
     <string name="cal_all_day_caps">GANZTÄGIG</string>
+    <string name="cal_add_end_date">+ ENDDATUM</string>
     <string name="cal_type">Typ</string>
     <string name="cal_dismiss_notification">Benachrichtigung schließen</string>
     <string name="cal_task_label">%1$s, Aufgabe</string>
