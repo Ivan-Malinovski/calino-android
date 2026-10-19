@@ -6,6 +6,7 @@ import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.repository.taskCalendarIds
 import calino.malinov.ski.data.repository.visibleCalendarIds
 import calino.malinov.ski.state.tasksDueOn
+import calino.malinov.ski.state.TaskManualOrder
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.EventDateIndex
 import java.time.LocalDate
@@ -242,7 +243,10 @@ object WidgetAgendaBuilder {
         return tasks
             .filterNot { it.done }
             .filter { it.due != null && it.due < today && it.due >= earliest }
-            .sortedWith(compareBy({ it.due }, { it.title.lowercase(Locale.US) }, { it.id }))
+            .sortedWith(
+                compareBy<CalTask> { it.due }.then(TaskManualOrder)
+                    .thenBy { it.title.lowercase(Locale.US) }.thenBy { it.id },
+            )
             .map { task ->
                 // The date replaces the time: "17:00" on a row that was due
                 // last Tuesday answers the wrong question.

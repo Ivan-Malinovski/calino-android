@@ -650,7 +650,11 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
     ): List<CalTask> = calendar.todos.filter { it.uid?.value != null }.groupBy { it.uid.value }.flatMap { (_, group) ->
         val master = group.firstOrNull { it.recurrenceId == null }
         val overrides = group.filter { it.recurrenceId != null }
+        // An override without its own X-APPLE-SORT-ORDER sorts where its master
+        // does; generated occurrences inherit it by copying the master below.
+        val masterOrder = master?.readAppleSortOrder()
         val detached = overrides.mapNotNull { mapTask(it, calendarId, color, href, etag) }
+            .map { if (it.sortOrder == null && masterOrder != null) it.copy(sortOrder = masterOrder) else it }
         if (master == null) return@flatMap detached
         if (master.recurrenceRule == null && master.recurrenceDates.isEmpty()) {
             return@flatMap detached + listOfNotNull(mapTask(master, calendarId, color, href, etag))
@@ -800,6 +804,7 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             parentTaskId = vtodo.relatedTo.firstOrNull {
                 it.relationshipType == null || it.relationshipType == RelationshipType.PARENT
             }?.value?.trim()?.takeIf(String::isNotEmpty),
+            sortOrder = vtodo.readAppleSortOrder(),
             recurrence = recurrenceRuleText(vtodo),
             recurrenceId = recurrenceInstant,
             recurrenceDate = recurrenceDate,

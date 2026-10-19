@@ -21,6 +21,7 @@ import calino.malinov.ski.data.model.RecurrenceRules
 import calino.malinov.ski.data.model.placementDate
 import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.upcomingOccurrences
+import calino.malinov.ski.state.withNewSubtaskOrder
 import java.io.Closeable
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -338,15 +339,16 @@ class FixtureRepository : CalinoRepository {
         )
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> {
-        recurringTaskValidationCode(input, tasks())?.let { return WriteResult.Rejected(it) }
+        val ordered = input.withNewSubtaskOrder(tasks())
+        recurringTaskValidationCode(ordered, tasks())?.let { return WriteResult.Rejected(it) }
         val id = "local-task-${nextTaskId++}"
-        val anchor = input.due
-        if (input.recurrence != null && anchor != null) {
-            val rows = expandedTaskSeries(id, input, anchor, emptyMap(), anchor, done = false)
+        val anchor = ordered.due
+        if (ordered.recurrence != null && anchor != null) {
+            val rows = expandedTaskSeries(id, ordered, anchor, emptyMap(), anchor, done = false)
             update { it.copy(tasks = it.tasks + rows) }
             return WriteResult.Applied(rows.first())
         }
-        val task = taskFromInput(id, input, done = false)
+        val task = taskFromInput(id, ordered, done = false)
         update { it.copy(tasks = it.tasks + task) }
         return WriteResult.Applied(task)
     }
@@ -449,6 +451,7 @@ class FixtureRepository : CalinoRepository {
         reminder = input.reminder,
         calendarId = input.calendarId,
         parentTaskId = input.parentTaskId,
+        sortOrder = input.sortOrder,
         recurrence = input.recurrence,
         recurrenceId = input.recurrenceId,
         recurrenceDate = input.recurrenceDate,

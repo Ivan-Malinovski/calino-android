@@ -15,6 +15,7 @@ fun tasksDueOn(tasks: List<CalTask>, date: LocalDate): List<CalTask> =
         .sortedWith(
             compareBy<CalTask> { it.done }
                 .thenBy { it.dueTime ?: LocalTime.MIN }
+                .then(TaskManualOrder)
                 .thenBy { it.title.lowercase(Locale.US) }
                 .thenBy { it.id },
         )

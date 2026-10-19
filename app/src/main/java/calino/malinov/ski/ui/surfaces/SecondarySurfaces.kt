@@ -2005,6 +2005,7 @@ fun TaskDetailSurface(
                         etag = task.etag,
                         calendarId = task.calendarId,
                         parentTaskId = task.parentTaskId,
+                        sortOrder = task.sortOrder,
                         recurrenceId = task.recurrenceId,
                         recurrenceDate = task.recurrenceDate,
                         sequence = task.sequence,

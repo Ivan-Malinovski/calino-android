@@ -11,6 +11,7 @@ fun orderTasksByDue(tasks: List<CalTask>): List<CalTask> {
     val byId = tasks.associateBy { it.id }
     val ordering = compareBy<CalTask> { it.due ?: LocalDate.MAX }
         .thenBy { it.dueTime ?: LocalTime.MIN }
+        .then(TaskManualOrder)
         .thenBy { it.title.lowercase(Locale.US) }
         .thenBy { it.id }
     val children = tasks.groupBy { it.parentTaskId }
@@ -29,7 +30,8 @@ fun orderTasksByDue(tasks: List<CalTask>): List<CalTask> {
 /** A cycle-safe index for rendering and editing VTODO hierarchies. */
 class TaskTree(tasks: List<CalTask>) {
     private val taskById = tasks.associateBy { it.id }
-    private val children = tasks.groupBy { it.parentTaskId }.mapValues { (_, value) -> value.toList() }
+    // Siblings follow their manual order; unordered ones keep list order after them.
+    private val children = tasks.groupBy { it.parentTaskId }.mapValues { (_, value) -> value.sortedWith(TaskManualOrder) }
 
     fun task(id: String): CalTask? = taskById[id]
 
