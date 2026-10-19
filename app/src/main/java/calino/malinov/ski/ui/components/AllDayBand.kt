@@ -417,6 +417,8 @@ private fun AllDayTaskChip(
         modifier
             .fillMaxSize()
             .clip(shape)
+            // Lighter than an all-day event chip's 12% wash.
+            .background(eventTint(Color(task.color), .08f, CalinoColors.Panel), shape)
             .border(1.dp, color.copy(alpha = .30f), shape)
             .combinedClickable(
                 interactionSource = null,

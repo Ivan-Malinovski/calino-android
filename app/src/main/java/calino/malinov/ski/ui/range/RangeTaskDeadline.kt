@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextDecoration
@@ -49,8 +50,10 @@ internal fun RangeTaskDeadline(
         val wide = maxWidth >= 120.dp
         // Paint a small badge on the deadline, leaving the rest of its touch
         // lane transparent so it cannot read as a forty-minute task block.
+        // Its wash is lighter than a compact range card's 10%, so a task
+        // reads as its calendar's without passing for an event.
         Row(Modifier.fillMaxWidth().height(badgeHeight)
-            .background(CalinoColors.Panel, shape).border(1.dp, color.copy(alpha = .5f), shape)
+            .background(eventTint(Color(task.color), .065f, CalinoColors.Panel), shape).border(1.dp, color.copy(alpha = .5f), shape)
             .padding(start = 3.dp, end = if (wide) 44.dp else 3.dp),
             verticalAlignment = Alignment.CenterVertically) {
             CalinoIcon(if (task.done) CalinoIcon.Check else CalinoIcon.Clock, tint = color, modifier = Modifier.size(12.dp))
