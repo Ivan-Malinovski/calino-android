@@ -16,6 +16,19 @@ class CalendarEdgeTransitionTest {
         assertEquals(3f, calendarZoomAfterDrag(2f, 500f), .0001f)
     }
 
+    @Test fun oneDragNeverCrossesMoreThanOneView() {
+        // From the month a long pull stops at the day surface or the compact week,
+        // instead of running on into the Year or Agenda edge.
+        assertEquals(2f, calendarZoomWithinOneStep(calendarZoomAfterDrag(1f, 900f), anchorLevel = 1), .0001f)
+        assertEquals(0f, calendarZoomWithinOneStep(calendarZoomAfterDrag(1f, -900f), anchorLevel = 1), .0001f)
+        // From the compact week a long pull down stops at the month.
+        assertEquals(1f, calendarZoomWithinOneStep(calendarZoomAfterDrag(0f, 900f), anchorLevel = 0), .0001f)
+        assertEquals(1f, calendarZoomWithinOneStep(calendarZoomAfterDrag(2f, -900f), anchorLevel = 2), .0001f)
+        // The outward edge past each endpoint stays reachable from that endpoint.
+        assertEquals(-1f, calendarZoomWithinOneStep(calendarZoomAfterDrag(0f, -500f), anchorLevel = 0), .0001f)
+        assertEquals(3f, calendarZoomWithinOneStep(calendarZoomAfterDrag(2f, 500f), anchorLevel = 2), .0001f)
+    }
+
     @Test fun slowReleaseNeedsIntentionalTravel() {
         assertFalse(commitCalendarEdge(.44f, 0f))
         assertTrue(commitCalendarEdge(.45f, 0f))

@@ -1900,7 +1900,7 @@ fun HomeScreen(
                                 velocityTracker.addPosition(change.uptimeMillis, rootPosition)
                                 change.consume()
                                 val delta = with(density) { (if (claimed != 0f) claimed else rootDelta.y).toDp().value }
-                                extendedZoom = calendarZoomAfterDrag(extendedZoom, delta).let { next ->
+                                extendedZoom = calendarZoomWithinOneStep(calendarZoomAfterDrag(extendedZoom, delta), anchorLevel).let { next ->
                                     // Clamp each sample when disabled, so reversing
                                     // follows the finger without stored overscroll.
                                     if (calendarEdgeSwipes) next else next.coerceIn(0f, 2f)

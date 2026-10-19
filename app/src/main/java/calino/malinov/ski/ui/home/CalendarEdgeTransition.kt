@@ -29,6 +29,16 @@ internal fun calendarZoomAfterDrag(zoom: Float, deltaDp: Float): Float {
     }
 }
 
+/**
+ * One drag moves at most one view, however far it travels: the live zoom may
+ * not leave the stops next to the level the drag started on. The endpoints
+ * keep their outward edge (Agenda below the compact week, Year past the day
+ * surface), which is the one step beyond them. Clamping each sample, rather
+ * than the stored total, keeps a reversal following the finger at once.
+ */
+internal fun calendarZoomWithinOneStep(zoom: Float, anchorLevel: Int): Float =
+    zoom.coerceIn((anchorLevel - 1).toFloat(), (anchorLevel + 1).toFloat())
+
 internal fun commitCalendarEdge(progress: Float, outwardVelocity: Float): Boolean = when {
     outwardVelocity <= -650f -> false
     outwardVelocity >= 650f -> progress >= .06f
