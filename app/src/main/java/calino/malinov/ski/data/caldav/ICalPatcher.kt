@@ -265,7 +265,15 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
             calendar
         }
 
-    /** Replaces every VEVENT in one UID recurrence group with [result]. */
+    /**
+     * Replaces every VEVENT in one UID recurrence group with the part of
+     * [result] that keeps [uid].
+     *
+     * A FUTURE split also carries a second group under a fresh UID. RFC 4791
+     * section 4.1 allows one UID per calendar object resource, and servers
+     * such as Radicale refuse a body with two, so that group is written to its
+     * own resource by [splitSeriesResource].
+     */
     fun patchRecurrence(
         originalIcs: String,
         uid: String,
@@ -274,7 +282,30 @@ class ICalPatcher(private val writer: ICalWriter = ICalWriter()) {
         val existing = calendar.events.filter { it.uid?.value == uid }
         if (existing.isEmpty()) return@patch null
         existing.forEach(calendar::removeComponent)
-        result.groups.flatMap { it.events }.forEach(calendar::addEvent)
+        result.groups
+            .filter { it.master.uid?.value == uid }
+            .flatMap { it.events }
+            .forEach(calendar::addEvent)
+        calendar
+    }
+
+    /**
+     * The new resource for a FUTURE split: the series that does not keep [uid].
+     *
+     * It starts from the original resource so VTIMEZONE definitions and
+     * calendar-level properties carry over, drops the original events (they
+     * stay in the old resource) and holds the new series only. `null` when
+     * [result] has no such series, i.e. the edit was not a real split.
+     */
+    fun splitSeriesResource(
+        originalIcs: String,
+        uid: String,
+        result: RecurrenceEdit.Result,
+    ): String? = patch(originalIcs) { calendar ->
+        val split = result.groups.filter { it.master.uid?.value != uid }.flatMap { it.events }
+        if (split.isEmpty()) return@patch null
+        calendar.events.toList().forEach(calendar::removeComponent)
+        split.forEach(calendar::addEvent)
         calendar
     }
 

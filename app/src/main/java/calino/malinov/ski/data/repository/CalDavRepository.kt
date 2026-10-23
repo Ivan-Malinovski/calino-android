@@ -2173,6 +2173,37 @@ class CalDavRepository(
         recurrenceChanged: Boolean,
     ): WriteResult<CalEvent> {
         val uid = event.uid ?: event.id
+        if (scope == RecurrenceEditScope.Future) {
+            // "This and following" turns one resource into two series with
+            // different UIDs. RFC 4791 section 4.1 allows one UID per
+            // resource (Radicale answers 400 to a body with two), so the new
+            // series is created as its own resource first and only then is the
+            // old one truncated. Like a cross-calendar move, a failure of the
+            // second write can leave a duplicate but never loses the future
+            // occurrences; the durable queue replays whichever write is left.
+            futureSplit(source, event, uid, recurrenceChanged)?.let { split ->
+                val created = putCalendarWithQueue(
+                    source = source,
+                    changeType = PendingChangeType.CREATE,
+                    eventId = split.uid,
+                    component = "VEVENT",
+                    uid = split.uid,
+                    etag = null,
+                    prepare = {
+                        PreparedCalendarWrite(
+                            href = split.href,
+                            body = split.body,
+                            precondition = calino.malinov.ski.data.caldav.DavPrecondition.New,
+                            expectedEtag = null,
+                        )
+                    },
+                    record = { written -> event.copy(id = split.uid, uid = split.uid, href = written.href, etag = written.etag) },
+                    queuedRecord = { prepared -> event.copy(id = split.uid, uid = split.uid, href = prepared?.href ?: split.href, etag = null) },
+                )
+                if (created is WriteResult.Rejected) return created
+                if (created is WriteResult.Queued) restoreQueuedEventOverlay(split.uid)
+            }
+        }
         return putCalendarWithQueue(
             source = source,
             changeType = PendingChangeType.UPDATE,
@@ -2231,42 +2262,14 @@ class CalDavRepository(
                         expectedEtag = expectedEtag,
                     )
                 }
-                val target = when {
-                    event.recurrenceDate != null -> RecurrenceEdit.Target.allDay(event.recurrenceDate)
-                    event.recurrenceId != null -> RecurrenceEdit.Target.timed(event.recurrenceId)
-                    else -> RecurrenceEdit.Target.from(currentGroup.master)
-                } ?: throw CalDavException(
-                    CalDavErrorCode.NotCalDav,
-                    "The recurring event has no editable recurrence target.",
-                )
-                val original = currentGroup.events.firstOrNull { raw ->
-                    when {
-                        event.recurrenceDate != null -> raw.recurrenceId?.value?.let { value ->
-                            !value.hasTime() && value.rawComponents?.let {
-                                runCatching { LocalDate.of(it.year, it.month, it.date) }.getOrNull()
-                            } == event.recurrenceDate
-                        } == true
-                        event.recurrenceId != null -> raw.recurrenceId?.value?.toInstant() == event.recurrenceId
-                        else -> raw.recurrenceId == null
-                    }
-                } ?: currentGroup.master
-                val replacement = recurrenceWriter.writeEvent(
-                    event.copy(
-                        uid = uid,
-                        href = href,
-                        etag = expectedEtag,
-                        recurrenceId = null,
-                        recurrenceDate = null,
-                    ),
-                    original = original,
-                    now = Instant.now(),
-                    preserveRecurrenceIfMissing = !recurrenceChanged,
-                )
-                val result = RecurrenceEdit.edit(
+                val result = editRecurrence(
+                    event = event,
+                    uid = uid,
+                    href = href,
+                    expectedEtag = expectedEtag,
                     group = currentGroup,
-                    target = target,
-                    scope = scope.toDavScope(),
-                    replacement = replacement,
+                    scope = scope,
+                    recurrenceChanged = recurrenceChanged,
                 )
                 val body = recurrencePatcher.patchRecurrence(currentResource.ics, uid, result)
                     ?: throw CalDavException(
@@ -2282,6 +2285,85 @@ class CalDavRepository(
             },
             record = { written -> event.copy(uid = uid, href = written.href, etag = written.etag) },
             queuedRecord = { prepared -> event.copy(uid = uid, href = prepared?.href ?: event.href, etag = prepared?.expectedEtag ?: event.etag) },
+        )
+    }
+
+    /** The second resource of a "this and following" edit. */
+    private class FutureSplit(val uid: String, val href: String, val body: String)
+
+    /**
+     * Previews a FUTURE edit against the cached resource. Returns the new
+     * series' resource, or `null` when the edit stays inside one resource
+     * (the first occurrence is a whole-series edit) or cannot be previewed, in
+     * which case the ordinary write path reports the reason.
+     */
+    private fun futureSplit(
+        source: CalDavSource,
+        event: CalEvent,
+        uid: String,
+        recurrenceChanged: Boolean,
+    ): FutureSplit? = runCatching {
+        val href = resourceHref(source.calendar.url, event.href, uid)
+        val resource = cache.loadResource(source.calendar.url, href) ?: return null
+        val etag = normalizeEtag(event.etag) ?: normalizeEtag(resource.etag) ?: return null
+        val calendar = ICalTimezones.parse(resource.ics).singleOrNull() ?: return null
+        val group = RecurrenceEdit.Group.from(calendar, uid)
+        val result = editRecurrence(event, uid, href, etag, group, RecurrenceEditScope.Future, recurrenceChanged)
+        val newUid = result.groups.map { it.master.uid?.value }.firstOrNull { it != null && it != uid }
+            ?: return null
+        val body = recurrencePatcher.splitSeriesResource(resource.ics, uid, result) ?: return null
+        FutureSplit(newUid, resourceHref(source.calendar.url, null, newUid), body)
+    }.getOrNull()
+
+    /** Applies [scope] to [group] and returns the resulting UID groups. */
+    private fun editRecurrence(
+        event: CalEvent,
+        uid: String,
+        href: String,
+        expectedEtag: String,
+        group: RecurrenceEdit.Group,
+        scope: RecurrenceEditScope,
+        recurrenceChanged: Boolean,
+    ): RecurrenceEdit.Result {
+        val target = when {
+            event.recurrenceDate != null -> RecurrenceEdit.Target.allDay(event.recurrenceDate)
+            event.recurrenceId != null -> RecurrenceEdit.Target.timed(event.recurrenceId)
+            else -> RecurrenceEdit.Target.from(group.master)
+        } ?: throw CalDavException(
+            CalDavErrorCode.NotCalDav,
+            "The recurring event has no editable recurrence target.",
+        )
+        val original = group.events.firstOrNull { raw ->
+            when {
+                event.recurrenceDate != null -> raw.recurrenceId?.value?.let { value ->
+                    !value.hasTime() && value.rawComponents?.let {
+                        runCatching { LocalDate.of(it.year, it.month, it.date) }.getOrNull()
+                    } == event.recurrenceDate
+                } == true
+                event.recurrenceId != null -> raw.recurrenceId?.value?.toInstant() == event.recurrenceId
+                else -> raw.recurrenceId == null
+            }
+        } ?: group.master
+        val replacement = recurrenceWriter.writeEvent(
+            event.copy(
+                uid = uid,
+                href = href,
+                etag = expectedEtag,
+                recurrenceId = null,
+                recurrenceDate = null,
+            ),
+            // writeEvent edits its original in place. Hand it a copy: RecurrenceEdit
+            // reads the group's master to find the split point, and a master that
+            // already carries the new start looks like the first occurrence.
+            original = original.copy(),
+            now = Instant.now(),
+            preserveRecurrenceIfMissing = !recurrenceChanged,
+        )
+        return RecurrenceEdit.edit(
+            group = group,
+            target = target,
+            scope = scope.toDavScope(),
+            replacement = replacement,
         )
     }
 

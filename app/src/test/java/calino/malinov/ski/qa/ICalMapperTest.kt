@@ -427,6 +427,33 @@ class ICalMapperTest {
     }
 
     @Test
+    fun `iOS writes Apple travel duration with VALUE=DURATION and it still maps`() {
+        // Web issue #227: ical.js hands back a Duration object for this form,
+        // which the web parser choked on. Pin that the Android parser reads
+        // the same wire format (as written by iOS) and leaves the event intact.
+        val event = mapper.parse(
+            """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            BEGIN:VEVENT
+            UID:travel-ios
+            DTSTART:20260907T080000Z
+            DTEND:20260907T090000Z
+            SUMMARY:Appointment
+            X-APPLE-TRAVEL-DURATION;VALUE=DURATION:PT30M
+            END:VEVENT
+            END:VCALENDAR
+            """.trimIndent(),
+            "cal",
+            1L,
+            "travel-ios.ics",
+        ).events.single()
+
+        assertEquals("Appointment", event.title)
+        assertEquals(30, event.travelTimeMinutes)
+    }
+
+    @Test
     fun `invalid and non-positive Apple travel durations stay unset`() {
         listOf("not-a-duration", "PT0M", "-PT15M").forEach { value ->
             val event = mapper.parse(

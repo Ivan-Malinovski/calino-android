@@ -465,6 +465,98 @@ END:VCALENDAR
         assertEquals("the rewritten series must come back under its unchanged ids", work.size, after)
     }
 
+    /** A PUT as the server saw it: path, precondition header value, body. */
+    private data class RecordedPut(val path: String, val precondition: String, val body: String)
+
+    /** Serves the recurring fixture and records every PUT. */
+    private fun serveRecurringRecordingPuts(): MutableList<RecordedPut> {
+        val puts = java.util.concurrent.CopyOnWriteArrayList<RecordedPut>()
+        val etags = AtomicInteger()
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                if (request.method == "PUT") {
+                    puts += RecordedPut(
+                        request.path.orEmpty(),
+                        request.getHeader("If-None-Match") ?: request.getHeader("If-Match").orEmpty(),
+                        request.body.readUtf8(),
+                    )
+                    return MockResponse().setResponseCode(201).setHeader("ETag", "\"written-${etags.incrementAndGet()}\"")
+                }
+                val body = request.body.readUtf8()
+                return when {
+                    body.contains("VTODO") -> multiStatus(CalDavFixtures.Todos)
+                    body.contains("VJOURNAL") -> multiStatus(CalDavFixtures.Journals)
+                    else -> multiStatus(CalDavFixtures.Recurring)
+                }
+            }
+        }
+        return puts
+    }
+
+    /** Edits the fourth "Work" occurrence, i.e. not the first, in [scope]. */
+    private suspend fun CalDavRepository.editFourthWorkOccurrence(scope: RecurrenceEditScope): WriteResult<*> {
+        val target = snapshot().events.filter { it.title == "Work" }.sortedBy { it.start }[3]
+        return updateEvent(
+            target.id,
+            NewEvent(
+                title = "Work edited",
+                date = target.start!!.toLocalDate(),
+                startTime = target.start!!.toLocalTime(),
+                durationMinutes = target.durationMinutes,
+                allDay = false,
+                calendarId = target.calendarId,
+                recurrence = target.recurrence,
+                recurrenceScope = scope,
+                sequence = target.sequence,
+            ),
+        )
+    }
+
+    @Test
+    fun `editing this and following events writes each series to its own resource`() = runBlocking {
+        val repository = repository(FakeCache())
+        val puts = serveRecurringRecordingPuts()
+        repository.setSources(listOf(source(calendar("/dav.php/calendars/test-user/mail_events/"))))
+        repository.awaitSync()
+
+        val saved = repository.editFourthWorkOccurrence(RecurrenceEditScope.Future)
+        assertTrue("write result: $saved", saved is WriteResult.Applied)
+
+        // RFC 4791 4.1: a resource holds exactly one UID. Radicale answers 400
+        // to anything else, so the two halves must be two writes.
+        assertEquals("one PUT per series: ${puts.map { it.path }}", 2, puts.size)
+        assertEquals("two different resources", 2, puts.map { it.path }.distinct().size)
+        val uidsOf = { body: String -> Regex("(?m)^UID:(.*?)\\r?$").findAll(body).map { it.groupValues[1] }.toSet() }
+        puts.forEach { put ->
+            assertEquals("${put.path} must carry exactly one UID but had ${uidsOf(put.body)}", 1, uidsOf(put.body).size)
+        }
+        assertEquals("the series have different UIDs", 2, puts.flatMap { uidsOf(it.body) }.distinct().size)
+        assertTrue("the new series is created, not overwritten", puts.any { it.precondition == "*" })
+        assertTrue("the old series is updated conditionally", puts.any { it.precondition.isNotEmpty() && it.precondition != "*" })
+        val old = puts.single { it.precondition != "*" }
+        assertTrue("the old series is cut short", old.body.contains("UNTIL="))
+        assertEquals("the new series is written first", "*", puts.first().precondition)
+    }
+
+    @Test
+    fun `editing one occurrence leaves the series master alone`() = runBlocking {
+        // RecurrenceEdit needs the master as the server has it. Handing the
+        // live master to the writer as the edit's "original" moved its DTSTART
+        // to the edited occurrence, so a later split looked like the first.
+        val repository = repository(FakeCache())
+        val puts = serveRecurringRecordingPuts()
+        repository.setSources(listOf(source(calendar("/dav.php/calendars/test-user/mail_events/"))))
+        repository.awaitSync()
+
+        val saved = repository.editFourthWorkOccurrence(RecurrenceEditScope.This)
+        assertTrue("write result: $saved", saved is WriteResult.Applied)
+
+        val body = puts.single().body
+        assertTrue(body, body.contains("DTSTART:20260518T060000Z"))
+        assertTrue(body, body.contains("RECURRENCE-ID:20260521T060000Z"))
+        assertEquals("master plus one override", 2, Regex("(?m)^BEGIN:VEVENT").findAll(body).count())
+    }
+
     // --- the cache ------------------------------------------------------------
 
     @Test

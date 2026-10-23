@@ -10,6 +10,10 @@ history and their tags.
 - **JMAP accounts.** A server that offers JMAP Calendars (tested with Stalwart 0.16) now connects over JMAP: events, recurrence and overrides, reminders, attendees, invitations and replies, moves, deletes, incremental sync and a push hint while the app is open, all through the same cache and offline queue as CalDAV. The account settings show which protocol is in use and can switch back to CalDAV.
 - **JMAP contacts.** Address books on a JMAP account are read and edited as JSContact and shown as the same contacts as CardDAV ones.
 
+### Fixed
+
+- **"This and following events" on a CalDAV server.** The edit now saves the two halves of the split series as two separate resources, the new series first, instead of putting both UIDs in one resource, which strict servers such as Radicale rejected with 400. Editing a single occurrence or a whole series from a generated occurrence also no longer moves the series' start to the edited occurrence.
+
 ### Changed
 
 - JMAP calendars take events only, and the editor hides "Add file" for them, because embedded attachments need blob upload that is not built yet. Vendor `X-` properties are not carried over JMAP.
