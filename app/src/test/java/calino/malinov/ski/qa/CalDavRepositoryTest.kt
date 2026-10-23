@@ -14,6 +14,9 @@ import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalDavSource
 import calino.malinov.ski.data.repository.CalinoSnapshot
+import calino.malinov.ski.data.repository.FilePendingChangeStore
+import calino.malinov.ski.data.repository.PendingChangeStore
+import calino.malinov.ski.data.repository.PendingChangeType
 import calino.malinov.ski.data.repository.SyncState
 import calino.malinov.ski.data.repository.WriteResult
 import java.time.Instant
@@ -67,6 +70,7 @@ class CalDavRepositoryTest {
     private fun repository(
         cache: CalendarCache = CalendarCache.None,
         windowMonths: Long = CalDavRepository.DefaultWindowMonths,
+        pendingStore: PendingChangeStore? = null,
     ) = CalDavRepository(
         fetcher = CalDavFetcher(DavHttp()),
         scope = scope,
@@ -74,6 +78,7 @@ class CalDavRepositoryTest {
         mapper = ICalMapper(ZoneId.of("Europe/Copenhagen")),
         today = { LocalDate.of(2026, 9, 8) },
         windowMonths = windowMonths,
+        pendingStore = pendingStore,
     )
 
     /** A cache held in memory, so the repository's use of it is observable. */
@@ -458,8 +463,10 @@ END:VCALENDAR
                     .replace("\"work-1\"", "\"work-2\""),
             ),
         )
-        repository.refresh()
-        repository.awaitSync()
+        // synchronize() returns when the refetch is done. refresh() launches it
+        // on the scope, so awaitSync() could see the old Ready state and return
+        // before the refetch had started.
+        repository.synchronize()
 
         val after = repository.snapshot().events.count { it.title == "Work edited" }
         assertEquals("the rewritten series must come back under its unchanged ids", work.size, after)
@@ -469,7 +476,7 @@ END:VCALENDAR
     private data class RecordedPut(val path: String, val precondition: String, val body: String)
 
     /** Serves the recurring fixture and records every PUT. */
-    private fun serveRecurringRecordingPuts(): MutableList<RecordedPut> {
+    private fun serveRecurringRecordingPuts(putStatus: Int = 201): MutableList<RecordedPut> {
         val puts = java.util.concurrent.CopyOnWriteArrayList<RecordedPut>()
         val etags = AtomicInteger()
         server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
@@ -480,6 +487,7 @@ END:VCALENDAR
                         request.getHeader("If-None-Match") ?: request.getHeader("If-Match").orEmpty(),
                         request.body.readUtf8(),
                     )
+                    if (putStatus != 201) return MockResponse().setResponseCode(putStatus)
                     return MockResponse().setResponseCode(201).setHeader("ETag", "\"written-${etags.incrementAndGet()}\"")
                 }
                 val body = request.body.readUtf8()
@@ -536,6 +544,33 @@ END:VCALENDAR
         val old = puts.single { it.precondition != "*" }
         assertTrue("the old series is cut short", old.body.contains("UNTIL="))
         assertEquals("the new series is written first", "*", puts.first().precondition)
+    }
+
+    @Test
+    fun `a split made offline queues the new series before the old one`() = runBlocking {
+        val queueFile = java.io.File.createTempFile("calino-split-queue", ".json").also { it.deleteOnExit() }
+        val store = FilePendingChangeStore(queueFile)
+        val repository = repository(FakeCache(), pendingStore = store)
+        // Reads work, every write fails with a retryable status.
+        serveRecurringRecordingPuts(putStatus = 503)
+        repository.setSources(listOf(source(calendar("/dav.php/calendars/test-user/mail_events/"))))
+        repository.awaitSync()
+
+        val saved = repository.editFourthWorkOccurrence(RecurrenceEditScope.Future)
+        assertTrue("write result: $saved", saved is WriteResult.Queued)
+
+        val queued = store.snapshot()
+        assertEquals("a create and an update: ${queued.map { it.type }}", 2, queued.size)
+        // Same order as the online path: if only one ever replays, it is the
+        // harmless one (an extra series), never a truncated original without
+        // its continuation.
+        assertEquals(listOf(PendingChangeType.CREATE, PendingChangeType.UPDATE), queued.map { it.type })
+        assertEquals("separate resources", 2, queued.map { it.href }.distinct().size)
+        assertEquals("separate events", 2, queued.map { it.eventId }.distinct().size)
+        val uidsOf = { body: String -> Regex("(?m)^UID:(.*?)\\r?$").findAll(body).map { it.groupValues[1] }.toSet() }
+        queued.forEach { change ->
+            assertEquals("${change.href} must carry one UID", 1, uidsOf(change.data.orEmpty()).size)
+        }
     }
 
     @Test
