@@ -47,6 +47,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -158,6 +159,7 @@ private val SettingsNavLaneHeight = 44.dp
 private val SettingsRailWidth = 232.dp
 private val SettingsNavPillHeight = 28.dp
 private val SettingsContentMaxWidth = 720.dp
+private const val ReleasesUrl = "https://github.com/Ivan-Malinovski/calino-android/releases"
 private val SettingsRowHorizontalPadding = 18.dp
 private val SettingsRowVerticalPadding = 14.dp
 private val SettingsGroupSpacing = 20.dp
@@ -209,7 +211,9 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry(R.string.set_show_in_phone_search, SettingsSection.DataAccess, R.string.set_search_assistants, "Samsung Finder", R.string.set_search_terms_phone_search),
     SettingsSearchEntry(R.string.set_let_assistants_use_calino, SettingsSection.DataAccess, R.string.set_search_assistants, "Gemini AppFunctions", R.string.set_search_terms_assistants),
     SettingsSearchEntry(R.string.set_ai_photo_import, SettingsSection.DataAccess, R.string.set_ai_photo_import, "provider API key model", R.string.set_search_terms_ai_photo_import),
-    SettingsSearchEntry(R.string.set_grow_details_from_events, SettingsSection.Advanced, R.string.set_motion, "animation container transform", R.string.set_search_terms_advanced_motion)
+    SettingsSearchEntry(R.string.set_grow_details_from_events, SettingsSection.Advanced, R.string.set_motion, "animation container transform", R.string.set_search_terms_advanced_motion),
+    SettingsSearchEntry(R.string.set_releases, SettingsSection.Advanced, R.string.set_about, "github releases download update", R.string.set_search_terms_releases),
+    SettingsSearchEntry(R.string.set_version, SettingsSection.Advanced, R.string.set_about, "about version build release", R.string.set_search_terms_version),
 )
 
 private enum class SettingRowControlLayout {
@@ -650,6 +654,38 @@ private fun AdvancedSettings() {
             t(R.string.set_an_event_s_details_open_out_of_the_event_you_tapped_off_they),
             preferences.growDetailFromEvent,
             preferences.setGrowDetailFromEvent,
+        )
+    }
+    AboutSettings()
+}
+
+@Composable
+private fun AboutSettings() {
+    val context = LocalContext.current
+    val version = remember(context) {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+            .getOrNull()
+            .orEmpty()
+    }
+    SettingsGroup(t(R.string.set_about)) {
+        SettingRow(t(R.string.set_version), t(R.string.set_version_detail)) {
+            SelectionContainer {
+                Text(version, style = CalinoTypography.bodyLarge, color = CalinoColors.Ink2)
+            }
+        }
+        SettingDivider()
+        SettingActionRow(
+            title = t(R.string.set_releases),
+            description = t(R.string.set_releases_detail),
+            action = t(R.string.set_open),
+            enabled = true,
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(ReleasesUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            },
         )
     }
 }

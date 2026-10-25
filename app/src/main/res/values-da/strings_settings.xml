@@ -403,4 +403,11 @@ Seneste vellykkede synkronisering: %2$s</string>
     <string name="set_use_caldav_instead">Brug CalDAV i stedet</string>
     <string name="set_use_caldav_instead_detail">Hvis serveren også tilbyder CalDAV, læser Calino kalenderne den vej i stedet. Kalenderne hentes igen.</string>
     <string name="set_sync_or_discard_waiting_changes_before_switching">Synkroniser eller kassér de ventende ændringer for denne konto, før du skifter.</string>
+    <string name="set_about">Om</string>
+    <string name="set_version">Version</string>
+    <string name="set_version_detail">Calino til Android</string>
+    <string name="set_search_terms_version">om version build udgivelse</string>
+    <string name="set_releases">Udgivelser</string>
+    <string name="set_releases_detail">Udgivelsesnoter og downloads på GitHub</string>
+    <string name="set_search_terms_releases">udgivelser github download opdatering</string>
 </resources>

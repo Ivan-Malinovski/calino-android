@@ -185,6 +185,7 @@ import calino.malinov.ski.data.repository.CalinoRepository
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.CalinoContainer
 import calino.malinov.ski.data.update.AppUpdateChecker
+import calino.malinov.ski.data.update.AppUpdateState
 import calino.malinov.ski.notify.LocalNotificationPermission
 import calino.malinov.ski.notify.localReminderKey
 import calino.malinov.ski.notify.ReminderChannels
@@ -711,7 +712,14 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     private val installedVersion = application.packageManager
         .getPackageInfo(application.packageName, 0).versionName.orEmpty()
     private val appUpdateChecker = AppUpdateChecker(application, installedVersion)
-    var appUpdateState by mutableStateOf(appUpdateChecker.cachedState())
+
+    // False in the Google Play build (-PplayStore=true): Play updates the app,
+    // and its policy rules out pointing people at another source for updates.
+    private val appUpdateCheckEnabled =
+        application.resources.getBoolean(R.bool.calino_update_check_enabled)
+    var appUpdateState by mutableStateOf(
+        if (appUpdateCheckEnabled) appUpdateChecker.cachedState() else AppUpdateState(),
+    )
         private set
 
     private val hasAccountsState = mutableStateOf(container.hasAccounts)
@@ -852,6 +860,7 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     fun drainPendingWrites() = container.calDavRepository.drainPendingWrites()
 
     fun checkForAppUpdate() {
+        if (!appUpdateCheckEnabled) return
         // Debug builds are installed beside release and carry a suffixed
         // version. They must not interrupt deterministic device tests or ask
         // developers to replace the build they are actively testing.
