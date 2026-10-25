@@ -3,15 +3,29 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
-## Unreleased
+## 0.12.0 — 2026-10-25
+
+Calino 0.12.0 adds JMAP accounts, repeat editing for tasks, countdowns to an event's start and an About card in Settings, and fixes several cases where an edit or the day sheet showed stale or misordered data.
 
 ### Added
 
 - **JMAP accounts.** A server that offers JMAP Calendars (tested with Stalwart 0.16) now connects over JMAP: events, recurrence and overrides, reminders, attendees, invitations and replies, moves, deletes, incremental sync and a push hint while the app is open, all through the same cache and offline queue as CalDAV. The account settings show which protocol is in use and can switch back to CalDAV.
 - **JMAP contacts.** Address books on a JMAP account are read and edited as JSContact and shown as the same contacts as CardDAV ones.
+- **Repeating tasks.** A task's detail now has a Repeat row: edit the rule, make a one-off task repeat, and choose how it ends (never, on a date, or after a number of times). Deleting a repeating task, or a repeating event, asks the same question in the same popup: this one, this and future, or the entire series.
+- **Countdown to an event.** Agenda rows and the opened event card show how long until it starts: days and hours up to three days out, whole days beyond, and minutes inside the last two hours. Two switches in Settings turn it off for lists and for cards.
+- **End date for all-day events.** The editor can give an all-day event an end date, and saving a multi-day all-day event no longer collapses it to one day (#19).
+- **Manual task order.** Tasks synced from Apple Reminders, Nextcloud Tasks or tasks.org keep the order they have there. It breaks ties inside a day, a bucket, a week range and a set of subtasks, and is written back when you edit or complete a task. The sidebar's upcoming tasks follow the same order.
+- **About card.** Settings > Advanced shows the installed version and links to the releases page on GitHub.
 
 ### Fixed
 
+- **Day sheet order.** The sheet that opens from a day listed events in server order, so 15:00 could sit above 10:00. It now lists all-day events first, then timed ones by start time.
+- **Edits stuck behind old data.** After you saved a change to a series, its occurrences could stay hidden, or another client's change (such as an attendee's reply) could stay masked, until the app was restarted. Calino now takes the newer server copy on the next read, for events and contacts (#14).
+- **Late tasks.** A task is now late once its time today has passed, not only once its date has, and is coloured to match the Overdue group.
+- **Repeating tasks.** A one-off task that becomes a series no longer shows a duplicate first occurrence, and an all-day series now ends on the day you picked in any time zone.
+- **Range view.** The done button for a timed task sits centred on its badge instead of hanging below it.
+- **Vertical calendar drag.** A long pull from the month used to run on through the week or day view into Agenda or Year. It now moves one view per gesture.
+- **Photo import from the camera.** Calino no longer declares the camera permission it never asked for, which could make "Take photo" fail on some devices. The system camera takes the picture, so no permission is needed.
 - **"This and following events" on a CalDAV server.** The edit now saves the two halves of the split series as two separate resources, the new series first, instead of putting both UIDs in one resource, which strict servers such as Radicale rejected with 400. Editing a single occurrence or a whole series from a generated occurrence also no longer moves the series' start to the edited occurrence.
 
 ### Changed
