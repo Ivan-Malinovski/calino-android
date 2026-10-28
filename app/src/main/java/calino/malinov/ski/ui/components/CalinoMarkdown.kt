@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
@@ -500,7 +501,7 @@ private fun CodeBlockView(block: CalinoMarkdownBlock.CodeBlock) {
         Modifier
             .fillMaxWidth()
             .horizontalScroll(scrollState)
-            .clipAndBorder(CalinoColors.Ink.copy(alpha = .06f), CalinoColors.Panel)
+            .clipAndBorder(CalinoColors.Ink.copy(alpha = .06f), CalinoColors.Panel, RoundedCornerShape(CalinoShapes.Row))
             .padding(12.dp),
     ) {
         Text(
@@ -521,7 +522,7 @@ private fun MarkdownTableView(block: CalinoMarkdownBlock.Table) {
             .fillMaxWidth()
             .horizontalScroll(scrollState)
             .widthIn(min = 320.dp)
-            .clipAndBorder(CalinoColors.Line, CalinoColors.Panel),
+            .clipAndBorder(CalinoColors.Line, CalinoColors.Panel, RoundedCornerShape(CalinoShapes.Row)),
     ) {
         rows.forEachIndexed { index, row ->
             Row(Modifier.fillMaxWidth()) {
@@ -656,7 +657,7 @@ private fun Modifier.checklistTouchLane(): Modifier = layout { measurable, const
     layout(placeable.width, height) { placeable.place(0, (height - placeable.height) / 2) }
 }
 
-private fun Modifier.clipAndBorder(borderColor: Color, backgroundColor: Color): Modifier =
-    clip(RoundedCornerShape(CalinoShapes.Row))
+private fun Modifier.clipAndBorder(borderColor: Color, backgroundColor: Color, shape: Shape): Modifier =
+    clip(shape)
         .background(backgroundColor)
-        .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(CalinoShapes.Row))
+        .border(BorderStroke(1.dp, borderColor), shape)

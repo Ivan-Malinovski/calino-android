@@ -96,7 +96,6 @@ fun Modifier.recordCalinoPressPoint(point: CalinoPressPoint): Modifier = pointer
     }
 }
 
-private val MenuShape = RoundedCornerShape(CalinoShapes.Button)
 private val MenuWidth = 248.dp
 
 private val EdgeMargin = 12.dp
@@ -129,6 +128,7 @@ fun CalinoActionMenu(
     }
     if (!visibility.currentState && !visibility.targetState) return
 
+    val menuShape = RoundedCornerShape(CalinoShapes.Button)
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val currentOnDismiss by rememberUpdatedState(onDismiss)
@@ -228,7 +228,7 @@ fun CalinoActionMenu(
                     .graphicsLayer {
                         val visible = appear * (1f - (dragY / fadePx).coerceIn(0f, 1f))
                         shadowElevation = shadowPx
-                        shape = MenuShape
+                        shape = menuShape
                         clip = true
                         ambientShadowColor = shadowColor.copy(alpha = visible)
                         spotShadowColor = shadowColor.copy(alpha = visible)
@@ -237,7 +237,7 @@ fun CalinoActionMenu(
                         alpha = appear * (1f - (dragY / fadePx).coerceIn(0f, 1f))
                     }
                     .background(CalinoColors.Panel)
-                    .border(1.dp, CalinoColors.Line, MenuShape)
+                    .border(1.dp, CalinoColors.Line, menuShape)
                     .pointerInput(Unit) {
                         val axisSlop = 8.dp.toPx()
                         awaitEachGesture {

@@ -6,7 +6,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -22,6 +21,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.R
@@ -337,18 +337,31 @@ object CalinoSpacing {
     val LaneEdge = 20.dp
 }
 
-object CalinoShapes {
-    val Chip = 6.dp
-    val Row = 11.dp
-    val DayBlock = 10.dp
-    val Button = 15.dp
-    val Fab = 16.dp
-    val Card = 22.dp
-    val Sheet = 26.dp
+/**
+ * The corner radii a theme paints with.
+ *
+ * Read through [CalinoShapes], which is whichever set the theme in force
+ * provides. The names are Calino's; [CalinoStyle] maps them onto the style's
+ * own scale. Paper supplies the existing custom radii.
+ */
+@Immutable
+data class CalinoShapeSet(
+    val Chip: Dp,
+    val Row: Dp,
+    val DayBlock: Dp,
+    val Button: Dp,
+    val Fab: Dp,
+    val Card: Dp,
+    val Sheet: Dp,
     /** Text fields, single- and multi-line; a pill would pinch a tall field. */
-    val Field = 16.dp
-    val Pill = 999.dp
-}
+    val Field: Dp,
+    val Pill: Dp,
+)
+
+val LocalCalinoShapes = staticCompositionLocalOf { CalinoStyles.Paper.shapes }
+
+val CalinoShapes: CalinoShapeSet
+    @Composable @ReadOnlyComposable get() = LocalCalinoShapes.current
 
 /**
  * The segmented control's geometry.
@@ -379,7 +392,7 @@ private val Display = FontFamily(Font(R.font.newsreader, FontWeight.Normal))
 private val Sans = FontFamily.SansSerif
 private val Mono = FontFamily.Monospace
 
-val CalinoTypography = Typography(
+val PaperTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = Display,
         fontWeight = FontWeight.Normal,
@@ -403,6 +416,12 @@ val CalinoTypography = Typography(
     labelMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 18.sp),
     labelSmall = TextStyle(fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, lineHeight = 12.sp, letterSpacing = 1.2.sp),
 )
+
+val LocalCalinoTypography = staticCompositionLocalOf { CalinoStyles.Paper.typography }
+
+/** The type scale of the theme in force. */
+val CalinoTypography: Typography
+    @Composable @ReadOnlyComposable get() = LocalCalinoTypography.current
 
 /**
  * Shared specifications for Calino's restrained, editorial motion language.
@@ -488,6 +507,7 @@ object CalinoMotion {
 @Composable
 fun CalinoTheme(
     palette: CalinoPalette = CalinoThemes.PaperLight,
+    style: CalinoStyle = CalinoStyles.Paper,
     content: @Composable () -> Unit,
 ) {
     val scheme = if (palette.isDark) {
@@ -540,6 +560,8 @@ fun CalinoTheme(
     // Providing it here is what carries all of those into a dark theme.
     CompositionLocalProvider(
         LocalCalinoPalette provides palette,
+        LocalCalinoTypography provides style.typography,
+        LocalCalinoShapes provides style.shapes,
         LocalContentColor provides palette.Ink,
         // Navigation and calendar touch lanes have their own visual states.
         // Keep the foundation indication invisible throughout the app so a
@@ -551,12 +573,8 @@ fun CalinoTheme(
     ) {
         MaterialTheme(
             colorScheme = scheme,
-            typography = CalinoTypography,
-            shapes = Shapes(
-                small = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Chip),
-                medium = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Row),
-                large = androidx.compose.foundation.shape.RoundedCornerShape(CalinoShapes.Card),
-            ),
+            typography = style.typography,
+            shapes = style.materialShapes,
             content = content,
         )
     }

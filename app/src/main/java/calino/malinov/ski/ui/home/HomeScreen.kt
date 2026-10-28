@@ -3780,6 +3780,7 @@ private fun StaticMonthGrid(
 ) {
     // Hoisted once: draw scopes cannot read the palette's composition local.
     val colors = CalinoColors
+    val dayBlockRadius = CalinoShapes.DayBlock
     // Read here rather than inside the draw scope, which is not composable.
     val today = LocalCalinoNow.current.today
     val locale = LocalCalinoLocale
@@ -4203,7 +4204,7 @@ private fun StaticMonthGrid(
                     // A single-column band under a Sunday start is only one
                     // cell wide, so the block radius has to fit inside it.
                     val washRadius = min(
-                        with(density) { CalinoShapes.DayBlock.toPx() },
+                        with(density) { dayBlockRadius.toPx() },
                         cellWidthPx / 2f,
                     )
                     val gridTop = rowTopFor(0)
