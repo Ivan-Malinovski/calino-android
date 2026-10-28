@@ -8,6 +8,10 @@ require(versionParts.size == 3) {
 }
 val appVersionCode = versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]
 
+// -PplayStore=true builds the Google Play bundle: no in-app check against
+// GitHub releases, because Play delivers updates. Everything else is identical.
+val playStoreBuild = providers.gradleProperty("playStore").map(String::toBoolean).orElse(false).get()
+
 // Release signing key lives outside git at keystore/calino-release.jks so it never
 // gets silently regenerated (that's what desynced the phone's installed signature
 // from a freshly generated ~/.android/debug.keystore before). Missing the
@@ -41,6 +45,7 @@ android {
         versionCode = appVersionCode
         versionName = repositoryVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        resValue("bool", "calino_update_check_enabled", (!playStoreBuild).toString())
     }
 
     compileOptions {
