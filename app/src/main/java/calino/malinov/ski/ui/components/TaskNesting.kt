@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,6 +26,13 @@ import calino.malinov.ski.util.localizedDateFormatter
 
 /** Indent applied per subtask level, and the width of one connector rail slot. */
 const val TaskNestStep = 20
+
+/**
+ * Rails sit on Canvas in Month, Agenda and Tasks. Resolve the ink wash once
+ * so elbows and the overhang from neighbouring rows cannot compound its alpha.
+ */
+private val TaskRailColor: Color
+    @Composable get() = CalinoColors.Ink.copy(alpha = .10f).compositeOver(CalinoColors.Canvas)
 
 /**
  * Insets a subtask row by its [depth] and draws the connectors in the gutter it
@@ -57,7 +65,7 @@ fun Modifier.taskNestIndent(
     railOverhang: Dp = 0.dp,
 ): Modifier {
     if (depth <= 0) return this
-    val color = CalinoColors.Ink.copy(alpha = .10f)
+    val color = TaskRailColor
     val density = LocalDensity.current
     val stepPx = with(density) { TaskNestStep.dp.toPx() }
     val strokePx = with(density) { 1.dp.toPx() }
@@ -122,7 +130,7 @@ fun AbsentParentRow(
     railOffset: Dp = (TaskNestStep / 2).dp,
     onClick: (() -> Unit)? = null,
 ) {
-    val color = CalinoColors.Ink.copy(alpha = .10f)
+    val color = TaskRailColor
     val density = LocalDensity.current
     val railOffsetPx = with(density) { railOffset.toPx() }
     val strokePx = with(density) { 1.dp.toPx() }
