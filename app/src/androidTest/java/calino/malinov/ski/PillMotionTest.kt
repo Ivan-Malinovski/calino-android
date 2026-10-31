@@ -25,6 +25,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.down
+import androidx.compose.ui.test.moveBy
+import androidx.compose.ui.test.up
 import androidx.compose.ui.test.swipeLeft
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.design.CalinoTheme
@@ -228,6 +231,47 @@ class PillMotionTest {
         compose.mainClock.advanceTimeBy(800)
         compose.onNodeWithContentDescription("Dismiss edited card").assertIsDisplayed()
         assertEquals(restingHeight, pillHeight(), .5f)
+    }
+
+    /**
+     * A card that will ask before closing must not preview closing: dragging it
+     * past the threshold used to shrink the pill to its add shape, which then
+     * grew back into the question on release.
+     */
+    @Test fun draggingACardThatAsksFirstKeepsThePillExpanded() {
+        val asking = mutableStateOf(false)
+        val lane = CalinoPillLane().apply { addPillLabel = "Mon, 18 May" }
+        compose.setContent {
+            CalinoTheme {
+                CompositionLocalProvider(LocalCalinoPillLane provides lane) {
+                    CalinoPillFeedback {
+                        BottomDetailCard(
+                            visible = true, onDismiss = { asking.value = true },
+                            dismissConfirmationActive = asking.value,
+                            dismissRequiresConfirmation = true,
+                            pill = {
+                                ModalActionPill(
+                                    addLabel = "Mon, 18 May", morphFromAddPill = true, inPillLane = true, expanded = true,
+                                    primaryLabel = "Save", onPrimary = {},
+                                    cancelLabel = "Close", onCancel = { asking.value = true },
+                                    dismissConfirmationActive = asking.value,
+                                    modifier = Modifier.testTag("motion-pill"),
+                                )
+                            },
+                        ) { Box(it) }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val restingHeight = pillHeight()
+        compose.onNodeWithTag(calino.malinov.ski.ui.components.SwipeDownDismissTag).performTouchInput {
+            down(center)
+            moveBy(androidx.compose.ui.geometry.Offset(0f, 700f))
+        }
+        compose.waitForIdle()
+        assertEquals("pill previewed a dismissal that will only ask", restingHeight, pillHeight(), 1f)
+        compose.onNodeWithTag(calino.malinov.ski.ui.components.SwipeDownDismissTag).performTouchInput { up() }
     }
 
     @Test fun replacementModalContractsFromItsActionsAndStillReturnsToNavigation() {

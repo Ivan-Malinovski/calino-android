@@ -55,6 +55,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -89,6 +90,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
@@ -136,6 +138,14 @@ class CalinoSurfaceDismissDrag {
 
     /** 0..1 toward the full dismissal distance; drives the fade and shrink. */
     var progress by mutableFloatStateOf(0f)
+
+    /**
+     * Set while a release would raise a question instead of closing the card
+     * (unsaved edits). The pill must not preview a dismissal then: collapsing
+     * to its add shape along the drag, only to grow into the question on
+     * release, reads as a blink.
+     */
+    var releaseAsksFirst by mutableStateOf(false)
 
     /**
      * The translation the host's layer is actually carrying, recorded as the
@@ -293,6 +303,7 @@ fun AdaptiveSurfaceHost(
     // Owned by the host rather than by the card, so the card's own container
     // cannot clip the travel. See [CalinoSurfaceDismissDrag].
     val dismissDrag = remember { CalinoSurfaceDismissDrag() }
+    SideEffect { dismissDrag.releaseAsksFirst = dismissRequiresConfirmation }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val layoutSpec = calinoLayoutSpec(
@@ -431,6 +442,9 @@ fun AdaptiveSurfaceHost(
         }
         val morphs = origin != null && !gestureExit
         var panelRootRect by remember { mutableStateOf<Rect?>(null) }
+        // The editor sizes its own form to the keyboard; every other card has
+        // no such handling and would be left underneath it.
+        val liftsAboveKeyboard = kind != CalinoSurfaceKind.Editor
         val panelModifier: Modifier = when (mode) {
             CalinoSurfaceMode.BottomSheet ->
                 Modifier
@@ -442,6 +456,13 @@ fun AdaptiveSurfaceHost(
                     .absoluteOffset(
                         x = paneLeft,
                         y = paneTop + bottomSheetSpareHeight - minOf(bottomSheetSpareHeight, BottomSheetLift),
+                    )
+                    .liftAboveKeyboard(
+                        enabled = liftsAboveKeyboard,
+                        ime = WindowInsets.ime,
+                        statusBars = WindowInsets.statusBars,
+                        nodeTop = paneTop + bottomSheetSpareHeight - minOf(bottomSheetSpareHeight, BottomSheetLift),
+                        nodeHeight = bottomHeight + 16.dp,
                     )
                     .padding(vertical = 8.dp)
                     .width(paneWidth)
@@ -461,6 +482,13 @@ fun AdaptiveSurfaceHost(
                     .absoluteOffset(
                         x = paneLeft + (paneWidth - floatingWidth) / 2f,
                         y = paneTop + (paneHeight - floatingHeight) / 2f,
+                    )
+                    .liftAboveKeyboard(
+                        enabled = liftsAboveKeyboard,
+                        ime = WindowInsets.ime,
+                        statusBars = WindowInsets.statusBars,
+                        nodeTop = paneTop + (paneHeight - floatingHeight) / 2f,
+                        nodeHeight = floatingHeight,
                     )
                     .width(floatingWidth)
                     .height(floatingHeight)
@@ -784,6 +812,37 @@ private const val FloatingExitMillis = 200
 
 /** A height-independent lift keeps compact and tall bottom cards aligned. */
 private val BottomSheetLift = 36.dp
+
+/**
+ * Raises a card that the keyboard would cover until its bottom rests on the
+ * keyboard, and when the room above the keyboard is smaller than the card,
+ * shortens it so the top stays below the status bar.
+ *
+ * The inset is read while measuring, not in composition, so the card follows
+ * the keyboard's own animation frame by frame with no recomposition. [nodeTop]
+ * and [nodeHeight] describe where the card rests without a keyboard, in the
+ * host's coordinates, because a layout modifier can measure its child only once.
+ */
+private fun Modifier.liftAboveKeyboard(
+    enabled: Boolean,
+    ime: WindowInsets,
+    statusBars: WindowInsets,
+    nodeTop: Dp,
+    nodeHeight: Dp,
+): Modifier = if (!enabled) this else layout { measurable, constraints ->
+    val imeBottom = ime.getBottom(this)
+    val top = nodeTop.roundToPx()
+    val height = nodeHeight.roundToPx()
+    val overlap = if (imeBottom <= 0) 0 else
+        (top + height - (constraints.maxHeight - imeBottom)).coerceAtLeast(0)
+    val limit = statusBars.getTop(this) + 8.dp.roundToPx()
+    val lift = minOf(overlap, (top - limit).coerceAtLeast(0))
+    val shrink = overlap - lift
+    val placeable = measurable.measure(
+        if (shrink > 0) constraints.copy(minHeight = 0, maxHeight = (height - shrink).coerceAtLeast(0)) else constraints,
+    )
+    layout(placeable.width, placeable.height) { placeable.place(0, -lift) }
+}
 
 /** An end panel's card sits this far from the window's side and bottom. */
 internal val EndPanelCardMargin = 16.dp

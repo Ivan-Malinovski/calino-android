@@ -472,7 +472,9 @@ fun SwipeDownDismiss(
     // The card carries no pill of its own any more: the pill stands in the
     // lane, and this is how it learns the card is on its way out.
     val lane = LocalCalinoPillLane.current
-    val pillRelease = (dragY / dismissThresholdPx).coerceIn(0f, 1f)
+    // A card that will ask before closing never previews its closing.
+    val pillRelease = if (hostDrag?.releaseAsksFirst == true) 0f
+        else (dragY / dismissThresholdPx).coerceIn(0f, 1f)
     if (lane.claimedByModal) {
         SideEffect { lane.dismissDrag = pillRelease }
     }
