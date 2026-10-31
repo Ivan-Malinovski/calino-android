@@ -50,16 +50,17 @@ internal fun UnsavedChangesPillContent(
             .then(if (interactive) Modifier else Modifier.clearAndSetSemantics { })
             .semantics { paneTitle = question }
             .verticalScroll(rememberScrollState())
-            .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Text(question, style = CalinoTypography.headlineSmall, color = CalinoColors.OnFloat)
         Text(
             stringResource(R.string.cal_unsaved_changes_message),
+            modifier = Modifier.padding(top = 8.dp),
             style = CalinoTypography.bodySmall,
             color = CalinoColors.OnFloat.copy(alpha = .8f),
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = onDiscard,
                 enabled = interactive,
@@ -90,7 +91,7 @@ internal fun UnsavedChangesPillContent(
         TextButton(
             onClick = onKeepEditing,
             enabled = interactive,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).focusRequester(keepFocus),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp).heightIn(min = 48.dp).focusRequester(keepFocus),
             colors = ButtonDefaults.textButtonColors(
                 contentColor = CalinoColors.OnFloat,
                 disabledContentColor = CalinoColors.OnFloat,
