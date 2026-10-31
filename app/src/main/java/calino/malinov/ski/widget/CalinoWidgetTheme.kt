@@ -47,13 +47,16 @@ internal object CalinoWidgetColors {
     /**
      * The floating header and footer pills' fill.
      *
-     * Opaque on purpose: rows scroll underneath, and a translucent pill would
-     * let a title show through its own label. Ink laid over the canvas at a
-     * whisper, flattened here for the same reason [line] is.
+     * Translucent, like the app's own pill, so rows scroll visibly beneath it.
+     * Only the ink-over-canvas colour is flattened first (for the same reason
+     * [line] is); the alpha is then applied once on top of that. There is no
+     * blur: a widget is a `RemoteViews` hierarchy and cannot sample or blur what
+     * is behind it, so the translucency is kept modest to keep the label legible
+     * over a passing title.
      */
     val pill = pair(
-        light.Ink.copy(alpha = PillInkPercent).compositeOver(light.Canvas),
-        dark.Ink.copy(alpha = PillInkPercent).compositeOver(dark.Canvas),
+        light.Ink.copy(alpha = PillInkPercent).compositeOver(light.Canvas).copy(alpha = PillAlpha),
+        dark.Ink.copy(alpha = PillInkPercent).compositeOver(dark.Canvas).copy(alpha = PillAlpha),
     )
 
     /**
@@ -95,6 +98,9 @@ internal object CalinoWidgetColors {
     )
 
     private const val PillInkPercent = .08f
+
+    /** How much of the pill's fill is opaque; the rest lets rows show through. */
+    private const val PillAlpha = .78f
 
     /** How far a card's fill is pushed toward its record's colour. */
     private const val CardTintPercent = .13f
