@@ -410,4 +410,17 @@ Letzte erfolgreiche Synchronisierung: %2$s</string>
     <string name="set_releases">Releases</string>
     <string name="set_releases_detail">Versionshinweise und Downloads auf GitHub</string>
     <string name="set_search_terms_releases">Releases GitHub Download Update Änderungen</string>
+    <string name="set_widgets">Widgets</string>
+    <string name="set_widget_look_ahead">Widget-Vorschau</string>
+    <string name="set_widget_look_ahead_description">Wie weit die Widgets auf dem Startbildschirm Termine und Aufgaben vorausschauen. Sie lassen sich scrollen, ein kleines Widget zeigt also dieselbe Agenda.</string>
+    <string name="set_widget_today">Heute</string>
+    <string name="set_widget_3_days">3 Tage</string>
+    <string name="set_widget_7_days">7 Tage</string>
+    <string name="set_widget_14_days">14 Tage</string>
+    <string name="set_widget_30_days">30 Tage</string>
+    <string name="set_widget_earlier_today">Bereits beendete Termine heute</string>
+    <string name="set_widget_earlier_today_description">Was die Widgets mit heutigen Terminen tun, die vorbei sind.</string>
+    <string name="set_widget_earlier_show">Anzeigen</string>
+    <string name="set_widget_earlier_dim">Abdunkeln</string>
+    <string name="set_widget_earlier_hide">Ausblenden</string>
 </resources>

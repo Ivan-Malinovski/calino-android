@@ -81,6 +81,7 @@ object CalinoWidgets {
         // Every update path goes through here, so this is the one place that
         // has to notice the day changed.
         WidgetClock.refresh()
+        WidgetSettings.refresh(calino.malinov.ski.data.CalinoContainer.get(app).preferenceStore)
         val manager = GlanceAppWidgetManager(app)
         if (manager.getGlanceIds(CalinoLedgerWidget::class.java).isNotEmpty()) {
             CalinoLedgerWidget().updateAll(app)

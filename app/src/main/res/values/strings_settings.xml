@@ -410,4 +410,17 @@ Last successful sync: %2$s</string>
     <string name="set_releases">Releases</string>
     <string name="set_releases_detail">Release notes and downloads on GitHub</string>
     <string name="set_search_terms_releases">releases github download update changelog</string>
+    <string name="set_widgets">Widgets</string>
+    <string name="set_widget_look_ahead">Widget look-ahead</string>
+    <string name="set_widget_look_ahead_description">How far ahead the home screen widgets list events and tasks. They scroll, so a small widget shows the same agenda.</string>
+    <string name="set_widget_today">Today</string>
+    <string name="set_widget_3_days">3 days</string>
+    <string name="set_widget_7_days">7 days</string>
+    <string name="set_widget_14_days">14 days</string>
+    <string name="set_widget_30_days">30 days</string>
+    <string name="set_widget_earlier_today">Events already over today</string>
+    <string name="set_widget_earlier_today_description">What the widgets do with today\'s events that have finished.</string>
+    <string name="set_widget_earlier_show">Show</string>
+    <string name="set_widget_earlier_dim">Dim</string>
+    <string name="set_widget_earlier_hide">Hide</string>
 </resources>

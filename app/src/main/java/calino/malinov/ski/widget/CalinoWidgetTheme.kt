@@ -45,6 +45,18 @@ internal object CalinoWidgetColors {
     val accent = pair(light.Accent, dark.Accent)
 
     /**
+     * The floating header and footer pills' fill.
+     *
+     * Opaque on purpose: rows scroll underneath, and a translucent pill would
+     * let a title show through its own label. Ink laid over the canvas at a
+     * whisper, flattened here for the same reason [line] is.
+     */
+    val pill = pair(
+        light.Ink.copy(alpha = PillInkPercent).compositeOver(light.Canvas),
+        dark.Ink.copy(alpha = PillInkPercent).compositeOver(dark.Canvas),
+    )
+
+    /**
      * The rule between ledger rows.
      *
      * Composited onto the canvas rather than left translucent: Glance hands the
@@ -81,6 +93,8 @@ internal object CalinoWidgetColors {
         light.tint(Color(value), CardTintPercent),
         dark.tint(Color(value), CardTintPercent),
     )
+
+    private const val PillInkPercent = .08f
 
     /** How far a card's fill is pushed toward its record's colour. */
     private const val CardTintPercent = .13f

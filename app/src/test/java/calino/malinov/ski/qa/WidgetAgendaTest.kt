@@ -5,6 +5,8 @@ import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.WidgetEarlierToday
+import calino.malinov.ski.util.WidgetLookAhead
 import calino.malinov.ski.widget.WidgetAgendaBuilder
 import calino.malinov.ski.widget.WidgetAgendaOptions
 import calino.malinov.ski.widget.WidgetContent
@@ -356,6 +358,114 @@ class WidgetAgendaTest {
             options = options().copy(untitledLabel = "(Ohne Titel)"),
         ).days.single().rows.single()
         assertEquals("(Ohne Titel)", row.title)
+    }
+
+    @Test
+    fun `rows past the ceiling are counted so the widget can say how many were left out`() {
+        val agenda = build(
+            events = (1..5).map { event(id = "e$it", start = today.atTime(8 + it, 0)) },
+            tasks = listOf(task(id = "tomorrow", due = today.plusDays(1))),
+            options = options(dayCount = 3, maxRows = 3),
+        )
+
+        assertEquals(3, agenda.days.sumOf { it.rows.size })
+        assertEquals(3, agenda.moreRows)
+    }
+
+    @Test
+    fun `nothing is left out when the window fits the ceiling`() {
+        val agenda = build(
+            events = listOf(event(id = "e", start = today.atTime(9, 0))),
+            options = options(dayCount = 7, maxRows = 40),
+        )
+
+        assertEquals(0, agenda.moreRows)
+    }
+
+    @Test
+    fun `a week window reaches events a day-and-a-half window would not`() {
+        val events = listOf(event(id = "later", start = today.plusDays(5).atTime(9, 0)))
+
+        assertTrue(build(events = events, options = options(dayCount = 2)).empty)
+        val week = build(events = events, options = options(dayCount = WidgetLookAhead.Week.days, maxRows = 40))
+        assertFalse(week.empty)
+        assertEquals(today.plusDays(5), week.days.single { it.rows.isNotEmpty() }.date)
+    }
+
+    @Test
+    fun `earlier today dims an event that has finished and leaves the rest alone`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "done", start = today.atTime(8, 0), durationMinutes = 60),
+                event(id = "running", start = today.atTime(10, 0), durationMinutes = 120),
+                event(id = "later", start = today.atTime(15, 0)),
+            ),
+            options = options().copy(earlierToday = WidgetEarlierToday.Dim),
+            now = LocalTime.of(11, 0),
+        )
+
+        val rows = agenda.days.single().rows.associateBy { it.recordId }
+        assertTrue(rows.getValue("done").ended)
+        assertFalse(rows.getValue("running").ended)
+        assertFalse(rows.getValue("later").ended)
+    }
+
+    @Test
+    fun `earlier today hide drops finished events and keeps tasks`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "done", start = today.atTime(8, 0), durationMinutes = 60),
+                event(id = "later", start = today.atTime(15, 0)),
+            ),
+            tasks = listOf(task(id = "chore", due = today, dueTime = LocalTime.of(7, 0))),
+            options = options().copy(earlierToday = WidgetEarlierToday.Hide),
+            now = LocalTime.of(11, 0),
+        )
+
+        assertEquals(listOf("later", "chore"), agenda.days.single().rows.map { it.recordId })
+    }
+
+    @Test
+    fun `earlier today show and a missing clock change nothing`() {
+        val events = listOf(event(id = "done", start = today.atTime(8, 0), durationMinutes = 60))
+
+        val shown = build(events = events, options = options().copy(earlierToday = WidgetEarlierToday.Show), now = LocalTime.of(11, 0))
+        assertFalse(shown.days.single().rows.single().ended)
+        val noClock = build(events = events, options = options().copy(earlierToday = WidgetEarlierToday.Hide), now = null)
+        assertEquals(1, noClock.days.single().rows.size)
+    }
+
+    @Test
+    fun `an event with no end or one past midnight is never ended`() {
+        val agenda = build(
+            events = listOf(
+                event(id = "open", start = today.atTime(8, 0), durationMinutes = null),
+                event(id = "overnight", start = today.atTime(22, 0), durationMinutes = 300),
+            ),
+            options = options().copy(earlierToday = WidgetEarlierToday.Hide),
+            now = LocalTime.of(23, 30),
+        )
+
+        assertEquals(listOf("open", "overnight"), agenda.days.single().rows.map { it.recordId })
+    }
+
+    @Test
+    fun `an event on a later day is not dimmed by the time of day`() {
+        val agenda = build(
+            events = listOf(event(id = "tomorrow", start = today.plusDays(1).atTime(8, 0))),
+            options = options(dayCount = 2).copy(earlierToday = WidgetEarlierToday.Hide),
+            now = LocalTime.of(23, 0),
+        )
+
+        assertEquals(1, agenda.days.single { it.date == today.plusDays(1) }.rows.size)
+    }
+
+    @Test
+    fun `look-ahead names resolve and fall back to the default`() {
+        assertEquals(WidgetLookAhead.Month, WidgetLookAhead.fromName("Month"))
+        assertEquals(WidgetLookAhead.Default, WidgetLookAhead.fromName("nonsense"))
+        assertEquals(WidgetLookAhead.Default, WidgetLookAhead.fromName(null))
+        assertEquals(WidgetEarlierToday.Dim, WidgetEarlierToday.fromName(null))
     }
 
     private fun build(

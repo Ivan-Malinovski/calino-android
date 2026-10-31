@@ -67,6 +67,48 @@ enum class CalinoRangeMode(val label: String, val dayCount: Int) {
 }
 
 /**
+ * How far ahead the home screen widgets list, counting today.
+ *
+ * A window, not a size class: the widget scrolls, so how much is *visible* is the
+ * launcher's business and how much is *built* is this setting's. [Week] by
+ * default -- far enough that scrolling pays off, near enough that the list is
+ * still a plan and not an archive.
+ */
+enum class WidgetLookAhead(val days: Int) {
+    Today(1),
+    ThreeDays(3),
+    Week(7),
+    TwoWeeks(14),
+    Month(30),
+    ;
+
+    companion object {
+        val Default = Week
+        fun fromName(name: String?): WidgetLookAhead =
+            entries.firstOrNull { it.name == name } ?: Default
+    }
+}
+
+/** What the widgets do with events that already finished today. */
+enum class WidgetEarlierToday {
+    /** Leave them as they are. */
+    Show,
+
+    /** Keep them, quietly: the list still reads from midnight, in a lower voice. */
+    Dim,
+
+    /** Drop them, so the list starts at what is still ahead. */
+    Hide,
+    ;
+
+    companion object {
+        val Default = Dim
+        fun fromName(name: String?): WidgetEarlierToday =
+            entries.firstOrNull { it.name == name } ?: Default
+    }
+}
+
+/**
  * How long a new event runs by default, in minutes. The editor offers these
  * three; anything else a user types is theirs to keep.
  */

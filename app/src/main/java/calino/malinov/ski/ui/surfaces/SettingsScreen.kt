@@ -137,6 +137,8 @@ import calino.malinov.ski.util.CalinoEventSyncRange
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
 import calino.malinov.ski.util.LocalCalinoLocale
+import calino.malinov.ski.util.WidgetEarlierToday
+import calino.malinov.ski.util.WidgetLookAhead
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.Instant
 import java.time.ZoneId
@@ -188,6 +190,8 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry(R.string.set_event_density, SettingsSection.Display, R.string.set_display, "month", R.string.set_search_terms_event_density),
     SettingsSearchEntry(R.string.set_sometime_this_week, SettingsSection.Display, R.string.set_display, "week tasks range badge sheet shelf", R.string.set_search_terms_sometime_this_week),
     SettingsSearchEntry(R.string.set_hide_completed_tasks, SettingsSection.EventsTasks, R.string.set_tasks_in_calendar, "Hide completed tasks"),
+    SettingsSearchEntry(R.string.set_widget_look_ahead, SettingsSection.EventsTasks, R.string.set_widgets, "home screen widget agenda days ahead scroll"),
+    SettingsSearchEntry(R.string.set_widget_earlier_today, SettingsSection.EventsTasks, R.string.set_widgets, "home screen widget finished past events dim hide"),
     SettingsSearchEntry(R.string.set_default_duration, SettingsSection.EventsTasks, R.string.set_new_event_defaults, "Default duration"),
     SettingsSearchEntry(R.string.set_show_end_times, SettingsSection.EventsTasks, R.string.set_display, "Show end times"),
     SettingsSearchEntry(R.string.set_range_multi_day_events_in_header, SettingsSection.EventsTasks, R.string.set_display, "Multi-day events in Range header"),
@@ -953,6 +957,24 @@ private fun EventSettings() {
                 t(R.string.set_keep_finished_work_out_of_the_calendar),
                 preferences.hideCompletedTasks,
                 preferences.setHideCompletedTasks,
+            )
+        }
+        SettingsGroup(t(R.string.set_widgets)) {
+            SettingChoiceRow(
+                label = t(R.string.set_widget_look_ahead),
+                description = t(R.string.set_widget_look_ahead_description),
+                options = WidgetLookAhead.entries,
+                selected = preferences.widgetLookAhead,
+                labelOf = { it.localizedLabel() },
+                onSelected = preferences.setWidgetLookAhead,
+            )
+            SettingChoiceRow(
+                label = t(R.string.set_widget_earlier_today),
+                description = t(R.string.set_widget_earlier_today_description),
+                options = WidgetEarlierToday.entries,
+                selected = preferences.widgetEarlierToday,
+                labelOf = { it.localizedLabel() },
+                onSelected = preferences.setWidgetEarlierToday,
             )
         }
     }
@@ -1722,6 +1744,22 @@ private fun CalinoEventDensity.localizedLabel(): String = when (this) {
     CalinoEventDensity.Quiet -> t(R.string.set_quiet)
     CalinoEventDensity.Balanced -> t(R.string.set_balanced)
     CalinoEventDensity.Dense -> t(R.string.set_dense)
+}
+
+@Composable
+private fun WidgetLookAhead.localizedLabel(): String = when (this) {
+    WidgetLookAhead.Today -> t(R.string.set_widget_today)
+    WidgetLookAhead.ThreeDays -> t(R.string.set_widget_3_days)
+    WidgetLookAhead.Week -> t(R.string.set_widget_7_days)
+    WidgetLookAhead.TwoWeeks -> t(R.string.set_widget_14_days)
+    WidgetLookAhead.Month -> t(R.string.set_widget_30_days)
+}
+
+@Composable
+private fun WidgetEarlierToday.localizedLabel(): String = when (this) {
+    WidgetEarlierToday.Show -> t(R.string.set_widget_earlier_show)
+    WidgetEarlierToday.Dim -> t(R.string.set_widget_earlier_dim)
+    WidgetEarlierToday.Hide -> t(R.string.set_widget_earlier_hide)
 }
 
 @Composable

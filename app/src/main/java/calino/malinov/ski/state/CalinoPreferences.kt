@@ -22,7 +22,10 @@ import calino.malinov.ski.util.CalinoRangeMode
 import calino.malinov.ski.util.CalinoThemeChoice
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.CalinoWeekStart
+import calino.malinov.ski.util.WidgetEarlierToday
+import calino.malinov.ski.util.WidgetLookAhead
 import kotlin.math.min
+import kotlinx.coroutines.launch
 
 /** Independent Range-view preference buckets for adaptive window shapes. */
 enum class CalinoRangeProfile {
@@ -126,6 +129,10 @@ data class CalinoPreferences(
     val setDefaultReminder: (CalinoDefaultReminder) -> Unit = {},
     val hideCompletedTasks: Boolean = false,
     val setHideCompletedTasks: (Boolean) -> Unit = {},
+    val widgetLookAhead: WidgetLookAhead = WidgetLookAhead.Default,
+    val setWidgetLookAhead: (WidgetLookAhead) -> Unit = {},
+    val widgetEarlierToday: WidgetEarlierToday = WidgetEarlierToday.Default,
+    val setWidgetEarlierToday: (WidgetEarlierToday) -> Unit = {},
     val showEndTimes: Boolean = true,
     val setShowEndTimes: (Boolean) -> Unit = {},
     val showLocations: Boolean = true,
@@ -234,6 +241,10 @@ interface CalinoPreferenceStore {
     fun saveDefaultReminder(reminder: CalinoDefaultReminder)
     fun loadHideCompletedTasks(): Boolean
     fun saveHideCompletedTasks(hide: Boolean)
+    fun loadWidgetLookAhead(): WidgetLookAhead
+    fun saveWidgetLookAhead(lookAhead: WidgetLookAhead)
+    fun loadWidgetEarlierToday(): WidgetEarlierToday
+    fun saveWidgetEarlierToday(earlier: WidgetEarlierToday)
     fun loadShowEndTimes(): Boolean
     fun loadRangeMultiDayEventsInHeader(): Boolean
     fun saveRangeMultiDayEventsInHeader(enabled: Boolean)
@@ -324,6 +335,8 @@ interface CalinoPreferenceStore {
         private var duration = CalinoDefaultDuration.Default
         private var reminder = CalinoDefaultReminder.Default
         private var hideCompleted = false
+        private var widgetLookAhead = WidgetLookAhead.Default
+        private var widgetEarlierToday = WidgetEarlierToday.Default
         private var endTimes = true
         private var rangeMultiDayEventsInHeader = true
         private var locations = true
@@ -369,6 +382,10 @@ interface CalinoPreferenceStore {
         override fun saveDefaultReminder(reminder: CalinoDefaultReminder) { this.reminder = reminder }
         override fun loadHideCompletedTasks() = hideCompleted
         override fun saveHideCompletedTasks(hide: Boolean) { hideCompleted = hide }
+        override fun loadWidgetLookAhead() = widgetLookAhead
+        override fun saveWidgetLookAhead(lookAhead: WidgetLookAhead) { widgetLookAhead = lookAhead }
+        override fun loadWidgetEarlierToday() = widgetEarlierToday
+        override fun saveWidgetEarlierToday(earlier: WidgetEarlierToday) { widgetEarlierToday = earlier }
         override fun loadShowEndTimes() = endTimes
         override fun loadRangeMultiDayEventsInHeader() = rangeMultiDayEventsInHeader
         override fun saveRangeMultiDayEventsInHeader(enabled: Boolean) { rangeMultiDayEventsInHeader = enabled }
@@ -501,6 +518,12 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun loadHideCompletedTasks(): Boolean = prefs.getBoolean(HideCompletedTasksKey, false)
     override fun saveHideCompletedTasks(hide: Boolean) = putBoolean(HideCompletedTasksKey, hide)
 
+    override fun loadWidgetLookAhead(): WidgetLookAhead = WidgetLookAhead.fromName(name(WidgetLookAheadKey))
+    override fun saveWidgetLookAhead(lookAhead: WidgetLookAhead) = putString(WidgetLookAheadKey, lookAhead.name)
+
+    override fun loadWidgetEarlierToday(): WidgetEarlierToday = WidgetEarlierToday.fromName(name(WidgetEarlierTodayKey))
+    override fun saveWidgetEarlierToday(earlier: WidgetEarlierToday) = putString(WidgetEarlierTodayKey, earlier.name)
+
     override fun loadShowEndTimes(): Boolean = prefs.getBoolean(ShowEndTimesKey, true)
     override fun loadRangeMultiDayEventsInHeader(): Boolean = prefs.getBoolean(RangeMultiDayEventsInHeaderKey, true)
     override fun saveRangeMultiDayEventsInHeader(enabled: Boolean) = putBoolean(RangeMultiDayEventsInHeaderKey, enabled)
@@ -583,6 +606,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val DefaultDurationKey = "default_duration"
         const val DefaultReminderKey = "default_reminder"
         const val HideCompletedTasksKey = "hide_completed_tasks"
+        const val WidgetLookAheadKey = "widget_look_ahead"
+        const val WidgetEarlierTodayKey = "widget_earlier_today"
         const val ShowEndTimesKey = "show_end_times"
         const val RangeMultiDayEventsInHeaderKey = "range_multi_day_events_in_header"
         const val ShowLocationsKey = "show_locations"
@@ -638,6 +663,13 @@ fun rememberCalinoPreferences(
     var defaultDuration by remember(store) { mutableStateOf(store.loadDefaultDuration()) }
     var defaultReminder by remember(store) { mutableStateOf(store.loadDefaultReminder()) }
     var hideCompletedTasks by remember(store) { mutableStateOf(store.loadHideCompletedTasks()) }
+    var widgetLookAhead by remember(store) { mutableStateOf(store.loadWidgetLookAhead()) }
+    var widgetEarlierToday by remember(store) { mutableStateOf(store.loadWidgetEarlierToday()) }
+    // A widget setting has to reach widgets that are already on the home screen.
+    // They hold a Glance session open and do not re-read preferences on their own,
+    // so a change redraws them here rather than waiting for the next sync.
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val widgetScope = androidx.compose.runtime.rememberCoroutineScope()
     var showEndTimes by remember(store) { mutableStateOf(store.loadShowEndTimes()) }
     var rangeMultiDayEventsInHeader by remember(store) { mutableStateOf(store.loadRangeMultiDayEventsInHeader()) }
     var showLocations by remember(store) { mutableStateOf(store.loadShowLocations()) }
@@ -694,6 +726,18 @@ fun rememberCalinoPreferences(
         setDefaultReminder = { value -> defaultReminder = value; store.saveDefaultReminder(value) },
         hideCompletedTasks = hideCompletedTasks,
         setHideCompletedTasks = { value -> hideCompletedTasks = value; store.saveHideCompletedTasks(value) },
+        widgetLookAhead = widgetLookAhead,
+        setWidgetLookAhead = { value ->
+            widgetLookAhead = value
+            store.saveWidgetLookAhead(value)
+            widgetScope.launch { calino.malinov.ski.widget.CalinoWidgets.update(appContext) }
+        },
+        widgetEarlierToday = widgetEarlierToday,
+        setWidgetEarlierToday = { value ->
+            widgetEarlierToday = value
+            store.saveWidgetEarlierToday(value)
+            widgetScope.launch { calino.malinov.ski.widget.CalinoWidgets.update(appContext) }
+        },
         showEndTimes = showEndTimes,
         rangeMultiDayEventsInHeader = rangeMultiDayEventsInHeader,
         setRangeMultiDayEventsInHeader = { value -> rangeMultiDayEventsInHeader = value; store.saveRangeMultiDayEventsInHeader(value) },

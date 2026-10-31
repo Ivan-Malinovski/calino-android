@@ -48,6 +48,7 @@ import calino.malinov.ski.notify.ReminderDeepLinks
 import calino.malinov.ski.notify.ReminderKind
 import calino.malinov.ski.state.CalinoDeviceDefaults
 import calino.malinov.ski.util.CalinoTimeFormat
+import calino.malinov.ski.util.WidgetLookAhead
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -139,11 +140,16 @@ abstract class CalinoAgendaWidget internal constructor(
         val size = LocalSize.current
         val today = WidgetClock.today
         val context = androidx.glance.LocalContext.current
+        val lookAhead = WidgetSettings.lookAhead
         val shaped = options.copy(
             locale = context.resources.configuration.locales[0],
             untitledLabel = context.getString(R.string.sys_no_title),
-            dayCount = style.dayCountFor(size),
-            maxRows = style.maxRowsFor(size),
+            // The window is the person's choice, not the widget's size: the
+            // rows go into a scrolling list, so a small widget shows the same
+            // agenda through a smaller window instead of a shorter agenda.
+            dayCount = lookAhead.days,
+            maxRows = style.rowCeiling,
+            earlierToday = WidgetSettings.earlierToday,
         )
         // Read straight from the clock, not from observable state. The mark is
         // worth no more than the render it was drawn in: the widget redraws on
@@ -156,50 +162,101 @@ abstract class CalinoAgendaWidget internal constructor(
             WidgetAgendaBuilder.build(it, today, shaped, now = LocalTime.now())
         }
 
-        Column(
+        Box(
             modifier = GlanceModifier
                 .fillMaxSize()
                 .background(CalinoWidgetColors.canvas)
                 .cornerRadius(20.dp)
-                .padding(horizontal = style.canvasPadding, vertical = 12.dp)
                 .clickable(openAgenda(today)),
         ) {
-            Header(today, style.headerIndent)
-            Spacer(GlanceModifier.height(8.dp))
             when {
-                agenda == null -> Notice(androidx.glance.LocalContext.current.getString(R.string.sys_widget_connect), androidx.glance.LocalContext.current.getString(R.string.sys_widget_setup))
+                agenda == null -> Notice(context.getString(R.string.sys_widget_connect), context.getString(R.string.sys_widget_setup))
                 agenda.empty -> Notice(emptyText, null)
                 else -> Agenda(agenda, today, size, shaped.timeFormat)
+            }
+            // Over the list, not above it: the rows scroll under the pills, so
+            // the widget's whole height is agenda and the chrome costs a
+            // corner of it rather than two bands.
+            Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
+                HeaderPills(today, lookAhead)
+            }
+            if (agenda != null && !agenda.empty) {
+                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    FooterPill(agenda, today, lookAhead)
+                }
             }
         }
     }
 
     @Composable
-    private fun Header(today: LocalDate, indent: Dp) {
+    private fun Pill(modifier: GlanceModifier = GlanceModifier, content: @Composable () -> Unit) {
         Row(
-            modifier = GlanceModifier.fillMaxWidth().padding(start = indent),
+            modifier = modifier
+                .background(CalinoWidgetColors.pill)
+                .cornerRadius(PillHeight / 2)
+                .padding(horizontal = 11.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) { content() }
+    }
+
+    @Composable
+    private fun HeaderPills(today: LocalDate, lookAhead: WidgetLookAhead) {
+        val context = androidx.glance.LocalContext.current
+        Row(
+            modifier = GlanceModifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = PillInset),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = if (content == WidgetContent.Tasks) androidx.glance.LocalContext.current.getString(R.string.sys_tasks) else androidx.glance.LocalContext.current.getString(R.string.sys_today),
-                style = TextStyle(
-                    color = CalinoWidgetColors.ink,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                ),
+            Pill {
+                Text(
+                    text = if (content == WidgetContent.Tasks) context.getString(R.string.sys_tasks) else context.getString(R.string.sys_today),
+                    style = TextStyle(color = CalinoWidgetColors.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                )
+                Spacer(GlanceModifier.width(7.dp))
+                Text(
+                    text = today.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", context.resources.configuration.locales[0])),
+                    style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
+                )
+            }
+            Spacer(GlanceModifier.defaultWeight())
+            if (lookAhead != WidgetLookAhead.Today) {
+                Pill {
+                    Text(
+                        text = context.getString(R.string.sys_widget_next_days, lookAhead.days),
+                        style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 11.sp),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun FooterPill(agenda: WidgetAgenda, today: LocalDate, lookAhead: WidgetLookAhead) {
+        val context = androidx.glance.LocalContext.current
+        val last = today.plusDays((lookAhead.days - 1).toLong())
+        val text = when {
+            agenda.moreRows > 0 -> context.getString(R.string.sys_widget_more, agenda.moreRows)
+            lookAhead == WidgetLookAhead.Today -> context.getString(R.string.sys_widget_open_agenda)
+            else -> context.getString(
+                R.string.sys_widget_to_date,
+                last.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", context.resources.configuration.locales[0])),
             )
-            Spacer(GlanceModifier.width(8.dp))
-            Text(
-                text = today.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", androidx.glance.LocalContext.current.resources.configuration.locales[0])),
-                style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
-            )
+        }
+        Row(modifier = GlanceModifier.padding(bottom = PillInset)) {
+            Pill(GlanceModifier.clickable(openAgenda(if (agenda.moreRows > 0) today else last))) {
+                Text(
+                    text = text,
+                    style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 11.sp),
+                    maxLines = 1,
+                )
+            }
         }
     }
 
     @Composable
     private fun Notice(title: String, subtitle: String?) {
         Box(
-            modifier = GlanceModifier.fillMaxSize(),
+            modifier = GlanceModifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, top = ListGap),
             contentAlignment = Alignment.TopStart,
         ) {
             Column {
@@ -227,6 +284,7 @@ abstract class CalinoAgendaWidget internal constructor(
         // Flattened before the list so a day heading and its rows scroll as one
         // stream; LazyColumn has no section concept to lean on.
         val entries = buildList {
+            add(WidgetEntry.Gap)
             if (agenda.overdue.isNotEmpty()) {
                 add(WidgetEntry.Overdue)
                 agenda.overdue.forEach { add(WidgetEntry.RowItem(it)) }
@@ -249,11 +307,15 @@ abstract class CalinoAgendaWidget internal constructor(
                 }
                 day.rows.forEach { add(WidgetEntry.RowItem(it)) }
             }
+            add(WidgetEntry.Gap)
         }
 
-        LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
+        LazyColumn(modifier = GlanceModifier.fillMaxSize().padding(horizontal = style.canvasPadding)) {
             items(entries.size) { position ->
                 when (val entry = entries[position]) {
+                    // Room for a pill to sit over: the first and last rows have to
+                    // be able to scroll clear of the chrome.
+                    is WidgetEntry.Gap -> Spacer(GlanceModifier.fillMaxWidth().height(ListGap))
                     is WidgetEntry.Heading -> DayHeading(entry.date)
                     is WidgetEntry.Overdue -> SectionHeading(androidx.glance.LocalContext.current.getString(R.string.sys_overdue))
                     is WidgetEntry.Today -> SectionHeading(androidx.glance.LocalContext.current.getString(R.string.sys_today))
@@ -342,6 +404,7 @@ abstract class CalinoAgendaWidget internal constructor(
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
     private sealed interface WidgetEntry {
+        data object Gap : WidgetEntry
         data class Heading(val date: LocalDate) : WidgetEntry
         data object Overdue : WidgetEntry
         data object Today : WidgetEntry
@@ -360,6 +423,12 @@ abstract class CalinoAgendaWidget internal constructor(
         private val SmallSize = DpSize(180.dp, 110.dp)
         private val MediumSize = DpSize(240.dp, 180.dp)
         private val LargeSize = DpSize(300.dp, 280.dp)
+
+        private val PillHeight = 28.dp
+        private val PillInset = 8.dp
+
+        /** Clears a pill and its inset, with a little air beneath. */
+        private val ListGap = PillHeight + PillInset + 2.dp
 
     }
 }

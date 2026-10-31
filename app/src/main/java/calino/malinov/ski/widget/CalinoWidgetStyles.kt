@@ -58,33 +58,20 @@ internal enum class WidgetStyle {
     Cards,
     ;
 
-    /** Today plus the next `dayCount - 1` days at [size]. */
-    fun dayCountFor(size: DpSize): Int = when {
-        size.height < MediumHeight -> 1
-        size.height < LargeHeight -> 3
-        else -> 5
-    }
-
     /**
-     * The row ceiling at [size].
+     * The row ceiling for the window.
      *
-     * This bounds how much agenda is *built*, not what fits: the rows go into
-     * a `LazyColumn`, so anything past the widget's edge scrolls rather than
-     * being lost. [Cards] takes two lines and a fill where [Ledger] takes one
-     * line and a hairline, so it wants a lower ceiling for the same reach --
-     * roughly two thirds the days' worth of rows in the same box.
+     * This bounds how much agenda is *built*, and it no longer depends on the
+     * widget's size: the rows go into a `LazyColumn`, so how many are visible is
+     * the launcher's business and the rest scroll. The ceiling is only there to
+     * keep the RemoteViews payload sane on a busy month; past it the footer says
+     * how many rows were left out. [Cards] takes two lines and a fill where
+     * [Ledger] takes one line and a hairline, so it gets a lower ceiling for the
+     * same reach.
      */
-    fun maxRowsFor(size: DpSize): Int = when (this) {
-        Ledger -> when {
-            size.height < MediumHeight -> 3
-            size.height < LargeHeight -> 8
-            else -> 16
-        }
-        Cards -> when {
-            size.height < MediumHeight -> 2
-            size.height < LargeHeight -> 5
-            else -> 10
-        }
+    val rowCeiling: Int get() = when (this) {
+        Ledger -> 40
+        Cards -> 30
     }
 
     /**
@@ -109,9 +96,6 @@ internal enum class WidgetStyle {
     val headerIndent: Dp get() = HeaderInset - canvasPadding
 
     private companion object {
-        val MediumHeight = 180.dp
-        val LargeHeight = 280.dp
-
         /** Clear of the canvas's 20dp corner, in both styles. */
         val HeaderInset = 20.dp
     }
@@ -156,7 +140,7 @@ internal fun LedgerRow(
                 // even though "9:30" and "11:00" are different widths.
                 modifier = GlanceModifier.width(timeColumnWidth(timeFormat)),
                 style = TextStyle(
-                    color = if (row.isNext) CalinoWidgetColors.accent else CalinoWidgetColors.ink2,
+                    color = if (row.isNext) CalinoWidgetColors.accent else if (row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink2,
                     fontSize = 10.5.sp,
                     fontWeight = if (row.isNext) FontWeight.Medium else FontWeight.Normal,
                     textAlign = TextAlign.End,
@@ -170,7 +154,7 @@ internal fun LedgerRow(
                 text = row.title,
                 modifier = GlanceModifier.defaultWeight(),
                 style = TextStyle(
-                    color = if (row.done) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink,
+                    color = if (row.done || row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink,
                     fontSize = 13.sp,
                     fontWeight = if (row.isNext) FontWeight.Bold else FontWeight.Normal,
                     textDecoration = if (row.done) TextDecoration.LineThrough else TextDecoration.None,
@@ -227,7 +211,7 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
                 Text(
                     text = row.title,
                     style = TextStyle(
-                        color = if (row.done) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink,
+                        color = if (row.done || row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink,
                         fontSize = 12.5.sp,
                         fontWeight = if (row.isNext) FontWeight.Bold else FontWeight.Medium,
                         textDecoration = if (row.done) TextDecoration.LineThrough else TextDecoration.None,
@@ -250,7 +234,7 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
                 Text(
                     text = row.timeLabel ?: if (row.allDay) androidx.glance.LocalContext.current.getString(R.string.sys_all_day) else androidx.glance.LocalContext.current.getString(R.string.sys_due),
                     style = TextStyle(
-                        color = if (row.isNext) CalinoWidgetColors.accent else CalinoWidgetColors.ink2,
+                        color = if (row.isNext) CalinoWidgetColors.accent else if (row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink2,
                         fontSize = 10.5.sp,
                         fontWeight = if (row.isNext) FontWeight.Medium else FontWeight.Normal,
                         textAlign = TextAlign.End,

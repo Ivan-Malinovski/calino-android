@@ -9,6 +9,7 @@ import calino.malinov.ski.state.tasksDueOn
 import calino.malinov.ski.state.TaskManualOrder
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.EventDateIndex
+import calino.malinov.ski.util.WidgetEarlierToday
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -47,6 +48,11 @@ data class WidgetAgendaRow(
      * [markNext] needs the value.
      */
     val startTime: LocalTime? = null,
+    /**
+     * When the occurrence finishes on its own start day, or null when that is
+     * unknown or runs past midnight. Only [ended] needs it.
+     */
+    val endTime: LocalTime? = null,
     val location: String?,
     val color: Long,
     val allDay: Boolean = false,
@@ -58,6 +64,12 @@ data class WidgetAgendaRow(
      * that day's first event, which is not the same claim.
      */
     val isNext: Boolean = false,
+    /**
+     * An event today that had finished as of the clock the caller passed. Set
+     * only under [WidgetEarlierToday.Dim]; under Hide the row is not there, and
+     * under Show it is left alone.
+     */
+    val ended: Boolean = false,
 )
 
 data class WidgetAgendaDay(val date: LocalDate, val rows: List<WidgetAgendaRow>)
@@ -85,6 +97,11 @@ data class WidgetAgenda(
      * forwards in time into today. Always empty for [WidgetContent.Agenda].
      */
     val overdue: List<WidgetAgendaRow> = emptyList(),
+    /**
+     * Rows that were in the window but did not fit under the row ceiling, so the
+     * widget can say "+12 more" instead of letting the list simply stop.
+     */
+    val moreRows: Int = 0,
 ) {
     companion object {
         val Empty = WidgetAgenda(days = emptyList(), empty = true)
@@ -106,6 +123,8 @@ data class WidgetAgendaOptions(
      */
     val journalEnabled: Boolean = false,
     val contactsEnabled: Boolean = false,
+    /** What to do with events that finished earlier today. Needs a clock to mean anything. */
+    val earlierToday: WidgetEarlierToday = WidgetEarlierToday.Show,
     /** Whether this is the agenda or the task list. */
     val content: WidgetContent = WidgetContent.Agenda,
     /**
@@ -151,6 +170,7 @@ object WidgetAgendaBuilder {
         var budget = options.maxRows
         val days = mutableListOf<WidgetAgendaDay>()
         var total = 0
+        var dropped = 0
 
         // Spent before the window, and deliberately: a task list that pushed
         // what is already late below the fold to make room for next Thursday
@@ -161,7 +181,6 @@ object WidgetAgendaBuilder {
         budget -= keptOverdue.size
 
         for (offset in 0 until options.dayCount) {
-            if (budget == 0) break
             val date = today.plusDays(offset.toLong())
             val rows = mutableListOf<WidgetAgendaRow>()
 
@@ -182,9 +201,17 @@ object WidgetAgendaBuilder {
             // timed ordering above.
             tasksDueOn(tasks, date).forEach { rows += it.row(date, options) }
 
-            total += rows.size
-            val kept = rows.take(budget)
+            val visible = if (offset == 0) earlier(rows, now, options.earlierToday) else rows
+            total += visible.size
+            // Counted rather than cut off: past the ceiling the rest of the
+            // window is still walked, so the widget can say how much it left out.
+            if (budget == 0) {
+                dropped += visible.size
+                continue
+            }
+            val kept = visible.take(budget)
             budget -= kept.size
+            dropped += visible.size - kept.size
             days += WidgetAgendaDay(date, kept)
         }
 
@@ -192,6 +219,7 @@ object WidgetAgendaBuilder {
             days = markNext(days, today, now),
             empty = total == 0,
             overdue = keptOverdue,
+            moreRows = dropped + (overdue.size - keptOverdue.size),
         )
     }
 
@@ -219,6 +247,29 @@ object WidgetAgendaBuilder {
         return days.map { day ->
             if (day != first) day
             else day.copy(rows = day.rows.map { if (it === next) it.copy(isNext = true) else it })
+        }
+    }
+
+    /**
+     * Applies the "earlier today" choice to today's rows.
+     *
+     * Events only: a task that is late is overdue, not finished, and a done one
+     * is already struck through by its own state. An event with no known end is
+     * never "ended" -- guessing would hide a meeting that is still running.
+     */
+    private fun earlier(
+        rows: List<WidgetAgendaRow>,
+        now: LocalTime?,
+        mode: WidgetEarlierToday,
+    ): List<WidgetAgendaRow> {
+        if (now == null || mode == WidgetEarlierToday.Show) return rows
+        return rows.mapNotNull { row ->
+            val over = row.kind == WidgetRowKind.Event && row.endTime != null && !row.endTime.isAfter(now)
+            when {
+                !over -> row
+                mode == WidgetEarlierToday.Hide -> null
+                else -> row.copy(ended = true)
+            }
         }
     }
 
@@ -268,6 +319,11 @@ object WidgetAgendaBuilder {
         // a later day the time would be a lie, so it reads as all-day there.
         val startsToday = !allDay && start?.toLocalDate() == date
         val startsAt = start?.takeIf { startsToday }?.toLocalTime()
+        // Null across midnight: a clock-time end that is not after the start
+        // belongs to tomorrow, and "ended" must not fire for it tonight.
+        val endsAt = startsAt?.let { from ->
+            durationMinutes?.takeIf { it > 0 }?.let { from.plusMinutes(it.toLong()) }?.takeIf { it.isAfter(from) }
+        }
         return WidgetAgendaRow(
             kind = WidgetRowKind.Event,
             recordId = id,
@@ -276,6 +332,7 @@ object WidgetAgendaBuilder {
             title = title.ifBlank { options.untitledLabel },
             timeLabel = startsAt?.let { options.timeFormat.format(it, options.locale) },
             startTime = startsAt,
+            endTime = endsAt,
             location = location?.takeIf { options.showLocations && it.isNotBlank() },
             color = color,
             allDay = !startsToday,

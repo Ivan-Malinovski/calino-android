@@ -54,4 +54,8 @@
     <string name="sys_preview_studio">Studio</string>
     <string name="sys_preview_morning">09:30</string>
     <string name="sys_preview_afternoon">14:00</string>
+    <string name="sys_widget_next_days">Nächste %1$d Tage</string>
+    <string name="sys_widget_more">+%1$d weitere · Agenda öffnen ›</string>
+    <string name="sys_widget_open_agenda">Agenda öffnen ›</string>
+    <string name="sys_widget_to_date">Bis %1$s · Agenda öffnen ›</string>
 </resources>
