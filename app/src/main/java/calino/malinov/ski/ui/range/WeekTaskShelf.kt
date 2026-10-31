@@ -6,9 +6,6 @@ import androidx.compose.ui.res.pluralStringResource
 import calino.malinov.ski.util.localizedDateFormatter
 import calino.malinov.ski.util.LocalCalinoLocale
 
-import android.app.Activity
-import android.content.ContextWrapper
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -92,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.design.*
 import calino.malinov.ski.ui.components.AgendaRow
+import calino.malinov.ski.ui.components.ImeResizeWhile
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.components.EditorReveal
@@ -513,37 +511,6 @@ internal fun WeekTaskPopover(
                 }
             }
         }
-    }
-}
-
-/**
- * Hands the keyboard inset to `imePadding` alone while [active].
- *
- * The activity leaves `windowSoftInputMode` unspecified, so when the keyboard
- * starts to appear over a field that sits at the very bottom of the screen --
- * the docked shelf's -- the system also pans the whole window to reveal it.
- * The pan is computed before `imePadding` has lifted the shelf and is not
- * taken back afterwards, so the shelf was lifted twice and ended up at the top
- * of the screen until the window was laid out again. Every other screen keeps
- * the default, which is why this is scoped to the shelf being typed into.
- */
-@Composable
-private fun ImeResizeWhile(active: Boolean) {
-    var context = LocalContext.current
-    while (context is ContextWrapper && context !is Activity) context = context.baseContext
-    val window = (context as? Activity)?.window
-    DisposableEffect(active, window) {
-        if (!active || window == null) return@DisposableEffect onDispose {}
-        // Window.setSoftInputMode ignores an unspecified mode, so neither the
-        // switch nor the way back goes through it.
-        fun apply(mode: Int) {
-            val attrs = window.attributes
-            attrs.softInputMode = mode
-            window.attributes = attrs
-        }
-        val previous = window.attributes.softInputMode
-        apply((previous and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        onDispose { apply(previous) }
     }
 }
 

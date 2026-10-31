@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.absoluteOffset
@@ -627,7 +629,7 @@ fun AdaptiveSurfaceHost(
                 Box(
                     when (mode) {
                         CalinoSurfaceMode.BottomSheet ->
-                            Modifier.align(Alignment.BottomCenter).padding(bottom = PillLaneInset)
+                            Modifier.align(Alignment.BottomCenter).imePadding().padding(bottom = PillLaneInset)
                         // The end panel reaches the window's bottom edge; the
                         // pill belongs to the card's, which is a margin above.
                         else -> panelModifier.padding(
@@ -659,15 +661,28 @@ fun AdaptiveSurfaceHost(
  */
 @Composable
 private fun RootAnchoredPill(anchor: Rect, content: @Composable () -> Unit) {
+    val ime = WindowInsets.ime
+    val density = LocalDensity.current
+    val imeBottom = { ime.getBottom(density) }
     Layout(content, Modifier.fillMaxSize()) { measurables, constraints ->
         // Unbounded: the pill is placed against a point, so the lane it sits
         // in must never be what decides how wide it may grow.
         val pill = measurables.first().measure(Constraints())
         layout(constraints.maxWidth, constraints.maxHeight) {
             val origin = coordinates?.positionInRoot() ?: Offset.Zero
+            // Read here, in placement, so the pill follows the keyboard's own
+            // animation frame for frame without recomposing. It only rises
+            // when the keyboard would otherwise cover it, and settles back to
+            // the root pill's spot once the keyboard is gone.
+            val keyboardTop = origin.y + constraints.maxHeight - imeBottom()
+            val bottom = if (imeBottom() > 0) {
+                minOf(anchor.bottom, keyboardTop - KeyboardPillGap.toPx())
+            } else {
+                anchor.bottom
+            }
             pill.place(
                 (anchor.center.x - origin.x - pill.width / 2f).roundToInt(),
-                (anchor.bottom - origin.y - pill.height).roundToInt(),
+                (bottom - origin.y - pill.height).roundToInt(),
             )
         }
     }
@@ -818,6 +833,9 @@ fun Modifier.calinoSurfaceEdgeFade(active: Boolean, width: Dp = 28.dp): Modifier
 
 /** The pill's distance from the bottom of its lane, shared with the root pill. */
 private val PillLaneInset = 20.dp
+
+/** Air between a lifted action pill and the top of the keyboard. */
+private val KeyboardPillGap = 12.dp
 
 /**
  * A horizontal counterpart to [SwipeDownDismiss] for end-anchored panels.
