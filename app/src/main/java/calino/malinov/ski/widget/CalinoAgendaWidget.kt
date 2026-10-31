@@ -181,7 +181,7 @@ abstract class CalinoAgendaWidget internal constructor(
                 HeaderPills(today, lookAhead)
             }
             if (agenda != null && !agenda.empty) {
-                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
                     FooterPill(agenda, today, lookAhead)
                 }
             }
@@ -242,7 +242,7 @@ abstract class CalinoAgendaWidget internal constructor(
                 last.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", context.resources.configuration.locales[0])),
             )
         }
-        Row(modifier = GlanceModifier.padding(bottom = PillInset)) {
+        Row(modifier = GlanceModifier.padding(end = 10.dp, bottom = PillInset)) {
             Pill(GlanceModifier.clickable(openAgenda(if (agenda.moreRows > 0) today else last))) {
                 Text(
                     text = text,
