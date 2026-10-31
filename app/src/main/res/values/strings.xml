@@ -7,4 +7,10 @@
     <string name="app_function_display_description">Read your events and tasks, open them in Calino, and prepare new ones for you to save</string>
     <string name="phone_search_hint">Search Calino</string>
     <string name="phone_search_settings_description">Events and tasks</string>
+    <string name="cal_unsaved_changes_title">Save your changes?</string>
+    <string name="cal_unsaved_changes_message">Your changes haven’t been saved.</string>
+    <string name="cal_discard_changes">Discard</string>
+    <string name="cal_discard_changes_description">Discard changes and close</string>
+    <string name="cal_save_changes">Save changes</string>
+    <string name="cal_keep_editing">Keep editing</string>
 </resources>

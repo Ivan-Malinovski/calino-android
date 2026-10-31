@@ -99,6 +99,7 @@ class TaskSaveFailureTest {
         // If the failed write left the old invisible host mounted, this
         // action cannot reach the restored editor or return to its caller.
         compose.onNodeWithContentDescription("Cancel task editing").performClick()
+        compose.onNodeWithContentDescription("Discard changes and close").performClick()
         compose.waitUntil(5_000L) { backs.get() == 1 }
         assertEquals(1, writes.get())
     }

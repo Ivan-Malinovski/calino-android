@@ -22,6 +22,9 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -70,6 +73,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -81,6 +85,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
@@ -216,6 +221,9 @@ fun AdaptiveSurfaceHost(
     scrimAlpha: Float = .28f,
     contentDescription: String? = null,
     preferredSurfaceHeight: Dp? = null,
+    dismissConfirmationActive: Boolean = false,
+    dismissRequiresConfirmation: Boolean = false,
+    contentEnabled: Boolean = true,
     pill: (@Composable () -> Unit)? = null,
     // Where the record this surface shows was touched. When given, the panel
     // grows out of that rectangle and returns to it instead of sliding.
@@ -224,15 +232,29 @@ fun AdaptiveSurfaceHost(
 ) {
     val dismissDescription = contentDescription ?: stringResource(R.string.cal_dismiss_surface)
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
+    val latestRequiresConfirmation by rememberUpdatedState(dismissRequiresConfirmation)
+    val editorFocus = remember { FocusRequester() }
+    var hadDecision by remember { mutableStateOf(false) }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(dismissConfirmationActive) {
+        if (dismissConfirmationActive) {
+            editorFocus.saveFocusedChild()
+            hadDecision = true
+            keyboard?.hide()
+        } else if (hadDecision) {
+            if (visible && contentEnabled) editorFocus.restoreFocusedChild()
+            hadDecision = false
+        }
+    }
     PredictiveBackHandler(enabled = visible) { events ->
         try {
             events.collect { event ->
-                predictiveBackProgress = event.progress.coerceIn(0f, 1f)
+                predictiveBackProgress = if (latestRequiresConfirmation) 0f else event.progress.coerceIn(0f, 1f)
             }
             // Keep the final gesture frame in place while visibility is
             // committed. AnimatedVisibility can then dispose an already
             // departed surface instead of restarting its exit from rest.
-            predictiveBackProgress = 1f
+            predictiveBackProgress = if (latestRequiresConfirmation) 0f else 1f
             onDismiss()
         } catch (cancelled: CancellationException) {
             val start = predictiveBackProgress
@@ -590,7 +612,19 @@ fun AdaptiveSurfaceHost(
                         LocalCalinoSurfaceMode provides mode,
                         LocalCalinoSurfaceDismissDrag provides dismissDrag,
                     ) {
-                        content(Modifier.fillMaxSize())
+                        Box(Modifier.fillMaxSize()) {
+                            Box(Modifier.fillMaxSize().focusRequester(editorFocus).focusGroup().then(
+                                if (dismissConfirmationActive || !contentEnabled) Modifier.clearAndSetSemantics { } else Modifier,
+                            )) { content(Modifier.fillMaxSize()) }
+                            if (dismissConfirmationActive || !contentEnabled) {
+                                // The question owns input until answered. Leave the
+                                // actual editor mounted so selection/scroll survive.
+                                Box(Modifier.matchParentSize().clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null, onClick = onDismiss,
+                                ).clearAndSetSemantics { })
+                            }
+                        }
                     }
                 }
             }
@@ -665,9 +699,13 @@ private fun RootAnchoredPill(anchor: Rect, content: @Composable () -> Unit) {
     val density = LocalDensity.current
     val imeBottom = { ime.getBottom(density) }
     Layout(content, Modifier.fillMaxSize()) { measurables, constraints ->
-        // Unbounded: the pill is placed against a point, so the lane it sits
-        // in must never be what decides how wide it may grow.
-        val pill = measurables.first().measure(Constraints())
+        // The root anchor supplies position, not a width cap. Reserve a safe
+        // edge inset for the expanded question and allow it to scroll vertically.
+        val availableWidth = (constraints.maxWidth - 32.dp.roundToPx()).coerceAtLeast(1)
+        val pill = measurables.first().measure(Constraints(
+            maxWidth = availableWidth,
+            maxHeight = (constraints.maxHeight - 32.dp.roundToPx()).coerceAtLeast(1),
+        ))
         layout(constraints.maxWidth, constraints.maxHeight) {
             val origin = coordinates?.positionInRoot() ?: Offset.Zero
             // Read here, in placement, so the pill follows the keyboard's own
@@ -952,7 +990,9 @@ fun SwipeEndDismiss(
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     val change = event.changes.firstOrNull { it.id == pointerId } ?: break
                     if (!change.pressed) {
-                        completed = true
+                        // Compose sends a consumed synthetic up for ACTION_CANCEL.
+                        // Only an actual, unconsumed release may commit the exit.
+                        completed = change.changedToUp()
                         break
                     }
 

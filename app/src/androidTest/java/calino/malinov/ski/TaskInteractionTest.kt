@@ -118,7 +118,8 @@ class TaskInteractionTest : CalinoUiTest() {
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Cancel task editing").performClick()
-        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Discard changes and close").performClick()
+        awaitNoDescribed("Cancel task editing")
 
         compose.onNodeWithContentDescription("$DatedTask, due May 18, Work").assertIsDisplayed()
     }

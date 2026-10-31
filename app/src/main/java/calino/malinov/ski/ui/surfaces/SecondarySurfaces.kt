@@ -820,7 +820,7 @@ fun EventDetailSurface(
         // Matches CalinoSurfaceKind.EventPreviewCompact's own ceiling, which
         // clamps this anyway; asking for more here only hides that.
         ).coerceAtMost(560).dp
-    var pillState by remember { mutableStateOf(EventPreviewPillState(false, false, {}, {}, {}, {}, {})) }
+    var pillState by remember { mutableStateOf(EventPreviewPillState(false, false, {}, {}, {}, {}, {}, onDismiss = { closeAfterAnimation(onBack) })) }
     // Derived, so the fade is switched on and off once per swipe instead of
     // recomposing the card on every frame of one.
     val paging by remember(pager) {
@@ -830,9 +830,12 @@ fun EventDetailSurface(
     val currentPageReadOnly = readOnlyForEvent(currentPageEvent)
     BottomDetailOverlay(
         visible = shown,
-        onDismiss = { closeAfterAnimation(onBack) },
+        onDismiss = { pillState.onDismiss() },
         surfaceKind = CalinoSurfaceKind.EventPreviewCompact,
         preferredSurfaceHeight = preferredPreviewHeight,
+        dismissConfirmationActive = pillState.confirmingDismiss,
+        dismissRequiresConfirmation = pillState.dirty || pillState.saving,
+        contentEnabled = !pillState.saving,
         origin = origin.takeIf { pager.currentPage == initialPage },
         pill = {
             val state = pillState
@@ -842,7 +845,7 @@ fun EventDetailSurface(
                     inPillLane = true,
                     expanded = shown,
                     cancelLabel = context.getString(R.string.ed_cancel),
-                    onCancel = { closeAfterAnimation(onBack) },
+                    onCancel = { state.onDismiss() },
                     cancelDescription = context.getString(R.string.ed_close_event_preview),
                     // Null rather than disabled: a greyed-out trash on
                     // somebody else's calendar invites the question every
@@ -854,12 +857,18 @@ fun EventDetailSurface(
                     onDeleteConfirmationChange = state.onDeletePromptChanged,
                     deleteHoldToConfirm = true,
                     onDeleteHold = state.onDeleteOccurrence,
+                    deleteEnabled = !state.saving,
+                    secondaryEnabled = !state.saving,
                     secondaryLabel = context.getString(R.string.ed_open).takeUnless { currentPageReadOnly },
                     onSecondary = state.onOpen.takeUnless { currentPageReadOnly },
                     secondaryDescription = context.getString(R.string.ed_open_event),
                     primaryLabel = context.getString(R.string.ed_save),
                     primaryTone = ModalPillActionTone.Save,
-                    onPrimary = state.onSave,
+                    onPrimary = if (state.confirmingDismiss) state.onSaveAndClose else state.onSave,
+                    primaryEnabled = !state.saving,
+                    dismissConfirmationActive = state.confirmingDismiss,
+                    onDiscardChanges = state.onDiscard,
+                    onKeepEditing = state.onKeepEditing,
                     // Delete keeps its own lane whatever happens; Save is the
                     // one that appears, and only once the preview is dirty.
                     primaryVisible = state.dirty && !currentPageReadOnly,
@@ -871,7 +880,7 @@ fun EventDetailSurface(
             state = pager,
             key = { events[it].id },
             beyondViewportPageCount = 1,
-            userScrollEnabled = shown,
+            userScrollEnabled = shown && !pillState.dirty && !pillState.confirmingDismiss && !pillState.saving,
             // The page that leaves is clipped by the pager at the panel's
             // leading edge; fade it out on that line instead of cutting it.
             modifier = overlayModifier.calinoSurfaceEdgeFade(active = paging),
@@ -885,9 +894,10 @@ fun EventDetailSurface(
             Box(Modifier.fillMaxSize().calinoSurfaceShadowBleed(horizontal = 10.dp)) {
                 AdaptiveDetailCard(
                     visible = shown,
-                    onDismiss = { closeAfterAnimation(onBack) },
+                    onDismiss = { pillState.onDismiss() },
                     modifier = Modifier.fillMaxSize(),
                     dismissDistance = 980.dp,
+                    resetKey = pillState.confirmingDismiss,
                     canStartDismiss = { !detailListState.canScrollBackward },
                     handleColor = eventTint(eventColor(pageEvent), .13f, CalinoColors.Panel),
                     allowDownwardDismissInEndPanel = true,
@@ -962,6 +972,8 @@ private fun EventDetailContent(
     }
     var draft by remember(event.id, event.etag, occurrenceDate) { mutableStateOf(original) }
     var savedDraft by remember(event.id, event.etag, occurrenceDate) { mutableStateOf(original) }
+    var showDiscard by remember(event.id) { mutableStateOf(false) }
+    var pendingDismiss by remember(event.id) { mutableStateOf(false) }
     var error by remember(event.id) { mutableStateOf<String?>(null) }
     // The card is height-capped by its surface kind, so the open list scrolls
     // inside it rather than growing it; the state stays local because nothing
@@ -1028,12 +1040,29 @@ private fun EventDetailContent(
             if (saved) {
                 savedDraft = draft
                 scopePrompt = false
-                if (openAfter || pendingOpen) onPrimary()
+                if (pendingDismiss) onBack()
+                else if (openAfter || pendingOpen) onPrimary()
             }
         }
     }
-    val openAction = { if (!saving) { if (dirty) save(true) else onPrimary() } }
-    val saveAction = { if (!saving) save(false) }
+    val openAction = { if (!saving) { pendingDismiss = false; if (dirty) save(true) else onPrimary() } }
+    val saveAction = { if (!saving) { pendingDismiss = false; save(false) } }
+    val dismissAction = {
+        when {
+            saving || responding -> Unit
+            scopePrompt -> { scopePrompt = false; pendingDismiss = false }
+            showDiscard -> showDiscard = false
+            dirty -> { deleteStage = EventDeleteStage.None; showDiscard = true }
+            else -> onBack()
+        }
+    }
+    val saveAndCloseAction = {
+        if (!saving) {
+            pendingDismiss = true
+            showDiscard = false
+            save(false)
+        }
+    }
     val deleteAction = { onDeleteEvent(event, deleteScope) }
     // Holding the trash skips both questions, so it answers the scope one the
     // safest way it can: a repeating event loses the occurrence in front of
@@ -1074,7 +1103,7 @@ private fun EventDetailContent(
     }
     // The pill only says "Are you sure?" once the scope question is answered.
     val pillConfirming = deleteStage == EventDeleteStage.Confirm
-    LaunchedEffect(dirty, saving, active, deleteStage, deleteScope) {
+    LaunchedEffect(draft, savedDraft, saving, responding, active, deleteStage, deleteScope, showDiscard, scopePrompt) {
         if (active) {
             onPillState(
                 EventPreviewPillState(
@@ -1085,6 +1114,12 @@ private fun EventDetailContent(
                     deleteAction,
                     deleteOccurrenceAction,
                     deletePromptChanged,
+                    confirmingDismiss = showDiscard,
+                    saving = saving || responding,
+                    onDismiss = dismissAction,
+                    onDiscard = { showDiscard = false; onBack() },
+                    onKeepEditing = { showDiscard = false },
+                    onSaveAndClose = saveAndCloseAction,
                 ),
             )
         }
@@ -1479,6 +1514,12 @@ private data class EventPreviewPillState(
     // The hold shortcut's own removal: this occurrence and nothing else.
     val onDeleteOccurrence: () -> Unit,
     val onDeletePromptChanged: (Boolean) -> Unit,
+    val confirmingDismiss: Boolean = false,
+    val saving: Boolean = false,
+    val onDismiss: () -> Unit = {},
+    val onDiscard: () -> Unit = {},
+    val onKeepEditing: () -> Unit = {},
+    val onSaveAndClose: () -> Unit = {},
 )
 
 // This compact card's pill is 56dp high and sits close to the card edge; the
@@ -1951,6 +1992,7 @@ fun TaskDetailSurface(
     onOpenSubtask: (CalTask) -> Unit = {},
     onToggleSubtask: (CalTask) -> Unit = {},
     planningDate: LocalDate? = null,
+    onSaved: () -> Unit = onBack,
 ) {
     val context = LocalContext.current
     val dateFormat = localizedDateFormatter("EEE, d MMM")
@@ -1973,6 +2015,7 @@ fun TaskDetailSurface(
     var percentComplete by remember(task.id) { mutableIntStateOf(task.percentComplete) }
     var shown by remember(task.id) { mutableStateOf(true) }
     var pendingSave by remember(task.id) { mutableStateOf(false) }
+    var saveAccepted by remember(task.id) { mutableStateOf(false) }
     var pendingDelete by remember(task.id) { mutableStateOf(false) }
     var confirmingDelete by remember(task.id) { mutableStateOf(false) }
     // A repeating task asks which part of the series to remove before it leaves.
@@ -2002,9 +2045,9 @@ fun TaskDetailSurface(
         )
     }
 
-    LaunchedEffect(shown) {
-        if (!shown) {
-            delay(220)
+    LaunchedEffect(shown, pendingSave) {
+        if (!shown || pendingSave) {
+            if (!pendingSave) delay(220)
             if (pendingDelete) {
                 if (!onDelete(deleteScope)) {
                     // The host's scrim remains composed while this surface is
@@ -2014,10 +2057,8 @@ fun TaskDetailSurface(
                     shown = true
                 }
             } else if (pendingSave) {
-                // Completion is latched separately from presentation state.
-                // The sheet exits before saving, and the delayed coroutine can
-                // otherwise observe the pre-click `done` value from its exit
-                // composition even though the checkmark already changed.
+                // Latch completion separately from presentation, and keep the
+                // draft mounted until the repository accepts or queues it.
                 val savedDone = requestedDone ?: done
                 val saved = onSave(
                     NewTask(
@@ -2048,27 +2089,58 @@ fun TaskDetailSurface(
                     ),
                     savedDone,
                 )
-                if (!saved) {
-                    pendingSave = false
-                    shown = true
+                pendingSave = false
+                if (saved) {
+                    saveAccepted = true
+                    shown = false
                 }
+            } else if (saveAccepted) {
+                onSaved()
             } else {
                 onBack()
             }
         }
     }
+    // Dismissal handlers outlive the composition that installed their gesture
+    // stream; read the latest comparison when the person actually releases.
+    val dirty by androidx.compose.runtime.rememberUpdatedState(
+        title != task.title ||
+        category != task.category.orEmpty() ||
+        notes != savedNotes ||
+        due != task.due ||
+        dueTime != task.dueTime ||
+        taskStart != task.startDate || taskStartTime != task.startTime ||
+        reminder != task.reminder ||
+        recurrence != task.recurrence ||
+        priority != task.priority ||
+        percentComplete != task.percentComplete
+    )
+    var showDiscard by remember(task.id) { mutableStateOf(false) }
+    fun requestDismiss() {
+        when {
+            pendingSave || savingNotes -> Unit
+            showDiscard -> showDiscard = false
+            dirty -> { confirmingDelete = false; showDiscard = true }
+            else -> { pendingSave = false; shown = false }
+        }
+    }
     fun dismiss(save: Boolean) {
-        if (!shown) return
+        if (!shown || pendingSave) return
+        showDiscard = false
         pendingSave = save
-        shown = false
+        if (!save) shown = false
     }
 
     Box(Modifier.fillMaxSize()) {
         BottomDetailCard(
             visible = shown,
-            onDismiss = { dismiss(false) },
+            onDismiss = ::requestDismiss,
             modifier = Modifier.fillMaxSize(),
             dismissDistance = 980.dp,
+            resetKey = showDiscard,
+            dismissConfirmationActive = showDiscard,
+            dismissRequiresConfirmation = dirty || pendingSave || savingNotes,
+            contentEnabled = !pendingSave && !savingNotes,
             canStartDismiss = { !detailScrollState.canScrollBackward },
             // The event card's own gestures: a swipe down closes it in the side
             // panel too, not only a swipe toward the edge.
@@ -2077,25 +2149,13 @@ fun TaskDetailSurface(
             handleColor = headerTint,
             pill = {
                 val canSave = title.trim().isNotEmpty()
-                // Completion has its own action, so it does not count as an edit
-                // waiting to be saved.
-                val dirty = title != task.title ||
-                    category != task.category.orEmpty() ||
-                    notes != savedNotes ||
-                    due != task.due ||
-                    dueTime != task.dueTime ||
-                    taskStart != task.startDate || taskStartTime != task.startTime ||
-                    reminder != task.reminder ||
-                    recurrence != task.recurrence ||
-                    priority != task.priority ||
-                    percentComplete != task.percentComplete
                 ModalActionPill(
                     addLabel = context.getString(R.string.ed_new_task),
                     morphFromAddPill = true,
                     inPillLane = true,
                     expanded = shown,
                     cancelLabel = context.getString(R.string.ed_cancel),
-                    onCancel = { dismiss(false) },
+                    onCancel = ::requestDismiss,
                     cancelDescription = context.getString(R.string.ed_cancel_task_editing),
                     deleteLabel = context.getString(R.string.ed_delete),
                     onDelete = {
@@ -2112,10 +2172,14 @@ fun TaskDetailSurface(
                     onDeleteConfirmationChange = { confirmingDelete = it },
                     // The scope sheet is the confirmation for a series.
                     deleteHoldToConfirm = !task.isRecurringTask(),
+                    deleteEnabled = !pendingSave && !savingNotes,
                     primaryLabel = context.getString(R.string.ed_save),
                     primaryTone = ModalPillActionTone.Save,
                     onPrimary = { dismiss(true) },
-                    primaryEnabled = canSave,
+                    dismissConfirmationActive = showDiscard,
+                    onDiscardChanges = { showDiscard = false; dismiss(false) },
+                    onKeepEditing = { showDiscard = false },
+                    primaryEnabled = canSave && !pendingSave && !savingNotes,
                     primaryDescription = context.getString(R.string.ed_save_task),
                     secondaryLabel = if (done) context.getString(R.string.ed_mark_open) else context.getString(R.string.ed_mark_done),
                     onSecondary = {
@@ -2130,7 +2194,7 @@ fun TaskDetailSurface(
                         percentComplete = if (nextDone) 100 else 0
                         dismiss(true)
                     },
-                    secondaryEnabled = canSave,
+                    secondaryEnabled = canSave && !pendingSave && !savingNotes,
                     secondaryDescription = if (done) context.getString(R.string.ed_mark_task_open) else context.getString(R.string.ed_mark_task_done),
                     primaryVisible = dirty,
                 )
@@ -3962,8 +4026,9 @@ fun TaskDetail(
     onOpenSubtask: (CalTask) -> Unit = {},
     onToggleSubtask: (CalTask) -> Unit = {},
     planningDate: LocalDate? = null,
+    onSaved: () -> Unit = onBack,
 ) = TaskDetailSurface(
-    task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask, categories, onOpenSubtask, onToggleSubtask, planningDate,
+    task, tasks, onBack, onSave, onInlineNotesSave, onDelete, onAddSubtask, categories, onOpenSubtask, onToggleSubtask, planningDate, onSaved,
 )
 
 /** Task ledger; horizontal drag reveals completion/rescheduling affordances. */
@@ -3989,7 +4054,8 @@ fun QuickAddSheet(
     relatedCandidates: List<Pair<String, String>> = emptyList(),
     onPhoto: (() -> Unit)? = null,
     onDismiss: () -> Unit = {},
-    onSave: (EditorDraft) -> Unit = {},
+    onSave: suspend (EditorDraft) -> Boolean = { true },
+    onSaved: (EditorDraft) -> Unit = {},
     onSaveStarted: (EditorDraft) -> Unit = {},
 ) {
     var mounted by remember { mutableStateOf(state.visible) }
@@ -4007,6 +4073,7 @@ fun QuickAddSheet(
             onDismiss = { mounted = false; onDismiss() },
             onSave = onSave,
             onSaveStarted = onSaveStarted,
+            onSaved = onSaved,
             visible = state.visible,
             morphFromAddPill = state.morphFromAddPill,
         )

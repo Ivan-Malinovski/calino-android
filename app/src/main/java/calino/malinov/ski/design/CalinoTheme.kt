@@ -126,6 +126,10 @@ data class CalinoPalette(
     val Line: Color get() = Ink.copy(alpha = .09f)
     val Line2: Color get() = Ink.copy(alpha = .05f)
 
+    /** A quiet green wash on the pill's ink, with a readable sage foreground. */
+    val SaveFill: Color get() = lerp(FloatFill, Green, .16f)
+    val OnSave: Color get() = lerp(Green, OnFloat, .55f)
+
     /** A translucent ink wash that lets the sampled blur remain visible. */
     val FloatFillAlpha: Float get() = .68f
     /** Secondary icons stay distinguishable over the translucent material. */

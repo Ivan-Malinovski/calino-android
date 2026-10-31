@@ -1620,6 +1620,31 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
      * this gateway still owns finishing it from the real repository result.
      * Background writes can explicitly pass a null [indicate].
      */
+    suspend fun <T> performWrite(
+        operation: suspend () -> WriteResult<T>,
+        indicate: PillWriteKind? = PillWriteKind.Save,
+        indicatorAlreadyStarted: Boolean = false,
+        onApplied: (T) -> Unit = {},
+    ): Boolean {
+        writeError = null
+        if (indicate != null && !indicatorAlreadyStarted) savePillLane.saveStarted(indicate)
+        var landed = false
+        try {
+            when (val result = operation()) {
+                is WriteResult.Applied -> { landed = true; onApplied(result.record) }
+                is WriteResult.Queued -> { landed = true; onApplied(result.record) }
+                is WriteResult.Rejected -> writeError = result.localizedReason(textContext)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            writeError = error.message ?: textContext.getString(R.string.host_write_error)
+        } finally {
+            if (indicate != null) savePillLane.saveFinished(writeScope, success = landed)
+        }
+        return landed
+    }
+
     fun <T> launchWrite(
         operation: suspend () -> WriteResult<T>,
         indicate: PillWriteKind? = PillWriteKind.Save,
@@ -1628,22 +1653,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     ) {
         writeError = null
         if (indicate != null && !indicatorAlreadyStarted) savePillLane.saveStarted(indicate)
-        writeScope.launch {
-            var landed = false
-            try {
-                when (val result = operation()) {
-                    is WriteResult.Applied -> { landed = true; onApplied(result.record) }
-                    is WriteResult.Queued -> { landed = true; onApplied(result.record) }
-                    is WriteResult.Rejected -> writeError = result.localizedReason(textContext)
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                writeError = error.message ?: textContext.getString(R.string.host_write_error)
-            } finally {
-                if (indicate != null) savePillLane.saveFinished(writeScope, success = landed)
-            }
-        }
+        writeScope.launch { performWrite(operation, indicate, indicatorAlreadyStarted = true, onApplied) }
     }
 
     suspend fun addWeekTask(title: String, first: LocalDate, last: LocalDate): Boolean {
@@ -2478,10 +2488,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         entries = snapshot.journals,
                         newEntryDate = selectedDate,
                         onCreate = { entry ->
-                            launchWrite(operation = { repository.addJournal(NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
+                            performWrite(operation = { repository.addJournal(NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
                         },
                         onUpdate = { entry ->
-                            launchWrite(operation = { repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
+                            performWrite(operation = { repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
                         },
                         onDelete = { entry -> launchWrite(operation = { repository.deleteJournal(entry.id) }, indicate = PillWriteKind.Remove) },
                         onEditingChanged = { editing ->
@@ -2508,12 +2518,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         selectedContactId = selectedContactId,
                         onSelectedContactChanged = { selectedContactId = it },
                         onCreate = { input ->
-                            launchWrite(operation = { repository.addContact(input) }) {
+                            performWrite(operation = { repository.addContact(input) }) {
                                 selectedContactId = it.id
                             }
                         },
                         onUpdate = { contact ->
-                            launchWrite(operation = { repository.updateContact(contact.id, contact.toNewContact()) }) {
+                            performWrite(operation = { repository.updateContact(contact.id, contact.toNewContact()) }) {
                                 selectedContactId = it.id
                             }
                         },
@@ -3026,14 +3036,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             when (val result = repository.updateTask(task.id, input, done)) {
                                 is WriteResult.Applied -> {
                                     landed = true
-                                    selectedTaskId = null
-                                    restoreTaskDetailOrigin()
                                     true
                                 }
                                 is WriteResult.Queued -> {
                                     landed = true
-                                    selectedTaskId = null
-                                    restoreTaskDetailOrigin()
                                     true
                                 }
                                 is WriteResult.Rejected -> {
@@ -3049,6 +3055,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         } finally {
                             savePillLane.saveFinished(writeScope, success = landed)
                         }
+                    },
+                    onSaved = {
+                        selectedTaskId = null
+                        restoreTaskDetailOrigin()
                     },
                     onInlineNotesSave = { input, done ->
                         writeError = null
@@ -3235,21 +3245,22 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 recurrenceDate = occurrence,
                             ) else draft
                         } else draft
-                        launchWrite(
+                        performWrite(
                             operation = { saveEditorDraft(repository, scopedDraft) },
                             indicate = PillWriteKind.Save,
                             indicatorAlreadyStarted = true,
-                        ) {
-                            selectedDate = draft.date
-                            if (aiQueue.isNotEmpty()) {
-                                val next = aiQueue.first()
-                                aiQueue = aiQueue.drop(1)
-                                aiDraft = aiDraftFor(next, selectedDate)
-                                quickAddKind = if (next.kind == "task") QuickAddKind.Task else QuickAddKind.Event
-                            } else {
-                                aiDraft = null
-                                dismissQuickAdd()
-                            }
+                        )
+                    },
+                    onSaved = { draft ->
+                        selectedDate = draft.date
+                        if (aiQueue.isNotEmpty()) {
+                            val next = aiQueue.first()
+                            aiQueue = aiQueue.drop(1)
+                            aiDraft = aiDraftFor(next, selectedDate)
+                            quickAddKind = if (next.kind == "task") QuickAddKind.Task else QuickAddKind.Event
+                        } else {
+                            aiDraft = null
+                            dismissQuickAdd()
                         }
                     },
                 )

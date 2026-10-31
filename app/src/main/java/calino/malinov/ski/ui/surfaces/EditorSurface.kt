@@ -153,13 +153,13 @@ fun EditorSurface(
     relatedCandidates: List<Pair<String, String>> = emptyList(),
     onPhoto: (() -> Unit)? = null,
     onDismiss: () -> Unit = {},
-    onSave: (EditorDraft) -> Unit = {},
+    onSave: suspend (EditorDraft) -> Boolean = { true },
+    onSaved: (EditorDraft) -> Unit = {},
     /**
-     * Called the moment Save is pressed, before the card starts leaving. The
-     * pill morphs back into whatever add pill the host is about to show, and
-     * it has to know which one that is before the morph starts, not when the
-     * record has been written -- a kind switched to Journal goes back to a
-     * different screen than the one this editor was opened from.
+     * Called on Save to begin the shared write feedback and choose the pill's
+     * return destination. Acceptance starts the exit; onSaved removes the
+     * route afterwards. A kind switched to Journal returns to a different
+     * screen than the one this editor opened from.
      */
     onSaveStarted: (EditorDraft) -> Unit = {},
     visible: Boolean = true,
@@ -175,8 +175,19 @@ fun EditorSurface(
     var draft by remember(initial.editingId, initial.kind) {
         mutableStateOf(if (initial.isEditing) initial else initial.withAutoCategories(autoCategoryRules))
     }
+    val startingDraft = remember(initial.editingId, initial.kind) { draft }
+    val dirty = draft.copy(
+        touched = startingDraft.touched,
+        recurrenceChanged = startingDraft.recurrenceChanged,
+        taskDueChanged = startingDraft.taskDueChanged,
+        autoCategories = startingDraft.autoCategories,
+        dismissedAutoCategories = startingDraft.dismissedAutoCategories,
+    ) != startingDraft
+    var showDiscard by remember { mutableStateOf(false) }
     var shown by remember { mutableStateOf(true) }
     var closing by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    val saveScope = androidx.compose.runtime.rememberCoroutineScope()
     var pendingCloseAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var descriptionOpen by remember(initial.editingId) { mutableStateOf(false) }
     var moreOpen by remember(initial.editingId) { mutableStateOf(false) }
@@ -200,7 +211,14 @@ fun EditorSurface(
     }
     LaunchedEffect(visible) { if (!visible) closeAfterAnimation(onDismiss) }
 
-    val dismiss: () -> Unit = { closeAfterAnimation(onDismiss) }
+    val dismiss: () -> Unit = {
+        when {
+            closing || saving -> Unit
+            showDiscard -> showDiscard = false
+            dirty -> showDiscard = true
+            else -> closeAfterAnimation(onDismiss)
+        }
+    }
 
 
     val pickStartDate = rememberDatePicker({ draft.date }) {
@@ -231,7 +249,11 @@ fun EditorSurface(
         visible = shown,
         onDismiss = dismiss,
         modifier = Modifier.fillMaxSize(),
-        canStartDismiss = { editorScrollState.value == 0 },
+        canStartDismiss = { !showDiscard && editorScrollState.value == 0 },
+        resetKey = showDiscard,
+        dismissConfirmationActive = showDiscard,
+        dismissRequiresConfirmation = dirty || saving,
+        contentEnabled = !saving,
         surfaceKind = CalinoSurfaceKind.Editor,
         pill = {
             ModalActionPill(
@@ -242,6 +264,9 @@ fun EditorSurface(
                 // shape it came from instead of taking it away with the card.
                 inPillLane = true,
                 expanded = shown,
+                dismissConfirmationActive = showDiscard,
+                onDiscardChanges = { showDiscard = false; closeAfterAnimation(onDismiss) },
+                onKeepEditing = { showDiscard = false },
                 cancelLabel = stringResource(R.string.ed_editor_cancel),
                 onCancel = dismiss,
                 primaryLabel = stringResource(R.string.ed_editor_save),
@@ -250,15 +275,21 @@ fun EditorSurface(
                     // A second press while the card is already leaving would
                     // start another write report that no write ever finishes,
                     // leaving the pill tracing forever.
-                    if (closing) return@ModalActionPill
+                    if (closing || saving) return@ModalActionPill
                     val saved = draft
+                    saving = true
+                    showDiscard = false
                     onSaveStarted(saved)
-                    closeAfterAnimation { onSave(saved) }
+                    saveScope.launch {
+                        try {
+                            if (onSave(saved)) closeAfterAnimation { onSaved(saved) }
+                        } finally { saving = false }
+                    }
                 },
                 // A record that exists and has not been touched has nothing
                 // to save; the pill then offers only the way out.
-                primaryVisible = !draft.isEditing || draft != initial,
-                primaryEnabled = draft.canSave(),
+                primaryVisible = !draft.isEditing || dirty,
+                primaryEnabled = draft.canSave() && !saving,
                 primaryDescription = stringResource(R.string.ed_editor_save_description),
                 cancelDescription = stringResource(R.string.ed_editor_cancel_description),
             )

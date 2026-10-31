@@ -161,8 +161,8 @@ class JournalFlowTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Cancel journal editing").performClick()
         compose.waitForIdle()
         // An abandoned draft asks before it is thrown away.
-        compose.onNodeWithText("Discard your changes?").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Discard journal changes").performClick()
+        compose.onNodeWithText("Save your changes?").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Discard changes and close").performClick()
         compose.waitForIdle()
 
         awaitNoDescribed("Open journal entry $NewTitle")
@@ -192,7 +192,7 @@ class JournalFlowTest : CalinoUiTest() {
 
         compose.onNodeWithContentDescription("Cancel journal editing").performClick()
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("Discard journal changes").performClick()
+        compose.onNodeWithContentDescription("Discard changes and close").performClick()
 
         awaitDescribed("Open journal entry $Existing")
     }

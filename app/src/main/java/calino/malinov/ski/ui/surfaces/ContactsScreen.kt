@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -118,8 +119,8 @@ fun ContactsSurface(
     events: List<CalEvent> = emptyList(),
     selectedContactId: String? = null,
     onSelectedContactChanged: (String?) -> Unit = {},
-    onCreate: (NewContact) -> Unit = {},
-    onUpdate: (Contact) -> Unit = {},
+    onCreate: suspend (NewContact) -> Boolean = { true },
+    onUpdate: suspend (Contact) -> Boolean = { true },
     onDelete: (Contact) -> Unit = {},
     onAddBirthday: (Contact, LocalDate, Boolean) -> Unit = { _, _, _ -> },
     onOpenMenu: (() -> Unit)? = null,
@@ -289,8 +290,8 @@ fun ContactsSurface(
                     anniversary = value.anniversary,
                     note = value.note,
                 ))
-                editingId = null
             },
+            onSaved = { editingId = null },
             onDelete = if (editing == null) null else { { onDelete(editing); editingId = null } },
         )
     }
@@ -650,7 +651,8 @@ private fun ContactEditor(
     contact: Contact,
     isNew: Boolean,
     onDismiss: () -> Unit,
-    onSave: (NewContact) -> Unit,
+    onSave: suspend (NewContact) -> Boolean,
+    onSaved: () -> Unit,
     onDelete: (() -> Unit)?,
 ) {
     var displayName by rememberSaveable(contact.id) { mutableStateOf(contact.displayName) }
@@ -663,10 +665,16 @@ private fun ContactEditor(
     var anniversaryText by rememberSaveable(contact.id) { mutableStateOf(contact.anniversary?.toString().orEmpty()) }
     var note by rememberSaveable(contact.id) { mutableStateOf(contact.note) }
     var showDiscard by rememberSaveable(contact.id) { mutableStateOf(false) }
+    var saving by remember(contact.id) { mutableStateOf(false) }
+    val saveScope = androidx.compose.runtime.rememberCoroutineScope()
     var showDelete by rememberSaveable(contact.id) { mutableStateOf(false) }
     var shown by remember(contact.id) { mutableStateOf(true) }
     var closeAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val dirty = displayName != contact.displayName || givenName != contact.givenName || familyName != contact.familyName || organization != contact.organization || email != contact.emails.firstOrNull()?.value.orEmpty() || phone != contact.phones.firstOrNull()?.value.orEmpty() || birthdayText != contact.birthday?.toString().orEmpty() || anniversaryText != contact.anniversary?.toString().orEmpty() || note != contact.note
+    // Dismissal handlers outlive the composition that installed their gesture
+    // stream; read the latest comparison when the person actually releases.
+    val dirty by androidx.compose.runtime.rememberUpdatedState(
+        displayName != contact.displayName || givenName != contact.givenName || familyName != contact.familyName || organization != contact.organization || email != contact.emails.firstOrNull()?.value.orEmpty() || phone != contact.phones.firstOrNull()?.value.orEmpty() || birthdayText != contact.birthday?.toString().orEmpty() || anniversaryText != contact.anniversary?.toString().orEmpty() || note != contact.note
+    )
     val canSave = listOf(displayName, givenName, familyName, organization, email, phone, birthdayText, anniversaryText, note).any { it.isNotBlank() }
     val backToContacts = stringResource(R.string.ed_contact_back)
 
@@ -674,17 +682,30 @@ private fun ContactEditor(
         if (shown) { closeAction = action; shown = false }
     }
     LaunchedEffect(shown) { if (!shown) { kotlinx.coroutines.delay(220); closeAction?.invoke() } }
-    fun dismiss() { if (dirty) showDiscard = true else closeAnimated(onDismiss) }
+    fun dismiss() {
+        when {
+            saving -> Unit
+            showDiscard -> showDiscard = false
+            dirty -> { showDelete = false; showDiscard = true }
+            else -> closeAnimated(onDismiss)
+        }
+    }
     fun saveContact() {
         val parsedBirthday = parseContactDate(birthdayText)
         val parsedAnniversary = parseContactDate(anniversaryText)
-        closeAnimated {
-            onSave(NewContact(
-                displayName = displayName.trim(), givenName = givenName.trim(), familyName = familyName.trim(), organization = organization.trim(),
-                emails = email.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactEmail(it, ContactType.Other, true)) } ?: emptyList(),
-                phones = phone.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactPhone(it, ContactPhoneType.Other, true)) } ?: emptyList(),
-                birthday = parsedBirthday, anniversary = parsedAnniversary, note = note.trim(), addressBookId = contact.addressBookId,
-            ))
+        if (saving) return
+        saving = true
+        showDiscard = false
+        saveScope.launch {
+            try {
+                val accepted = onSave(NewContact(
+                    displayName = displayName.trim(), givenName = givenName.trim(), familyName = familyName.trim(), organization = organization.trim(),
+                    emails = email.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactEmail(it, ContactType.Other, true)) } ?: emptyList(),
+                    phones = phone.trim().takeIf(String::isNotEmpty)?.let { listOf(ContactPhone(it, ContactPhoneType.Other, true)) } ?: emptyList(),
+                    birthday = parsedBirthday, anniversary = parsedAnniversary, note = note.trim(), addressBookId = contact.addressBookId,
+                ))
+                if (accepted) closeAnimated(onSaved)
+            } finally { saving = false }
         }
     }
 
@@ -693,12 +714,18 @@ private fun ContactEditor(
         onDismiss = ::dismiss,
         surfaceKind = CalinoSurfaceKind.Editor,
         resetKey = showDiscard,
+        dismissConfirmationActive = showDiscard,
+        dismissRequiresConfirmation = dirty || saving,
+        contentEnabled = !saving,
         pill = {
             ModalActionPill(
                 addLabel = if (isNew) stringResource(R.string.ed_contact_new) else stringResource(R.string.ed_contact_edit_title),
                 morphFromAddPill = true,
                 inPillLane = true,
                 expanded = shown,
+                dismissConfirmationActive = showDiscard,
+                onDiscardChanges = { showDiscard = false; closeAnimated(onDismiss) },
+                onKeepEditing = { showDiscard = false },
                 cancelLabel = stringResource(R.string.ed_contact_cancel),
                 onCancel = ::dismiss,
                 cancelDescription = stringResource(R.string.ed_contact_cancel_editing),
@@ -708,11 +735,12 @@ private fun ContactEditor(
                 deleteConfirmationActive = showDelete,
                 onDeleteConfirmationChange = { showDelete = it },
                 deleteHoldToConfirm = true,
+                deleteEnabled = !saving,
                 primaryLabel = stringResource(R.string.ed_contact_save),
                 primaryTone = ModalPillActionTone.Save,
                 onPrimary = ::saveContact,
                 primaryVisible = isNew || dirty,
-                primaryEnabled = canSave,
+                primaryEnabled = canSave && !saving,
                 primaryDescription = stringResource(R.string.ed_contact_save_description),
             )
         },
@@ -732,13 +760,6 @@ private fun ContactEditor(
                     item { CalinoTextField(birthdayText, { birthdayText = it }, stringResource(R.string.ed_contact_birthday), placeholder = stringResource(R.string.ed_contact_date_example)) }
                     item { CalinoTextField(anniversaryText, { anniversaryText = it }, stringResource(R.string.ed_contact_anniversary), placeholder = stringResource(R.string.ed_contact_date_example)) }
                     item { CalinoTextField(note, { note = it }, stringResource(R.string.ed_contact_notes), singleLine = false, minLines = 4, maxLines = 8) }
-                    if (showDiscard) item {
-                        Row(Modifier.fillMaxWidth().background(CalinoColors.Ink).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.ed_contact_discard_question), color = CalinoColors.Panel, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { showDiscard = false }) { Text(stringResource(R.string.ed_contact_keep_editing), color = CalinoColors.Panel) }
-                            TextButton(onClick = { closeAnimated(onDismiss) }) { Text(stringResource(R.string.ed_contact_discard), color = CalinoColors.AccentSoft) }
-                        }
-                    }
                 }
                 // Room for the pill, which stands in the pill lane outside
                 // this card so it can change shape there instead of leaving.

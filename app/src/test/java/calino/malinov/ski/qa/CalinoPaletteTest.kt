@@ -88,6 +88,7 @@ class CalinoPaletteTest {
             }
             assertContrast(palette, "OnAccent on Accent", palette.OnAccent, palette.Accent)
             assertContrast(palette, "OnInk on Ink", palette.OnInk, palette.Ink)
+            assertContrast(palette, "OnSave on SaveFill", palette.OnSave, palette.SaveFill)
             assertContrast(palette, "OnFloat on FloatFill", palette.OnFloat, palette.FloatFill)
             assertContrast(palette, "OnSelection on SelectionFill", palette.OnSelection, palette.SelectionFill)
         }

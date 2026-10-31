@@ -6,4 +6,10 @@
     <string name="app_function_display_description">Læs dine begivenheder og opgaver, åbn dem i Calino, og forbered nye, som du selv gemmer</string>
     <string name="phone_search_hint">Søg i Calino</string>
     <string name="phone_search_settings_description">Begivenheder og opgaver</string>
+    <string name="cal_unsaved_changes_title">Gem dine ændringer?</string>
+    <string name="cal_unsaved_changes_message">Dine ændringer er ikke blevet gemt.</string>
+    <string name="cal_discard_changes">Kassér</string>
+    <string name="cal_discard_changes_description">Kassér ændringer og luk</string>
+    <string name="cal_save_changes">Gem ændringer</string>
+    <string name="cal_keep_editing">Fortsæt redigering</string>
 </resources>

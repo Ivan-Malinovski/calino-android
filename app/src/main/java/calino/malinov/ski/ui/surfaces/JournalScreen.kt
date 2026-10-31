@@ -138,8 +138,8 @@ private fun journalMonthFromEpoch(epochMonth: Long): YearMonth =
 fun JournalSurface(
     entries: List<JournalEntry>,
     onAdd: () -> Unit = {},
-    onCreate: (JournalEntry) -> Unit = {},
-    onUpdate: (JournalEntry) -> Unit = {},
+    onCreate: suspend (JournalEntry) -> Boolean = { true },
+    onUpdate: suspend (JournalEntry) -> Boolean = { true },
     onDelete: (JournalEntry) -> Unit = {},
     onEditingChanged: (Boolean) -> Unit = {},
     openEntryId: String? = null,
@@ -326,12 +326,14 @@ fun JournalSurface(
                 onDraftDateChange = { picked -> draftDateEpochDay = picked.toEpochDay() },
                 onSave = { updated ->
                     if (draft?.id == updated.id) {
-                        draft?.commit(updated.title, updated.body)?.let(onCreate)
-                        draftId = null
-                        draftDateEpochDay = null
+                        draft?.commit(updated.title, updated.body)?.let { onCreate(it) } ?: false
                     } else {
                         onUpdate(updated)
                     }
+                },
+                onSaved = {
+                    draftId = null
+                    draftDateEpochDay = null
                     selectEditor(null)
                 },
                 onDelete = { deleted ->
@@ -666,7 +668,8 @@ private fun JournalEditor(
     entries: List<JournalEntry>,
     onNavigate: (JournalEntry) -> Unit,
     onDismiss: () -> Unit,
-    onSave: (JournalEntry) -> Unit,
+    onSave: suspend (JournalEntry) -> Boolean,
+    onSaved: () -> Unit,
     onDelete: (JournalEntry) -> Unit,
     onDraftDateChange: (LocalDate) -> Unit,
 ) {
@@ -681,7 +684,13 @@ private fun JournalEditor(
     var editorMode by rememberSaveable(entry.id) { mutableStateOf(0) }
     var confirmDelete by rememberSaveable(entry.id) { mutableStateOf(false) }
     var showDiscard by rememberSaveable(entry.id) { mutableStateOf(false) }
-    val dirty = title != entry.title || body.text != entry.body || date != entry.date
+    var saving by remember(entry.id) { mutableStateOf(false) }
+    val saveScope = androidx.compose.runtime.rememberCoroutineScope()
+    // Dismissal handlers outlive the composition that installed their gesture
+    // stream; read the latest comparison when the person actually releases.
+    val dirty by androidx.compose.runtime.rememberUpdatedState(
+        title != entry.title || body.text != entry.body || date != entry.date
+    )
     val canSave = title.isNotBlank() || body.text.isNotBlank()
     val focusTitle = isNewEntry
     val titleFocusRequester = remember { FocusRequester() }
@@ -702,14 +711,21 @@ private fun JournalEditor(
 
     fun cancelEditing() {
         when {
-            dirty -> showDiscard = true
+            saving -> Unit
+            showDiscard -> showDiscard = false
+            dirty -> { confirmDelete = false; showDiscard = true }
             isNewEntry -> closeAnimated(onDismiss)
             else -> isEditing = false
         }
     }
 
     fun dismissEditor() {
-        if (isEditing && dirty) showDiscard = true else closeAnimated(onDismiss)
+        when {
+            saving -> Unit
+            showDiscard -> showDiscard = false
+            isEditing && dirty -> { confirmDelete = false; showDiscard = true }
+            else -> closeAnimated(onDismiss)
+        }
     }
 
     LaunchedEffect(focusTitle) {
@@ -757,6 +773,9 @@ private fun JournalEditor(
     BottomDetailOverlay(
         visible = shown,
         onDismiss = ::dismissEditor,
+        dismissConfirmationActive = showDiscard,
+        dismissRequiresConfirmation = saving || (isEditing && dirty),
+        contentEnabled = !saving,
         modifier = Modifier.fillMaxSize(),
         surfaceKind = CalinoSurfaceKind.Editor,
         pill = {
@@ -765,19 +784,30 @@ private fun JournalEditor(
                 morphFromAddPill = true,
                 inPillLane = true,
                 expanded = shown,
+                dismissConfirmationActive = showDiscard,
+                onDiscardChanges = { showDiscard = false; closeAnimated(onDismiss) },
+                onKeepEditing = { showDiscard = false },
                 cancelLabel = stringResource(R.string.ed_journal_cancel),
                 onCancel = if (isEditing) ::cancelEditing else ::dismissEditor,
                 cancelDescription = if (isEditing) cancelEditLabel else closeEntryLabel,
                 primaryLabel = if (isEditing) saveEntryLabel else editEntryLabel,
                 primaryTone = if (isEditing) ModalPillActionTone.Save else ModalPillActionTone.Neutral,
                 onPrimary = {
-                    if (isEditing) closeAnimated { onSave(entry.copy(date = date, title = title.trim(), body = body.text.trim())) }
-                    else isEditing = true
+                    if (isEditing && !saving) {
+                        saving = true
+                        showDiscard = false
+                        val updated = entry.copy(date = date, title = title.trim(), body = body.text.trim())
+                        saveScope.launch {
+                            try {
+                                if (onSave(updated)) closeAnimated(onSaved)
+                            } finally { saving = false }
+                        }
+                    } else if (!saving) isEditing = true
                 },
                 // Reading an entry, Edit is always on offer; writing one, Save
                 // appears only once there is a change to write.
                 primaryVisible = !isEditing || dirty || isNewEntry,
-                primaryEnabled = !isEditing || canSave,
+                primaryEnabled = !saving && (!isEditing || canSave),
                 primaryDescription = if (isEditing) stringResource(R.string.ed_journal_save_entry_description) else stringResource(R.string.ed_journal_edit_entry_description),
                 deleteLabel = deleteEntryLabel,
                 onDelete = { confirmDelete = false; closeAnimated { onDelete(entry) } },
@@ -785,6 +815,7 @@ private fun JournalEditor(
                 deleteConfirmationActive = confirmDelete,
                 onDeleteConfirmationChange = { confirmDelete = it },
                 deleteHoldToConfirm = true,
+                deleteEnabled = !saving,
             )
         },
     ) { overlayModifier ->
@@ -853,15 +884,6 @@ private fun JournalEditor(
                             headerTint = headerTint,
                             focusTitle = focusTitle,
                             titleFocusRequester = titleFocusRequester,
-                            showDiscard = showDiscard,
-                            onKeepEditing = { showDiscard = false },
-                            onDiscard = {
-                                title = entry.title
-                                body = TextFieldValue(entry.body)
-                                editedDate = entry.date
-                                showDiscard = false
-                                if (isNewEntry) closeAnimated(onDismiss) else isEditing = false
-                            },
                         )
                     }
                 }
@@ -887,13 +909,7 @@ private fun ColumnScope.JournalEditorContent(
     headerTint: Color,
     focusTitle: Boolean,
     titleFocusRequester: FocusRequester,
-    showDiscard: Boolean,
-    onKeepEditing: () -> Unit,
-    onDiscard: () -> Unit,
 ) {
-    val discardQuestion = stringResource(R.string.ed_journal_discard_question)
-    val keepEditingDescription = stringResource(R.string.ed_journal_keep_editing)
-    val discardDescription = stringResource(R.string.ed_journal_discard_changes)
     AnimatedContent(
         targetState = isEditing,
         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -925,27 +941,6 @@ private fun ColumnScope.JournalEditorContent(
                 title = title,
                 body = body.text,
             )
-        }
-    }
-
-    AnimatedVisibility(
-        visible = showDiscard,
-        enter = fadeIn(tween(150)) + expandVertically(tween(180)),
-        exit = fadeOut(tween(120)) + shrinkVertically(tween(150)),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().background(CalinoColors.Ink).padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(discardQuestion, style = CalinoTypography.bodyMedium, color = CalinoColors.Panel, modifier = Modifier.weight(1f))
-            TextButton(
-                onClick = onKeepEditing,
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = keepEditingDescription },
-            ) { Text(stringResource(R.string.ed_journal_keep_editing_short), color = CalinoColors.Panel) }
-            TextButton(
-                onClick = onDiscard,
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = discardDescription },
-            ) { Text(stringResource(R.string.ed_journal_discard), color = CalinoColors.AccentSoft) }
         }
     }
 

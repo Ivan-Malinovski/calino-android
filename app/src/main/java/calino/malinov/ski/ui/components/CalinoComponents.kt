@@ -90,6 +90,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -137,6 +138,7 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
@@ -508,7 +510,9 @@ fun SwipeDownDismiss(
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     val change = event.changes.firstOrNull { it.id == pointerId } ?: break
                     if (!change.pressed) {
-                        completed = true
+                        // Compose sends a consumed synthetic up for ACTION_CANCEL.
+                        // Only an actual, unconsumed release may commit the exit.
+                        completed = change.changedToUp()
                         break
                     }
 
@@ -2514,7 +2518,7 @@ fun AddPill(
                 // something running along the edge rather than under it.
                 .pillSaveTrace(saveTrace)
                 .pillDeleteCountdown(
-                    progress = deleteCountdown.value,
+                    progress = { deleteCountdown.value },
                     active = confirmationActive,
                     color = CalinoColors.Rose,
                 )
@@ -3251,7 +3255,7 @@ private fun DirectionalPillLabel(label: String, direction: Int) {
 }
 
 /** Draws the lane's continuous write feedback on whichever pill currently owns it. */
-private fun Modifier.pillSaveTrace(trace: PillSaveTrace) = drawWithContent {
+private fun Modifier.pillSaveTrace(trace: PillSaveTrace, cornerRadius: Dp? = null) = drawWithContent {
     drawContent()
     val alpha = trace.alpha.value
     if (alpha > 0f) {
@@ -3261,6 +3265,7 @@ private fun Modifier.pillSaveTrace(trace: PillSaveTrace) = drawWithContent {
             start = trace.phase.value,
             sweep = androidx.compose.ui.util.lerp(.22f, 1f, completion),
             strokeWidthPx = androidx.compose.ui.util.lerp(2.dp.toPx(), 3.dp.toPx(), completion),
+            cornerRadiusPx = cornerRadius?.toPx(),
         )
     }
 }
@@ -3271,7 +3276,7 @@ private fun Modifier.pillSaveTrace(trace: PillSaveTrace) = drawWithContent {
  * past the end. Drawn on the border line itself rather than outside it, so a
  * save never changes the pill's footprint.
  */
-private fun DrawScope.drawPillEdge(color: Color, start: Float, sweep: Float, strokeWidthPx: Float) {
+private fun DrawScope.drawPillEdge(color: Color, start: Float, sweep: Float, strokeWidthPx: Float, cornerRadiusPx: Float? = null) {
     if (sweep <= 0f || size.minDimension <= strokeWidthPx) return
     val inset = strokeWidthPx / 2f
     val outline = Path().apply {
@@ -3281,7 +3286,7 @@ private fun DrawScope.drawPillEdge(color: Color, start: Float, sweep: Float, str
                     Offset(inset, inset),
                     Size(size.width - strokeWidthPx, size.height - strokeWidthPx),
                 ),
-                cornerRadius = CornerRadius((size.height - strokeWidthPx) / 2f),
+                cornerRadius = CornerRadius(minOf(cornerRadiusPx ?: Float.MAX_VALUE, (size.minDimension - strokeWidthPx) / 2f)),
             )
         )
     }
@@ -3316,7 +3321,19 @@ internal data class ModalPillAction(
     val slot: ModalPillSlot,
 )
 
-private val ModalPillAction.face get() = listOf(label, description, icon, leadingIcon, tone)
+// Animation identity contains paint and layout only. Callback lambdas are
+// refreshed independently and must never restart a face's transition.
+private data class ModalPillFace(
+    val slot: ModalPillSlot,
+    val label: String,
+    val description: String,
+    val icon: CalinoIcon?,
+    val leadingIcon: CalinoIcon?,
+    val tone: ModalPillActionTone,
+    val status: Boolean,
+)
+
+private val ModalPillAction.face get() = ModalPillFace(slot, label, description, icon, leadingIcon, tone, status)
 
 internal enum class ModalPillSlot { Cancel, Delete, Secondary, Primary, Confirm }
 
@@ -3400,6 +3417,9 @@ fun ModalActionPill(
     // rather than to whatever scope the card's chips happen to be sitting on.
     // Null means the hold and the confirmed tap do the same thing.
     onDeleteHold: (() -> Unit)? = null,
+    dismissConfirmationActive: Boolean = false,
+    onDiscardChanges: () -> Unit = {},
+    onKeepEditing: () -> Unit = {},
 ) {
     val resolvedDeleteDescription = deleteDescription ?: stringResource(R.string.cal_delete)
     val resolvedCancelDescription = cancelDescription ?: stringResource(R.string.cal_cancel)
@@ -3597,7 +3617,7 @@ fun ModalActionPill(
         }
     }
 
-    val actionsForm: @Composable () -> Unit = {
+    val normalActionsForm: @Composable () -> Unit = {
         val reporting = inPillLane && expanded && lane.saveState != PillSaveState.Idle
         val writing = reporting && lane.saveState == PillSaveState.Saving
         // Fixed lanes, left to right: dismissal, destruction, whatever this
@@ -3699,15 +3719,19 @@ fun ModalActionPill(
             }
         }
         val targetActions = arrivingActions ?: if (expanded) actions else departingActions.value
+        val targetFaces = targetActions.map { it.face }
         AnimatedContent(
-            targetState = targetActions,
+            targetState = targetFaces,
             contentKey = { list -> list.any { it.slot == ModalPillSlot.Confirm } },
             modifier = Modifier.graphicsLayer { alpha = actionsAlpha },
             transitionSpec = { pillFaceTransition() },
             contentAlignment = Alignment.Center,
             label = "modal pill actions",
-        ) { shownActions ->
-            val currentFace = arrivingActions == null && shownActions.map { it.face } == targetActions.map { it.face }
+        ) { shownFaces ->
+            val retainedActions = remember { DepartingPillActions(targetActions) }
+            val shownActions = if (shownFaces == targetFaces) targetActions else retainedActions.value
+            SideEffect { if (shownFaces == targetFaces) retainedActions.value = targetActions }
+            val currentFace = arrivingActions == null && shownFaces == targetFaces
             Row(
                 Modifier
                     .then(if (currentFace) Modifier else Modifier.clearAndSetSemantics { })
@@ -3738,34 +3762,47 @@ fun ModalActionPill(
                                 if (shownActions.any { it.slot.ordinal < slot.ordinal }) {
                                     Box(Modifier.width(1.dp).height(22.dp).background(CalinoColors.OnFloat.copy(alpha = .28f)))
                                 }
+                                val saveButton = action.tone == ModalPillActionTone.Save && !action.status
+                                val saveFill by animateColorAsState(
+                                    if (saveButton) CalinoColors.SaveFill else Color.Transparent,
+                                    tween(CalinoMotion.ContentEnterMillis), label = "save button fill",
+                                )
+                                val foreground = if (saveButton) CalinoColors.OnSave else CalinoColors.OnFloat
                                 val tint by animateColorAsState(when (action.tone) {
                                     ModalPillActionTone.Neutral -> CalinoColors.OnFloat
-                                    // The palette's green is an ink for the light canvas, and
-                                    // on the pill's dark glass it has no lift at all -- it
-                                    // reads as a darker grey than the label beside it. Carried
-                                    // toward the surface's own foreground it stays the same
-                                    // hue and becomes a colour on this surface rather than a
-                                    // colour borrowed from another one. Rose already sits
-                                    // light enough to leave alone.
-                                    ModalPillActionTone.Save -> lerp(CalinoColors.Green, CalinoColors.OnFloat, .42f)
+                                    // Save buttons use their paired foreground. Status
+                                    // icons stay green on the glass, lifted toward its
+                                    // foreground so they remain readable there.
+                                    ModalPillActionTone.Save -> if (saveButton) foreground else lerp(CalinoColors.Green, CalinoColors.OnFloat, .42f)
                                     ModalPillActionTone.Delete -> CalinoColors.Rose
                                 }.copy(alpha = if (action.enabled || action.status) 1f else .45f), tween(CalinoMotion.ContentEnterMillis), label = "pill action tint")
                                 val labelTint by animateColorAsState(
-                                    CalinoColors.OnFloat.copy(alpha = if (action.enabled || action.status) 1f else .45f),
+                                    foreground.copy(alpha = if (action.enabled || action.status) 1f else .45f),
                                     tween(CalinoMotion.ContentEnterMillis), label = "pill action label tint",
                                 )
                                 TextButton(
                                     // A half-faded action is still on its way in or out.
                                     // Taking a tap there would fire an action the person
                                     // cannot yet read.
-                                    enabled = action.enabled && liveAction != null && laneLive && actionsLive && expanded && currentFace,
+                                    enabled = action.enabled && liveAction != null && laneLive && actionsLive && expanded && currentFace && !dismissConfirmationActive,
                                     onClick = action.onClick,
                                     interactionSource = if (action.holdInteraction) deleteInteraction else null,
+                                    shape = RoundedCornerShape(CalinoShapes.Pill),
+                                    colors = ButtonDefaults.textButtonColors(
+                                        containerColor = saveFill,
+                                        contentColor = labelTint,
+                                        // Entrance/exit gates disable input, not paint. Only
+                                        // a genuinely unavailable action should look disabled.
+                                        disabledContainerColor = if (action.enabled || action.status) saveFill
+                                            else saveFill.copy(alpha = if (saveButton) .3f else 0f),
+                                        disabledContentColor = labelTint,
+                                    ),
                                     modifier = Modifier
                                         // Only the floor of a tap target; the width above it
                                         // comes from the content.
                                         .widthIn(min = 48.dp)
                                         .heightIn(min = 48.dp)
+                                        .padding(horizontal = if (saveButton) 6.dp else 0.dp, vertical = if (saveButton) 4.dp else 0.dp)
                                         .then(if (action.status) Modifier.clearAndSetSemantics {
                                             contentDescription = action.description
                                             liveRegion = LiveRegionMode.Polite
@@ -3808,6 +3845,37 @@ fun ModalActionPill(
         }
     }
 
+    // Keep the same glass, backdrop, write trace and bottom anchor while the
+    // action face grows into the question. No second pill or animation owner.
+    var departingQuestion by remember { mutableStateOf(dismissConfirmationActive) }
+    SideEffect { if (expanded) departingQuestion = dismissConfirmationActive }
+    val showingQuestion = if (expanded) dismissConfirmationActive else departingQuestion
+    val actionsForm: @Composable () -> Unit = {
+        AnimatedContent(
+            targetState = showingQuestion,
+            transitionSpec = { pillFaceTransition() },
+            contentAlignment = Alignment.BottomCenter,
+            label = "unsaved changes pill",
+        ) { asking ->
+            if (asking) {
+                UnsavedChangesPillContent(
+                    onSave = { currentPrimary() },
+                    onDiscard = onDiscardChanges,
+                    onKeepEditing = onKeepEditing,
+                    canSave = primaryEnabled,
+                    interactive = dismissConfirmationActive && expanded && actionsLive,
+                    modifier = Modifier.graphicsLayer { alpha = actionsAlpha },
+                )
+            } else Box(if (dismissConfirmationActive) Modifier.clearAndSetSemantics { } else Modifier) {
+                normalActionsForm()
+            }
+        }
+    }
+    val questionCorner by androidx.compose.animation.core.animateDpAsState(
+        if (dismissConfirmationActive && expanded) 24.dp else CalinoSpacing.ActionPillHeight / 2,
+        CalinoMotion.standardSpatial(), label = "decision pill corner",
+    )
+    val pillShape = RoundedCornerShape(questionCorner)
     Layout(
         contents = listOf(addForm, actionsForm),
         modifier = modifier
@@ -3818,14 +3886,14 @@ fun ModalActionPill(
             // A record saved from a modal is written while this pill is still
             // morphing back, so the trace runs on whatever shape is in the
             // lane rather than waiting for the root pill to take it over.
-            .pillSaveTrace(saveTrace)
+            .pillSaveTrace(saveTrace, questionCorner)
             .pillDeleteCountdown(
-                progress = maxOf(confirmationCountdown.value, holdCountdown.value),
+                progress = { maxOf(confirmationCountdown.value, holdCountdown.value) },
                 active = deleteConfirmationActive || (deletePressed && deleteHoldToConfirm),
                 color = CalinoColors.Rose,
             )
-            .shadow(8.dp * CalinoColors.elevationAlpha, RoundedCornerShape(CalinoShapes.Pill), clip = false)
-            .clip(RoundedCornerShape(CalinoShapes.Pill))
+            .shadow(8.dp * CalinoColors.elevationAlpha, pillShape, clip = false)
+            .clip(pillShape)
             // The same glass the root pill is made of. The lane records the
             // card behind it, so the pill stays translucent over a modal
             // exactly as it is over a root surface.
@@ -3834,7 +3902,7 @@ fun ModalActionPill(
                 backdropOrigin = { lane.backdropOrigin },
                 backdropBase = if (inPillLane) CalinoColors.Canvas else null,
             )
-            .border(1.dp, CalinoColors.FloatBorder, RoundedCornerShape(CalinoShapes.Pill)),
+            .border(1.dp, CalinoColors.FloatBorder, pillShape),
     ) { (addMeasurables, actionMeasurables), constraints ->
         // The add shape is whatever its label measures -- the same label in
         // the same metrics the root pill wraps, so the two agree by
@@ -3863,14 +3931,17 @@ fun ModalActionPill(
     }
 }
 
+private class PillCountdownSnapshot(var progress: Float = 0f)
+
 @Composable
-private fun Modifier.pillDeleteCountdown(progress: Float, active: Boolean, color: Color): Modifier {
-    var lastProgress by remember { mutableFloatStateOf(0f) }
-    SideEffect { if (active) lastProgress = progress }
+private fun Modifier.pillDeleteCountdown(progress: () -> Float, active: Boolean, color: Color): Modifier {
+    val last = remember { PillCountdownSnapshot() }
     val alpha by animateFloatAsState(if (active) 1f else 0f, tween(CalinoMotion.ContentExitMillis), label = "pill delete ring fade")
     return drawWithContent {
         drawContent()
-        val shownProgress = if (active) progress else lastProgress
+        // Timer ticks invalidate drawing only; rebuilding callback-bearing
+        // action lists on every tick used to interrupt the confirmation fade.
+        val shownProgress = if (active) progress().also { last.progress = it } else last.progress
         if (alpha > 0f && shownProgress > 0f) {
             drawPillEdge(
                 color = color.copy(alpha = alpha),

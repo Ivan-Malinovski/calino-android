@@ -35,6 +35,7 @@ class WeekTaskSaveFailureTest {
         compose.onNodeWithContentDescription("Save task").assertIsDisplayed()
         compose.onNodeWithContentDescription("Choose task start date", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Cancel task editing").performClick()
+        compose.onNodeWithContentDescription("Discard changes and close").performClick()
         compose.waitUntil(5000) { backs.get() == 1 }
     }
     @Test fun thisWeekUsesSelectedWeekInsteadOfExistingDueWeek() {
