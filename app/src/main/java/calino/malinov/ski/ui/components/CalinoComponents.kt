@@ -212,15 +212,24 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private val Mono = androidx.compose.ui.text.font.FontFamily.Monospace
 
+/** How far, in touch slops, a held finger must travel before it is dragging. */
+private const val DragStartSlopFactor = 2f
+
 /**
  * One gesture for an actionable row: a normal tap opens it, a held tap opens
- * its action menu, and movement after either the drag cue or the menu becomes
- * a drag. The important detail is that movement is left unconsumed until the
- * drag activation delay has elapsed. A normal scroll therefore still belongs to
- * the LazyColumn instead of every row competing with it on every move.
+ * its action menu, and a deliberate move after that hold becomes a drag. The
+ * important detail is that movement is left unconsumed until the hold has
+ * lasted the system long-press timeout. A normal scroll therefore still belongs
+ * to the LazyColumn instead of every row competing with it on every move.
+ *
+ * Nothing arms earlier than the menu does. Arming at a fraction of the
+ * long-press timeout made a tap that was merely a little slow, or drifted a
+ * little, a reschedule; the drag now needs the same unmistakable hold as the
+ * menu, and then a move of [DragStartSlopFactor] times the touch slop, so the
+ * finger settling during the hold cannot start it either.
  *
  * The drag announces itself the moment it is available rather than on the
- * first movement: once the hold outlasts the activation delay, [onDragArmed]
+ * first movement: once the hold reaches the long-press timeout, [onDragArmed]
  * fires along with a short haptic tick, so the affordance appears while the
  * finger is still deciding instead of confirming a drag already underway.
  */
@@ -259,15 +268,31 @@ fun Modifier.calinoLongPressDrag(
             val downClock = SystemClock.uptimeMillis()
             val touchSlop = viewConfiguration.touchSlop
             val menuDelay = viewConfiguration.longPressTimeoutMillis.toLong()
-            // The web app's drag sensor activates shortly after the long-press
-            // affordance, while the menu remains reserved for a stationary
-            // hold. This makes the two gestures distinguishable by movement.
-            val dragDelay = minOf(menuDelay, 220L)
+            // The drag arms with the menu, not before it: a hold that has not
+            // reached the system long-press timeout is a tap or a scroll, and
+            // 220 ms was short enough for a slow tap to be neither.
+            val dragDelay = menuDelay
+            // Once armed, the finger must travel further than the scroll slop
+            // before it counts as a drag; a held finger is never perfectly
+            // still.
+            val dragSlop = touchSlop * DragStartSlopFactor
             var totalDrag = Offset.Zero
             var armed = false
             var menuShown = false
             var dragging = false
             var finished = false
+            // The hold has lasted: cue the drag and open the menu together, as
+            // a standard long press would.
+            fun arm() {
+                if (armed) return
+                armed = true
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                currentOnDragArmed?.invoke()
+                if (!menuShown && currentOnLongPress != null) {
+                    menuShown = true
+                    currentOnLongPress?.invoke()
+                }
+            }
             try {
                 while (!finished) {
                     // Observe the stream in Initial so a long-press drag can
@@ -280,11 +305,7 @@ fun Modifier.calinoLongPressDrag(
                     // stationary finger produces no events, and the drag has to
                     // announce itself on time without one.
                     val elapsedBeforeWait = SystemClock.uptimeMillis() - downClock
-                    val nextDeadline = when {
-                        !armed -> dragDelay
-                        !menuShown && currentOnLongPress != null -> menuDelay
-                        else -> null
-                    }
+                    val nextDeadline = if (!armed) dragDelay else null
                     val remainingToDeadline = nextDeadline?.minus(elapsedBeforeWait)
                     val event = if (remainingToDeadline != null && remainingToDeadline > 0) {
                         withTimeoutOrNull(remainingToDeadline) {
@@ -294,14 +315,7 @@ fun Modifier.calinoLongPressDrag(
                         awaitPointerEvent(PointerEventPass.Initial)
                     }
                     if (event == null) {
-                        if (!armed) {
-                            armed = true
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            currentOnDragArmed?.invoke()
-                        } else if (!menuShown) {
-                            menuShown = true
-                            currentOnLongPress?.invoke()
-                        }
+                        arm()
                         continue
                     }
                     val change = event.changes.firstOrNull { it.id == pointerId } ?: break
@@ -335,18 +349,18 @@ fun Modifier.calinoLongPressDrag(
                         continue
                     }
 
-                    if (!dragging && (change.position - down.position).getDistance() > touchSlop) {
+                    val moved = (change.position - down.position).getDistance()
+                    if (!dragging && !armed && moved > touchSlop) {
                         if (elapsed < dragDelay) {
                             // Let the scroll container continue to observe this
                             // stream. We deliberately do not consume it here.
                             finished = true
                             continue
                         }
-                        if (!armed) {
-                            armed = true
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            currentOnDragArmed?.invoke()
-                        }
+                        // The deadline and this move raced; the hold had lasted.
+                        arm()
+                    }
+                    if (!dragging && armed && moved > dragSlop) {
                         dragging = true
                         currentOnDragStart?.invoke()
                         currentOnDragStartPosition?.invoke(down.position)
