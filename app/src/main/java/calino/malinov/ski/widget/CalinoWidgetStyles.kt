@@ -1,7 +1,9 @@
 package calino.malinov.ski.widget
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,7 +84,7 @@ internal enum class WidgetStyle {
      * ledger's first column is small text that reads better close to the edge
      * than centred in whitespace.
      */
-    val canvasPadding: Dp get() = 10.dp
+    val canvasPadding: Dp @Composable get() = 10.wdp
 
     /**
      * Extra start padding for the header, on top of [canvasPadding].
@@ -93,11 +95,11 @@ internal enum class WidgetStyle {
      * and a cards widget side by side start their headings on one line, even
      * though their rows do not.
      */
-    val headerIndent: Dp get() = HeaderInset - canvasPadding
+    val headerIndent: Dp @Composable get() = HeaderInset - canvasPadding
 
     private companion object {
         /** Clear of the canvas's 20dp corner, in both styles. */
-        val HeaderInset = 20.dp
+        val HeaderInset: Dp @Composable get() = 20.wdp
     }
 }
 
@@ -121,7 +123,7 @@ internal fun LedgerRow(
             Box(
                 modifier = GlanceModifier
                     .fillMaxWidth()
-                    .height(1.dp)
+                    .height(1.wdp)
                     .background(CalinoWidgetColors.line),
                 contentAlignment = Alignment.Center,
             ) {}
@@ -129,7 +131,7 @@ internal fun LedgerRow(
         Row(
             modifier = GlanceModifier
                 .fillMaxWidth()
-                .padding(vertical = 5.dp)
+                .padding(vertical = 5.wdp)
                 .clickable(onClick),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -141,21 +143,21 @@ internal fun LedgerRow(
                 modifier = GlanceModifier.width(timeColumnWidth(timeFormat)),
                 style = TextStyle(
                     color = if (row.isNext) CalinoWidgetColors.accent else if (row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink2,
-                    fontSize = 10.5.sp,
+                    fontSize = 10.5.widgetSp,
                     fontWeight = if (row.isNext) FontWeight.Medium else FontWeight.Normal,
                     textAlign = TextAlign.End,
                 ),
                 maxLines = 1,
             )
-            Spacer(GlanceModifier.width(5.dp))
+            Spacer(GlanceModifier.width(5.wdp))
             RowMarker(row)
-            Spacer(GlanceModifier.width(5.dp))
+            Spacer(GlanceModifier.width(5.wdp))
             Text(
                 text = row.title,
                 modifier = GlanceModifier.defaultWeight(),
                 style = TextStyle(
                     color = if (row.done || row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink,
-                    fontSize = 13.sp,
+                    fontSize = 13.widgetSp,
                     fontWeight = if (row.isNext) FontWeight.Bold else FontWeight.Normal,
                     textDecoration = if (row.done) TextDecoration.LineThrough else TextDecoration.None,
                 ),
@@ -163,12 +165,16 @@ internal fun LedgerRow(
             )
             // The location is the first thing to go: at a narrow width the
             // title is what the row is for, and a truncated street name helps
-            // nobody.
+            // nobody. It gets a column of its own width rather than whatever
+            // it asks for: a wrap-content sibling is measured before the
+            // weighted title, so a long address used to take the row and leave
+            // the title an ellipsis.
             if (wide && row.location != null) {
-                Spacer(GlanceModifier.width(8.dp))
+                Spacer(GlanceModifier.width(8.wdp))
                 Text(
                     text = row.location,
-                    style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 11.sp),
+                    modifier = GlanceModifier.width(96.wdp),
+                    style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 11.widgetSp),
                     maxLines = 1,
                 )
             }
@@ -182,14 +188,14 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
     Row(
         modifier = GlanceModifier
             .fillMaxWidth()
-            .padding(bottom = 5.dp),
+            .padding(bottom = 5.wdp),
     ) {
         Row(
             modifier = GlanceModifier
                 .fillMaxWidth()
                 .background(CalinoWidgetColors.recordTint(row.color))
-                .cornerRadius(11.dp)
-                .padding(horizontal = 9.dp, vertical = 7.dp)
+                .cornerRadius(11.wdp)
+                .padding(horizontal = 9.wdp, vertical = 7.wdp)
                 .clickable(onClick),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -200,19 +206,19 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
             // one's does.
             Box(
                 modifier = GlanceModifier
-                    .width(3.dp)
-                    .height(if (row.location != null) 26.dp else 16.dp)
+                    .width(3.wdp)
+                    .height((if (row.location != null) 26.wdp else 16.wdp))
                     .background(CalinoWidgetColors.record(row.color))
-                    .cornerRadius(2.dp),
+                    .cornerRadius(2.wdp),
                 contentAlignment = Alignment.Center,
             ) {}
-            Spacer(GlanceModifier.width(8.dp))
+            Spacer(GlanceModifier.width(8.wdp))
             Column(modifier = GlanceModifier.defaultWeight()) {
                 Text(
                     text = row.title,
                     style = TextStyle(
                         color = if (row.done || row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink,
-                        fontSize = 12.5.sp,
+                        fontSize = 12.5.widgetSp,
                         fontWeight = if (row.isNext) FontWeight.Bold else FontWeight.Medium,
                         textDecoration = if (row.done) TextDecoration.LineThrough else TextDecoration.None,
                     ),
@@ -221,12 +227,12 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
                 row.location?.let {
                     Text(
                         text = it,
-                        style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 10.5.sp),
+                        style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 10.5.widgetSp),
                         maxLines = 1,
                     )
                 }
             }
-            Spacer(GlanceModifier.width(8.dp))
+            Spacer(GlanceModifier.width(8.wdp))
             // A task's bare "Due" is dropped rather than set beside the
             // checkbox: the control already says the row is a task, and the
             // word adds nothing next to it. A real due *time* still shows.
@@ -235,7 +241,7 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
                     text = row.timeLabel ?: if (row.allDay) androidx.glance.LocalContext.current.getString(R.string.sys_all_day) else androidx.glance.LocalContext.current.getString(R.string.sys_due),
                     style = TextStyle(
                         color = if (row.isNext) CalinoWidgetColors.accent else if (row.ended) CalinoWidgetColors.ink3 else CalinoWidgetColors.ink2,
-                        fontSize = 10.5.sp,
+                        fontSize = 10.5.widgetSp,
                         fontWeight = if (row.isNext) FontWeight.Medium else FontWeight.Normal,
                         textAlign = TextAlign.End,
                     ),
@@ -243,7 +249,7 @@ internal fun CardRow(row: WidgetAgendaRow, onClick: Action) {
                 )
             }
             if (row.kind == WidgetRowKind.Task) {
-                if (row.timeLabel != null) Spacer(GlanceModifier.width(4.dp))
+                if (row.timeLabel != null) Spacer(GlanceModifier.width(4.wdp))
                 TaskMarker(row)
             }
         }
@@ -269,9 +275,9 @@ private fun RowMarker(row: WidgetAgendaRow) {
         ) {
             Box(
                 modifier = GlanceModifier
-                    .size(5.dp)
+                    .size(5.wdp)
                     .background(CalinoWidgetColors.record(row.color))
-                    .cornerRadius(3.dp),
+                    .cornerRadius(3.wdp),
                 contentAlignment = Alignment.Center,
             ) {}
         }
@@ -298,7 +304,7 @@ internal fun TaskMarker(row: WidgetAgendaRow) {
                 if (row.done) R.drawable.ic_widget_task_done else R.drawable.ic_widget_task_open,
             ),
             contentDescription = if (row.done) androidx.glance.LocalContext.current.getString(R.string.sys_reopen, row.title) else androidx.glance.LocalContext.current.getString(R.string.sys_complete, row.title),
-            modifier = GlanceModifier.size(14.dp),
+            modifier = GlanceModifier.size(14.wdp),
             colorFilter = ColorFilter.tint(
                 if (row.done) CalinoWidgetColors.ink3 else CalinoWidgetColors.record(row.color),
             ),
@@ -314,7 +320,7 @@ internal fun TaskMarker(row: WidgetAgendaRow) {
  * the layout becomes a checkbox with a title attached. The row's own height
  * carries the rest of the target.
  */
-private val MarkerSlot = 20.dp
+private val MarkerSlot: Dp @Composable get() = 20.wdp
 
 /**
  * How wide the ledger's time column has to be.
@@ -329,5 +335,31 @@ private val MarkerSlot = 20.dp
  * the *left* and pushes the whole row away from the edge. That is worth being
  * exact about: it was the single biggest source of the ledger's indent.
  */
+@Composable
 private fun timeColumnWidth(format: CalinoTimeFormat): Dp =
-    if (format == CalinoTimeFormat.TwentyFourHour) 34.dp else 46.dp
+    (if (format == CalinoTimeFormat.TwentyFourHour) 34.wdp else 46.wdp)
+
+/**
+ * How much the launcher will shrink this widget, undone in advance.
+ *
+ * Samsung's launcher hands a widget that has not opted out a larger virtual
+ * canvas and then scales it down by `hsResizeRatio` (4/7 on a seven-column
+ * home grid), so a widget drawn at its design size arrives at roughly 57 % of
+ * it. Previews are not scaled, which is why the picker looked right and the
+ * home screen did not. Every dimension and every font size goes through
+ * [wdp] / [widgetSp] so the one factor, 1 / ratio, is applied uniformly and the
+ * result lands at the design size. It is 1 wherever the launcher does not scale.
+ */
+internal val LocalWidgetScale = compositionLocalOf { 1f }
+
+internal const val MaxWidgetScale = 2.5f
+
+/** The compensation for a launcher's `hsResizeRatio`; 1 when absent or nonsensical. */
+internal fun widgetScaleFor(hsResizeRatio: Float): Float =
+    if (hsResizeRatio > 0f && hsResizeRatio < 1f) (1f / hsResizeRatio).coerceAtMost(MaxWidgetScale) else 1f
+
+internal val Number.wdp: Dp
+    @Composable get() = (toFloat() * LocalWidgetScale.current).dp
+
+internal val Number.widgetSp: TextUnit
+    @Composable get() = (toFloat() * LocalWidgetScale.current).sp

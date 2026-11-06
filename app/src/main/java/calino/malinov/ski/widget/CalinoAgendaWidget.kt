@@ -1,10 +1,12 @@
 package calino.malinov.ski.widget
 
 import calino.malinov.ski.R
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +21,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
@@ -106,10 +109,27 @@ abstract class CalinoAgendaWidget internal constructor(
             untitledLabel = context.getString(R.string.sys_no_title),
         )
 
+        val scale = widgetScaleFor(launcherResizeRatio(context, id))
+
         provideContent {
-            Body(if (connected) currentSnapshot(container) else null, options)
+            CompositionLocalProvider(LocalWidgetScale provides scale) {
+                Body(if (connected) currentSnapshot(container) else null, options)
+            }
         }
     }
+
+    /**
+     * The factor Samsung's launcher will shrink this widget by, or 1.
+     *
+     * Read from the widget's options bundle; see [LocalWidgetScale] for why the
+     * widget has to know.
+     */
+    private fun launcherResizeRatio(context: Context, id: GlanceId): Float = runCatching {
+        val widgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+        AppWidgetManager.getInstance(context)
+            .getAppWidgetOptions(widgetId)
+            .getFloat("hsResizeRatio", 1f)
+    }.getOrDefault(1f)
 
     /**
      * The repository's snapshot, read *inside* the composition.
@@ -166,7 +186,7 @@ abstract class CalinoAgendaWidget internal constructor(
             modifier = GlanceModifier
                 .fillMaxSize()
                 .background(CalinoWidgetColors.canvas)
-                .cornerRadius(20.dp)
+                .cornerRadius(20.wdp)
                 .clickable(openAgenda(today)),
         ) {
             when {
@@ -194,7 +214,7 @@ abstract class CalinoAgendaWidget internal constructor(
             modifier = modifier
                 .background(CalinoWidgetColors.pill)
                 .cornerRadius(PillHeight / 2)
-                .padding(horizontal = 11.dp, vertical = 5.dp),
+                .padding(horizontal = 11.wdp, vertical = 5.wdp),
             verticalAlignment = Alignment.CenterVertically,
         ) { content() }
     }
@@ -203,18 +223,18 @@ abstract class CalinoAgendaWidget internal constructor(
     private fun HeaderPills(today: LocalDate, lookAhead: WidgetLookAhead) {
         val context = androidx.glance.LocalContext.current
         Row(
-            modifier = GlanceModifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = PillInset),
+            modifier = GlanceModifier.fillMaxWidth().padding(start = 10.wdp, end = 10.wdp, top = PillInset),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Pill {
                 Text(
                     text = if (content == WidgetContent.Tasks) context.getString(R.string.sys_tasks) else context.getString(R.string.sys_today),
-                    style = TextStyle(color = CalinoWidgetColors.ink, fontSize = 13.sp, fontWeight = FontWeight.Medium),
+                    style = TextStyle(color = CalinoWidgetColors.ink, fontSize = 13.widgetSp, fontWeight = FontWeight.Medium),
                 )
-                Spacer(GlanceModifier.width(7.dp))
+                Spacer(GlanceModifier.width(7.wdp))
                 Text(
                     text = today.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", context.resources.configuration.locales[0])),
-                    style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
+                    style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.widgetSp),
                 )
             }
             Spacer(GlanceModifier.defaultWeight())
@@ -222,7 +242,7 @@ abstract class CalinoAgendaWidget internal constructor(
                 Pill {
                     Text(
                         text = context.getString(R.string.sys_widget_next_days, lookAhead.days),
-                        style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 11.sp),
+                        style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 11.widgetSp),
                         maxLines = 1,
                     )
                 }
@@ -242,11 +262,11 @@ abstract class CalinoAgendaWidget internal constructor(
                 last.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", context.resources.configuration.locales[0])),
             )
         }
-        Row(modifier = GlanceModifier.padding(end = 10.dp, bottom = PillInset)) {
+        Row(modifier = GlanceModifier.padding(end = 10.wdp, bottom = PillInset)) {
             Pill(GlanceModifier.clickable(openAgenda(if (agenda.moreRows > 0) today else last))) {
                 Text(
                     text = text,
-                    style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 11.sp),
+                    style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 11.widgetSp),
                     maxLines = 1,
                 )
             }
@@ -256,18 +276,18 @@ abstract class CalinoAgendaWidget internal constructor(
     @Composable
     private fun Notice(title: String, subtitle: String?) {
         Box(
-            modifier = GlanceModifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, top = ListGap),
+            modifier = GlanceModifier.fillMaxSize().padding(start = 14.wdp, end = 14.wdp, top = ListGap),
             contentAlignment = Alignment.TopStart,
         ) {
             Column {
                 Text(
                     text = title,
-                    style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 13.sp),
+                    style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 13.widgetSp),
                 )
                 subtitle?.let {
                     Text(
                         text = it,
-                        style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
+                        style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.widgetSp),
                     )
                 }
             }
@@ -321,8 +341,8 @@ abstract class CalinoAgendaWidget internal constructor(
                     is WidgetEntry.Today -> SectionHeading(androidx.glance.LocalContext.current.getString(R.string.sys_today))
                     is WidgetEntry.Empty -> Text(
                         text = emptyText,
-                        modifier = GlanceModifier.padding(vertical = 4.dp),
-                        style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.sp),
+                        modifier = GlanceModifier.padding(vertical = 4.wdp),
+                        style = TextStyle(color = CalinoWidgetColors.ink3, fontSize = 12.widgetSp),
                     )
                     is WidgetEntry.RowItem -> when (style) {
                         WidgetStyle.Ledger -> LedgerRow(
@@ -353,10 +373,10 @@ abstract class CalinoAgendaWidget internal constructor(
     private fun SectionHeading(label: String) {
         Text(
             text = label,
-            modifier = GlanceModifier.fillMaxWidth().padding(bottom = 2.dp),
+            modifier = GlanceModifier.fillMaxWidth().padding(bottom = 2.wdp),
             style = TextStyle(
                 color = CalinoWidgetColors.ink3,
-                fontSize = 11.sp,
+                fontSize = 11.widgetSp,
                 fontWeight = FontWeight.Medium,
             ),
         )
@@ -368,11 +388,11 @@ abstract class CalinoAgendaWidget internal constructor(
             text = date.format(calino.malinov.ski.util.localizedDisplayFormatter("EEE, MMM d", androidx.glance.LocalContext.current.resources.configuration.locales[0])),
             modifier = GlanceModifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 2.dp)
+                .padding(top = 8.wdp, bottom = 2.wdp)
                 .clickable(openAgenda(date)),
             style = TextStyle(
                 color = CalinoWidgetColors.ink3,
-                fontSize = 11.sp,
+                fontSize = 11.widgetSp,
                 fontWeight = FontWeight.Medium,
             ),
         )
@@ -424,11 +444,11 @@ abstract class CalinoAgendaWidget internal constructor(
         private val MediumSize = DpSize(240.dp, 180.dp)
         private val LargeSize = DpSize(300.dp, 280.dp)
 
-        private val PillHeight = 28.dp
-        private val PillInset = 8.dp
+        private val PillHeight: Dp @Composable get() = 28.wdp
+        private val PillInset: Dp @Composable get() = 8.wdp
 
         /** Clears a pill and its inset, with a little air beneath. */
-        private val ListGap = PillHeight + PillInset + 2.dp
+        private val ListGap: Dp @Composable get() = PillHeight + PillInset + 2.wdp
 
     }
 }
