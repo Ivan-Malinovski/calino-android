@@ -120,6 +120,7 @@ import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -597,6 +598,8 @@ fun HomeScreen(
     onEventDrop: (CalEvent, LocalDate) -> Unit = { _, _ -> },
     onEventTimeDrop: (CalEvent, LocalDateTime) -> Unit = { _, _ -> },
     onCreateEventAt: ((LocalDateTime) -> Unit)? = null,
+    /** Holding empty space in the selected-day list: a new event on that day, at the editor's default time. */
+    onCreateEventOnDay: ((LocalDate) -> Unit)? = null,
     onTaskDone: (CalTask, Boolean) -> Unit = { _, _ -> },
     onTaskClick: ((CalTask) -> Unit)? = null,
     onTaskAction: (TaskMenuAction, CalTask) -> Unit = { _, _ -> },
@@ -2229,6 +2232,7 @@ fun HomeScreen(
                         onTaskAction = onTaskAction,
                         onTaskDrop = onTaskDrop,
                         onOpenDay = splitOpenDay,
+                        onCreateEventOnDay = if (interactionEnabled) onCreateEventOnDay else null,
                     )
                     if (monthAgendaPreview) {
                         val previewMonth = monthForPage(monthPreviewPage)
@@ -5757,6 +5761,7 @@ private fun DayPagerSurface(
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
+    onCreateEventOnDay: ((LocalDate) -> Unit)?,
 ) {
     HorizontalPager(
         state = state,
@@ -5789,6 +5794,7 @@ private fun DayPagerSurface(
                 onTaskAction = if (agendaOwnsInput) onTaskAction else null,
                 onTaskDrop = if (agendaOwnsInput) onTaskDrop else null,
                 onOpenDay = if (agendaOwnsInput) onOpenDay else null,
+                onCreateEventOnDay = if (agendaOwnsInput) onCreateEventOnDay else null,
             )
         }
     }
@@ -6178,7 +6184,10 @@ private fun SelectedDayAgendaPage(
     onTaskAction: ((TaskMenuAction, CalTask) -> Unit)?,
     onTaskDrop: ((CalTask, LocalDate) -> Unit)?,
     onOpenDay: ((LocalDate) -> Unit)?,
+    onCreateEventOnDay: ((LocalDate) -> Unit)? = null,
  ) {
+    val haptics = LocalHapticFeedback.current
+    val currentCreate by rememberUpdatedState(onCreateEventOnDay)
     val fullDateFormatter = localizedDateFormatter("EEEE, MMMM d")
     val agendaDateFormatter = localizedDateFormatter("EEE, MMM d")
     val agendaDescription = stringResource(R.string.cal_agenda_for_date, day.format(fullDateFormatter))
@@ -6197,6 +6206,18 @@ private fun SelectedDayAgendaPage(
     CompositionLocalProvider(LocalOverscrollFactory provides null) {
     Column(
         interactionModifier
+            // Holding empty space starts an event on this day. It sits outside
+            // the scroll so the list's own drag cancels the hold, and chips,
+            // task rows and buttons consume their presses first, so only a
+            // press on nothing gets here. The delay is the system long-press
+            // timeout, the same one the cards use.
+            .pointerInput(day, onCreateEventOnDay != null) {
+                if (currentCreate == null) return@pointerInput
+                detectTapGestures(onLongPress = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    currentCreate?.invoke(day)
+                })
+            }
             .verticalScroll(agendaScroll, enabled = active)
             .padding(horizontal = 16.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -6884,7 +6905,7 @@ internal data class TimelineCardBounds(
  * old time for as long as the round trip takes. Without this the card returned
  * to the hour it came from and then jumped to the new one a second later.
  */
-private data class PendingTimelineDrop(
+internal data class PendingTimelineDrop(
     val eventId: String,
     val start: LocalDateTime,
 )
@@ -7036,10 +7057,10 @@ private data class TimelineEventDragVisual(
 )
 
 /** How long a dropped card may sit ahead of its event before giving up. */
-private const val PendingDropHoldMillis = 4_000L
+internal const val PendingDropHoldMillis = 4_000L
 
 /** The events as drawn, with a just-dropped card already at its new time. */
-private fun withPendingDrop(events: List<CalEvent>, drop: PendingTimelineDrop?): List<CalEvent> {
+internal fun withPendingDrop(events: List<CalEvent>, drop: PendingTimelineDrop?): List<CalEvent> {
     if (drop == null) return events
     if (events.none { it.id == drop.eventId }) return events
     return events.map { event ->

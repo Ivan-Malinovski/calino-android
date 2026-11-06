@@ -2306,6 +2306,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 startMinute = start.toLocalTime().toSecondOfDay() / 60,
                             )
                         },
+                        onCreateEventOnDay = { day ->
+                            selectCalendarDate(day)
+                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, date = day)
+                        },
                         onTaskDrop = { task, date ->
                             launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
                         },

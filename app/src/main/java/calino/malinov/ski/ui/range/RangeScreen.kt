@@ -126,8 +126,11 @@ import calino.malinov.ski.ui.components.CompactDropdownControl
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.home.CompactLaneScrim
 import calino.malinov.ski.ui.home.HourRailContent
+import calino.malinov.ski.ui.home.PendingDropHoldMillis
+import calino.malinov.ski.ui.home.PendingTimelineDrop
 import calino.malinov.ski.ui.home.TimelineCardBounds
 import calino.malinov.ski.ui.home.TimelineEventCard
+import calino.malinov.ski.ui.home.withPendingDrop
 import calino.malinov.ski.ui.surfaces.EventMenuAction
 import calino.malinov.ski.ui.surfaces.TaskMenuAction
 import calino.malinov.ski.util.CalinoRangeMode
@@ -341,6 +344,7 @@ fun RangeScreen(
                     weekAligned = false
                     onDateChanged(firstDay)
                 },
+                events = events,
                 eventIndex = eventIndex,
                 tasks = tasks,
                 timelineScale = timelineScale,
@@ -450,6 +454,7 @@ private fun RangePagerSurface(
     weekAligned: Boolean,
     onHeaderSlidingChange: (Boolean) -> Unit,
     onRebase: (firstDay: LocalDate, page: Int) -> Unit,
+    events: List<CalEvent>,
     eventIndex: EventDateIndex,
     tasks: List<CalTask>,
     timelineScale: Float,
@@ -479,6 +484,28 @@ private fun RangePagerSurface(
     val preferences = LocalCalinoPreferences.current
     val cardBounds = remember { mutableStateMapOf<String, TimelineCardBounds>() }
     var drag by remember { mutableStateOf<RangeDragSession?>(null) }
+    // Where a just-dropped card is drawn until the write comes back. Releasing
+    // ends the drag at once, but the event keeps its old time for the length of
+    // the round trip; without this the card returned to its old slot for a few
+    // frames and only then jumped to the new one.
+    var pendingDrop by remember { mutableStateOf<PendingTimelineDrop?>(null) }
+    LaunchedEffect(eventIndex, pendingDrop) {
+        val dropped = pendingDrop ?: return@LaunchedEffect
+        val landed = eventIndex.eventsOn(dropped.start.toLocalDate())
+            .any { it.id == dropped.eventId && it.start == dropped.start }
+        if (landed) pendingDrop = null
+    }
+    // A write that is refused or never lands must not pin the card to a time
+    // the event does not have.
+    LaunchedEffect(pendingDrop) {
+        if (pendingDrop == null) return@LaunchedEffect
+        delay(PendingDropHoldMillis)
+        pendingDrop = null
+    }
+    val placedEventIndex = remember(events, eventIndex, pendingDrop) {
+        val dropped = pendingDrop ?: return@remember eventIndex
+        EventDateIndex.build(withPendingDrop(events, dropped))
+    }
     var hostOrigin by remember { mutableStateOf(Offset.Zero) }
     var hostWidth by remember { mutableIntStateOf(0) }
     var hostHeight by remember { mutableIntStateOf(0) }
@@ -762,7 +789,10 @@ private fun RangePagerSurface(
                         val start = session.card.event.start
                         val target = dragTarget?.let { rangeEventStartAfterDrop(session.card.event, session.card.day, it) }
                         if (start != null && target != null) {
-                            if (target != start) onEventTimeDrop(session.card.event, target)
+                            if (target != start) {
+                                pendingDrop = PendingTimelineDrop(session.card.event.id, target)
+                                onEventTimeDrop(session.card.event, target)
+                            }
                         }
                     }
                 },
@@ -829,7 +859,7 @@ private fun RangePagerSurface(
                     val days = rangeDays(pageAnchor, activeMode, weekStart, weekAligned)
                     RangePage(
                         days = days,
-                        eventIndex = eventIndex,
+                        eventIndex = placedEventIndex,
                         tasks = tasks.filterNot { it.isWeekTask() },
                         taskModifier = { task -> taskModifier(task, "page:$page") },
                         bottomReserve = bottomReserve,
