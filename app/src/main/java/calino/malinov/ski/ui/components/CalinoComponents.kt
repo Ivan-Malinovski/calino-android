@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.onClick
@@ -2178,6 +2179,19 @@ fun AddPill(
         !confirmationActive && !swipePreviewing
     val saveTrace = rememberPillSaveTrace()
     val deleteCountdown = remember { Animatable(0f) }
+    // The offer's own window, read from its deadline on every frame instead
+    // of animated beside it, so it cannot drift from the clock that actually
+    // withdraws the offer (a second timer here is how the two would disagree).
+    var undoRemaining by remember { mutableFloatStateOf(1f) }
+    LaunchedEffect(laneUndo, undoActive) {
+        val offer = laneUndo
+        if (offer == null || !undoActive) return@LaunchedEffect
+        while (true) {
+            undoRemaining = offer.remaining()
+            withFrameNanos { }
+        }
+    }
+    val currentUndoActive by rememberUpdatedState(undoActive)
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(confirmationActive) {
         deleteCountdown.snapTo(0f)
@@ -2498,7 +2512,9 @@ fun AddPill(
     // A drag left moves forward through the views, matching the direction the
     // root content slides in.
     val dragDirection = if (dragX < 0f) 1 else -1
-    val destination = if (dragX != 0f && currentCanSwipe(dragDirection)) currentDestinationLabel(dragDirection) else null
+    // While an undo offer is up the sideways drag dismisses it, so it must
+    // not also reveal the view it would switch to.
+    val destination = if (dragX != 0f && !undoActive && currentCanSwipe(dragDirection)) currentDestinationLabel(dragDirection) else null
     val progress = (abs(dragX) / commitPx).coerceIn(0f, 1f)
 
     Box(modifier, contentAlignment = Alignment.Center) {
@@ -2537,6 +2553,15 @@ fun AddPill(
                     progress = { deleteCountdown.value },
                     active = confirmationActive,
                     color = CalinoColors.Rose,
+                )
+                // The same edge, running the other way: the confirmation fills
+                // up to its deadline, an undo offer drains toward its own.
+                .pillDeleteCountdown(
+                    progress = { undoRemaining },
+                    active = undoActive,
+                    color = CalinoColors.FloatAction,
+                    strokeWidth = 3.dp,
+                    strength = 1f,
                 )
                 .shadow(8.dp * CalinoColors.elevationAlpha, pillShape, clip = false)
                 .clip(pillShape)
@@ -2670,6 +2695,14 @@ fun AddPill(
                                     detectDragGestures(
                                         onDragStart = { horizontal = false; vertical = false },
                                         onDragEnd = {
+                                            if (currentUndoActive) {
+                                                // Past the commit distance the offer is let go with
+                                                // no motion of its own: the pill just settles back
+                                                // and the lane reads whatever comes next.
+                                                if (horizontal && abs(dragX) >= commitPx) lane.undo?.onDismiss()
+                                                settle()
+                                                return@detectDragGestures
+                                            }
                                             if (currentLabelInert) {
                                                 settle()
                                                 return@detectDragGestures
@@ -2683,6 +2716,17 @@ fun AddPill(
                                         },
                                         onDragCancel = { settle() },
                                     ) { change, amount ->
+                                        if (currentUndoActive) {
+                                            if (!horizontal && !vertical) {
+                                                horizontal = abs(amount.x) >= abs(amount.y)
+                                                vertical = !horizontal
+                                            }
+                                            if (!horizontal) return@detectDragGestures
+                                            change.consume()
+                                            suppressClickAfterDrag = true
+                                            dragX = (dragX + amount.x).coerceIn(-maxTravelPx, maxTravelPx)
+                                            return@detectDragGestures
+                                        }
                                         if (currentLabelInert) return@detectDragGestures
                                         if (!horizontal && !vertical) {
                                             horizontal = abs(amount.x) >= abs(amount.y)
@@ -2708,6 +2752,10 @@ fun AddPill(
                                     if (saveState != PillSaveState.Idle) liveRegion = LiveRegionMode.Polite
                                     if (undoActive) {
                                         liveRegion = LiveRegionMode.Polite
+                                        dismiss {
+                                            laneUndo?.onDismiss()
+                                            true
+                                        }
                                     } else {
                                         contentDescription = when (saveState) {
                                             PillSaveState.Saving -> if (writeKind == PillWriteKind.Remove) removingLabel else savingLabel
@@ -2836,10 +2884,10 @@ fun AddPill(
                                         )
                                         Text(
                                             undoLabel,
-                                            color = CalinoColors.Accent,
+                                            color = CalinoColors.FloatAction,
                                             fontSize = 15.sp,
                                             lineHeight = 20.sp,
-                                            fontWeight = FontWeight.Medium,
+                                            fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(8.dp))
@@ -3950,7 +3998,13 @@ fun ModalActionPill(
 private class PillCountdownSnapshot(var progress: Float = 0f)
 
 @Composable
-private fun Modifier.pillDeleteCountdown(progress: () -> Float, active: Boolean, color: Color): Modifier {
+private fun Modifier.pillDeleteCountdown(
+    progress: () -> Float,
+    active: Boolean,
+    color: Color,
+    strokeWidth: Dp = 3.dp,
+    strength: Float = 1f,
+): Modifier {
     val last = remember { PillCountdownSnapshot() }
     val alpha by animateFloatAsState(if (active) 1f else 0f, tween(CalinoMotion.ContentExitMillis), label = "pill delete ring fade")
     return drawWithContent {
@@ -3960,10 +4014,10 @@ private fun Modifier.pillDeleteCountdown(progress: () -> Float, active: Boolean,
         val shownProgress = if (active) progress().also { last.progress = it } else last.progress
         if (alpha > 0f && shownProgress > 0f) {
             drawPillEdge(
-                color = color.copy(alpha = alpha),
+                color = color.copy(alpha = alpha * strength),
                 start = .75f,
                 sweep = shownProgress.coerceIn(0f, 1f),
-                strokeWidthPx = 3.dp.toPx(),
+                strokeWidthPx = strokeWidth.toPx(),
             )
         }
     }

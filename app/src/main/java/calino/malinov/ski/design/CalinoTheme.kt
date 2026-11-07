@@ -129,6 +129,13 @@ data class CalinoPalette(
     /** A quiet green wash on the pill's ink, with a readable sage foreground. */
     val SaveFill: Color get() = lerp(FloatFill, Green, .16f)
     val OnSave: Color get() = lerp(Green, OnFloat, .55f)
+    /**
+     * The accent as an action label on the floating pill. The pill is a
+     * translucent fill, so it renders lighter than [FloatFill] over the page,
+     * and [Accent] itself (about 2:1 there) cannot be read. Mostly [OnFloat]
+     * with a trace of accent keeps it legible and still apart from the title.
+     */
+    val FloatAction: Color get() = lerp(Accent, OnFloat, .85f)
 
     /** A translucent ink wash that lets the sampled blur remain visible. */
     val FloatFillAlpha: Float get() = .68f

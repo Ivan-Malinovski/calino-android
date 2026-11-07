@@ -2303,12 +2303,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             openQuickAdd(
                                 QuickAddKind.Event,
                                 PocReturnTarget.Calendar,
+                                morphFromAddPill = true,
                                 startMinute = start.toLocalTime().toSecondOfDay() / 60,
                             )
                         },
                         onCreateEventOnDay = { day ->
                             selectCalendarDate(day)
-                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, date = day)
+                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true, date = day)
                         },
                         onTaskDrop = { task, date ->
                             launchWrite({ repository.rescheduleTask(task.id, date) }) { showUndo(it) }
@@ -2363,7 +2364,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         },
                         onAddOn = { day ->
                             selectCalendarDate(day)
-                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Year)
+                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Year, morphFromAddPill = true)
                         },
                     )
                     }
@@ -2391,6 +2392,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             openQuickAdd(
                                 QuickAddKind.Event,
                                 PocReturnTarget.Range,
+                                morphFromAddPill = true,
                                 startMinute = start.toLocalTime().toSecondOfDay() / 60,
                             )
                         },
@@ -2402,7 +2404,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             val calendar = snapshot.calendars.firstOrNull { !it.readOnly && it.accepts("VTODO") }
                             if (calendar == null) writeError = textContext.getString(R.string.host_tasks_no_calendar)
                             else {
-                                openQuickAdd(QuickAddKind.Task, PocReturnTarget.Range, date = first)
+                                openQuickAdd(QuickAddKind.Task, PocReturnTarget.Range, morphFromAddPill = true, date = first)
                                 externalDraft = blankEditorDraft(kind = PocQuickAddKind.Task, date = last, title = title)
                                     .copy(taskStartDate = first, calendarId = calendar.id, color = calendar.color, allDay = true,
                                         touched = setOf(calino.malinov.ski.data.model.EditorField.Date, calino.malinov.ski.data.model.EditorField.Time))
@@ -2464,7 +2466,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         },
                         onAddOn = { date ->
                             selectCalendarDate(date)
-                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Agenda)
+                            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Agenda, morphFromAddPill = true)
                         },
                     )
                     PockRoute.Tasks -> Tasks(
@@ -2907,7 +2909,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onTaskDone = { task, done -> setTaskDone(task, done) },
                         onAdd = { day ->
                             selectCalendarDate(day)
-                            openQuickAdd(QuickAddKind.Event, if (rootRoute == PockRoute.Year) PocReturnTarget.Year else PocReturnTarget.Calendar)
+                            openQuickAdd(
+                                QuickAddKind.Event,
+                                if (rootRoute == PockRoute.Year) PocReturnTarget.Year else PocReturnTarget.Calendar,
+                                morphFromAddPill = true,
+                            )
                         },
                     )
                 }
@@ -3139,7 +3145,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     // overlay. The return target restores a fresh sheet,
                     // avoiding a hidden modal left behind the editor.
                     showDayModal = false
-                    openQuickAdd(QuickAddKind.Event, PocReturnTarget.DayModal)
+                    openQuickAdd(QuickAddKind.Event, PocReturnTarget.DayModal, morphFromAddPill = true)
                 },
                 onEvent = { event ->
                     selectedEventId = event.id

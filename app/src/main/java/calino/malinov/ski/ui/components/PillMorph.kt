@@ -214,11 +214,10 @@ class CalinoPillLane(
      * restarting the trace.
      */
     fun saveStarted(kind: PillWriteKind = PillWriteKind.Save) {
-        // A deliberate save is the more urgent thing happening on the pill.
-        // An undo offer from elsewhere on screen folds away rather than
-        // fighting it for the same label.
-        undoJob?.cancel()
-        undo = null
+        // A save is the more urgent thing happening on the pill, so it takes
+        // the label while it runs. Standing undo offers are not cancelled by
+        // it: they stay on their own clocks and surface again once the lane
+        // is back at rest.
         settleJob?.cancel()
         settleJob = null
         val newRun = writesInFlight == 0
@@ -253,41 +252,85 @@ class CalinoPillLane(
                 // A failure has its own message in the feedback lane. The pill
                 // just stops rather than claiming something landed.
                 saveState = PillSaveState.Idle
+                armWaiting()
                 return@launch
             }
             saveState = PillSaveState.Saved
             delay(SavedHoldMillis)
             saveState = PillSaveState.Idle
+            armWaiting()
         }
     }
 
     /**
      * An outcome from elsewhere on screen -- a task checked off, an event
-     * reopened -- named on the add pill instead of a floating banner, with
-     * the one way back for [UndoHoldMillis] before it settles into whatever
-     * the pill would otherwise be showing.
+     * reopened, a record deleted -- named on the add pill instead of a floating
+     * banner, with the one way back. This is the newest offer still standing;
+     * older ones wait behind it, up to [UndoStackLimit], each for [UndoHoldMillis].
      */
     var undo by mutableStateOf<PillUndoState?>(null)
         private set
 
-    private var undoJob: Job? = null
+    /**
+     * [armedAt] is when the offer first stood in the lane at rest, or -1 while
+     * a save still holds the label. The window is measured from there, so the
+     * person always gets the whole of [UndoHoldMillis] to read and act.
+     */
+    private class UndoEntry(
+        val scope: CoroutineScope,
+        var state: PillUndoState? = null,
+        var job: Job? = null,
+        var armedAt: Long = -1L,
+    )
+
+    private val undoStack = ArrayList<UndoEntry>()
 
     /**
-     * Shows [message] on the pill with an Undo action. A second call
-     * replaces whatever the pill currently names rather than queuing behind
-     * it -- only the most recent change is ever one tap away, matching the
-     * banner this replaced.
+     * Offers Undo for [message]. A second call stacks on top of the first
+     * rather than replacing it: a later action must not take away the way back
+     * from an earlier one. Taking an offer brings the next one up.
      */
     fun showUndo(message: String, scope: CoroutineScope, onUndo: () -> Unit) {
-        undoJob?.cancel()
-        undo = PillUndoState(message) {
-            undo = null
-            onUndo()
-        }
-        undoJob = scope.launch {
+        val entry = UndoEntry(scope)
+        val state = PillUndoState(
+            message = message,
+            onUndo = {
+                retire(entry)
+                onUndo()
+            },
+            onDismiss = { retire(entry) },
+            remaining = { remaining(entry) },
+        )
+        entry.state = state
+        undoStack += entry
+        while (undoStack.size > UndoStackLimit) undoStack.removeAt(0).job?.cancel()
+        undo = state
+        // A write in flight owns the label, so the clock waits for the lane to
+        // come back to rest rather than spending the window on "Saving".
+        if (saveState == PillSaveState.Idle) arm(entry)
+    }
+
+    private fun arm(entry: UndoEntry) {
+        if (entry.armedAt >= 0L) return
+        entry.armedAt = nowMillis()
+        entry.job = entry.scope.launch {
             delay(UndoHoldMillis)
-            undo = null
+            retire(entry)
         }
+    }
+
+    private fun armWaiting() = undoStack.toList().forEach(::arm)
+
+    /** How much of the window is left, 1 to 0, read from the clock on every frame. */
+    private fun remaining(entry: UndoEntry): Float {
+        if (entry.armedAt < 0L) return 1f
+        return (1f - (nowMillis() - entry.armedAt).toFloat() / UndoHoldMillis).coerceIn(0f, 1f)
+    }
+
+    private fun retire(entry: UndoEntry) {
+        entry.job?.cancel()
+        undoStack.remove(entry)
+        undo = undoStack.lastOrNull()?.state
     }
 
     internal fun claim() {
@@ -318,7 +361,14 @@ class CalinoPillLane(
 enum class PillSaveState { Idle, Saving, Saved }
 
 /** An undo offer standing in the lane: what to say, and the one way back. */
-data class PillUndoState(val message: String, val onUndo: () -> Unit)
+data class PillUndoState(
+    val message: String,
+    val onUndo: () -> Unit,
+    /** Lets the offer go without taking it: the swipe away. */
+    val onDismiss: () -> Unit = {},
+    /** What is left of its window, 1 to 0. Read per frame by whatever draws the countdown. */
+    val remaining: () -> Float = { 1f },
+)
 
 /**
  * What the write is doing to the record, which is all that separates the two
@@ -338,7 +388,10 @@ const val MinSavingMillis = 450L
 const val SavedHoldMillis = 1600L
 
 /** How long an undo offer stands in the lane before it withdraws itself. */
-const val UndoHoldMillis = 5_000L
+const val UndoHoldMillis = 10_000L
+
+/** How many undo offers the lane keeps, newest first. */
+const val UndoStackLimit = 5
 
 /** The lane the surrounding screen provides; a default keeps previews working. */
 val LocalCalinoPillLane = staticCompositionLocalOf { CalinoPillLane() }
