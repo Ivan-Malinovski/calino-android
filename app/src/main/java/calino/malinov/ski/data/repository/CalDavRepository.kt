@@ -1,5 +1,6 @@
 package calino.malinov.ski.data.repository
 
+import calino.malinov.ski.data.model.derivedDisplayName
 import calino.malinov.ski.data.caldav.CachedCalendar
 import calino.malinov.ski.data.caldav.readInlineAttachment
 import calino.malinov.ski.data.model.CalendarProtocol
@@ -226,6 +227,8 @@ class CalDavRepository(
     private val writer: CalendarWriting = CalDavWriter(cache = cache),
     private val cardWriter: ContactWriting = CardDavWriter(cache = cache),
     private val pendingStore: PendingChangeStore? = null,
+    /** Deleted resources kept on the device so Undo and "Recently deleted" can bring them back. */
+    private val trash: TrashStore = InMemoryTrashStore(),
 ) : CalinoRepository {
 
     private var windowMonths: Long = windowMonths
@@ -1564,6 +1567,23 @@ class CalDavRepository(
         id: String,
         scope: RecurrenceEditScope,
         occurrenceDate: LocalDate?,
+    ): WriteResult<UndoableChange?> {
+        val current = events().firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
+        val uid = current.uid ?: current.id
+        val entry = captureForTrash(
+            kind = TrashKind.Event,
+            source = sourceForRecord(current.calendarId, current.href),
+            uid = uid,
+            href = current.href,
+            title = current.title,
+            recordIds = events().filter { (it.uid ?: it.id) == uid }.map { it.id },
+        )
+        return deleteEventOnServer(id, scope).withTrash(entry)
+    }
+
+    private suspend fun deleteEventOnServer(
+        id: String,
+        scope: RecurrenceEditScope,
     ): WriteResult<Unit> {
         val current = events().firstOrNull { it.id == id }
             ?: return WriteResult.Applied(Unit)
@@ -1684,7 +1704,21 @@ class CalDavRepository(
         }
     }
 
-    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
+    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<UndoableChange?> {
+        val current = tasks().firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
+        val uid = current.uid ?: current.id
+        val entry = captureForTrash(
+            kind = TrashKind.Task,
+            source = sourceForRecord(null, current.href),
+            uid = uid,
+            href = current.href,
+            title = current.title,
+            recordIds = tasks().filter { (it.uid ?: it.id) == uid }.map { it.id },
+        )
+        return deleteTaskOnServer(id, scope).withTrash(entry)
+    }
+
+    private suspend fun deleteTaskOnServer(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
         val current = tasks().firstOrNull { it.id == id }
             ?: return WriteResult.Applied(Unit)
         val source = sourceForRecord(null, current.href)
@@ -1805,7 +1839,20 @@ class CalDavRepository(
         }
     }
 
-    override suspend fun deleteJournal(id: String): WriteResult<Unit> {
+    override suspend fun deleteJournal(id: String): WriteResult<UndoableChange?> {
+        val current = journals().firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
+        val entry = captureForTrash(
+            kind = TrashKind.Journal,
+            source = sourceForRecord(null, current.href),
+            uid = current.uid ?: current.id,
+            href = current.href,
+            title = current.title.ifBlank { current.date.toString() },
+            recordIds = listOf(current.id),
+        )
+        return deleteJournalOnServer(id).withTrash(entry)
+    }
+
+    private suspend fun deleteJournalOnServer(id: String): WriteResult<Unit> {
         val current = journals().firstOrNull { it.id == id }
             ?: return WriteResult.Applied(Unit)
         val source = sourceForRecord(null, current.href)
@@ -1920,7 +1967,39 @@ class CalDavRepository(
         }
     }
 
-    override suspend fun deleteContact(id: String): WriteResult<Unit> {
+    override suspend fun deleteContact(id: String): WriteResult<UndoableChange?> {
+        // Captured before the delete: a successful DELETE evicts the cached card.
+        val entry = contacts().firstOrNull { it.id == id }?.let { captureContactForTrash(it) }
+        return deleteContactOnServerWithOverlay(id).withTrash(entry)
+    }
+
+    /** The vCard a contact delete is about to remove, as the server last sent it. */
+    private suspend fun captureContactForTrash(contact: Contact): TrashEntry? {
+        val source = sourceForContact(contact) ?: return null
+        val href = contact.href ?: return null
+        val resolved = CardDavWriter.resolveHref(source.addressBook.url, href)
+        val cached = withContext(ioDispatcher) { cachedCard(source.addressBook.url, resolved)?.vcf }
+        val body = cached ?: contact.rawVCard?.takeIf { it.isNotBlank() } ?: return null
+        return TrashEntry(
+            id = TrashStore.newId(),
+            kind = TrashKind.Contact,
+            title = contact.derivedDisplayName(),
+            accountId = source.accountId,
+            collectionUrl = source.addressBook.url,
+            href = resolved,
+            uid = contact.uid ?: contact.id,
+            recordIds = listOf(contact.id),
+            body = body,
+            deletedAt = Instant.now(),
+        )
+    }
+
+    private fun cachedCard(bookUrl: String, resolvedHref: String): CardResource? =
+        cache.loadAddressBook(bookUrl)?.resources?.firstOrNull {
+            it.href == resolvedHref || CardDavWriter.resolveHref(bookUrl, it.href) == resolvedHref
+        }
+
+    private suspend fun deleteContactOnServerWithOverlay(id: String): WriteResult<Unit> {
         val current = contacts().firstOrNull { it.id == id }
             ?: return WriteResult.Applied(Unit)
         val source = sourceForContact(current)
@@ -1977,6 +2056,11 @@ class CalDavRepository(
     }
 
     override suspend fun undo(change: UndoableChange): WriteResult<Unit> {
+        if (change.kind == ChangeKind.Deleted) {
+            val entryId = (change.before as? ChangeValue.Trashed)?.entryId
+                ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+            return restoreFromTrash(entryId)
+        }
         if (change.kind != ChangeKind.Task) return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         val before = (change.before as? ChangeValue.Task)?.value
             ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
@@ -2002,6 +2086,291 @@ class CalDavRepository(
             }
             is WriteResult.Rejected -> result
         }
+    }
+
+    // ---- Trash: capture before a delete, restore by writing the raw bytes back ----
+
+    /**
+     * Reads the resource a delete is about to remove. Raw cached bytes, not a
+     * rebuild from the model, so properties Calino does not edit survive the
+     * round trip. Null (no Undo offered) when nothing is cached to restore from.
+     */
+    private suspend fun captureForTrash(
+        kind: TrashKind,
+        source: CalDavSource?,
+        uid: String,
+        href: String?,
+        title: String,
+        recordIds: List<String>,
+    ): TrashEntry? {
+        source ?: return null
+        val resourceHref = resourceHref(source.calendar.url, href, uid)
+        val cached = withContext(ioDispatcher) { cache.loadResource(source.calendar.url, resourceHref) }
+            ?: return null
+        return TrashEntry(
+            id = TrashStore.newId(),
+            kind = kind,
+            title = title,
+            accountId = source.accountId,
+            collectionUrl = source.calendar.url,
+            href = resourceHref,
+            uid = uid,
+            recordIds = recordIds,
+            body = cached.ics,
+            deletedAt = Instant.now(),
+        )
+    }
+
+    /** Files [entry] in the trash once the delete itself succeeded or was queued. */
+    private fun WriteResult<Unit>.withTrash(entry: TrashEntry?): WriteResult<UndoableChange?> {
+        fun change(): UndoableChange? = entry?.let {
+            trash.add(it)
+            deletedChange(it.id, ChangeValue.Trashed(it.id, it.title), it.title)
+        }
+        return when (this) {
+            is WriteResult.Applied -> WriteResult.Applied(change())
+            is WriteResult.Queued -> WriteResult.Queued(change())
+            is WriteResult.Rejected -> this
+        }
+    }
+
+    private fun TrashKind.component(): String = when (this) {
+        TrashKind.Event -> "VEVENT"
+        TrashKind.Task -> "VTODO"
+        TrashKind.Journal -> "VJOURNAL"
+        TrashKind.Contact -> "VCARD"
+    }
+
+    /** What the Settings screen lists. */
+    fun trashedItems(): List<TrashEntry> {
+        val connected = (sources.map { it.accountId } + addressBookSources.map { it.accountId }).toSet()
+        return trash.list().filter { it.accountId in connected }
+    }
+
+    fun deleteTrashed(entryId: String) = trash.remove(entryId)
+
+    fun emptyTrash() = trash.clear()
+
+    /** A removed account's trash goes with it. */
+    fun purgeTrashForAccount(accountId: String) =
+        trash.removeAccountsExcept(trash.list().map { it.accountId }.toSet() - accountId)
+
+    /** Called when the connected accounts change: a removed account's trash goes with it. */
+    fun purgeTrashExcept(accountIds: Set<String>) = trash.removeAccountsExcept(accountIds)
+
+    /**
+     * Puts a deleted calendar resource back.
+     *
+     * - A delete still waiting in the write queue is simply taken out of it
+     *   when it has already failed once, or a CREATE is queued behind it when it
+     *   has not (the queue replays a resource's changes in order).
+     * - A scoped delete of a series rewrote a surviving resource, so the old
+     *   bytes are written over it, conditionally on the ETag we hold.
+     * - Anything else is a removal: the bytes are PUT back with If-None-Match,
+     *   offline included, through the same queue as any create.
+     */
+    suspend fun restoreFromTrash(entryId: String): WriteResult<Unit> {
+        val entry = trash.get(entryId)
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+        if (entry.kind == TrashKind.Contact) return restoreContactFromTrash(entry)
+        val component = entry.kind.component()
+        val source = sources.firstOrNull {
+            it.accountId == entry.accountId && it.calendar.url == entry.collectionUrl
+        } ?: return WriteResult.Rejected(WriteRejectionCode.EVENT_CALENDAR_UNCONNECTED)
+        writableRejection(source, component)?.let { return it }
+
+        val related = pendingStore?.snapshot().orEmpty().filter {
+            it.component.equals(component, ignoreCase = true) &&
+                (it.uid == entry.uid || it.href == entry.href || it.eventId in entry.recordIds)
+        }
+        val onlyDeletes = related.all {
+            it.type == PendingChangeType.DELETE || it.type == PendingChangeType.DELETE_HREF
+        }
+        val eventId = entry.recordIds.firstOrNull() ?: entry.uid
+
+        if (related.isNotEmpty() && !onlyDeletes) {
+            // An edit or move is queued for this item as well. Rebasing the old
+            // bytes over it cannot be done safely; the trash entry stays so the
+            // person can try again once it has synced.
+            return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+        }
+        if (related.isNotEmpty() && related.none { it.state == PendingChangeState.PENDING }) {
+            // Nothing was sent or is in flight: take the delete back out of the queue.
+            related.forEach { discardPendingChange(it.id) }
+            finishRestore(entry)
+            return WriteResult.Applied(Unit)
+        }
+
+        val existing = withContext(ioDispatcher) { cache.loadResource(source.calendar.url, entry.href) }
+        if (existing != null && related.isEmpty() && existing.ics == entry.body) {
+            finishRestore(entry)
+            return WriteResult.Applied(Unit)
+        }
+
+        val result: WriteResult<Unit> = when {
+            related.isNotEmpty() -> {
+                // A DELETE has been handed to the queue but may be mid-flight.
+                // A CREATE queued behind it replays after it, for the same resource.
+                queueCalendarPutFailure(
+                    source = source,
+                    changeType = PendingChangeType.CREATE,
+                    eventId = eventId,
+                    component = component,
+                    uid = entry.uid,
+                    prepared = PreparedCalendarWrite(entry.href, entry.body, DavPrecondition.New, null),
+                    baseData = null,
+                    error = java.io.IOException("Queued behind the delete it takes back."),
+                    record = Unit,
+                )
+            }
+            existing != null -> putCalendarWithQueue(
+                source = source,
+                changeType = PendingChangeType.UPDATE,
+                eventId = eventId,
+                component = component,
+                uid = entry.uid,
+                etag = existing.etag,
+                prepare = { etag ->
+                    val tag = etag ?: existing.etag
+                    PreparedCalendarWrite(
+                        entry.href,
+                        entry.body,
+                        tag?.let { DavPrecondition.Match(it) } ?: DavPrecondition.New,
+                        tag,
+                    )
+                },
+                record = { },
+                queuedRecord = { },
+            )
+            else -> putCalendarWithQueue(
+                source = source,
+                changeType = PendingChangeType.CREATE,
+                eventId = eventId,
+                component = component,
+                uid = entry.uid,
+                etag = null,
+                prepare = { PreparedCalendarWrite(entry.href, entry.body, DavPrecondition.New, null) },
+                record = { },
+                queuedRecord = { },
+            )
+        }
+        if (result is WriteResult.Rejected) return result
+        finishRestore(entry)
+        if (result is WriteResult.Queued) restoreQueuedOverlays()
+        publish()
+        if (result is WriteResult.Applied) reload(useCache = false)
+        return result
+    }
+
+    /** The contact twin of [restoreFromTrash]: the same three cases, written through CardDAV. */
+    private suspend fun restoreContactFromTrash(entry: TrashEntry): WriteResult<Unit> {
+        val source = addressBookSources.firstOrNull {
+            it.accountId == entry.accountId && it.addressBook.url == entry.collectionUrl
+        } ?: return WriteResult.Rejected(WriteRejectionCode.CONTACT_ADDRESS_BOOK_UNCONNECTED)
+        if (source.addressBook.readOnly) return WriteResult.Rejected("${source.addressBook.displayName} is read-only.")
+        val contactId = entry.recordIds.firstOrNull() ?: entry.uid
+
+        val related = pendingStore?.snapshot().orEmpty().filter {
+            it.component.equals("VCARD", ignoreCase = true) &&
+                (it.uid == entry.uid || it.href == entry.href || it.eventId in entry.recordIds)
+        }
+        val onlyDeletes = related.all {
+            it.type == PendingChangeType.DELETE || it.type == PendingChangeType.DELETE_HREF
+        }
+        if (related.isNotEmpty() && !onlyDeletes) return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+        if (related.isNotEmpty() && related.none { it.state == PendingChangeState.PENDING }) {
+            related.forEach { discardPendingChange(it.id) }
+            finishRestore(entry)
+            return WriteResult.Applied(Unit)
+        }
+
+        val existing = withContext(ioDispatcher) { cachedCard(source.addressBook.url, entry.href) }
+        if (existing != null && related.isEmpty() && existing.vcf == entry.body) {
+            finishRestore(entry)
+            return WriteResult.Applied(Unit)
+        }
+        val restored = vCardMapper.map(
+            vcf = entry.body,
+            addressBookId = source.addressBook.url,
+            accountId = source.accountId,
+            href = entry.href,
+            etag = null,
+        )?.copy(id = contactId, uid = entry.uid, href = entry.href)
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+
+        val result: WriteResult<Contact> = when {
+            related.isNotEmpty() -> queueCardPutFailure(
+                source = source,
+                changeType = PendingChangeType.CREATE,
+                contact = restored,
+                prepared = PreparedCardWrite(entry.href, entry.body, DavPrecondition.New, null),
+                baseData = null,
+                error = java.io.IOException("Queued behind the delete it takes back."),
+            )
+            else -> {
+                val tag = existing?.etag
+                val prepared = PreparedCardWrite(
+                    entry.href,
+                    entry.body,
+                    tag?.let { DavPrecondition.Match(it) } ?: DavPrecondition.New,
+                    tag,
+                )
+                val outcome = attemptWrite(source.addressBook.url) {
+                    cardWriter.putPrepared(source.addressBook, source.credentials, prepared)
+                }
+                val error = outcome.exceptionOrNull()
+                if (error != null) {
+                    queueCardPutFailure(
+                        source = source,
+                        changeType = if (existing != null) PendingChangeType.UPDATE else PendingChangeType.CREATE,
+                        contact = restored.copy(etag = tag),
+                        prepared = prepared,
+                        baseData = existing?.vcf,
+                        error = error,
+                    )
+                } else {
+                    val written = outcome.getOrThrow()
+                    clearWriteStatus(contactId)
+                    WriteResult.Applied(
+                        restored.copy(
+                            href = written.href,
+                            etag = written.etag,
+                            rawVCard = written.vcf,
+                        ),
+                    )
+                }
+            }
+        }
+        return when (result) {
+            is WriteResult.Rejected -> result
+            is WriteResult.Applied -> {
+                finishRestore(entry)
+                overlay.putContact(result.record)
+                publish()
+                reload(useCache = false)
+                WriteResult.Applied(Unit)
+            }
+            is WriteResult.Queued -> {
+                finishRestore(entry)
+                restoreQueuedOverlays()
+                overlay.putContact(result.record)
+                publish()
+                WriteResult.Queued(Unit)
+            }
+        }
+    }
+
+    private fun finishRestore(entry: TrashEntry) {
+        entry.recordIds.forEach { id ->
+            when (entry.kind) {
+                TrashKind.Event -> overlay.dropEvent(id)
+                TrashKind.Task -> overlay.dropTask(id)
+                TrashKind.Journal -> overlay.dropJournal(id)
+                TrashKind.Contact -> overlay.dropContact(id)
+            }
+        }
+        trash.remove(entry.id)
+        publish()
     }
 
     private suspend fun taskChange(

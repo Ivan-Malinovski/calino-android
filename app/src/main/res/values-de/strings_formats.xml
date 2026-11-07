@@ -31,6 +31,7 @@
     </plurals>
     <string name="fmt_completed">%1$s erledigt</string>
     <string name="fmt_reopened">%1$s wieder geöffnet</string>
+    <string name="fmt_deleted">%1$s gelöscht</string>
     <string name="fmt_rescheduled">%1$s auf %2$s verschoben</string>
     <string name="fmt_no_date">kein Datum</string>
 </resources>

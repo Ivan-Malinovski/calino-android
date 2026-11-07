@@ -31,6 +31,7 @@
     </plurals>
     <string name="fmt_completed">Fuldførte %1$s</string>
     <string name="fmt_reopened">Genåbnede %1$s</string>
+    <string name="fmt_deleted">Slettede %1$s</string>
     <string name="fmt_rescheduled">Flyttede %1$s til %2$s</string>
     <string name="fmt_no_date">ingen dato</string>
 </resources>

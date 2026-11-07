@@ -42,6 +42,7 @@ import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalinoRepository
 import calino.malinov.ski.data.repository.CalinoSnapshot
 import calino.malinov.ski.data.repository.FilePendingChangeStore
+import calino.malinov.ski.data.repository.FileTrashStore
 import calino.malinov.ski.data.repository.FixtureRepository
 import calino.malinov.ski.data.repository.ImportingRepository
 import calino.malinov.ski.data.repository.SharedPreferencesWebcalPersistence
@@ -207,6 +208,7 @@ class CalinoContainer private constructor(context: Context) {
             jmap = JmapContactsWriter(jmapClients, jmapContactsFetcher, cardDavWriter, calendarCache),
         ),
         pendingStore = pendingChangeStore,
+        trash = FileTrashStore(File(application.filesDir, "caldav-trash.json.gz")),
     )
 
     private val connections = CalDavConnectionManager(
@@ -492,6 +494,7 @@ class CalinoContainer private constructor(context: Context) {
 
     fun onAccountRemoved(accountId: String) {
         accountStore.removeAccount(accountId)
+        calDavRepository.purgeTrashForAccount(accountId)
         connections.onAccountRemoved(accountId)
         jmapPush.reconcile()
         updateActiveRepository()

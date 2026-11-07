@@ -185,12 +185,17 @@ class ImportingRepository(
         id: String,
         scope: RecurrenceEditScope,
         occurrenceDate: LocalDate?,
-    ): WriteResult<Unit> {
+    ): WriteResult<UndoableChange?> {
         val route = imported.routes[id]
         if (route != null) {
             val result = writer?.delete(route, scope, writableCalendarIds()) ?: rejection()
             if (result is WriteResult.Applied) refreshImport()
-            return result
+            // Device-calendar deletes belong to the provider; Calino keeps no trash for them.
+            return when (result) {
+                is WriteResult.Applied -> WriteResult.Applied(null)
+                is WriteResult.Queued -> WriteResult.Queued(null)
+                is WriteResult.Rejected -> result
+            }
         }
         return if (importedRecord(id)) rejection() else primary.deleteEvent(id, scope, occurrenceDate)
     }
@@ -207,7 +212,7 @@ class ImportingRepository(
     override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> =
         primary.updateTask(id, input, done)
 
-    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> =
+    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<UndoableChange?> =
         primary.deleteTask(id, scope)
 
     override suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry> =
@@ -216,7 +221,7 @@ class ImportingRepository(
     override suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry> =
         primary.updateJournal(id, input)
 
-    override suspend fun deleteJournal(id: String): WriteResult<Unit> = primary.deleteJournal(id)
+    override suspend fun deleteJournal(id: String): WriteResult<UndoableChange?> = primary.deleteJournal(id)
 
     override suspend fun addContact(input: NewContact): WriteResult<Contact> =
         primary.addContact(input)
@@ -224,7 +229,7 @@ class ImportingRepository(
     override suspend fun updateContact(id: String, input: NewContact): WriteResult<Contact> =
         primary.updateContact(id, input)
 
-    override suspend fun deleteContact(id: String): WriteResult<Unit> = primary.deleteContact(id)
+    override suspend fun deleteContact(id: String): WriteResult<UndoableChange?> = primary.deleteContact(id)
 
     override suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange> =
         primary.setTaskDone(id, done)

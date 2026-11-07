@@ -176,16 +176,16 @@ interface CalinoRepository {
         id: String,
         scope: RecurrenceEditScope = RecurrenceEditScope.All,
         occurrenceDate: LocalDate? = null,
-    ): WriteResult<Unit>
+    ): WriteResult<UndoableChange?>
     suspend fun addTask(input: NewTask): WriteResult<CalTask>
     suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask>
-    suspend fun deleteTask(id: String, scope: RecurrenceEditScope = RecurrenceEditScope.All): WriteResult<Unit>
+    suspend fun deleteTask(id: String, scope: RecurrenceEditScope = RecurrenceEditScope.All): WriteResult<UndoableChange?>
     suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry>
     suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry>
-    suspend fun deleteJournal(id: String): WriteResult<Unit>
+    suspend fun deleteJournal(id: String): WriteResult<UndoableChange?>
     suspend fun addContact(input: NewContact): WriteResult<Contact>
     suspend fun updateContact(id: String, input: NewContact): WriteResult<Contact>
-    suspend fun deleteContact(id: String): WriteResult<Unit>
+    suspend fun deleteContact(id: String): WriteResult<UndoableChange?>
     /** Contact-derived reminder events intentionally remain local-only in v1. */
     fun addLocalEvent(input: NewEvent): CalEvent
     /** Bytes of an inline `ATTACH`, decoded from the stored resource; null when there are none. */
@@ -207,12 +207,40 @@ sealed interface WriteResult<out T> {
     }
 }
 
-enum class ChangeKind { Task }
+enum class ChangeKind { Task, Deleted }
 
 sealed interface ChangeValue {
     data class Task(val value: CalTask) : ChangeValue
     data object Missing : ChangeValue
+
+    /** A deleted record held in the on-device trash (CalDAV); [entryId] names the trash entry. */
+    data class Trashed(val entryId: String, val title: String) : ChangeValue
+
+    /** Fixture-only: the rows a delete removed, kept in memory so Undo can put them back. */
+    data class Removed(
+        val title: String,
+        val events: List<CalEvent> = emptyList(),
+        val tasks: List<CalTask> = emptyList(),
+        val journals: List<JournalEntry> = emptyList(),
+        val contacts: List<Contact> = emptyList(),
+    ) : ChangeValue
 }
+
+/** The title shown in "Deleted <title>", or null when this is not a delete. */
+internal val UndoableChange.deletedTitle: String?
+    get() = when (val value = before) {
+        is ChangeValue.Trashed -> value.title
+        is ChangeValue.Removed -> value.title
+        else -> null
+    }
+
+internal fun deletedChange(id: String, before: ChangeValue, title: String) = UndoableChange(
+    description = "Deleted $title",
+    kind = ChangeKind.Deleted,
+    id = id,
+    before = before,
+    after = ChangeValue.Missing,
+)
 
 /** A one-step reversible local mutation, intentionally not a production history model. */
 data class UndoableChange internal constructor(
@@ -294,8 +322,8 @@ class FixtureRepository : CalinoRepository {
         id: String,
         scope: RecurrenceEditScope,
         occurrenceDate: LocalDate?,
-    ): WriteResult<Unit> {
-        val current = snapshot().events.firstOrNull { it.id == id } ?: return WriteResult.Applied(Unit)
+    ): WriteResult<UndoableChange?> {
+        val current = snapshot().events.firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
         val rewritten = when {
             // A one-off has no narrower reading of "delete this", and neither
             // does a series the caller asked to remove entirely.
@@ -312,7 +340,9 @@ class FixtureRepository : CalinoRepository {
                 },
             )
         }
-        return WriteResult.Applied(Unit)
+        // The original row is what Undo puts back, whichever scope removed
+        // part of it; restoring replaces whatever the delete left behind.
+        return WriteResult.Applied(deletedChange(id, ChangeValue.Removed(current.title, events = listOf(current)), current.title))
     }
 
     private fun eventFromInput(id: String, input: NewEvent): CalEvent = CalEvent(
@@ -422,8 +452,8 @@ class FixtureRepository : CalinoRepository {
         }
     }
 
-    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> {
-        val target = snapshot().tasks.firstOrNull { it.id == id } ?: return WriteResult.Applied(Unit)
+    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<UndoableChange?> {
+        val target = snapshot().tasks.firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
         // A fixture series is one row per occurrence, so a scope is a filter
         // over the rows that share this one's series.
         val series = target.recurrenceDate?.let { target.id.substringBefore('@') }
@@ -435,8 +465,9 @@ class FixtureRepository : CalinoRepository {
                 else -> task.id == id
             }
         }
+        val gone = snapshot().tasks.filter(removed)
         update { current -> current.copy(tasks = current.tasks.filterNot(removed)) }
-        return WriteResult.Applied(Unit)
+        return WriteResult.Applied(deletedChange(id, ChangeValue.Removed(target.title, tasks = gone), target.title))
     }
 
     private fun taskFromInput(id: String, input: NewTask, done: Boolean): CalTask = CalTask(
@@ -484,10 +515,11 @@ class FixtureRepository : CalinoRepository {
         return WriteResult.Applied(journal)
     }
 
-    override suspend fun deleteJournal(id: String): WriteResult<Unit> {
-        if (snapshot().journals.none { it.id == id }) return WriteResult.Applied(Unit)
+    override suspend fun deleteJournal(id: String): WriteResult<UndoableChange?> {
+        val journal = snapshot().journals.firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
         update { current -> current.copy(journals = current.journals.filterNot { it.id == id }) }
-        return WriteResult.Applied(Unit)
+        val title = journal.title.ifBlank { journal.date.toString() }
+        return WriteResult.Applied(deletedChange(id, ChangeValue.Removed(title, journals = listOf(journal)), title))
     }
 
     override suspend fun addContact(input: NewContact): WriteResult<Contact> {
@@ -503,16 +535,20 @@ class FixtureRepository : CalinoRepository {
         return WriteResult.Applied(contact)
     }
 
-    override suspend fun deleteContact(id: String): WriteResult<Unit> {
-        if (snapshot().contacts.none { it.id == id }) return WriteResult.Applied(Unit)
+    override suspend fun deleteContact(id: String): WriteResult<UndoableChange?> {
+        val contact = snapshot().contacts.firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
         val markers = setOf("calino:contact:$id", "calino:contact:$id:anniversary")
+        val derived = snapshot().events.filter { it.url in markers }
         update { state ->
             state.copy(
                 contacts = state.contacts.filterNot { it.id == id },
                 events = state.events.filterNot { it.url in markers },
             )
         }
-        return WriteResult.Applied(Unit)
+        val label = contact.displayName
+        return WriteResult.Applied(
+            deletedChange(id, ChangeValue.Removed(label, events = derived, contacts = listOf(contact)), label),
+        )
     }
 
     override fun inlineAttachment(event: CalEvent, attachment: EventAttachment): ByteArray? =
@@ -578,6 +614,7 @@ class FixtureRepository : CalinoRepository {
     }
 
     override suspend fun undo(change: UndoableChange): WriteResult<Unit> {
+        if (change.kind == ChangeKind.Deleted) return restoreRemoved(change)
         if (change.kind != ChangeKind.Task) return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         val current = snapshot().tasks.firstOrNull { it.id == change.id }
             ?: return WriteResult.Rejected(WriteRejectionCode.TASK_UNAVAILABLE)
@@ -587,6 +624,21 @@ class FixtureRepository : CalinoRepository {
         val before = (change.before as? ChangeValue.Task)?.value
             ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
         replaceTask(before)
+        return WriteResult.Applied(Unit)
+    }
+
+    /** Put the rows a delete removed back, replacing any partial rewrite a scoped delete left. */
+    private fun restoreRemoved(change: UndoableChange): WriteResult<Unit> {
+        val removed = change.before as? ChangeValue.Removed
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+        update { state ->
+            state.copy(
+                events = state.events.filterNot { e -> removed.events.any { it.id == e.id } } + removed.events,
+                tasks = state.tasks.filterNot { t -> removed.tasks.any { it.id == t.id } } + removed.tasks,
+                journals = state.journals.filterNot { j -> removed.journals.any { it.id == j.id } } + removed.journals,
+                contacts = state.contacts.filterNot { c -> removed.contacts.any { it.id == c.id } } + removed.contacts,
+            )
+        }
         return WriteResult.Applied(Unit)
     }
 

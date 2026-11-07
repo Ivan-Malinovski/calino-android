@@ -2499,7 +2499,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onUpdate = { entry ->
                             performWrite(operation = { repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
                         },
-                        onDelete = { entry -> launchWrite(operation = { repository.deleteJournal(entry.id) }, indicate = PillWriteKind.Remove) },
+                        onDelete = { entry -> launchWrite(operation = { repository.deleteJournal(entry.id) }, indicate = PillWriteKind.Remove) { it?.let(::showUndo) } },
                         onEditingChanged = { editing ->
                             journalEditorVisible = editing
                             if (!editing && journalSearchReturn && journalOpenEntryId == null) {
@@ -2538,6 +2538,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 operation = { repository.deleteContact(contact.id) },
                                 indicate = PillWriteKind.Remove,
                             ) {
+                                it?.let(::showUndo)
                                 if (selectedContactId == contact.id) selectedContactId = null
                             }
                         },
@@ -2982,7 +2983,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         launchWrite(
                             { repository.deleteEvent(target.id, scope, occurrence) },
                             indicate = PillWriteKind.Remove,
-                        )
+                        ) { it?.let(::showUndo) }
                     },
                     onEventAction = ::handleEventAction,
                     onInlineSave = { target, input, scope ->
@@ -3097,12 +3098,14 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             when (val result = repository.deleteTask(task.id, scope)) {
                                 is WriteResult.Applied -> {
                                     landed = true
+                                    result.record?.let(::showUndo)
                                     selectedTaskId = null
                                     restoreTaskDetailOrigin()
                                     true
                                 }
                                 is WriteResult.Queued -> {
                                     landed = true
+                                    result.record?.let(::showUndo)
                                     selectedTaskId = null
                                     restoreTaskDetailOrigin()
                                     true
@@ -3606,11 +3609,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                                 )
                             },
                             indicate = PillWriteKind.Remove,
-                        )
+                        ) { it?.let(::showUndo) }
                         task != null -> launchWrite(
                             { repository.deleteTask(task.id, task.recurrenceScope) },
                             indicate = PillWriteKind.Remove,
-                        )
+                        ) { it?.let(::showUndo) }
                     }
                 },
                 onClick = {
@@ -3730,7 +3733,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         onDismiss = { taskDeleteSheetTarget = null },
         onDelete = { target, scope ->
             taskDeleteSheetTarget = null
-            launchWrite({ repository.deleteTask(target.id, scope) }, indicate = PillWriteKind.Remove)
+            launchWrite({ repository.deleteTask(target.id, scope) }, indicate = PillWriteKind.Remove) { it?.let(::showUndo) }
         },
     )
 
@@ -3742,7 +3745,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             launchWrite(
                 { repository.deleteEvent(target.id, scope, target.placementDate()) },
                 indicate = PillWriteKind.Remove,
-            )
+            ) { it?.let(::showUndo) }
         },
     )
 

@@ -370,22 +370,22 @@ private class RecordingRepository(var events: List<CalEvent>) : CalinoRepository
         id: String,
         scope: RecurrenceEditScope,
         occurrenceDate: LocalDate?,
-    ): WriteResult<Unit> {
+    ): WriteResult<UndoableChange?> {
         deleted += Triple(id, scope, occurrenceDate)
-        return if (reject) WriteResult.Rejected("no") else WriteResult.Applied(Unit)
+        return if (reject) WriteResult.Rejected("no") else WriteResult.Applied(null)
     }
 
     private fun unreachable(): Nothing = error("Ingest must not reach this entry point")
 
     override suspend fun addTask(input: NewTask): WriteResult<CalTask> = unreachable()
     override suspend fun updateTask(id: String, input: NewTask, done: Boolean): WriteResult<CalTask> = unreachable()
-    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<Unit> = unreachable()
+    override suspend fun deleteTask(id: String, scope: RecurrenceEditScope): WriteResult<UndoableChange?> = unreachable()
     override suspend fun addJournal(input: NewJournal): WriteResult<JournalEntry> = unreachable()
     override suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry> = unreachable()
-    override suspend fun deleteJournal(id: String): WriteResult<Unit> = unreachable()
+    override suspend fun deleteJournal(id: String): WriteResult<UndoableChange?> = unreachable()
     override suspend fun addContact(input: NewContact): WriteResult<Contact> = unreachable()
     override suspend fun updateContact(id: String, input: NewContact): WriteResult<Contact> = unreachable()
-    override suspend fun deleteContact(id: String): WriteResult<Unit> = unreachable()
+    override suspend fun deleteContact(id: String): WriteResult<UndoableChange?> = unreachable()
     override fun addLocalEvent(input: NewEvent): CalEvent = unreachable()
     override suspend fun setTaskDone(id: String, done: Boolean): WriteResult<UndoableChange> = unreachable()
     override suspend fun rescheduleTask(id: String, due: LocalDate?): WriteResult<UndoableChange> = unreachable()

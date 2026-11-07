@@ -4,6 +4,7 @@ import android.content.Context
 import calino.malinov.ski.R
 import calino.malinov.ski.data.model.CalEvent
 import calino.malinov.ski.data.model.placementDate
+import calino.malinov.ski.data.repository.deletedTitle
 import java.time.LocalDate
 import java.time.format.TextStyle
 
@@ -73,6 +74,7 @@ fun formatRecurrenceRule(context: Context, recurrence: String?, anchor: LocalDat
 
 /** Undo copy is presentation; the repository's reversible mutation stays locale-independent. */
 fun localizedUndoDescription(context: Context, change: calino.malinov.ski.data.repository.UndoableChange): String {
+    change.deletedTitle?.let { return context.getString(R.string.fmt_deleted, it) }
     val before = (change.before as? calino.malinov.ski.data.repository.ChangeValue.Task)?.value ?: return change.description
     val after = (change.after as? calino.malinov.ski.data.repository.ChangeValue.Task)?.value ?: return change.description
     return when {
