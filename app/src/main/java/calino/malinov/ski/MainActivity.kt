@@ -893,13 +893,21 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
 
     fun refreshImportedCalendars() = container.refreshImportedCalendars()
 
-    fun trashedItems() = container.calDavRepository.trashedItems()
+    // Sample mode (no account) keeps its own in-memory trash so Recently deleted
+    // works in a demo; a connected account uses the durable CalDAV trash.
+    private val inSampleMode get() = container.activeRepository === container.fixtureRepository
 
-    fun deleteTrashed(entryId: String) = container.calDavRepository.deleteTrashed(entryId)
+    fun trashedItems() =
+        if (inSampleMode) container.fixtureRepository.trashedItems() else container.calDavRepository.trashedItems()
 
-    fun emptyTrash() = container.calDavRepository.emptyTrash()
+    fun deleteTrashed(entryId: String) =
+        if (inSampleMode) container.fixtureRepository.deleteTrashed(entryId) else container.calDavRepository.deleteTrashed(entryId)
 
-    suspend fun restoreFromTrash(entryId: String) = container.calDavRepository.restoreFromTrash(entryId)
+    fun emptyTrash() =
+        if (inSampleMode) container.fixtureRepository.emptyTrash() else container.calDavRepository.emptyTrash()
+
+    suspend fun restoreFromTrash(entryId: String) =
+        if (inSampleMode) container.fixtureRepository.restoreFromTrash(entryId) else container.calDavRepository.restoreFromTrash(entryId)
 
     fun pendingChanges(): List<PendingChange> = container.calDavRepository.pendingChanges()
 

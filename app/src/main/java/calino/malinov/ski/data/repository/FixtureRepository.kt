@@ -23,6 +23,7 @@ import calino.malinov.ski.data.model.occursOn
 import calino.malinov.ski.data.model.upcomingOccurrences
 import calino.malinov.ski.state.withNewSubtaskOrder
 import java.io.Closeable
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -271,6 +272,10 @@ class FixtureRepository : CalinoRepository {
         ),
     )
     private val listeners = CopyOnWriteArrayList<(CalinoSnapshot) -> Unit>()
+
+    /** Sample mode's Recently deleted: what each delete removed, in memory only, oldest first. */
+    private class FixtureTrashed(val entry: TrashEntry, val change: UndoableChange)
+    private val trash = ArrayList<FixtureTrashed>()
     private var nextEventId = 1
     private var nextTaskId = 1
     private var nextJournalId = 1
@@ -342,7 +347,7 @@ class FixtureRepository : CalinoRepository {
         }
         // The original row is what Undo puts back, whichever scope removed
         // part of it; restoring replaces whatever the delete left behind.
-        return WriteResult.Applied(deletedChange(id, ChangeValue.Removed(current.title, events = listOf(current)), current.title))
+        return WriteResult.Applied(trashed(deletedChange(id, ChangeValue.Removed(current.title, events = listOf(current)), current.title)))
     }
 
     private fun eventFromInput(id: String, input: NewEvent): CalEvent = CalEvent(
@@ -467,7 +472,7 @@ class FixtureRepository : CalinoRepository {
         }
         val gone = snapshot().tasks.filter(removed)
         update { current -> current.copy(tasks = current.tasks.filterNot(removed)) }
-        return WriteResult.Applied(deletedChange(id, ChangeValue.Removed(target.title, tasks = gone), target.title))
+        return WriteResult.Applied(trashed(deletedChange(id, ChangeValue.Removed(target.title, tasks = gone), target.title)))
     }
 
     private fun taskFromInput(id: String, input: NewTask, done: Boolean): CalTask = CalTask(
@@ -519,7 +524,7 @@ class FixtureRepository : CalinoRepository {
         val journal = snapshot().journals.firstOrNull { it.id == id } ?: return WriteResult.Applied(null)
         update { current -> current.copy(journals = current.journals.filterNot { it.id == id }) }
         val title = journal.title.ifBlank { journal.date.toString() }
-        return WriteResult.Applied(deletedChange(id, ChangeValue.Removed(title, journals = listOf(journal)), title))
+        return WriteResult.Applied(trashed(deletedChange(id, ChangeValue.Removed(title, journals = listOf(journal)), title)))
     }
 
     override suspend fun addContact(input: NewContact): WriteResult<Contact> {
@@ -547,7 +552,7 @@ class FixtureRepository : CalinoRepository {
         }
         val label = contact.displayName
         return WriteResult.Applied(
-            deletedChange(id, ChangeValue.Removed(label, events = derived, contacts = listOf(contact)), label),
+            trashed(deletedChange(id, ChangeValue.Removed(label, events = derived, contacts = listOf(contact)), label)),
         )
     }
 
@@ -639,8 +644,52 @@ class FixtureRepository : CalinoRepository {
                 contacts = state.contacts.filterNot { c -> removed.contacts.any { it.id == c.id } } + removed.contacts,
             )
         }
+        trash.removeAll { it.change == change }
         return WriteResult.Applied(Unit)
     }
+
+    /** Remember a delete for Settings > Recently deleted, then hand the change back unchanged. */
+    private fun trashed(change: UndoableChange): UndoableChange {
+        val removed = change.before as ChangeValue.Removed
+        val kind = when {
+            removed.contacts.isNotEmpty() -> TrashKind.Contact
+            removed.journals.isNotEmpty() -> TrashKind.Journal
+            removed.tasks.isNotEmpty() -> TrashKind.Task
+            else -> TrashKind.Event
+        }
+        trash += FixtureTrashed(
+            TrashEntry(
+                id = TrashStore.newId(),
+                kind = kind,
+                title = removed.title,
+                accountId = "fixture",
+                collectionUrl = "",
+                href = "",
+                uid = change.id,
+                recordIds = listOf(change.id),
+                body = "",
+                deletedAt = Instant.now(),
+            ),
+            change,
+        )
+        while (trash.size > TrashStore.MaxEntries) trash.removeAt(0)
+        return change
+    }
+
+    /** Newest first, like the CalDAV trash. */
+    fun trashedItems(): List<TrashEntry> = trash.map { it.entry }.asReversed()
+
+    suspend fun restoreFromTrash(entryId: String): WriteResult<Unit> {
+        val item = trash.firstOrNull { it.entry.id == entryId }
+            ?: return WriteResult.Rejected(WriteRejectionCode.CHANGE_CANNOT_BE_UNDONE)
+        return restoreRemoved(item.change)
+    }
+
+    fun deleteTrashed(entryId: String) {
+        trash.removeAll { it.entry.id == entryId }
+    }
+
+    fun emptyTrash() = trash.clear()
 
     private fun task(id: String): CalTask = snapshot().tasks.firstOrNull { it.id == id }
         ?: error("Unknown fixture task: $id")
@@ -662,6 +711,7 @@ class FixtureRepository : CalinoRepository {
      * stale snapshot look current.
      */
     fun resetToFixtures() {
+        trash.clear()
         nextEventId = 1
         nextTaskId = 1
         nextJournalId = 1
