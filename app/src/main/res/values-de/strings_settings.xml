@@ -442,6 +442,11 @@ Letzte erfolgreiche Synchronisierung: %2$s</string>
     <string name="set_delete_forever">Endgültig löschen</string>
     <string name="set_delete_forever_named">%1$s endgültig löschen</string>
     <string name="set_restore_deleted_items_description">Termine, Aufgaben, Journale und Kontakte der letzten 30 Tage zurückholen</string>
+    <string name="set_trash_group_today">Heute</string>
+    <string name="set_trash_group_week">Diese Woche</string>
+    <string name="set_trash_group_earlier">Früher</string>
+    <string name="set_trash_left_one">Noch 1 Tag</string>
+    <string name="set_trash_left_many">Noch %1$d Tage</string>
     <string name="set_search_terms_recently_deleted">papierkorb rückgängig wiederherstellen gelöscht</string>
     <string name="set_nag_overdue_tasks">An überfällige Aufgaben erinnern</string>
     <string name="set_nag_overdue_tasks_description">Mich an überfällige Aufgaben mit Erinnerung weiter erinnern, bis sie erledigt oder verschoben sind</string>

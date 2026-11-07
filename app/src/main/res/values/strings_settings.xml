@@ -442,6 +442,11 @@ Last successful sync: %2$s</string>
     <string name="set_delete_forever">Delete forever</string>
     <string name="set_delete_forever_named">Delete %1$s forever</string>
     <string name="set_restore_deleted_items_description">Bring back events, tasks, journals and contacts you deleted in the last 30 days</string>
+    <string name="set_trash_group_today">Today</string>
+    <string name="set_trash_group_week">This week</string>
+    <string name="set_trash_group_earlier">Earlier</string>
+    <string name="set_trash_left_one">1 day left</string>
+    <string name="set_trash_left_many">%1$d days left</string>
     <string name="set_search_terms_recently_deleted">trash bin undo restore deleted</string>
     <string name="set_nag_overdue_tasks">Nag about overdue tasks</string>
     <string name="set_nag_overdue_tasks_description">Keep reminding me about overdue tasks that have a reminder, until they are done or rescheduled</string>
