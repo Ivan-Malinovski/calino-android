@@ -3570,7 +3570,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             val pillRoutes = menuPillRoutes
             val pillIndex = pillRoutes.indexOf(rootRoute)
             Box(
-                if (pillLaneWidth > 0.dp) Modifier.width(pillLaneWidth) else Modifier.fillMaxWidth(),
+                if (pillLaneWidth > 0.dp) Modifier.width(pillLaneWidth)
+                // A gutter, so on a cover-screen width the pill never meets the
+                // edges; the same 16dp a modal pill keeps (RootAnchoredPill).
+                else Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
             ) {
             AddPill(

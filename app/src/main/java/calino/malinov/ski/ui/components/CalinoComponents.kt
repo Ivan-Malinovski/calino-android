@@ -2874,28 +2874,26 @@ fun AddPill(
                                     }
                                     if (state == PillSaveState.Idle && undoMessage != null) {
                                         val undoDescription = stringResource(R.string.cal_undo_message, undoMessage)
-                                        PillLabelText(
-                                            undoMessage,
-                                            // Capped rather than weighted: this row is not
-                                            // itself width-constrained -- the pill sizes to
-                                            // it -- so an uncapped title would grow the
-                                            // pill to match instead of giving way to Undo.
-                                            modifier = Modifier.widthIn(max = 240.dp),
-                                        )
-                                        Text(
-                                            undoLabel,
-                                            color = CalinoColors.FloatAction,
-                                            fontSize = 15.sp,
-                                            lineHeight = 20.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .calinoPressable(pressedScale = .92f, role = Role.Button) {
-                                                    currentOnUndo?.invoke()
-                                                }
-                                                .padding(horizontal = 8.dp, vertical = 10.dp)
-                                                .semantics { contentDescription = undoDescription },
+                                        PillUndoPair(
+                                            title = { PillLabelText(undoMessage) },
+                                            action = {
+                                                Text(
+                                                    undoLabel,
+                                                    color = CalinoColors.FloatAction,
+                                                    fontSize = 15.sp,
+                                                    lineHeight = 20.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .calinoPressable(pressedScale = .92f, role = Role.Button) {
+                                                            currentOnUndo?.invoke()
+                                                        }
+                                                        .padding(horizontal = 8.dp, vertical = 12.dp)
+                                                        .semantics { contentDescription = undoDescription },
+                                                )
+                                            },
                                         )
                                     } else if (state == PillSaveState.Idle && swipeLabels != null && !confirming) {
                                         // Only the part that actually differs moves. Both
@@ -2985,7 +2983,12 @@ internal fun AddPillRestFace(
             PillSeparator()
         }
         Row(
-            modifier.padding(start = if (leading != null) 10.dp else 16.dp, end = 20.dp, top = 13.dp, bottom = 13.dp),
+            // 1dp + a 44dp content floor is the 13dp padding around a 20dp
+            // line, to the pixel, but lets a 44dp control (Undo) sit in the
+            // row without growing the pill and riding up into what is above.
+            modifier
+                .padding(start = if (leading != null) 10.dp else 16.dp, end = 20.dp, top = 1.dp, bottom = 1.dp)
+                .heightIn(min = 44.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             content = label,
@@ -3172,6 +3175,27 @@ private fun PillMenuRow(
     }
 }
 
+/**
+ * An undo offer's message and its action. The action is measured first and
+ * keeps its width; the message gets what is left, up to 240dp, and ellipsizes.
+ * A cap on the message alone cannot do this: a Row measures in order, so on a
+ * narrow screen the message took the width and Undo was squeezed to a letter.
+ */
+@Composable
+private fun PillUndoPair(title: @Composable () -> Unit, action: @Composable () -> Unit) {
+    Layout(contents = listOf(title, action)) { (titles, actions), constraints ->
+        val gap = 8.dp.roundToPx()
+        val act = actions.first().measure(Constraints(maxWidth = constraints.maxWidth))
+        val room = (constraints.maxWidth - act.width - gap).coerceAtLeast(0)
+        val t = titles.first().measure(Constraints(maxWidth = minOf(240.dp.roundToPx(), room)))
+        val height = maxOf(t.height, act.height)
+        layout(t.width + gap + act.width, height) {
+            t.place(0, (height - t.height) / 2)
+            act.place(t.width + gap, (height - act.height) / 2)
+        }
+    }
+}
+
 /** The hold shape: every view one tap away, and a copper add at the end. */
 @Composable
 private fun PillViewDock(
@@ -3182,58 +3206,70 @@ private fun PillViewDock(
     interactive: Boolean = true,
 ) {
     val addLabel = stringResource(R.string.cal_add)
-    Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        routes.forEachIndexed { index, route ->
-            // The calendar views and the rest, divided as in the menu.
-            if (index > 0 && routes[index - 1].section != route.section) {
-                Box(Modifier.padding(horizontal = 4.dp)) { PillSeparator() }
+    // Every view plus the add button, 44dp each, is wider than a cover screen.
+    // Wrap-content, so the pill still sizes to the dock on a wide screen; the
+    // buttons only give up width when the screen does not have it.
+    BoxWithConstraints {
+        val dividers = routes.indices.count { it > 0 && routes[it - 1].section != routes[it].section }
+        // padding 4+4, the gap before the add button, and each divider's box.
+        val fixed = 8.dp + 4.dp + 9.dp * dividers
+        val slot = ((maxWidth - fixed) / (routes.size + 1)).coerceIn(32.dp, 44.dp)
+        Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            routes.forEachIndexed { index, route ->
+                // The calendar views and the rest, divided as in the menu.
+                if (index > 0 && routes[index - 1].section != route.section) {
+                    Box(Modifier.padding(horizontal = 4.dp)) { PillSeparator() }
+                }
+                // Animated, since the dock stays up while it moves between views.
+                val wash by animateColorAsState(
+                    CalinoColors.OnFloat.copy(alpha = if (route.current) .16f else 0f),
+                    label = "pill dock selection",
+                )
+                // The touch lane keeps its 44dp height; only its width yields.
+                Box(
+                    Modifier
+                        .width(slot)
+                        .height(44.dp)
+                        .then(
+                            if (interactive) {
+                                Modifier
+                                    .calinoPressable(pressedScale = .92f) { onPick(index) }
+                                    .semantics { contentDescription = route.label; selected = route.current }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val tint by animateColorAsState(
+                        CalinoColors.OnFloat.copy(alpha = if (route.current) 1f else CalinoColors.FloatSecondaryAlpha),
+                        tween(CalinoMotion.ContentEnterMillis), label = "pill dock tint",
+                    )
+                    Box(Modifier.size(slot).clip(CircleShape).background(wash), contentAlignment = Alignment.Center) {
+                        Icon(route.icon, contentDescription = null, modifier = Modifier.size(19.dp), tint = tint)
+                    }
+                }
             }
-            // Animated, since the dock stays up while it moves between views.
-            val wash by animateColorAsState(
-                CalinoColors.OnFloat.copy(alpha = if (route.current) .16f else 0f),
-                label = "pill dock selection",
-            )
+            Spacer(Modifier.width(4.dp))
             Box(
                 Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(wash)
+                    .width(slot)
+                    .height(44.dp)
                     .then(
                         if (interactive) {
                             Modifier
-                                .calinoPressable(pressedScale = .92f) { onPick(index) }
-                                .semantics { contentDescription = route.label; selected = route.current }
+                                .calinoPressable(pressedScale = .92f, onClick = onAdd)
+                                .semantics { contentDescription = addLabel }
                         } else {
                             Modifier
                         },
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                val tint by animateColorAsState(
-                    CalinoColors.OnFloat.copy(alpha = if (route.current) 1f else CalinoColors.FloatSecondaryAlpha),
-                    tween(CalinoMotion.ContentEnterMillis), label = "pill dock tint",
-                )
-                Icon(route.icon, contentDescription = null, modifier = Modifier.size(19.dp), tint = tint)
+                Box(Modifier.size(slot).clip(CircleShape).background(CalinoColors.Accent), contentAlignment = Alignment.Center) {
+                    Icon(CalinoIcons.Plus, contentDescription = null, tint = CalinoColors.OnAccent, modifier = Modifier.size(19.dp))
+                }
             }
-        }
-        Spacer(Modifier.width(4.dp))
-        Box(
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(CalinoColors.Accent)
-                .then(
-                    if (interactive) {
-                        Modifier
-                            .calinoPressable(pressedScale = .92f, onClick = onAdd)
-                            .semantics { contentDescription = addLabel }
-                    } else {
-                        Modifier
-                    },
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(CalinoIcons.Plus, contentDescription = null, tint = CalinoColors.OnAccent, modifier = Modifier.size(19.dp))
         }
     }
 }
