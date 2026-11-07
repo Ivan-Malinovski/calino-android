@@ -998,6 +998,7 @@ fun pockRouteLabel(route: PockRoute): String = stringResource(when (route) {
     PockRoute.TaskDetail -> R.string.cal_route_task
     PockRoute.QuickAdd -> R.string.cal_route_quick_add
     PockRoute.Notifications -> R.string.cal_route_notifications
+    PockRoute.RecentlyDeleted -> R.string.cal_route_recently_deleted
 })
 
 /**

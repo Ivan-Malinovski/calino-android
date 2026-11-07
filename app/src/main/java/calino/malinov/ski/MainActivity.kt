@@ -291,6 +291,7 @@ import calino.malinov.ski.ui.surfaces.TaskDeleteSheet
 import calino.malinov.ski.ui.surfaces.isRecurringEvent
 import calino.malinov.ski.ui.surfaces.TaskDetail
 import calino.malinov.ski.ui.surfaces.NotificationsSurface
+import calino.malinov.ski.ui.surfaces.RecentlyDeletedSurface
 import calino.malinov.ski.ui.surfaces.rememberNotificationSurfaceState
 import calino.malinov.ski.ui.surfaces.AgendaScreen
 import calino.malinov.ski.ui.surfaces.CalendarAccountsSurface
@@ -357,6 +358,7 @@ private val RouteSaver = Saver<PockRoute, String>(
             "accounts" -> PockRoute.Accounts
             "quick-add" -> PockRoute.QuickAdd
             "notifications" -> PockRoute.Notifications
+            "recently-deleted" -> PockRoute.RecentlyDeleted
             else -> PockRoute.Day
         }
     },
@@ -386,6 +388,7 @@ private fun PockRoute.saveableKey(): String = when (this) {
     PockRoute.Accounts -> "accounts"
     PockRoute.QuickAdd -> "quick-add"
     PockRoute.Notifications -> "notifications"
+    PockRoute.RecentlyDeleted -> "recently-deleted"
 }
 
 private fun PockRoute.rootOrder(): Int = when (this) {
@@ -405,6 +408,7 @@ private fun PockRoute.rootOrder(): Int = when (this) {
     PockRoute.Detail -> 9
     PockRoute.TaskDetail -> 9
     PockRoute.Notifications -> 9
+    PockRoute.RecentlyDeleted -> 9
     PockRoute.QuickAdd -> 9
 }
 
@@ -881,6 +885,14 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun refreshImportedCalendars() = container.refreshImportedCalendars()
+
+    fun trashedItems() = container.calDavRepository.trashedItems()
+
+    fun deleteTrashed(entryId: String) = container.calDavRepository.deleteTrashed(entryId)
+
+    fun emptyTrash() = container.calDavRepository.emptyTrash()
+
+    suspend fun restoreFromTrash(entryId: String) = container.calDavRepository.restoreFromTrash(entryId)
 
     fun pendingChanges(): List<PendingChange> = container.calDavRepository.pendingChanges()
 
@@ -2049,6 +2061,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 restoreTaskDetailOrigin()
             }
             route == PockRoute.Notifications -> route = if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
+            route == PockRoute.RecentlyDeleted -> route = PockRoute.Settings
             route == PockRoute.Accounts -> {
                 accountsAutoAdd = false
                 route = when (accountsOrigin) {
@@ -2099,9 +2112,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             else -> PockRoute.Day
         }
         PockRoute.Notifications -> PockRoute.Notifications
+        PockRoute.RecentlyDeleted -> PockRoute.RecentlyDeleted
     }
     fun computePredictiveBackDestination() = when (route) {
         PockRoute.Notifications -> if (notificationOrigin == PocReturnTarget.Settings) PockRoute.Settings else PockRoute.Day
+        PockRoute.RecentlyDeleted -> PockRoute.Settings
         PockRoute.Accounts -> when (accountsOrigin) {
             PocReturnTarget.Settings -> PockRoute.Settings
             PocReturnTarget.Year -> PockRoute.Year
@@ -2569,6 +2584,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             notificationOrigin = PocReturnTarget.Settings
                             route = PockRoute.Notifications
                         },
+                        onOpenRecentlyDeleted = { route = PockRoute.RecentlyDeleted },
                         onOpenMenu = { sidebarVisible = true },
                         calDavAccounts = calDavAccounts,
                         onOpenAccounts = { startAdding, focusAccountId ->
@@ -2645,6 +2661,25 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onFocusPendingWritesConsumed = { accountsFocusSyncIssues = false },
                     )
                     PockRoute.Detail, PockRoute.TaskDetail -> Unit
+                    PockRoute.RecentlyDeleted -> {
+                        var trashVersion by remember { mutableIntStateOf(0) }
+                        val trashed = remember(trashVersion, snapshot.revision) { pocViewModel.trashedItems() }
+                        RecentlyDeletedSurface(
+                            items = trashed,
+                            onRestore = { entry ->
+                                launchWrite({ pocViewModel.restoreFromTrash(entry.id) }) { trashVersion++ }
+                                trashVersion++
+                            },
+                            onDeleteForever = { entry ->
+                                pocViewModel.deleteTrashed(entry.id)
+                                trashVersion++
+                            },
+                            onEmpty = {
+                                pocViewModel.emptyTrash()
+                                trashVersion++
+                            },
+                        )
+                    }
                     PockRoute.Notifications -> NotificationsSurface(
                         state = rememberNotificationSurfaceState(),
                         onOpenFiring = { firing ->

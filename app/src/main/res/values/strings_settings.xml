@@ -423,4 +423,24 @@ Last successful sync: %2$s</string>
     <string name="set_widget_earlier_show">Show</string>
     <string name="set_widget_earlier_dim">Dim</string>
     <string name="set_widget_earlier_hide">Hide</string>
+    <string name="set_recently_deleted">Recently deleted</string>
+    <string name="set_recently_deleted_note">Kept on this phone for %1$d days, then removed for good. Restoring puts an item back on its calendar or address book.</string>
+    <string name="set_nothing_deleted_recently">Nothing deleted recently.</string>
+    <string name="set_delete_all_forever">Delete everything here for good?</string>
+    <string name="set_delete_all">Delete all</string>
+    <string name="set_empty_recently_deleted">Empty recently deleted</string>
+    <string name="set_trash_kind_event">Event</string>
+    <string name="set_trash_kind_task">Task</string>
+    <string name="set_trash_kind_journal">Journal</string>
+    <string name="set_trash_kind_contact">Contact</string>
+    <string name="set_deleted_today">Deleted today</string>
+    <string name="set_deleted_yesterday">Deleted yesterday</string>
+    <string name="set_deleted_days_ago">Deleted %1$d days ago</string>
+    <string name="set_untitled">Untitled</string>
+    <string name="set_restore">Restore</string>
+    <string name="set_restore_named">Restore %1$s</string>
+    <string name="set_delete_forever">Delete forever</string>
+    <string name="set_delete_forever_named">Delete %1$s forever</string>
+    <string name="set_restore_deleted_items_description">Bring back events, tasks, journals and contacts you deleted in the last 30 days</string>
+    <string name="set_search_terms_recently_deleted">trash bin undo restore deleted</string>
 </resources>

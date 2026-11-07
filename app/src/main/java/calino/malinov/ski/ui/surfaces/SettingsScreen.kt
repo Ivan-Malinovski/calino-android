@@ -211,6 +211,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry(R.string.set_background_sync, SettingsSection.CalendarsSync, R.string.set_sync_settings, "refresh frequency", R.string.set_search_terms_background_sync),
     SettingsSearchEntry(R.string.set_event_sync_range, SettingsSection.CalendarsSync, R.string.set_sync_settings, "offline search", R.string.set_search_terms_event_sync_range),
     SettingsSearchEntry(R.string.set_import_calendar, SettingsSection.DataAccess, R.string.set_import_export, "ics file", R.string.set_search_terms_import_calendar),
+    SettingsSearchEntry(R.string.set_recently_deleted, SettingsSection.DataAccess, R.string.set_recently_deleted, "trash undo restore", R.string.set_search_terms_recently_deleted),
     SettingsSearchEntry(R.string.set_export_calendar, SettingsSection.DataAccess, R.string.set_import_export, "ics file", R.string.set_search_terms_export_calendar),
     SettingsSearchEntry(R.string.set_show_in_phone_search, SettingsSection.DataAccess, R.string.set_search_assistants, "Samsung Finder", R.string.set_search_terms_phone_search),
     SettingsSearchEntry(R.string.set_let_assistants_use_calino, SettingsSection.DataAccess, R.string.set_search_assistants, "Gemini AppFunctions", R.string.set_search_terms_assistants),
@@ -229,6 +230,7 @@ private enum class SettingRowControlLayout {
 @Composable
 fun SettingsSurface(
     onOpenNotifications: () -> Unit = {},
+    onOpenRecentlyDeleted: () -> Unit = {},
     onOpenMenu: (() -> Unit)? = null,
     calDavAccounts: List<CalDavAccount> = emptyList(),
     // A non-null id asks the calendars surface to scroll that account into
@@ -360,6 +362,7 @@ fun SettingsSurface(
                     SettingsSectionContent(
                         SettingsSection.entries[page],
                         onOpenNotifications,
+                        onOpenRecentlyDeleted,
                         calDavAccounts,
                         onOpenAccounts,
                         onImportCalendar,
@@ -601,6 +604,7 @@ private fun SettingsSearchResults(query: String, onSelect: (SettingsSearchEntry,
 private fun SettingsSectionContent(
     section: SettingsSection,
     onOpenNotifications: () -> Unit,
+    onOpenRecentlyDeleted: () -> Unit,
     calDavAccounts: List<CalDavAccount>,
     onOpenAccounts: (Boolean, String?) -> Unit,
     onImportCalendar: () -> Unit,
@@ -642,7 +646,7 @@ private fun SettingsSectionContent(
             )
         }
         SettingsSection.DataAccess -> SettingsPage {
-            DataSettings(onImportCalendar, onExportCalendar)
+            DataSettings(onImportCalendar, onExportCalendar, onOpenRecentlyDeleted)
             SettingsGroup(t(R.string.set_ai_photo_import)) { AiVisionSettingsContent() }
         }
         SettingsSection.Advanced -> SettingsPage { AdvancedSettings() }
@@ -1393,11 +1397,20 @@ private fun SyncSettings(
 }
 
 @Composable
-private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit) {
+private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit, onOpenRecentlyDeleted: () -> Unit) {
     SettingsGroup(t(R.string.set_import_export)) {
         SettingActionRow(t(R.string.set_export_calendar), t(R.string.set_save_a_local_ics_copy_of_one_calendar), t(R.string.set_export), enabled = true, onClick = onExport)
         SettingDivider()
         SettingActionRow(t(R.string.set_import_calendar), t(R.string.set_review_events_from_an_existing_ics_file), t(R.string.set_choose_file), enabled = true, onClick = onImport)
+    }
+    SettingsGroup(t(R.string.set_recently_deleted)) {
+        SettingActionRow(
+            t(R.string.set_recently_deleted),
+            t(R.string.set_restore_deleted_items_description),
+            t(R.string.set_open),
+            enabled = true,
+            onClick = onOpenRecentlyDeleted,
+        )
     }
     val context = LocalContext.current
     var phoneSearch by remember { mutableStateOf(PhoneSearchAccess.isEnabled(context)) }

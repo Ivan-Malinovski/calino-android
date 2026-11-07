@@ -347,6 +347,7 @@
     <string name="cal_route_settings">Einstellungen</string>
     <string name="cal_route_quick_add">Schnell hinzufügen</string>
     <string name="cal_route_notifications">Benachrichtigungen</string>
+    <string name="cal_route_recently_deleted">Zuletzt gelöscht</string>
     <string name="cal_calendars_caps">KALENDER</string>
     <string name="cal_editor_value_change">%1$s, %2$s, zum Ändern tippen</string>
     <string name="cal_editor_value_unavailable">%1$s, %2$s, nicht verfügbar</string>

@@ -279,6 +279,7 @@ sealed interface PockRoute {
     data object Accounts : PockRoute
     data object QuickAdd : PockRoute
     data object Notifications : PockRoute
+    data object RecentlyDeleted : PockRoute
 }
 enum class QuickAddKind { Event, Task, Journal }
 enum class TaskFilter { All, Active, Completed }

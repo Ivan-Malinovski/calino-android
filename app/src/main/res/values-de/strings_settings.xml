@@ -423,4 +423,24 @@ Letzte erfolgreiche Synchronisierung: %2$s</string>
     <string name="set_widget_earlier_show">Anzeigen</string>
     <string name="set_widget_earlier_dim">Abdunkeln</string>
     <string name="set_widget_earlier_hide">Ausblenden</string>
+    <string name="set_recently_deleted">Zuletzt gelöscht</string>
+    <string name="set_recently_deleted_note">Wird %1$d Tage auf diesem Telefon aufbewahrt und danach endgültig entfernt. Beim Wiederherstellen kommt ein Eintrag zurück in seinen Kalender oder sein Adressbuch.</string>
+    <string name="set_nothing_deleted_recently">Zuletzt wurde nichts gelöscht.</string>
+    <string name="set_delete_all_forever">Alles hier endgültig löschen?</string>
+    <string name="set_delete_all">Alle löschen</string>
+    <string name="set_empty_recently_deleted">Zuletzt gelöscht leeren</string>
+    <string name="set_trash_kind_event">Termin</string>
+    <string name="set_trash_kind_task">Aufgabe</string>
+    <string name="set_trash_kind_journal">Journal</string>
+    <string name="set_trash_kind_contact">Kontakt</string>
+    <string name="set_deleted_today">Heute gelöscht</string>
+    <string name="set_deleted_yesterday">Gestern gelöscht</string>
+    <string name="set_deleted_days_ago">Vor %1$d Tagen gelöscht</string>
+    <string name="set_untitled">Ohne Titel</string>
+    <string name="set_restore">Wiederherstellen</string>
+    <string name="set_restore_named">%1$s wiederherstellen</string>
+    <string name="set_delete_forever">Endgültig löschen</string>
+    <string name="set_delete_forever_named">%1$s endgültig löschen</string>
+    <string name="set_restore_deleted_items_description">Termine, Aufgaben, Journale und Kontakte der letzten 30 Tage zurückholen</string>
+    <string name="set_search_terms_recently_deleted">papierkorb rückgängig wiederherstellen gelöscht</string>
 </resources>

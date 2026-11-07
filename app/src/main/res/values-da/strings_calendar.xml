@@ -347,6 +347,7 @@
     <string name="cal_route_settings">Indstillinger</string>
     <string name="cal_route_quick_add">Hurtig tilføjelse</string>
     <string name="cal_route_notifications">Notifikationer</string>
+    <string name="cal_route_recently_deleted">Slettet for nylig</string>
     <string name="cal_calendars_caps">KALENDERE</string>
     <string name="cal_editor_value_change">%1$s, %2$s, tryk for at ændre</string>
     <string name="cal_editor_value_unavailable">%1$s, %2$s, ikke tilgængelig</string>
