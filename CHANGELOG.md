@@ -3,6 +3,35 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## 0.13.0 — 2026-11-07
+
+Calino 0.13.0 makes deleting safe: events, tasks, journals and contacts can be undone, and a 30-day Recently deleted screen keeps them for later. It also adds scrolling home screen widgets, reminders for overdue tasks and a calmer action pill.
+
+### Added
+
+- **Undo for deletes.** Deleting an event, task, journal or contact offers Undo on the add pill. Up to five offers stack, each on its own 10-second clock with a countdown ring, and Undo steps back through them. Undoing puts the item back through the same write path as any other change, including repeating items deleted as "this one", "this and future" or "the entire series".
+- **Recently deleted.** Settings > Data & access lists what you deleted in the last 30 days, grouped Today, This week and Earlier, each card showing its type, how many days it has left (rose in the last three) and Restore or Delete forever. "Empty recently deleted" asks for confirmation in place. The trash is kept on the phone only, is wiped with the account, and holds at most 200 items. Sample mode keeps its own in-memory trash, so the screen can be tried without a calendar.
+- **Overdue task reminders.** A task whose reminder went unanswered is raised again until it is done or rescheduled: daily at 09:00 or hourly from 08:00 to 21:00. The notification has Snooze, Mark done and Tomorrow, up to three post individually and the rest fold into one summary that opens Tasks. Choose Off, Daily or Hourly in Settings > Reminders > Tasks (default Daily).
+- **Scrolling widgets.** A home screen widget now reaches as far ahead as you choose (Today, 3, 7, 14 or 30 days, default 7) and its rows scroll, no matter how big the widget is. Events already over today can be shown dimmed (default) or hidden.
+- **Create from the day list.** Holding empty space in the selected-day list under the week strip opens a new event on that day.
+- **Google Play build flag.** Building with `-PplayStore=true` turns off the in-app check against GitHub releases, for a Play bundle; `docs/play-store.md` has the steps. This GitHub release is unchanged.
+
+### Changed
+
+- **Unsaved changes.** Closing an edited event, task, journal or contact asks Save or Discard through the action pill, keeps your draft until you decide, and waits for an accepted write before closing. Save controls are a subdued green.
+- **The pill morphs.** Long-press, Year, Agenda, day-sheet, day-modal and Range creates now grow out of the add pill instead of switching instantly.
+- **Keyboard.** The editor form and its pill rise above the keyboard, so the field you are typing in stays in view. Other sheets and floating cards rest on the keyboard too.
+- **Widgets.** Pills are slightly translucent, the footer pill sits at the bottom right in line with the header pill, and the unsaved-changes pill has more room around its title and buttons.
+
+### Fixed
+
+- **Accidental task moves.** A slow or slightly drifting tap on a task could reschedule it (#22). The drag now arms together with the hold-to-open menu and needs twice the touch slop once armed.
+- **Range drops.** A moved event no longer jumps back to its old slot and then moves again; it settles directly at the target.
+- **Widget size.** Samsung's launcher shrank widgets, so they looked right in the picker and tiny on the home screen. Calino now undoes that scaling, and a long address can no longer squeeze an event's title in the widget's ledger rows.
+- **Narrow screens.** On a cover display about 344 dp wide, the bottom pill no longer touches both screen edges, the view dock keeps its add button on screen and Undo keeps its label.
+- **Pill steadiness.** Dragging an edited card past the dismiss threshold no longer collapses the pill and grows it back into the question on release.
+- **Task nesting.** Overlapping nesting rails keep a consistent shade.
+
 ## 0.12.0 — 2026-10-25
 
 Calino 0.12.0 adds JMAP accounts, repeat editing for tasks, countdowns to an event's start and an About card in Settings, and fixes several cases where an edit or the day sheet showed stale or misordered data.
