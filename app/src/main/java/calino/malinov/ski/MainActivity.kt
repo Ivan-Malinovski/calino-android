@@ -464,6 +464,12 @@ class MainActivity : ComponentActivity() {
     var pendingAgendaDate by mutableStateOf<LocalDate?>(null)
         private set
 
+    /** The overdue-nag summary was tapped: show the Tasks list. */
+    var tasksPending by mutableStateOf(false)
+        private set
+
+    fun consumeTasks() { tasksPending = false }
+
     var pendingCalendarView by mutableStateOf<CalendarViewRequest?>(null)
         private set
 
@@ -585,6 +591,7 @@ class MainActivity : ComponentActivity() {
         ReminderDeepLinks.parse(raw)?.let { pendingReminderLink = it }
         if (calino.malinov.ski.notify.SyncIssueNotifier.isDeepLink(raw)) syncIssuesPending = true
         AgendaDeepLinks.parse(raw)?.let { pendingAgendaDate = it }
+        if (calino.malinov.ski.notify.TasksDeepLinks.isDeepLink(raw)) tasksPending = true
     }
 
     private fun consumeAiIntent(intent: Intent?) {
@@ -1756,6 +1763,13 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         selectCalendarDate(date)
         route = PockRoute.Day
         activity.consumeAgendaDate()
+    }
+
+    LaunchedEffect(activity.tasksPending) {
+        if (!activity.tasksPending) return@LaunchedEffect
+        if (activity.pendingReminderLink != null) return@LaunchedEffect
+        route = PockRoute.Tasks
+        activity.consumeTasks()
     }
 
     LaunchedEffect(activity.pendingCalendarView, snapshot.revision) {

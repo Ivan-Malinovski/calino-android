@@ -124,6 +124,37 @@ class ReminderScheduleStoreTest {
     }
 
     @Test
+    fun `the nag flag survives the file and an older document decodes without it`() {
+        val nag = firing("nag:t:1", now.plusSeconds(3600), kind = ReminderKind.Task).copy(nag = true)
+        store().replace(listOf(nag), now, zone)
+        assertTrue(store().load().firings.single().nag)
+
+        val legacy = ReminderScheduleJson.encode(ReminderSchedule(now, zone.id, listOf(nag)))
+            .replace("\"nag\":true,", "").replace(",\"nag\":true", "")
+        check(!legacy.contains("\"nag\""))
+        assertEquals(false, ReminderScheduleJson.decode(legacy)!!.firings.single().nag)
+    }
+
+    @Test
+    fun `a delivered nag slot is not delivered again after a re-plan, and a snooze moves it`() {
+        val slot = firing("nag:t:1", now.plusSeconds(60), kind = ReminderKind.Task).copy(nag = true)
+        val s = store()
+        s.replace(listOf(slot), now, zone)
+        val later = now.plusSeconds(120)
+        assertEquals(listOf(slot.key), s.due(later, Duration.ofHours(2)).map { it.key })
+
+        s.markDelivered(slot.key, later)
+        s.replace(listOf(slot), later, zone)
+        assertTrue(s.due(later, Duration.ofHours(2)).isEmpty())
+
+        val other = firing("nag:t:2", now.plusSeconds(60), kind = ReminderKind.Task).copy(nag = true)
+        s.replace(listOf(other), later, zone)
+        s.snooze(other.key, later.plusSeconds(300))
+        assertTrue(s.due(later.plusSeconds(60), Duration.ofHours(2)).isEmpty())
+        assertEquals(listOf(other.key), s.due(later.plusSeconds(301), Duration.ofHours(2)).map { it.key })
+    }
+
+    @Test
     fun `a truncated document loads as empty rather than throwing`() {
         store().replace(listOf(firing("a", now.plusSeconds(60))), now, zone)
         val whole = file.readText()
@@ -192,6 +223,41 @@ class ReminderScheduleStoreTest {
 
         store().replace(listOf(firing("b", now.plusSeconds(60))), now, zone)
         assertTrue(store().load().delivered.isEmpty())
+    }
+
+    @Test
+    fun `a delivered firing survives a re-plan so its notification buttons still resolve`() {
+        val delivered = firing("slot-1", now.minusSeconds(60))
+        val later = firing("slot-2", now.plusSeconds(3_600))
+        store().replace(listOf(delivered, later), now.minusSeconds(120), zone)
+        store().markDelivered(delivered.key, now.minusSeconds(60))
+
+        // The planner only emits future moments, so the new plan has no slot-1.
+        store().replace(listOf(later), now, zone)
+
+        val loaded = store().load()
+        assertEquals(listOf("slot-1", "slot-2"), loaded.firings.map { it.key })
+        assertEquals(now.minusSeconds(60), loaded.delivered["slot-1"])
+        // Kept for lookup only: it is neither due again nor the next alarm.
+        assertEquals(emptyList<ReminderFiring>(), store().due(now, Duration.ofHours(2)))
+        assertEquals("slot-2", store().next(now)?.key)
+    }
+
+    @Test
+    fun `an undelivered past firing is still dropped by a re-plan`() {
+        val missed = firing("slot-1", now.minusSeconds(60))
+        store().replace(listOf(missed), now.minusSeconds(120), zone)
+        store().replace(emptyList(), now, zone)
+        assertEquals(emptyList<ReminderFiring>(), store().load().firings)
+    }
+
+    @Test
+    fun `a delivered firing older than the history window is forgotten`() {
+        val old = firing("slot-1", now.minus(Duration.ofDays(9)))
+        store(now.minus(Duration.ofDays(9))).replace(listOf(old), now.minus(Duration.ofDays(9)), zone)
+        store(now.minus(Duration.ofDays(9))).markDelivered(old.key, now.minus(Duration.ofDays(9)))
+        store().replace(emptyList(), now, zone)
+        assertEquals(emptyList<ReminderFiring>(), store().load().firings)
     }
 
     @Test

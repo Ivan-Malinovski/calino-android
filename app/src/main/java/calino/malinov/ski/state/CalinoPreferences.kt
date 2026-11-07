@@ -13,6 +13,7 @@ import calino.malinov.ski.data.model.decodeAutoCategoryRules
 import calino.malinov.ski.data.model.decodeCategoryNames
 import calino.malinov.ski.data.model.encodeAutoCategoryRules
 import calino.malinov.ski.data.model.encodeCategoryNames
+import calino.malinov.ski.notify.TaskNagCadence
 import calino.malinov.ski.util.CalinoDefaultDuration
 import calino.malinov.ski.util.CalinoDefaultReminder
 import calino.malinov.ski.util.CalinoDefaultView
@@ -154,6 +155,8 @@ data class CalinoPreferences(
     val setEventRemindersEnabled: (Boolean) -> Unit = {},
     val taskRemindersEnabled: Boolean = true,
     val setTaskRemindersEnabled: (Boolean) -> Unit = {},
+    val taskNagCadence: TaskNagCadence = TaskNagCadence.Daily,
+    val setTaskNagCadence: (TaskNagCadence) -> Unit = {},
     /**
      * Whether another calendar app delivers the reminders for projected
      * calendars, instead of Calino.
@@ -265,6 +268,8 @@ interface CalinoPreferenceStore {
     fun saveEventRemindersEnabled(enabled: Boolean)
     fun loadTaskRemindersEnabled(): Boolean
     fun saveTaskRemindersEnabled(enabled: Boolean)
+    fun loadTaskNagCadence(): TaskNagCadence
+    fun saveTaskNagCadence(cadence: TaskNagCadence)
     fun loadProviderRemindersEnabled(): Boolean
     fun saveProviderRemindersEnabled(enabled: Boolean)
 
@@ -417,6 +422,9 @@ interface CalinoPreferenceStore {
         override fun saveEventRemindersEnabled(enabled: Boolean) { eventReminders = enabled }
         override fun loadTaskRemindersEnabled() = taskReminders
         override fun saveTaskRemindersEnabled(enabled: Boolean) { taskReminders = enabled }
+        private var taskNag = TaskNagCadence.Daily
+        override fun loadTaskNagCadence() = taskNag
+        override fun saveTaskNagCadence(cadence: TaskNagCadence) { taskNag = cadence }
         override fun loadProviderRemindersEnabled() = providerReminders
         override fun saveProviderRemindersEnabled(enabled: Boolean) { providerReminders = enabled }
         override fun loadProjectedCalendarIds() = projected
@@ -546,6 +554,10 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveEventRemindersEnabled(enabled: Boolean) = putBoolean(EventRemindersKey, enabled)
     override fun loadTaskRemindersEnabled(): Boolean = prefs.getBoolean(TaskRemindersKey, true)
     override fun saveTaskRemindersEnabled(enabled: Boolean) = putBoolean(TaskRemindersKey, enabled)
+    override fun loadTaskNagCadence(): TaskNagCadence =
+        TaskNagCadence.entries.firstOrNull { it.name == prefs.getString(TaskNagCadenceKey, null) }
+            ?: TaskNagCadence.Daily
+    override fun saveTaskNagCadence(cadence: TaskNagCadence) = putString(TaskNagCadenceKey, cadence.name)
     override fun loadProviderRemindersEnabled(): Boolean = prefs.getBoolean(ProviderRemindersKey, false)
     override fun saveProviderRemindersEnabled(enabled: Boolean) = putBoolean(ProviderRemindersKey, enabled)
     // Copied on the way out: SharedPreferences hands back the live stored set,
@@ -618,6 +630,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val ContactsEnabledKey = "contacts_enabled"
         const val EventRemindersKey = "event_reminders_enabled"
         const val TaskRemindersKey = "task_reminders_enabled"
+        const val TaskNagCadenceKey = "task_nag_cadence"
         const val ProviderRemindersKey = "provider_reminders_enabled"
         const val ProjectedCalendarsKey = "projected_calendar_ids"
         const val ImportedCalendarsKey = "imported_calendar_ids"
@@ -680,6 +693,7 @@ fun rememberCalinoPreferences(
     var contactsEnabled by remember(store) { mutableStateOf(store.loadContactsEnabled()) }
     var eventRemindersEnabled by remember(store) { mutableStateOf(store.loadEventRemindersEnabled()) }
     var taskRemindersEnabled by remember(store) { mutableStateOf(store.loadTaskRemindersEnabled()) }
+    var taskNagCadence by remember(store) { mutableStateOf(store.loadTaskNagCadence()) }
     var providerRemindersEnabled by remember(store) { mutableStateOf(store.loadProviderRemindersEnabled()) }
     var sidebarCalendarExpanded by remember(store) { mutableStateOf(store.loadSidebarCalendarExpanded()) }
     var dayTasksExpanded by remember(store) { mutableStateOf(store.loadDayTasksExpanded()) }
@@ -772,6 +786,12 @@ fun rememberCalinoPreferences(
         setTaskRemindersEnabled = { value ->
             taskRemindersEnabled = value
             store.saveTaskRemindersEnabled(value)
+            onRemindersChanged()
+        },
+        taskNagCadence = taskNagCadence,
+        setTaskNagCadence = { value ->
+            taskNagCadence = value
+            store.saveTaskNagCadence(value)
             onRemindersChanged()
         },
         providerRemindersEnabled = providerRemindersEnabled,

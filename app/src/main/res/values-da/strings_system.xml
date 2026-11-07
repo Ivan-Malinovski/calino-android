@@ -58,4 +58,7 @@
     <string name="sys_widget_more">+%1$d mere · Åbn dagsorden ›</string>
     <string name="sys_widget_open_agenda">Åbn dagsorden ›</string>
     <string name="sys_widget_to_date">Til %1$s · Åbn dagsorden ›</string>
+    <string name="sys_overdue_since">Forfalden siden %1$s</string>
+    <string name="sys_overdue_summary_title">Flere forfaldne opgaver</string>
+    <plurals name="sys_overdue_summary"><item quantity="one">%1$d forfalden opgave mere</item><item quantity="other">%1$d forfaldne opgaver mere</item></plurals>
 </resources>

@@ -443,4 +443,8 @@ Seneste vellykkede synkronisering: %2$s</string>
     <string name="set_delete_forever_named">Slet %1$s for altid</string>
     <string name="set_restore_deleted_items_description">Få begivenheder, opgaver, journaler og kontakter tilbage, som du har slettet inden for de seneste 30 dage</string>
     <string name="set_search_terms_recently_deleted">papirkurv fortryd gendan slettet</string>
+    <string name="set_nag_overdue_tasks">Påmind om forfaldne opgaver</string>
+    <string name="set_nag_overdue_tasks_description">Bliv ved med at minde mig om forfaldne opgaver med en påmindelse, indtil de er færdige eller flyttet</string>
+    <string name="set_nag_daily">Dagligt</string>
+    <string name="set_nag_hourly">Hver time</string>
 </resources>

@@ -58,4 +58,7 @@
     <string name="sys_widget_more">+%1$d more · Open agenda ›</string>
     <string name="sys_widget_open_agenda">Open agenda ›</string>
     <string name="sys_widget_to_date">To %1$s · Open agenda ›</string>
+    <string name="sys_overdue_since">Overdue since %1$s</string>
+    <string name="sys_overdue_summary_title">More overdue tasks</string>
+    <plurals name="sys_overdue_summary"><item quantity="one">%1$d more overdue task</item><item quantity="other">%1$d more overdue tasks</item></plurals>
 </resources>

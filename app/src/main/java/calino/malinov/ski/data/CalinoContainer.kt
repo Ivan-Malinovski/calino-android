@@ -312,6 +312,8 @@ class CalinoContainer private constructor(context: Context) {
         scheduler = Reminders.scheduler(application),
         projectedCalendarIds = { projectedCalendars() },
         importedCalendarsRemindedElsewhere = { importedCalendarsRemindedElsewhere() },
+        onNagResolved = { id -> Reminders.notifier(application).cancel(id) },
+        onNagsGone = { Reminders.notifier(application).cancelNagSummary() },
     )
 
     init {

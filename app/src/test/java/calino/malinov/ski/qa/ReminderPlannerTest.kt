@@ -5,7 +5,9 @@ import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.data.model.Reminder
 import calino.malinov.ski.data.repository.CalinoCalendar
 import calino.malinov.ski.data.repository.CalinoSnapshot
+import calino.malinov.ski.notify.NagResolution
 import calino.malinov.ski.notify.ReminderKind
+import calino.malinov.ski.notify.TaskNagCadence
 import calino.malinov.ski.notify.localReminderKey
 import calino.malinov.ski.notify.ReminderPlanOptions
 import calino.malinov.ski.notify.ReminderPlanner
@@ -379,6 +381,129 @@ class ReminderPlannerTest {
         val firings = plan(events = listOf(event(start = start, reminders = listOf(Reminder(10)))))
 
         assertEquals(1, firings.size)
+    }
+
+    // ---- Overdue nags ----
+
+    private fun nagOptions(cadence: TaskNagCadence, base: ReminderPlanOptions = ReminderPlanOptions()) =
+        base.copy(taskNagCadence = cadence)
+
+    private val overdue = task(due = LocalDate.of(2026, 9, 12), reminder = Reminder(0))
+
+    @Test
+    fun `daily nags land at nine local, after the task became overdue`() {
+        val nags = plan(tasks = listOf(overdue), options = nagOptions(TaskNagCadence.Daily)).filter { it.nag }
+
+        assertTrue(nags.isNotEmpty())
+        assertEquals(instantAt(LocalDate.of(2026, 9, 14), LocalTime.of(9, 0)), nags.first().at)
+        assertTrue(nags.all { it.at.atZone(zone).toLocalTime() == LocalTime.of(9, 0) })
+        assertTrue(nags.all { it.at > now })
+        assertEquals(nags.size, nags.map { it.key }.toSet().size)
+        assertEquals(1, nags.map { it.notificationId }.toSet().size)
+    }
+
+    @Test
+    fun `hourly nags stay inside the waking window and the next 24 hours`() {
+        val nags = plan(tasks = listOf(overdue), options = nagOptions(TaskNagCadence.Hourly)).filter { it.nag }
+
+        assertTrue(nags.isNotEmpty())
+        assertTrue(nags.all { it.at.atZone(zone).hour in 8..21 && it.at.atZone(zone).minute == 0 })
+        assertTrue(nags.all { it.at <= now.plus(Duration.ofHours(24)) })
+        assertEquals(instantAt(LocalDate.of(2026, 9, 14), LocalTime.of(9, 0)), nags.first().at)
+    }
+
+    @Test
+    fun `with nagging off an overdue task produces nothing`() {
+        assertTrue(plan(tasks = listOf(overdue)).isEmpty())
+        assertTrue(plan(tasks = listOf(overdue), options = nagOptions(TaskNagCadence.Off)).isEmpty())
+    }
+
+    @Test
+    fun `only open tasks with a reminder on a visible calendar are nagged`() {
+        val options = nagOptions(TaskNagCadence.Daily)
+        val noReminder = task(id = "t-none", due = LocalDate.of(2026, 9, 12), reminder = null)
+        val done = task(id = "t-done", due = LocalDate.of(2026, 9, 12), reminder = Reminder(0), done = true)
+        val hidden = task(id = "t-hidden", due = LocalDate.of(2026, 9, 12), reminder = Reminder(0), calendarId = "elsewhere")
+
+        assertTrue(plan(tasks = listOf(noReminder, done, hidden), options = options).isEmpty())
+        assertTrue(
+            plan(tasks = listOf(overdue), options = options.copy(taskRemindersEnabled = false)).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `a task that is not overdue yet is not nagged, and a date-only task starts the next day`() {
+        val options = nagOptions(TaskNagCadence.Daily)
+        val future = task(id = "t-future", due = LocalDate.of(2026, 9, 20), reminder = Reminder(0))
+        assertTrue(plan(tasks = listOf(future), options = options).none { it.nag && it.at < instantAt(LocalDate.of(2026, 9, 21), LocalTime.of(9, 0)) })
+
+        val today = task(id = "t-today", due = LocalDate.of(2026, 9, 14), reminder = Reminder(0))
+        val nags = plan(tasks = listOf(today), options = options).filter { it.nag }
+        assertEquals(instantAt(LocalDate.of(2026, 9, 15), LocalTime.of(9, 0)), nags.first().at)
+    }
+
+    @Test
+    fun `a timed task nags from its due time, not from the end of the day`() {
+        val timed = task(
+            id = "t-timed",
+            due = LocalDate.of(2026, 9, 14),
+            dueTime = LocalTime.of(7, 0),
+            reminder = Reminder(0),
+        )
+        val nags = plan(tasks = listOf(timed), options = nagOptions(TaskNagCadence.Hourly)).filter { it.nag }
+        assertEquals(instantAt(LocalDate.of(2026, 9, 14), LocalTime.of(9, 0)), nags.first().at)
+    }
+
+    @Test
+    fun `nags never displace real reminders when the cap is tight`() {
+        val start = LocalDateTime.of(2026, 9, 14, 10, 0)
+        val events = (1..3).map { event(id = "evt-$it", start = start.plusHours(it.toLong()), reminders = listOf(Reminder(10))) }
+        val firings = plan(
+            events = events,
+            tasks = listOf(overdue),
+            options = nagOptions(TaskNagCadence.Hourly, ReminderPlanOptions(maxFirings = 3)),
+        )
+
+        assertEquals(3, firings.count { !it.nag })
+        assertTrue(firings.any { it.nag })
+    }
+
+    @Test
+    fun `nag keys are stable across plans of the same snapshot`() {
+        val options = nagOptions(TaskNagCadence.Daily)
+        val first = plan(tasks = listOf(overdue), options = options).filter { it.nag }
+        val later = plan(tasks = listOf(overdue), options = options, at = now.plusSeconds(1800)).filter { it.nag }
+
+        assertEquals(first.map { it.key }, later.map { it.key })
+    }
+
+    @Test
+    fun `daily nags keep their local hour across the autumn clock change`() {
+        val before = LocalDateTime.of(2026, 10, 24, 20, 0).atZone(zone).toInstant()
+        val old = task(id = "t-dst", due = LocalDate.of(2026, 10, 20), reminder = Reminder(0))
+        val nags = plan(tasks = listOf(old), options = nagOptions(TaskNagCadence.Daily), at = before).filter { it.nag }
+
+        assertTrue(nags.any { it.at.atZone(zone).toLocalDate() == LocalDate.of(2026, 10, 26) })
+        assertTrue(nags.all { it.at.atZone(zone).toLocalTime() == LocalTime.of(9, 0) })
+    }
+
+    @Test
+    fun `a task leaving the plan resolves its nag notification`() {
+        val options = nagOptions(TaskNagCadence.Daily)
+        val a = task(id = "a", due = LocalDate.of(2026, 9, 12), reminder = Reminder(0))
+        val b = task(id = "b", due = LocalDate.of(2026, 9, 12), reminder = Reminder(0))
+        val stored = plan(tasks = listOf(a, b), options = options)
+        val aOnly = plan(tasks = listOf(a), options = options)
+
+        val partly = NagResolution.between(stored, aOnly)
+        assertEquals(listOf(stored.first { it.recordId == "b" }.notificationId), partly.notificationIds)
+        assertEquals(false, partly.allGone)
+
+        val none = NagResolution.between(stored, emptyList())
+        assertEquals(2, none.notificationIds.size)
+        assertEquals(true, none.allGone)
+
+        assertEquals(NagResolution(emptyList(), allGone = false), NagResolution.between(emptyList(), stored))
     }
 
     private fun event(

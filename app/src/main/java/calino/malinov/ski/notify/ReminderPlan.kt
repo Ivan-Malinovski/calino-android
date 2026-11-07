@@ -31,6 +31,35 @@ import java.util.Locale
 enum class ReminderKind { Event, Task }
 
 /**
+ * How often an overdue task with a reminder is mentioned again.
+ *
+ * Slots are fixed wall-clock times, not "N hours after the last one": a plan
+ * rebuilt after every sync must land on the same slots, or each sync would
+ * look like a schedule change and a reboot would restart the clock.
+ */
+enum class TaskNagCadence { Off, Daily, Hourly }
+
+/**
+ * Which posted nags no longer have a reason to be in the shade.
+ *
+ * A task that was being nagged under the stored schedule and has no nag in the
+ * new plan is done, rescheduled, deleted, or the setting was turned off.
+ */
+data class NagResolution(val notificationIds: List<Int>, val allGone: Boolean) {
+    companion object {
+        fun between(stored: List<ReminderFiring>, planned: List<ReminderFiring>): NagResolution {
+            val before = stored.filter { it.nag }
+            if (before.isEmpty()) return NagResolution(emptyList(), allGone = false)
+            val still = planned.filter { it.nag }.map { it.recordId }.toSet()
+            return NagResolution(
+                notificationIds = before.filter { it.recordId !in still }.map { it.notificationId }.distinct(),
+                allGone = still.isEmpty(),
+            )
+        }
+    }
+}
+
+/**
  * One notification to post at one moment.
  *
  * [anchor] is the thing being reminded about -- the event start, or the task's
@@ -61,6 +90,11 @@ data class ReminderFiring(
     val meetingUrl: String? = null,
     val minutesBefore: Int,
     val anchor: Instant,
+    /**
+     * A repeat mention of a task that is already overdue. One per slot, so
+     * [key] differs, but they all share [notificationId] and replace each other.
+     */
+    val nag: Boolean = false,
 ) {
     /**
      * Notification id and alarm request code.
@@ -70,7 +104,8 @@ data class ReminderFiring(
      * means one reminder replaces another's notification, which is survivable;
      * a counter that restarts at zero after a reboot is not.
      */
-    val notificationId: Int get() = key.hashCode() and 0x7fffffff
+    val notificationId: Int
+        get() = (if (nag) "nag:$recordId" else key).hashCode() and 0x7fffffff
 }
 
 data class ReminderPlanOptions(
@@ -122,6 +157,20 @@ data class ReminderPlanOptions(
      */
     val localEventReminders: Map<String, List<Reminder>> = emptyMap(),
     val localReminderCalendarIds: Set<String> = emptySet(),
+    /** Repeat mentions of overdue tasks that have a reminder; tasks only. */
+    val taskNagCadence: TaskNagCadence = TaskNagCadence.Off,
+    /** The one slot of a [TaskNagCadence.Daily] nag. */
+    val nagDailyAt: LocalTime = LocalTime.of(9, 0),
+    /** First and last hourly slot of the day, so nothing buzzes at night. */
+    val nagFromHour: Int = 8,
+    val nagToHour: Int = 21,
+    /**
+     * Hourly slots are planned this far ahead only. Background sync re-plans
+     * and extends them, and a long run of them must not crowd real reminders
+     * out of [maxFirings].
+     */
+    val nagHourlyHorizon: Duration = Duration.ofHours(24),
+    val maxNags: Int = 60,
 )
 
 object ReminderPlanner {
@@ -174,22 +223,32 @@ object ReminderPlanner {
                 .forEach { (event, _) -> firings += event.firings(now, until, zone, options) }
         }
 
-        if (options.taskRemindersEnabled) {
+        val reminderTasks = if (options.taskRemindersEnabled) {
             tasks.asSequence()
                 .filter { task -> !task.done && task.reminder != null &&
                     (task.reminder.absoluteAt != null || if (task.reminder.relativeToStart) task.startDate != null else task.due != null) }
                 .filter { it.calendarId in visibleCalendarIds }
-                .forEach { task -> firings += task.firings(now, until, zone) }
-        }
+                .toList()
+        } else emptyList()
+        reminderTasks.forEach { task -> firings += task.firings(now, until, zone) }
 
         // Deduplicate on the key, keeping the earliest, then order
         // deterministically: the same snapshot must always produce the same
         // list, or every sync would look like a schedule change.
-        return firings
+        val planned = firings
             .groupBy { it.key }
             .map { (_, group) -> group.minBy { it.at } }
             .sortedWith(compareBy({ it.at }, { it.key }))
             .take(options.maxFirings)
+
+        // Nags are added after the cap and have their own, so a run of them
+        // can never push a real reminder out of the plan.
+        if (options.taskNagCadence == TaskNagCadence.Off) return planned
+        val nags = reminderTasks
+            .flatMap { task -> task.nags(now, zone, options) }
+            .sortedWith(compareBy({ it.at }, { it.key }))
+            .take(options.maxNags)
+        return planned + nags
     }
 
     private fun CalEvent.firings(
@@ -279,12 +338,7 @@ object ReminderPlanner {
         val reminder = reminder ?: return emptyList()
         val dueDate = due
         val anchorDate = if (reminder.relativeToStart) startDate else dueDate
-        val anchorTime = if (reminder.relativeToStart) startTime else dueTime
-        // RFC 5545 anchors a DATE-valued VTODO DUE at 00:00, not the
-        // user-facing all-day reminder hour used for calendar events.
-        val anchor = anchorDate?.atTime(anchorTime ?: LocalTime.MIDNIGHT)?.atZone(zone)?.toInstant()
-            ?: reminder.absoluteAt ?: return emptyList()
-        val baseAt = reminder.absoluteAt ?: anchor.minusSeconds(reminder.minutesBefore * 60L)
+        val (anchor, baseAt) = reminderTimes(zone) ?: return emptyList()
         return (0..reminder.repeatCount.coerceIn(0, 24)).map { repeatIndex -> ReminderFiring(
             key = if (reminder.absoluteAt != null) {
                 // RFC 5545: an absolute alarm on a recurring VTODO fires once,
@@ -305,6 +359,95 @@ object ReminderPlanner {
             minutesBefore = reminder.minutesBefore,
             anchor = anchor,
         ) }.filter { it.at > now && it.at <= until }
+    }
+
+    /** The reminder's anchor and its first trigger, or null when it has neither. */
+    private fun CalTask.reminderTimes(zone: ZoneId): Pair<Instant, Instant>? {
+        val reminder = reminder ?: return null
+        val anchorDate = if (reminder.relativeToStart) startDate else due
+        val anchorTime = if (reminder.relativeToStart) startTime else dueTime
+        // RFC 5545 anchors a DATE-valued VTODO DUE at 00:00, not the
+        // user-facing all-day reminder hour used for calendar events.
+        val anchor = anchorDate?.atTime(anchorTime ?: LocalTime.MIDNIGHT)?.atZone(zone)?.toInstant()
+            ?: reminder.absoluteAt ?: return null
+        return anchor to (reminder.absoluteAt ?: anchor.minusSeconds(reminder.minutesBefore * 60L))
+    }
+
+    /**
+     * When the task becomes overdue, which is also when nagging may start.
+     *
+     * Matches the Tasks list: a task with a due time is late from that moment,
+     * a date-only task only once its day is over, so a task due today is not
+     * mentioned on the morning it is due. Never earlier than the last firing
+     * of its own reminder.
+     */
+    private fun CalTask.overdueFrom(zone: ZoneId): Instant? {
+        val reminder = reminder ?: return null
+        val (anchor, baseAt) = reminderTimes(zone) ?: return null
+        val lastReminder = baseAt.plusSeconds(
+            reminder.repeatCount.coerceIn(0, 24).toLong() * reminder.repeatIntervalMinutes * 60L,
+        )
+        val dueDate = due
+        val dueAt = when {
+            dueDate == null -> anchor
+            dueTime != null -> dueDate.atTime(dueTime).atZone(zone).toInstant()
+            else -> dueDate.plusDays(1).atStartOfDay(zone).toInstant()
+        }
+        return maxOf(dueAt, lastReminder)
+    }
+
+    private fun CalTask.nags(
+        now: Instant,
+        zone: ZoneId,
+        options: ReminderPlanOptions,
+    ): List<ReminderFiring> {
+        val from = overdueFrom(zone) ?: return emptyList()
+        val after = maxOf(from, now)
+        val reminder = reminder ?: return emptyList()
+        val anchorDate = if (reminder.relativeToStart) startDate else due
+        val dueDate = due
+        return nagSlots(after, now, zone, options).map { slot ->
+            ReminderFiring(
+                key = "nag:$id:${slot.epochSecond}",
+                at = slot,
+                kind = ReminderKind.Task,
+                recordId = id,
+                uid = uid,
+                occurrenceDay = anchorDate?.toEpochDay(),
+                title = title,
+                subtitle = dueDate?.let { "Overdue since ${DateLabel.format(it)}" } ?: "Overdue",
+                displayAllDay = dueTime == null,
+                displayDate = dueDate,
+                displayTime = dueTime,
+                displayCategory = category,
+                minutesBefore = reminder.minutesBefore,
+                anchor = from,
+                nag = true,
+            )
+        }
+    }
+
+    /** Slots strictly after [after], from [now], in the local zone. */
+    private fun nagSlots(
+        after: Instant,
+        now: Instant,
+        zone: ZoneId,
+        options: ReminderPlanOptions,
+    ): List<Instant> {
+        val daily = options.taskNagCadence == TaskNagCadence.Daily
+        val until = now.plus(if (daily) options.horizon else minOf(options.horizon, options.nagHourlyHorizon))
+        val firstDay = after.atZone(zone).toLocalDate()
+        val lastDay = until.atZone(zone).toLocalDate()
+        val times = if (daily) {
+            listOf(options.nagDailyAt)
+        } else {
+            (options.nagFromHour..options.nagToHour).map { LocalTime.of(it, 0) }
+        }
+        return generateSequence(firstDay) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(lastDay) }
+            .flatMap { day -> times.map { day.atTime(it).atZone(zone).toInstant() } }
+            .filter { it > after && it <= until }
+            .toList()
     }
 
     private fun CalTask.taskSubtitle(dueDate: LocalDate, now: Instant, zone: ZoneId): String {

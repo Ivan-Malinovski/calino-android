@@ -177,18 +177,31 @@ private fun ReminderSchedule.replacing(
     zone: ZoneId,
 ): ReminderSchedule {
     val keys = firings.map { it.key }.toSet()
+    // A notification outlives its slot: the planner only emits future moments,
+    // so without this a re-plan (any sync or app launch) would forget the firing
+    // behind a notification still in the shade, and its Mark done / Tomorrow
+    // buttons would find nothing and do nothing. Delivered firings stay for the
+    // history window; `due` and `next` already skip them. Only slots that have
+    // already passed qualify: a future firing missing from the new plan was
+    // deleted or moved, and its history stays dead weight.
+    val floor = generatedAt.minus(DeliveredFiringRetention)
+    val kept = this.firings.filter { old ->
+        old.key !in keys && !old.at.isAfter(generatedAt) && delivered[old.key]?.isAfter(floor) == true
+    }
     return copy(
         generatedAt = generatedAt,
         zoneId = zone.id,
-        firings = firings,
+        firings = (firings + kept).sortedBy { it.at },
         // History for a firing that no longer exists is dead weight, but a
         // firing that is merely outside the new horizon may come back; keeping
         // the watermark only for live keys is what stops a re-plan from
         // re-notifying, and `pruned` bounds the rest by age.
-        delivered = delivered.filterKeys { it in keys },
+        delivered = delivered.filterKeys { it in keys || kept.any { old -> old.key == it } },
         snoozed = snoozed.filterKeys { it in keys },
     )
 }
+
+private val DeliveredFiringRetention: Duration = Duration.ofDays(7)
 
 private fun ReminderSchedule.pruned(now: Instant, retention: Duration): ReminderSchedule {
     val floor = now.minus(retention)
@@ -250,6 +263,7 @@ internal object ReminderScheduleJson {
         .putNullable("meetingUrl", firing.meetingUrl)
         .put("minutesBefore", firing.minutesBefore)
         .put("anchor", firing.anchor.toString())
+        .put("nag", firing.nag)
 
     private fun decodeFiring(json: JSONObject): ReminderFiring? = runCatching {
         ReminderFiring(
@@ -269,6 +283,7 @@ internal object ReminderScheduleJson {
             meetingUrl = json.optionalString("meetingUrl"),
             minutesBefore = json.getInt("minutesBefore"),
             anchor = Instant.parse(json.getString("anchor")),
+            nag = json.optBoolean("nag", false),
         )
     }.getOrNull()
 

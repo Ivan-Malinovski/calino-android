@@ -86,6 +86,14 @@ class ReminderNotifier(private val context: Context) {
 
     /** Format at delivery time so a queued reminder follows a later language change. */
     private fun localizedSubtitle(firing: ReminderFiring): String {
+        if (firing.nag) {
+            val locale = context.resources.configuration.locales[0]
+            val since = firing.displayDate ?: firing.anchor.atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            return context.getString(
+                R.string.sys_overdue_since,
+                since.format(calino.malinov.ski.util.localizedDisplayFormatter("d MMM", locale)),
+            )
+        }
         if (firing.displayAllDay == null) return firing.subtitle // Older durable schedule.
         val locale = context.resources.configuration.locales[0]
         val deviceClock = calino.malinov.ski.state.CalinoDeviceDefaults.from(context).timeFormat
@@ -107,6 +115,38 @@ class ReminderNotifier(private val context: Context) {
     }
 
     fun cancel(notificationId: Int) = manager.cancel(notificationId)
+
+    /**
+     * One notification for the overdue tasks that did not fit in the slot.
+     * It has a fixed id, so the next slot's summary replaces this one, and it
+     * opens the Tasks list, where the Overdue group is.
+     */
+    fun postNagSummary(count: Int) {
+        if (count <= 0) return
+        ReminderChannels.ensure(context)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            data = Uri.parse(TasksDeepLinks.uri())
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val open = PendingIntent.getActivity(
+            context,
+            NagSummaryId,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val builder = NotificationCompat.Builder(context, ReminderChannels.channelFor(ReminderKind.Task))
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(context.getString(R.string.sys_overdue_summary_title))
+            .setContentText(context.resources.getQuantityString(R.plurals.sys_overdue_summary, count, count))
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+        notify(NagSummaryId, builder)
+    }
+
+    fun cancelNagSummary() = manager.cancel(NagSummaryId)
 
     /**
      * Posting is checked rather than attempted.
@@ -194,6 +234,7 @@ class ReminderNotifier(private val context: Context) {
 
     private companion object {
         const val ConfirmationTimeoutMillis = 8_000L
+        const val NagSummaryId = 0x4e414753
         const val DirectionsRequestKey = "directions"
         const val JoinRequestKey = "join"
     }

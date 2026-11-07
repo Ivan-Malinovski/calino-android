@@ -124,6 +124,7 @@ import calino.malinov.ski.data.sync.BackgroundSyncCadence
 import calino.malinov.ski.data.sync.BackgroundSyncStatus
 import androidx.compose.ui.platform.testTag
 import calino.malinov.ski.notify.LocalNotificationPermission
+import calino.malinov.ski.notify.TaskNagCadence
 import calino.malinov.ski.notify.systemSettingsIntent
 import calino.malinov.ski.state.LocalCalinoPreferences
 import calino.malinov.ski.state.LocalFoldPosture
@@ -1201,6 +1202,22 @@ private fun NotificationSettings(onOpenPreview: () -> Unit) {
                 preferences.taskRemindersEnabled,
                 preferences.setTaskRemindersEnabled,
             )
+            // Nagging builds on the task reminder, so the choice only exists
+            // while that is on.
+            AnimatedVisibility(
+                preferences.taskRemindersEnabled,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                SettingChoiceRow(
+                    label = t(R.string.set_nag_overdue_tasks),
+                    description = t(R.string.set_nag_overdue_tasks_description),
+                    options = TaskNagCadence.entries,
+                    selected = preferences.taskNagCadence,
+                    labelOf = { it.localizedLabel() },
+                    onSelected = preferences.setTaskNagCadence,
+                )
+            }
         }
         // Only while there is something projected. A switch offering to hand
         // reminders to an app that has been given no calendars would hand
@@ -1798,6 +1815,13 @@ private fun BackgroundSyncCadence.localizedShortLabel(): String = when (this) {
     BackgroundSyncCadence.TwelveHours -> t(R.string.set_12_h)
     BackgroundSyncCadence.Daily -> t(R.string.set_24_h)
     BackgroundSyncCadence.Off -> t(R.string.set_off)
+}
+
+@Composable
+private fun TaskNagCadence.localizedLabel(): String = when (this) {
+    TaskNagCadence.Off -> t(R.string.set_off)
+    TaskNagCadence.Daily -> t(R.string.set_nag_daily)
+    TaskNagCadence.Hourly -> t(R.string.set_nag_hourly)
 }
 
 @Composable

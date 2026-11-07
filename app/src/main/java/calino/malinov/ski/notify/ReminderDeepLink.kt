@@ -160,3 +160,18 @@ object AgendaDeepLinks {
         return runCatching { LocalDate.ofEpochDay(day) }.getOrNull()
     }
 }
+
+/** "Open the Tasks list": what the overdue-nag summary notification opens. */
+object TasksDeepLinks {
+
+    const val Host = "tasks"
+
+    fun uri(): String = "${ReminderDeepLinks.Scheme}://$Host"
+
+    fun isDeepLink(raw: String?): Boolean {
+        if (raw.isNullOrBlank()) return false
+        val uri = runCatching { URI(raw) }.getOrNull() ?: return false
+        return ReminderDeepLinks.Scheme.equals(uri.scheme, ignoreCase = true) &&
+            Host.equals(uri.host, ignoreCase = true)
+    }
+}

@@ -25,9 +25,20 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val notifier = Reminders.notifier(app)
 
         ReminderChannels.ensure(app)
-        store.due(now, Grace).forEach { firing ->
+        val (nags, owed) = store.due(now, Grace).partition { it.nag }
+        owed.forEach { firing ->
             notifier.post(firing)
             store.markDelivered(firing.key, now)
+        }
+        // Nags are the repeats of a reminder that was already missed, so a
+        // slot shows the longest-overdue few and folds the rest into one line
+        // instead of filling the shade.
+        if (nags.isNotEmpty()) {
+            val ordered = nags.sortedWith(compareBy({ it.anchor }, { it.key }))
+            ordered.take(MaxNagsPerSlot).forEach { notifier.post(it) }
+            val folded = ordered.size - MaxNagsPerSlot
+            if (folded > 0) notifier.postNagSummary(folded) else notifier.cancelNagSummary()
+            nags.forEach { store.markDelivered(it.key, now) }
         }
         Reminders.scheduler(app).syncNextAlarm(now)
     }
@@ -41,5 +52,8 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
          * meeting does not announce itself this morning.
          */
         private val Grace: Duration = Duration.ofHours(2)
+
+        /** Overdue tasks posted individually in one slot; the rest are summarised. */
+        const val MaxNagsPerSlot = 3
     }
 }

@@ -45,6 +45,14 @@ class ReminderSchedulerBridge(
     private val importedCalendarsRemindedElsewhere: () -> Set<String> = { emptySet() },
     /** Device-only reminders on read-only events, read fresh on every plan. */
     private val localEventReminders: () -> Map<String, List<calino.malinov.ski.data.model.Reminder>> = { emptyMap() },
+    /**
+     * A task that was being nagged no longer is: done, rescheduled, deleted or
+     * the setting turned off. Called with the id of the notification that may
+     * still be in the shade, because a nag nobody can act on is just noise.
+     */
+    private val onNagResolved: (Int) -> Unit = {},
+    /** No task is being nagged any more, so the "N more" summary has nothing to say. */
+    private val onNagsGone: () -> Unit = {},
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
     private val now: () -> Instant = { Instant.now() },
 ) {
@@ -93,6 +101,7 @@ class ReminderSchedulerBridge(
             options = ReminderPlanOptions(
                 eventRemindersEnabled = preferences.loadEventRemindersEnabled(),
                 taskRemindersEnabled = preferences.loadTaskRemindersEnabled(),
+                taskNagCadence = preferences.loadTaskNagCadence(),
                 // Only when the person has handed delivery over. Both halves
                 // are required: a projected calendar with the setting off is
                 // still Calino's to remind for, and the setting on with
@@ -113,8 +122,21 @@ class ReminderSchedulerBridge(
                 },
             ),
         )
+        resolveNags(firings)
         store.replace(firings, at, currentZone)
         scheduler.syncNextAlarm(at)
+    }
+
+    /**
+     * Withdraw the notification of every task that was nagging under the old
+     * schedule and is absent from the new plan. Comparing against what is
+     * stored, rather than asking the shade, keeps this pure and testable and
+     * needs no notification-listener access.
+     */
+    private fun resolveNags(planned: List<ReminderFiring>) {
+        val resolution = NagResolution.between(store.load().firings, planned)
+        resolution.notificationIds.forEach(onNagResolved)
+        if (resolution.allGone) onNagsGone()
     }
 
     /** Re-plan from whatever was last observed; used when a preference changes. */
@@ -129,6 +151,7 @@ class ReminderSchedulerBridge(
      * it.
      */
     fun clear() {
+        resolveNags(emptyList())
         store.replace(emptyList(), now(), zone())
         scheduler.cancel()
     }
