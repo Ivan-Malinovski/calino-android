@@ -1,6 +1,11 @@
 package calino.malinov.ski.ui.surfaces
 
 import androidx.compose.ui.graphics.vector.ImageVector
+import calino.malinov.ski.ui.components.CategoryStyledText
+import calino.malinov.ski.ui.components.cardFill
+import calino.malinov.ski.ui.components.categoryEdge
+import calino.malinov.ski.ui.components.categoryTexture
+import calino.malinov.ski.ui.components.rememberCategoryAppearance
 import calino.malinov.ski.ui.components.CalinoActionMenu
 import calino.malinov.ski.ui.components.CalinoActionMenuDivider
 import calino.malinov.ski.ui.components.CalinoActionMenuItem
@@ -407,12 +412,34 @@ private fun AgendaCard(event: CalEvent, onClick: () -> Unit = {}) {
     val context = LocalContext.current
     val color = eventColor(event)
     val timeFormat = LocalTimeFormat
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(11.dp), colors = CardDefaults.cardColors(CalinoColors.Panel), border = androidx.compose.foundation.BorderStroke(1.dp, CalinoColors.Ink.copy(alpha = .07f))) {
-        Row(Modifier.padding(vertical = 10.dp, horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+    val appearance = rememberCategoryAppearance(event.categories)
+    val shape = RoundedCornerShape(11.dp)
+    val edge = CalinoColors.Ink.copy(alpha = .07f)
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = shape,
+        colors = CardDefaults.cardColors(appearance.cardFill(CalinoColors.Panel)),
+        // A dashed rule draws its own edge on the row below, in place of the hairline.
+        border = if (appearance.dashed == null) androidx.compose.foundation.BorderStroke(1.dp, edge) else null,
+    ) {
+        Row(
+            Modifier
+                .categoryTexture(appearance, shape)
+                .then(if (appearance.dashed != null) Modifier.categoryEdge(appearance, 1.dp, edge, shape) else Modifier)
+                .padding(vertical = 10.dp, horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(Modifier.width(3.dp).height(40.dp).clip(RoundedCornerShape(3.dp)).background(color)); Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(event.start?.let { timeFormat.format(it, LocalCalinoLocale) } ?: context.getString(R.string.ed_all_day), style = CalinoTypography.labelSmall, color = CalinoColors.Ink2)
-                Text(event.title, style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium), maxLines = 1)
+                CategoryStyledText(
+                    event.title,
+                    appearance,
+                    color = CalinoColors.Ink,
+                    maxLines = 1,
+                    style = CalinoTypography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                )
                 event.location?.let { Text(it, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3) }
             }
             Text("›", fontSize = 25.sp, color = CalinoColors.Ink3)

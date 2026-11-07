@@ -9,6 +9,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import calino.malinov.ski.data.model.AutoCategoryRule
+import calino.malinov.ski.data.model.CategoryStyleRule
+import calino.malinov.ski.data.model.DefaultCategoryStyleRules
+import calino.malinov.ski.data.model.decodeCategoryStyleRules
+import calino.malinov.ski.data.model.encodeCategoryStyleRules
 import calino.malinov.ski.data.model.decodeAutoCategoryRules
 import calino.malinov.ski.data.model.decodeCategoryNames
 import calino.malinov.ski.data.model.encodeAutoCategoryRules
@@ -183,6 +187,9 @@ data class CalinoPreferences(
     /** Keyword rules that add a category from a title on Save. Empty by default. */
     val autoCategoryRules: List<AutoCategoryRule> = emptyList(),
     val setAutoCategoryRules: (List<AutoCategoryRule>) -> Unit = {},
+    /** Ordered rules that style an event by its categories. Defaults to the web's two. */
+    val categoryStyleRules: List<CategoryStyleRule> = DefaultCategoryStyleRules,
+    val setCategoryStyleRules: (List<CategoryStyleRule>) -> Unit = {},
     /** Last few queries the person acted on in search, newest first. Stays on the device. */
     val recentSearches: List<String> = emptyList(),
     val rememberSearch: (String) -> Unit = {},
@@ -312,6 +319,8 @@ interface CalinoPreferenceStore {
     fun saveUserCategories(names: List<String>) {}
     fun loadAutoCategoryRules(): List<AutoCategoryRule> = emptyList()
     fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) {}
+    fun loadCategoryStyleRules(): List<CategoryStyleRule> = DefaultCategoryStyleRules
+    fun saveCategoryStyleRules(rules: List<CategoryStyleRule>) {}
     fun loadRecentSearches(): List<String> = emptyList()
     fun saveRecentSearches(queries: List<String>) {}
     /**
@@ -452,6 +461,9 @@ interface CalinoPreferenceStore {
         override fun saveRecentSearches(queries: List<String>) { recentSearches = queries }
         override fun loadAutoCategoryRules() = autoCategoryRules
         override fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) { autoCategoryRules = rules }
+        private var categoryStyleRules = DefaultCategoryStyleRules
+        override fun loadCategoryStyleRules() = categoryStyleRules
+        override fun saveCategoryStyleRules(rules: List<CategoryStyleRule>) { categoryStyleRules = rules }
         override fun loadNotificationPromptShown() = notificationPrompt
         override fun saveNotificationPromptShown(shown: Boolean) { notificationPrompt = shown }
     }
@@ -597,6 +609,11 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         decodeAutoCategoryRules(name(AutoCategoryRulesKey))
     override fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) =
         putString(AutoCategoryRulesKey, encodeAutoCategoryRules(rules))
+    // An absent key means "never edited", so the defaults show; an empty string is an empty list.
+    override fun loadCategoryStyleRules(): List<CategoryStyleRule> =
+        decodeCategoryStyleRules(name(CategoryStyleRulesKey))
+    override fun saveCategoryStyleRules(rules: List<CategoryStyleRule>) =
+        putString(CategoryStyleRulesKey, encodeCategoryStyleRules(rules))
     override fun loadNotificationPromptShown(): Boolean = prefs.getBoolean(NotificationPromptKey, false)
     override fun saveNotificationPromptShown(shown: Boolean) = putBoolean(NotificationPromptKey, shown)
 
@@ -641,6 +658,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val NotificationPromptKey = "notification_prompt_shown"
         const val UserCategoriesKey = "user_categories"
         const val AutoCategoryRulesKey = "auto_category_rules"
+        const val CategoryStyleRulesKey = "category_style_rules"
         const val RecentSearchesKey = "recent_searches"
     }
 }
@@ -699,6 +717,7 @@ fun rememberCalinoPreferences(
     var dayTasksExpanded by remember(store) { mutableStateOf(store.loadDayTasksExpanded()) }
     var userCategories by remember(store) { mutableStateOf(store.loadUserCategories()) }
     var autoCategoryRules by remember(store) { mutableStateOf(store.loadAutoCategoryRules()) }
+    var categoryStyleRules by remember(store) { mutableStateOf(store.loadCategoryStyleRules()) }
     var recentSearches by remember(store) { mutableStateOf(store.loadRecentSearches()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
@@ -814,6 +833,8 @@ fun rememberCalinoPreferences(
         setUserCategories = { value -> userCategories = value; store.saveUserCategories(value) },
         autoCategoryRules = autoCategoryRules,
         setAutoCategoryRules = { value -> autoCategoryRules = value; store.saveAutoCategoryRules(value) },
+        categoryStyleRules = categoryStyleRules,
+        setCategoryStyleRules = { value -> categoryStyleRules = value; store.saveCategoryStyleRules(value) },
         recentSearches = recentSearches,
         rememberSearch = { query ->
             val next = withRecentSearch(recentSearches, query)

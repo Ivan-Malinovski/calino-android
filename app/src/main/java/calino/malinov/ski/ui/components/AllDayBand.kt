@@ -290,13 +290,15 @@ private fun AllDayEventChip(
         if (placement.continuesBefore) append(", ").append(continuesBefore)
         if (placement.continuesAfter) append(", ").append(continuesAfter)
     }
+    val categoryAppearance = rememberCategoryAppearance(event.categories)
     Row(
         Modifier
             .fillMaxSize()
             .calinoSurfaceOrigin(event.id, chipRadius, growFromEvent)
             .clip(shape)
-            .background(eventTint(rawColor, .12f, CalinoColors.Panel), shape)
-            .border(1.dp, edgeColor.copy(alpha = .16f), shape)
+            .background(categoryAppearance.cardFill(eventTint(rawColor, .12f, CalinoColors.Panel)), shape)
+            .categoryTexture(categoryAppearance, shape)
+            .categoryEdge(categoryAppearance, 1.dp, edgeColor.copy(alpha = .16f), shape)
             .combinedClickable(
                 interactionSource = null,
                 indication = null,
@@ -318,13 +320,17 @@ private fun AllDayEventChip(
                     .background(edgeColor),
             )
         }
-        Text(
+        // The band's chips are a single short line: pencil, strike and marker
+        // apply, the pen loop and handwriting need more height than it has.
+        CategoryStyledText(
             event.title,
+            categoryAppearance,
             Modifier.weight(1f).padding(horizontal = 4.dp),
             fontSize = fontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             color = CalinoColors.Ink,
+            compact = true,
         )
         if (placement.continuesAfter) {
             ContinuationMarker(ContinuationEdge.End, edgeColor, Modifier.width(6.dp).fillMaxHeight())

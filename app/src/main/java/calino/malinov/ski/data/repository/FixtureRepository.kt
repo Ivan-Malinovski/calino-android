@@ -893,8 +893,23 @@ Open the [design brief](https://example.com/calino-design-brief) before the meet
         timed("evt-manager", "One-on-One with Manager", may(29), Rose, LocalTime.of(16, 0), 30, "FREQ=WEEKLY;BYDAY=FR;UNTIL=20260630T235959Z", calendarId = "work"),
         timed("evt-retrospective", "Q1 Retrospective", may(30), Rose, LocalTime.of(15, 0), 90, location = "Conference Room C", calendarId = "work"),
         timed("evt-report", "Monthly Report Deadline", may(31), Rose, LocalTime.of(11, 0), 60, calendarId = "work"),
-    )
+    ).map { event -> fixtureCategories[event.id]?.let { event.copy(categories = it) } ?: event }
 }
+
+/**
+ * Categories for a few sample events, so "Style by category" has something to
+ * show with no account: the default rules draw "Important" with a pen loop and
+ * the "not confirmed / tentative / maybe" names with diagonal hatching.
+ */
+private val fixtureCategories = mapOf(
+    "evt-design" to listOf("Important"),
+    "evt-lunch" to listOf("Maybe"),
+    "evt-flight" to listOf("Tentative"),
+    "evt-retreat" to listOf("Important"),
+    "evt-dentist" to listOf("Not confirmed"),
+    "evt-report" to listOf("Important"),
+    "evt-brunch" to listOf("Maybe"),
+)
 
 private fun fixtureTasks(): List<CalTask> {
     val day = FixtureRepository.FixtureDate

@@ -159,7 +159,13 @@ import calino.malinov.ski.data.model.occurrenceStartCovering
 import calino.malinov.ski.data.model.placementDate
 import calino.malinov.ski.data.model.spanLengthDays
 import calino.malinov.ski.data.model.CalTask
+import calino.malinov.ski.data.model.CategoryAppearance
 import calino.malinov.ski.ui.components.AbsentParentRow
+import calino.malinov.ski.ui.components.CategoryStyledText
+import calino.malinov.ski.ui.components.cardFill
+import calino.malinov.ski.ui.components.categoryEdge
+import calino.malinov.ski.ui.components.categoryTexture
+import calino.malinov.ski.ui.components.rememberCategoryAppearance
 import calino.malinov.ski.ui.components.AllDayBand
 import calino.malinov.ski.ui.components.calinoSurfaceOrigin
 import calino.malinov.ski.ui.components.AllDayBandDensity
@@ -5653,6 +5659,7 @@ private fun EventChip(
         }
     }
     val shape = RoundedCornerShape(if (agendaStyle) 10.dp else 6.dp)
+    val categoryAppearance = rememberCategoryAppearance(event.categories)
     val interaction = when {
         onClick != null && onEventAction != null -> Modifier.combinedClickable(
             interactionSource = null,
@@ -5686,13 +5693,18 @@ private fun EventChip(
     Column {
     Row(
         Modifier.fillMaxWidth().heightIn(min = maxOf(44.dp, minHeight))
-            .clip(shape)
             .then(rowInteraction)
             .graphicsLayer { translationY = dragDistance }
             .zIndex(if (abs(dragDistance) > .5f) 1f else 0f)
             .semantics(mergeDescendants = true) { contentDescription = eventDescription(event, timeFormat, locale) }
-            .background(eventTint(Color(event.color), if (agendaStyle) .12f else .10f, CalinoColors.Panel))
-            .border(1.dp, CalinoColors.forEvent(Color(event.color)).copy(alpha = if (agendaStyle) .16f else .12f), shape)
+            .background(categoryAppearance.cardFill(eventTint(Color(event.color), if (agendaStyle) .12f else .10f, CalinoColors.Panel)), shape)
+            .categoryTexture(categoryAppearance, shape)
+            .categoryEdge(
+                categoryAppearance,
+                1.dp,
+                CalinoColors.forEvent(Color(event.color)).copy(alpha = if (agendaStyle) .16f else .12f),
+                shape,
+            )
             .padding(horizontal = if (agendaStyle) 10.dp else 4.dp, vertical = if (agendaStyle) 7.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -5704,8 +5716,9 @@ private fun EventChip(
         )
         if (agendaStyle) {
             Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(
+                CategoryStyledText(
                     event.title,
+                    categoryAppearance,
                     fontSize = 14.sp,
                     lineHeight = 18.sp,
                     fontWeight = FontWeight.Medium,
@@ -5716,14 +5729,16 @@ private fun EventChip(
                 Text(metadata, fontSize = 11.sp, lineHeight = 14.sp, color = CalinoColors.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         } else {
-            Text(
+            CategoryStyledText(
                 event.title,
+                categoryAppearance,
                 Modifier.padding(start = 7.dp),
                 fontSize = 9.sp,
                 lineHeight = 10.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 color = CalinoColors.Ink,
+                compact = true,
             )
         }
     }
@@ -7260,10 +7275,14 @@ internal fun TimelineEventCard(
         val compactLocation = event.location?.takeIf { preferences.showLocations && it.isNotBlank() }
         val compactDetail = compactChipDetail(maxHeight, maxWidth, compactLocation != null)
         val cardShape = RoundedCornerShape(if (compact) 6.dp else 11.dp)
+        val categoryAppearance = rememberCategoryAppearance(event.categories)
         Box(
-            Modifier.fillMaxSize().clip(cardShape)
-                .background(eventTint(Color(event.color), if (compact) .10f else .13f, colors.Panel))
-                .border(
+            Modifier.fillMaxSize()
+                .background(categoryAppearance.cardFill(eventTint(Color(event.color), if (compact) .10f else .13f, colors.Panel)), cardShape)
+                .categoryTexture(categoryAppearance, cardShape)
+                .categoryEdge(
+                    // A lifted card keeps its solid accent ring; the dashed edge returns on drop.
+                    if (lifted) CategoryAppearance.None else categoryAppearance,
                     if (lifted) 2.dp else 1.dp,
                     if (lifted) colors.Accent.copy(alpha = .72f) else Color(event.color).copy(alpha = if (compact) .12f else .16f),
                     cardShape,
@@ -7288,8 +7307,9 @@ internal fun TimelineEventCard(
                 Modifier.padding(start = if (hideAccentRail) 1.dp else if (compact) 3.dp else 8.dp).weight(1f),
                 verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
-                Text(
+                CategoryStyledText(
                     event.title,
+                    categoryAppearance,
                     fontSize = if (compact) 9.sp else 13.5.sp,
                     lineHeight = if (compact) 11.sp else 17.sp,
                     fontWeight = FontWeight.Medium,
@@ -7297,6 +7317,10 @@ internal fun TimelineEventCard(
                     softWrap = !compact,
                     overflow = TextOverflow.Ellipsis,
                     color = colors.Ink,
+                    compact = compact,
+                    // The title starts 9dp in once the rail is hidden, and the lane
+                    // clips at the card's edge beside the hour column.
+                    loopReachStart = if (hideAccentRail) 8.dp else 16.dp,
                 )
                 if (showMetadata && compact) {
                     // A narrow column cannot hold time and place on one line,

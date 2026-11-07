@@ -178,6 +178,7 @@ import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import calino.malinov.ski.data.model.CalEvent
+import calino.malinov.ski.data.model.CategoryAppearance
 import calino.malinov.ski.data.model.CalTask
 import calino.malinov.ski.design.CalinoColors
 import calino.malinov.ski.R
@@ -941,17 +942,19 @@ fun AgendaRow(
     countdown: String? = null,
     countdownSoon: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
+    /** What the event's categories ask for: fill, hatching, dashed edge, title lettering. */
+    appearance: CategoryAppearance = CategoryAppearance.None,
 ) {
     val shape = RoundedCornerShape(CalinoShapes.Row)
     val isCard = variant == AgendaRowVariant.Card
     var dragOffsetY by remember(title) { mutableFloatStateOf(0f) }
     val surface = if (isCard) {
         Modifier
-            .clip(shape)
-            .background(CalinoColors.Panel, shape)
+            .background(appearance.cardFill(CalinoColors.Panel), shape)
+            .categoryTexture(appearance, shape)
             // The edge carries the event's colour rather than the neutral
             // hairline, so a card is identifiable before its rail is read.
-            .border(1.dp, color.copy(alpha = .16f), shape)
+            .categoryEdge(appearance, 1.dp, color.copy(alpha = .16f), shape)
     } else {
         Modifier
     }
@@ -1021,16 +1024,29 @@ fun AgendaRow(
                 animationSpec = tween(CalinoMotion.ContentEnterMillis),
                 label = "agenda row title",
             )
-            Text(
-                title,
-                color = titleColor,
-                fontSize = 14.5.sp,
-                lineHeight = 21.75.sp,
-                fontWeight = FontWeight.Medium,
-                textDecoration = if (struck) TextDecoration.LineThrough else TextDecoration.None,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (appearance.plainTitle) {
+                Text(
+                    title,
+                    color = titleColor,
+                    fontSize = 14.5.sp,
+                    lineHeight = 21.75.sp,
+                    fontWeight = FontWeight.Medium,
+                    textDecoration = if (struck) TextDecoration.LineThrough else TextDecoration.None,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                CategoryStyledText(
+                    title,
+                    appearance,
+                    color = titleColor,
+                    fontSize = 14.5.sp,
+                    lineHeight = 21.75.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (subtitle != null) Text(
                 subtitle,
                 color = CalinoColors.Ink3,
@@ -1153,6 +1169,7 @@ fun AgendaRow(event: CalEvent, modifier: Modifier = Modifier, variant: AgendaRow
         onClick = onClick,
         countdown = countdown?.let { formatEventCountdown(context, it) },
         countdownSoon = countdown?.soon == true,
+        appearance = rememberCategoryAppearance(event.categories),
     )
 }
 

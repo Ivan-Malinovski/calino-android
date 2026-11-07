@@ -84,6 +84,7 @@ import calino.malinov.ski.state.LocalFoldPosture
 import calino.malinov.ski.state.calinoLayoutSpec
 import calino.malinov.ski.state.tasksDueOn
 import calino.malinov.ski.ui.components.AgendaRow
+import calino.malinov.ski.ui.components.rememberCategoryAppearance
 import calino.malinov.ski.ui.components.AgendaRowVariant
 import calino.malinov.ski.ui.components.eventColor
 import calino.malinov.ski.ui.components.AgendaTaskRow
@@ -585,6 +586,7 @@ internal fun AgendaDayBlock(
                             variant = AgendaRowVariant.Card,
                             onClick = onEventClick?.let { click -> { click(day, event) } },
                             onLongClick = onEventAction?.let { { menuOpen = true } },
+                            appearance = rememberCategoryAppearance(event.categories),
                         )
                         EventActionMenu(
                             event = event,

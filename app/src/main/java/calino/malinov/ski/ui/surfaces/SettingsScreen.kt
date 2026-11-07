@@ -98,6 +98,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calino.malinov.ski.data.model.AutoCategoryRule
+import androidx.compose.ui.graphics.toArgb
+import calino.malinov.ski.data.model.CategoryStyleFont
+import calino.malinov.ski.data.model.CategoryStylePresets
+import calino.malinov.ski.data.model.CategoryStyleRule
+import calino.malinov.ski.data.model.CategoryStyleTreatment
+import calino.malinov.ski.data.model.DefaultCategoryStyleRules
+import calino.malinov.ski.data.model.categoryNames
+import calino.malinov.ski.data.model.resolveCategoryAppearance
+import calino.malinov.ski.ui.components.CalinoColorSwatchRow
+import calino.malinov.ski.ui.components.CategoryStyledText
+import calino.malinov.ski.ui.components.EditorLabel
+import calino.malinov.ski.ui.components.cardFill
+import calino.malinov.ski.ui.components.categoryEdge
+import calino.malinov.ski.ui.components.categoryTexture
 import calino.malinov.ski.data.model.CalDavAccount
 import calino.malinov.ski.data.model.autoCategoriesFor
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -201,6 +215,7 @@ private val SettingsSearchEntries = listOf(
     SettingsSearchEntry(R.string.set_countdown_on_event_cards, SettingsSection.EventsTasks, R.string.set_display, "countdown time until start", R.string.set_search_terms_countdown),
     SettingsSearchEntry(R.string.set_categories, SettingsSection.EventsTasks, R.string.set_categories, "labels tags", R.string.set_search_terms_categories),
     SettingsSearchEntry(R.string.set_keyword_rules, SettingsSection.EventsTasks, R.string.set_keyword_rules, "auto categorize categories labels", R.string.set_search_terms_keyword_rules),
+    SettingsSearchEntry(R.string.set_category_styles, SettingsSection.EventsTasks, R.string.set_category_styles, "style pencil sketch dashed hatch strike handwriting", R.string.set_search_terms_category_styles),
     SettingsSearchEntry(R.string.set_default_reminder, SettingsSection.Reminders, R.string.set_new_event_reminder, "Default reminder"),
     SettingsSearchEntry(R.string.set_event_reminders, SettingsSection.Reminders, R.string.set_events, "Event reminders"),
     SettingsSearchEntry(R.string.set_tasks_due, SettingsSection.Reminders, R.string.set_tasks, "Tasks due"),
@@ -630,6 +645,7 @@ private fun SettingsSectionContent(
         SettingsSection.EventsTasks -> SettingsPage {
             EventSettings()
             CategoriesSettings(categoryCatalog)
+            CategoryStyleSettings()
         }
         SettingsSection.Reminders -> SettingsPage { NotificationSettings(onOpenNotifications) }
         SettingsSection.CalendarsSync -> SettingsPage {
@@ -1454,6 +1470,185 @@ private fun DataSettings(onImport: () -> Unit, onExport: () -> Unit, onOpenRecen
                 assistants = enabled
             }
         }
+    }
+}
+
+private fun CategoryStyleTreatment.labelRes(): Int = when (this) {
+    CategoryStyleTreatment.Tentative -> R.string.set_cs_t_tentative
+    CategoryStyleTreatment.Important -> R.string.set_cs_t_important
+    CategoryStyleTreatment.Focus -> R.string.set_cs_t_focus
+    CategoryStyleTreatment.Travel -> R.string.set_cs_t_travel
+    CategoryStyleTreatment.Deadline -> R.string.set_cs_t_deadline
+    CategoryStyleTreatment.Done -> R.string.set_cs_t_done
+}
+
+private fun CategoryStyleFont.labelRes(): Int = when (this) {
+    CategoryStyleFont.Inherit -> R.string.set_cs_f_inherit
+    CategoryStyleFont.Hand -> R.string.set_cs_f_hand
+    CategoryStyleFont.Standard -> R.string.set_cs_f_standard
+}
+
+/**
+ * Ordered category style rules, the Android counterpart of the web's "Style by
+ * category". Each rule shows a live sample drawn by the same code the event
+ * surfaces use, so what you pick is what you get. Local to this device.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CategoryStyleSettings() {
+    val preferences = LocalCalinoPreferences.current
+    val rules = preferences.categoryStyleRules
+    fun replace(id: String, change: (CategoryStyleRule) -> CategoryStyleRule) =
+        preferences.setCategoryStyleRules(rules.map { if (it.id == id) change(it) else it })
+    fun move(id: String, by: Int) {
+        val from = rules.indexOfFirst { it.id == id }
+        val to = from + by
+        if (from < 0 || to !in rules.indices) return
+        preferences.setCategoryStyleRules(rules.toMutableList().apply { add(to, removeAt(from)) })
+    }
+    SettingsGroup(t(R.string.set_category_styles)) {
+        SettingNote(t(R.string.set_cs_description))
+        SettingDivider()
+        AnimatedSettingRows(rules, keyOf = { it.id }) { rule ->
+            val label = rule.categories.ifBlank { t(R.string.set_cs_new_rule) }
+            val index = rules.indexOfFirst { it.id == rule.id }
+            Column(Modifier.fillMaxWidth()) {
+                // The toggle row pads itself, so it sits outside the padded column.
+                SettingToggleRow(label = t(R.string.set_cs_enabled), description = label, checked = rule.enabled) { on ->
+                    replace(rule.id) { it.copy(enabled = on) }
+                }
+            Column(
+                Modifier.fillMaxWidth().padding(start = SettingsRowHorizontalPadding, end = SettingsRowHorizontalPadding, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                CategoryStyleSample(rule)
+                CalinoTextField(
+                    value = rule.categories,
+                    onValueChange = { text -> replace(rule.id) { it.copy(categories = text.filterNot { c -> c == '\n' || c == '\t' }) } },
+                    label = t(R.string.set_cs_categories),
+                    placeholder = t(R.string.set_cs_match_hint),
+                    description = t(R.string.set_cs_rule_description, label),
+                )
+                EditorLabel(t(R.string.set_cs_style))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    CategoryStyleTreatment.entries.forEach { treatment ->
+                        CalinoChip(
+                            text = t(treatment.labelRes()),
+                            selected = rule.treatment == treatment,
+                            description = t(R.string.set_cs_style),
+                            semanticsRole = Role.RadioButton,
+                            onClick = { replace(rule.id) { it.copy(treatment = treatment) } },
+                        )
+                    }
+                }
+                EditorLabel(t(R.string.set_cs_lettering))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    CategoryStyleFont.entries.forEach { font ->
+                        CalinoChip(
+                            text = t(font.labelRes()),
+                            selected = rule.font == font,
+                            description = t(R.string.set_cs_lettering),
+                            semanticsRole = Role.RadioButton,
+                            onClick = { replace(rule.id) { it.copy(font = font) } },
+                        )
+                    }
+                }
+                CalinoColorSwatchRow(Color(rule.colorArgb)) { picked ->
+                    replace(rule.id) { it.copy(colorArgb = picked.toArgb() or 0xFF000000.toInt()) }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SettingActionButton(
+                        t(R.string.set_cs_earlier), danger = false, enabled = index > 0,
+                        actionContentDescription = t(R.string.set_cs_move_earlier_description, label),
+                        onClick = { move(rule.id, -1) },
+                    )
+                    SettingActionButton(
+                        t(R.string.set_cs_later), danger = false, enabled = index in 0 until rules.lastIndex,
+                        actionContentDescription = t(R.string.set_cs_move_later_description, label),
+                        onClick = { move(rule.id, 1) },
+                    )
+                    SettingActionButton(
+                        t(R.string.set_cs_remove), danger = true, enabled = true,
+                        actionContentDescription = t(R.string.set_cs_remove_description, label),
+                        onClick = { preferences.setCategoryStyleRules(rules.filterNot { it.id == rule.id }) },
+                    )
+                }
+            }
+            }
+        }
+        if (rules.isEmpty()) {
+            Text(
+                t(R.string.set_cs_empty),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = SettingsRowHorizontalPadding, vertical = 14.dp),
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+            )
+        }
+        SettingDivider()
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = SettingsRowHorizontalPadding, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            EditorLabel(t(R.string.set_cs_suggestions))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                CategoryStylePresets.forEach { preset ->
+                    CalinoChip(
+                        text = preset.categories,
+                        selected = false,
+                        description = t(R.string.set_cs_add_preset_description, preset.categories),
+                        onClick = { preferences.setCategoryStyleRules(rules + preset.copy(id = UUID.randomUUID().toString())) },
+                    )
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SettingActionButton(
+                    t(R.string.set_add_rule), danger = false, enabled = true,
+                    actionContentDescription = t(R.string.set_cs_new_rule),
+                    onClick = {
+                        preferences.setCategoryStyleRules(
+                            rules + CategoryStyleRule(
+                                UUID.randomUUID().toString(), "", CategoryStyleTreatment.Focus,
+                                CategoryStyleFont.Inherit, CategoryStylePresets[1].colorArgb,
+                            ),
+                        )
+                    },
+                )
+                SettingActionButton(
+                    t(R.string.set_cs_reset), danger = false, enabled = rules != DefaultCategoryStyleRules,
+                    actionContentDescription = null,
+                    onClick = { preferences.setCategoryStyleRules(DefaultCategoryStyleRules) },
+                )
+            }
+        }
+        SettingDivider()
+        SettingNote(t(R.string.set_cs_precedence))
+    }
+}
+
+/** One rule on its own, drawn the way an event card would be, regardless of whether it is enabled. */
+@Composable
+private fun CategoryStyleSample(rule: CategoryStyleRule) {
+    val appearance = remember(rule) {
+        resolveCategoryAppearance(listOf("x"), listOf(rule.copy(categories = "x", enabled = true)))
+    }
+    val shape = RoundedCornerShape(CalinoShapes.Row)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .alphaIfDisabled(rule.enabled)
+            .background(appearance.cardFill(CalinoColors.Canvas), shape)
+            .categoryTexture(appearance, shape)
+            .categoryEdge(appearance, 1.dp, CalinoColors.Line, shape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        CategoryStyledText(
+            t(R.string.set_cs_sample),
+            appearance,
+            color = CalinoColors.Ink,
+            fontSize = 15.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 

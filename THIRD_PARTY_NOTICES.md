@@ -25,6 +25,14 @@ Copyright (c) 2012-2024 Marten Gajda.
 ez-vcard is licensed under the BSD 2-Clause License. The project license is
 available at <https://github.com/mangstadt/ez-vcard/blob/master/LICENSE>.
 
+## Caveat (variable font)
+
+Copyright 2014 The Caveat Project Authors (<https://github.com/googlefonts/caveat>).
+
+Caveat is bundled as `app/src/main/res/font/caveat.ttf` for the handwritten
+lettering of category styles, and is licensed under the SIL Open Font License,
+Version 1.1. A copy is available at <https://openfontlicense.org>.
+
 ## AndroidX, Kotlin, and Kotlin coroutines
 
 These platform and build dependencies retain their own licenses and notices.
