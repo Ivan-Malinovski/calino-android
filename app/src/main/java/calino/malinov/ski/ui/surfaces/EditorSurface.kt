@@ -92,7 +92,7 @@ import calino.malinov.ski.design.CalinoSpacing
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.BottomDetailCard
 import calino.malinov.ski.ui.components.ImeResizeWhile
-import calino.malinov.ski.ui.components.imePaddingAbovePill
+import calino.malinov.ski.ui.components.imeOverlapPadding
 import calino.malinov.ski.ui.components.CalinoChip
 import calino.malinov.ski.ui.components.CalinoColorSwatchRow
 import calino.malinov.ski.ui.components.CalinoSearchField
@@ -309,7 +309,7 @@ fun EditorSurface(
             // The form's viewport ends at the keyboard, so the field being
             // typed in scrolls into the space above it and the cards follow
             // the keyboard up; the pill rides up with them (see AdaptiveSurface).
-            Box(Modifier.weight(1f).fillMaxWidth().imePaddingAbovePill(CalinoSpacing.PillClearance)) {
+            Box(Modifier.weight(1f).fillMaxWidth().imeOverlapPadding()) {
                 Column(
                     Modifier
                         .fillMaxSize()

@@ -5,12 +5,18 @@ import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalView
+import kotlin.math.roundToInt
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.offset
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
@@ -47,22 +53,36 @@ fun ImeResizeWhile(active: Boolean) {
 }
 
 /**
- * Ends the content at the keyboard, plus [clearance] for an action pill that
- * has risen above it.
+ * Ends the content exactly at the keyboard's top edge.
  *
- * The pill floats over the bottom of whatever it is lifted above, so a field
- * that is only scrolled to the keyboard's edge sits right under it. The extra
- * room is derived per frame from the keyboard's own inset, capped at
- * [clearance], so it opens and closes with the keyboard animation and is zero
- * while no keyboard is showing (the content's own tail spacer covers that).
+ * `imePadding` takes the whole keyboard height off the bottom, but the keyboard
+ * is measured from the *window's* bottom and the host card does not end there
+ * (a bottom sheet floats a few dozen dp above it), so it took off more than the
+ * keyboard actually covers and left a dead band above the keyboard. This takes
+ * off only the overlap between this slot and the keyboard, read from the slot's
+ * own position, so it is exact for whatever card hosts it. An action pill that
+ * rides above the keyboard floats over the content; the content's own tail
+ * spacer lets the last row scroll clear of it.
  */
 @Composable
-fun Modifier.imePaddingAbovePill(clearance: Dp): Modifier {
+fun Modifier.imeOverlapPadding(): Modifier {
     val ime = WindowInsets.ime
     val density = LocalDensity.current
-    return imePadding().layout { measurable, constraints ->
-        val reserve = minOf(ime.getBottom(density), clearance.roundToPx())
-        val placeable = measurable.measure(constraints.offset(vertical = -reserve))
-        layout(placeable.width, placeable.height + reserve) { placeable.place(0, 0) }
-    }
+    val rootView = LocalView.current.rootView
+    var slotBottom by remember { mutableFloatStateOf(Float.NaN) }
+    return onGloballyPositioned { slotBottom = it.positionInWindow().y + it.size.height }
+        .layout { measurable, constraints ->
+            val imeBottom = ime.getBottom(density)
+            val overlap = when {
+                imeBottom <= 0 -> 0
+                // Not positioned yet: assume the slot reaches the window's bottom.
+                slotBottom.isNaN() -> imeBottom
+                else -> (slotBottom - (rootView.height - imeBottom)).roundToInt().coerceIn(0, imeBottom)
+            }
+            val placeable = measurable.measure(constraints.offset(vertical = -overlap))
+            layout(
+                placeable.width,
+                (placeable.height + overlap).coerceIn(constraints.minHeight, constraints.maxHeight),
+            ) { placeable.place(0, 0) }
+        }
 }
