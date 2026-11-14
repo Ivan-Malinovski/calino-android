@@ -155,6 +155,26 @@ class CalDavDiscoveryTest {
     }
 
     @Test
+    fun `discovery accepts auto-schedule advertised only on OPTIONS`() = runBlocking {
+        server.enqueue(multiStatus(CalDavFixtures.Principal))   // well-known probe
+        server.enqueue(multiStatus(CalDavFixtures.Principal))   // current-user-principal
+        server.enqueue(multiStatus(CalDavFixtures.HomeSet))     // calendar-home-set
+        // The scheduling PROPFIND carries no DAV header at all; the token is
+        // advertised where RFC 6638 puts it, on the OPTIONS response.
+        server.enqueue(multiStatus("""<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response><propstat><prop><C:calendar-user-address-set><href>mailto:test@example.com</href></C:calendar-user-address-set></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>"""))
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("DAV", "1, 3, calendar-auto-schedule"))
+        server.enqueue(multiStatus(CalDavFixtures.Calendars))   // the listing
+
+        val account = discovery().discoverAccount(url().trimEnd('/'), credentials)
+
+        assertEquals(setOf("mailto:test@example.com"), account.calendarUserAddresses)
+        assertTrue("auto-schedule from OPTIONS must be honoured", account.autoSchedule)
+
+        val methods = (1..6).map { server.takeRequest().method }
+        assertEquals("OPTIONS", methods[4])
+    }
+
+    @Test
     fun `discovery rejects a principal href on another origin`() = runBlocking {
         val other = MockWebServer().also { it.start() }
         try {
