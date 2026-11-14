@@ -49,6 +49,7 @@ import calino.malinov.ski.notify.AgendaDeepLinks
 import calino.malinov.ski.notify.ReminderDeepLink
 import calino.malinov.ski.notify.ReminderDeepLinks
 import calino.malinov.ski.notify.ReminderKind
+import calino.malinov.ski.notify.TasksDeepLinks
 import calino.malinov.ski.state.CalinoDeviceDefaults
 import calino.malinov.ski.util.CalinoTimeFormat
 import calino.malinov.ski.util.WidgetLookAhead
@@ -222,8 +223,13 @@ abstract class CalinoAgendaWidget internal constructor(
     @Composable
     private fun HeaderPills(today: LocalDate, lookAhead: WidgetLookAhead) {
         val context = androidx.glance.LocalContext.current
+        // The header carries its own action, like the footer pill: the pills
+        // float over the agenda list, and the list consumes taps before the
+        // root box's click can fire, so a header without one is dead chrome.
         Row(
-            modifier = GlanceModifier.fillMaxWidth().padding(start = 10.wdp, end = 10.wdp, top = PillInset),
+            modifier = GlanceModifier.fillMaxWidth()
+                .padding(start = 10.wdp, end = 10.wdp, top = PillInset)
+                .clickable(if (content == WidgetContent.Tasks) openTasks() else openAgenda(today)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Pill {
@@ -400,6 +406,8 @@ abstract class CalinoAgendaWidget internal constructor(
 
     private fun openAgenda(date: LocalDate) =
         actionStartActivity(viewIntent(AgendaDeepLinks.uri(date)))
+
+    private fun openTasks() = actionStartActivity(viewIntent(TasksDeepLinks.uri()))
 
     private fun openRecord(row: WidgetAgendaRow) = actionStartActivity(
         viewIntent(
