@@ -8,6 +8,7 @@ import calino.malinov.ski.data.caldav.CachedCalendar
 import calino.malinov.ski.data.caldav.CalendarCache
 import calino.malinov.ski.data.caldav.CalendarResource
 import calino.malinov.ski.data.caldav.ICalMapper
+import calino.malinov.ski.data.model.Attendee
 import calino.malinov.ski.data.model.NewEvent
 import calino.malinov.ski.data.model.NewTask
 import calino.malinov.ski.data.model.RecurrenceEditScope
@@ -347,6 +348,64 @@ END:VCALENDAR
 
         assertTrue("expected a real write, got $result", result is WriteResult.Applied)
         assertEquals(connected.url, (result as WriteResult.Applied).record.calendarId)
+    }
+
+    @Test
+    fun `a new event with attendees saves when the server does not auto-schedule`() = runBlocking {
+        val repository = repository()
+        enqueueAll()
+        val connected = calendar()
+        repository.setSources(listOf(
+            CalDavSource(
+                connected, credentials, "account",
+                calendarUserAddresses = setOf("mailto:test@example.com"),
+                autoSchedule = false,
+            ),
+        ))
+        repository.awaitSync()
+        val requestsBefore = server.requestCount
+
+        val result = repository.addEvent(
+            NewEvent(
+                title = "Neighbourhood AGM",
+                date = LocalDate.of(2026, 9, 8),
+                startTime = java.time.LocalTime.of(20, 0),
+                durationMinutes = 60,
+                attendees = listOf(Attendee(name = "Guest", email = "guest@example.com")),
+                calendarId = connected.url,
+            ),
+        )
+
+        assertTrue("expected a real write, got $result", result is WriteResult.Applied)
+        val record = (result as WriteResult.Applied).record
+        assertEquals("test@example.com", record.organizer?.address)
+        assertEquals(listOf("guest@example.com"), record.attendees.map { it.email })
+        assertTrue("the write must reach the server", server.requestCount > requestsBefore)
+    }
+
+    @Test
+    fun `a new event with attendees saves without a verified organizer address`() = runBlocking {
+        val repository = repository()
+        enqueueAll()
+        val connected = calendar()
+        repository.setSources(listOf(CalDavSource(connected, credentials, "account")))
+        repository.awaitSync()
+
+        val result = repository.addEvent(
+            NewEvent(
+                title = "Neighbourhood AGM",
+                date = LocalDate.of(2026, 9, 8),
+                startTime = java.time.LocalTime.of(20, 0),
+                durationMinutes = 60,
+                attendees = listOf(Attendee(name = "Guest", email = "guest@example.com")),
+                calendarId = connected.url,
+            ),
+        )
+
+        assertTrue("expected a real write, got $result", result is WriteResult.Applied)
+        val record = (result as WriteResult.Applied).record
+        assertEquals(null, record.organizer)
+        assertEquals(listOf("guest@example.com"), record.attendees.map { it.email })
     }
 
     @Test

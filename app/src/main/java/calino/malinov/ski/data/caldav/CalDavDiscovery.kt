@@ -87,10 +87,24 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
             .flatMap { DavXml.elements(it, DavNs.Dav, "href") }
             .mapNotNull { it.textContent?.trim()?.takeIf(String::isNotBlank) }
             .toSet()
-        val capability = response.header("DAV")?.split(',')?.any {
+        // RFC 6638 advertises the token in the DAV header of an OPTIONS
+        // response; some servers (Nextcloud) repeat it on PROPFIND. Accept
+        // either, and spend the OPTIONS probe only when PROPFIND said no.
+        val capability = davHeaderHasAutoSchedule(response.header("DAV")) ||
+            optionsAutoSchedule(principalUrl, credentials)
+        return addresses to capability
+    }
+
+    private fun davHeaderHasAutoSchedule(davHeader: String?): Boolean =
+        davHeader?.split(',')?.any {
             it.trim().equals("calendar-auto-schedule", ignoreCase = true)
         } == true
-        return addresses to capability
+
+    private suspend fun optionsAutoSchedule(url: String, credentials: DavCredentials): Boolean {
+        val response = runCatching {
+            http.request(method = "OPTIONS", url = url, credentials = credentials)
+        }.getOrNull() ?: return false
+        return davHeaderHasAutoSchedule(response.header("DAV"))
     }
 
     // --- step 1: where does this server actually live -------------------------
