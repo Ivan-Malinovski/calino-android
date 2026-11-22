@@ -3,85 +3,38 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
-## Unreleased
+## 0.14.0 — 2026-11-22
 
-- **Any colour, not five.** The colour row in the event and task editors and in
-  category styles now ends in a custom swatch that opens a picker: drag for a
-  colour, or type the hex value when it has to match something exact. The value
-  stored is the same opaque `#rrggbb` a preset produces, so a custom colour is
-  no less portable -- and with settings sync on, it travels with the rules. A
-  colour that would vanish against the page's own value says so, and the choice
-  is still yours.
+Calino 0.14.0 lets you style events by category and sync those styles between devices, pick any colour, and take a one-minute tour of the gestures. It also adds search commands, keyboard shortcuts, journal tags and a much wider quick add, and fixes how shared calendars, `tel:` contacts, attendees and offline saves behave.
 
-- **Category styles can sync between devices.** They are Calino-only data — an
-  event carries its category *names*, but a colour has nowhere in iCalendar to
-  live — so they travel the way the web app already syncs its own settings: one
-  event in a hidden `Calino Settings` calendar on your server. Off by default;
-  Settings > Category styles turns it on. A push merges into what the server
-  holds, so settings this app does not know about are never dropped.
-- **Calendar colours are written in both spellings.** RFC 7986 names the standard
-  property `COLOR`, while Apple's `calendar-color` is the one servers persist and
-  clients read. Creating or recolouring a calendar now sends both, and reading a
-  calendar accepts either.
+### Added
 
-- **A calendar shared with you can be added by its own URL.** Calino used to
-  connect to the address it was given and then list your own calendars: discovery
-  always walked to your principal and its calendar-home, so a collection outside
-  it — which is where a shared calendar usually lives — was never seen. The URL
-  you enter is now checked first, and a calendar there (or a folder of them, e.g.
-  "…/shared-folder/") is what the account gets. Issue #30.
-- **Contacts whose numbers are stored as `tel:` URIs keep their numbers.** Nextcloud
-  writes phone numbers as `TEL;VALUE=uri:tel:+45…`; Calino read only the plain-text
-  form, so those numbers arrived empty and were dropped on the next save — the
-  "Home" numbers in issue #29. They are now read, written back as plain numbers,
-  and never carry a `VALUE=uri` parameter that no longer describes the value.
-- **An offline save is instant.** With no network the write is prepared and queued
-  without opening a socket, instead of waiting for a connection that cannot
-  succeed before the entry appears. Issue #28.
+- **Style events by category.** Ordered rules match whole category names and compose, last rule winning each property: tint, hatching, a dashed edge, a pen loop around the title, underline, strike-through and a handwriting font. Important gets a red pen loop and Not confirmed, Unconfirmed, Tentative and Maybe get blue hatching by default. Edit the rules in Settings > Category styles; the sample calendar shows them.
+- **Category styles can sync between devices.** They are Calino-only data, so they travel the way the web app syncs its own settings: one event in a hidden `Calino Settings` calendar on your server. Off by default; Settings > Category styles turns it on. A push merges into what the server holds, so settings this app does not know about are never dropped.
+- **Any colour, not five.** The colour row in the event and task editors and in category styles ends in a custom swatch that opens a picker: drag for a colour, or type the hex value when it has to match something exact. The stored value is the same opaque `#rrggbb` a preset produces, so a custom colour is just as portable and travels with synced settings. A colour that would vanish against the page says so, and the choice is still yours.
+- **A first-run tour.** Calino offers a one-minute walk through its gestures once: swiping the calendar to zoom, holding empty space to create, sliding a time by quarter hours, and swiping or holding the pill. A step counts only when the gesture actually happens, and Settings > Advanced > About can replay it. Swiping the offer away stops it for good; it never writes data.
+- **A calendar shared with you can be added by its own URL.** The URL you enter is now checked first, and a calendar there (or a folder of them, such as `…/shared-folder/`) is what the account gets, instead of only your own calendars (#30).
+- **Search does things, not only finds them.** The sheet carries named commands beside its results: New event, New task and Sync now are one tap away before you type, and typing "go to tasks", "settings" or "new task" answers with that command.
+- **Keyboard shortcuts.** On a Fold with its keyboard cover, or any hardware keyboard: Cmd/Ctrl+K opens search, Cmd/Ctrl+N starts a new event, and Esc closes what is open without leaving the app.
+- **Quick add understands more.** It now reads spoken tasks ("remind me to …", "reminder: …"), casual times ("tonight", "noon", "in the morning"), time ranges ("from 2pm to 3pm", "10-11", including one that crosses midnight), durations like "1,5 hours", more date forms ("20 May", "the 20th of May", "end of month", "in 3 days", "last friday") and recurrence ("daily", "weekly", "every other week"). A bare number is no longer read as a clock time, so "meeting with 3 people" keeps its title.
+- **Journal tags.** The editor tags an entry with the same category chips events and tasks use, several at once; overview cards and the reader show them. They live on the entry's `CATEGORIES`, so a tag set on the web shows up here and survives an edit in either app, including on a brand-new entry.
+- **Task rows carry notes and priority.** Each row shows the first line of the task's notes and a tinted High, Medium or Low chip, the way the web list does.
+- **Range shows where "now" is.** The multi-day grid draws the same current-time line as the day timeline, on today's column, moving by the minute.
+- **Widget header opens today.** Tapping the pills at the top of the agenda widget opens today's agenda, or the Tasks list on the tasks widget.
 
-- **A first-run tour.** Calino now offers a one-minute walk through its
-gestures once: swiping the calendar to zoom, holding empty space to create,
-sliding a time by quarter hours, and swiping or holding the pill. A step counts
-only when the gesture it teaches actually happens, an informational card covers
-Journal and Contacts when those are switched on, and Settings > Advanced > About
-can replay it. Swiping the offer away stops it for good; it never writes data.
-- **Range shows where "now" is.** The multi-day grid now draws the same
-current-time line the day timeline does, on today's column — the web's Week view
-has one and ours did not. Both surfaces share one marker now, and it moves by the
-minute rather than only on the hour.
-- **Journal tags now reach the server on a new entry too.** A tag typed on a
-*new* entry was dropped on the way out (`SUMMARY` arrived without `CATEGORIES`);
-editing an existing entry kept them. Fixed and pinned by a unit test, then
-confirmed on the wire against a local CalDAV server while offline.
-- **Journal entries carry categories.** The editor tags an entry with the same
-category chips events and tasks use (several at once, like the web's journal
-tags), the overview cards and the reader show them, and they live on the
-VJOURNAL's `CATEGORIES`, so a tag set on the web shows up here and survives an
-edit in either app.
-- **Task rows carry their notes and priority.** Each row now shows the first
-line of the task's notes as a subtitle (markdown scaffolding stripped, a link
-reads as its text) and a tinted High/Medium/Low chip when the task has a
-priority, the way the web app's list does.
-- **Keyboard shortcuts.** On a Fold with its keyboard cover, or any hardware
-keyboard: Cmd/Ctrl+K opens search, Cmd/Ctrl+N starts a new event, and Esc closes
-what is open without leaving the app.
-- **Search does things, not only finds them.** The sheet now carries named
-commands beside its results: New event, New task and Sync now are one tap away
-before you type, and typing "go to tasks", "settings" or "new task" answers with
-that command, the way the web app's command palette does.
-- **Quick add understands more of what you type.** The line now reads spoken
-tasks ("remind me to ...", "reminder: ..."), casual times of day ("tonight",
-"noon", "in the morning"), time ranges ("from 2pm to 3pm", "10-11", including
-one that crosses midnight), durations written as "1,5 hours", more date forms
-("20 May", "the 20th of May", "end of month", "in 3 days", "last friday") and
-recurrence written as "daily", "weekly" or "every other week". A bare number is
-no longer read as a clock time, so "meeting with 3 people" keeps its title.
-- **The pill settles again.** The pill's "Saved" beat and an undo offer's ten
-second window now run on the lane's own clock instead of borrowing the screen
-that started them, so a surface that leaves mid-beat can no longer leave the
-pill frozen on "Saved" with the undo hidden behind it and the add pill gone. The
-countdown ring drains once from the offer's real deadline instead of re-reading
-the clock every frame.
+### Changed
+
+- **New tasks start without a due date.** A task gets a due date only when you pick a day or time, or write one in the title ("friday", "at 5pm"), so a plain to-do list no longer needs an extra step to clear it (#31).
+- **Attendees on servers without scheduling.** An event with attendees now saves even when the server does not advertise automatic invitations. The editor says "attendees may not be notified" in that case, since Calino never sends invitations itself. Servers that do schedule keep ORGANIZER and still ask for your own address first.
+- **Calendar colours are written in both spellings.** Creating or recolouring a calendar sends both the standard `COLOR` and Apple's `calendar-color`, and reading accepts either.
+- **The pill settles.** The "Saved" beat and an undo offer's ten-second window run on the pill's own clock, and the countdown ring drains from the offer's real deadline.
+
+### Fixed
+
+- **Contacts with `tel:` numbers.** Nextcloud's `TEL;VALUE=uri:tel:+45…` numbers arrived empty and were dropped on the next save; they are now read and written back as plain numbers (#29).
+- **Offline saves are instant.** With no network the write is queued without waiting for a connection that cannot succeed, so the entry appears at once (#28).
+- **Keyboard gap in the editor.** The form ends exactly at the keyboard instead of leaving a blank band above the pill.
+- **Wide month grid.** A notice floating over the pane no longer hides the last week row.
 
 ## 0.13.0 — 2026-11-07
 
