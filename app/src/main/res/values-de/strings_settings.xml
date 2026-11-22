@@ -487,4 +487,12 @@ Letzte erfolgreiche Synchronisierung: %2$s</string>
     <string name="set_search_terms_category_styles">Stil Kategorien Bleistift Skizze gestrichelt Muster durchgestrichen Handschrift</string>
     <string name="set_cs_sync_title">Zwischen Geräten synchronisieren</string>
     <string name="set_cs_sync_desc">Regeln im Calino-Settings-Kalender auf dem Server speichern, demselben, den die Web-App nutzt. Andere Kalender-Apps sehen sie nie.</string>
+    <string name="cal_color_custom">Eigene Farbe</string>
+    <string name="cal_color_hue">Farbton</string>
+    <string name="cal_color_brightness">Sättigung und Helligkeit</string>
+    <string name="cal_color_hex">Hex-Wert</string>
+    <string name="cal_color_hex_hint">#RRGGBB</string>
+    <string name="cal_color_hex_invalid">Sechs Hex-Ziffern eingeben, z. B. #2F6F4F.</string>
+    <string name="cal_color_hard_to_see_light">Im hellen Thema fast unsichtbar.</string>
+    <string name="cal_color_hard_to_see_dark">Im dunklen Thema fast unsichtbar.</string>
 </resources>

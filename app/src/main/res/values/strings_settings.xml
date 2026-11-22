@@ -487,4 +487,12 @@ Last successful sync: %2$s</string>
     <string name="set_search_terms_category_styles">style styling categories pencil sketch dashed hatch strike handwriting</string>
     <string name="set_cs_sync_title">Sync across devices</string>
     <string name="set_cs_sync_desc">Keep these rules in the Calino Settings calendar on your server, the same one the web app uses. Other calendar apps never see them.</string>
+    <string name="cal_color_custom">Custom colour</string>
+    <string name="cal_color_hue">Hue</string>
+    <string name="cal_color_brightness">Saturation and brightness</string>
+    <string name="cal_color_hex">Hex value</string>
+    <string name="cal_color_hex_hint">#RRGGBB</string>
+    <string name="cal_color_hex_invalid">Enter six hex digits, like #2F6F4F.</string>
+    <string name="cal_color_hard_to_see_light">Nearly invisible on the light theme.</string>
+    <string name="cal_color_hard_to_see_dark">Nearly invisible on the dark theme.</string>
 </resources>

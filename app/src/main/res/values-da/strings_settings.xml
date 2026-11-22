@@ -487,4 +487,12 @@ Seneste vellykkede synkronisering: %2$s</string>
     <string name="set_search_terms_category_styles">stil kategorier blyant skitse stiplet mønster gennemstregning håndskrift</string>
     <string name="set_cs_sync_title">Synkroniser mellem enheder</string>
     <string name="set_cs_sync_desc">Gem reglerne i Calino Settings-kalenderen på din server, den samme som webappen bruger. Andre kalenderapps ser dem aldrig.</string>
+    <string name="cal_color_custom">Egen farve</string>
+    <string name="cal_color_hue">Farvetone</string>
+    <string name="cal_color_brightness">Mætning og lysstyrke</string>
+    <string name="cal_color_hex">Hex-værdi</string>
+    <string name="cal_color_hex_hint">#RRGGBB</string>
+    <string name="cal_color_hex_invalid">Indtast seks hex-cifre, fx #2F6F4F.</string>
+    <string name="cal_color_hard_to_see_light">Næsten usynlig i det lyse tema.</string>
+    <string name="cal_color_hard_to_see_dark">Næsten usynlig i det mørke tema.</string>
 </resources>

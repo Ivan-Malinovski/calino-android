@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -183,7 +184,7 @@ private fun <T : Any> rememberPickerDialog(
 }
 
 @Composable
-private fun PickerDialog(
+internal fun PickerDialog(
     visible: MutableTransitionState<Boolean>,
     onDismiss: () -> Unit,
     content: @Composable () -> Unit,
@@ -207,6 +208,9 @@ private fun PickerDialog(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
+                    // A picker with a text field (the colour's hex value) has to
+                    // lift above the keyboard, not sit under it.
+                    .imePadding()
                     .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
             ) { content() }
         }
@@ -215,7 +219,7 @@ private fun PickerDialog(
 
 /** The card both pickers sit in, titled, with Cancel and Done beneath. */
 @Composable
-private fun PickerCard(
+internal fun PickerCard(
     title: String,
     onCancel: () -> Unit,
     onDone: () -> Unit,

@@ -44,6 +44,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -305,6 +307,7 @@ private val SwatchColors = with(CalinoThemes.PaperLight) {
 
 @Composable
 fun CalinoColorSwatchRow(selected: Color, modifier: Modifier = Modifier, onSelect: (Color) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         EditorLabel(stringResource(R.string.cal_color))
         Spacer(Modifier.weight(1f))
@@ -324,13 +327,96 @@ fun CalinoColorSwatchRow(selected: Color, modifier: Modifier = Modifier, onSelec
             ) {
                 Box(
                     Modifier
-                        .size(30.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(CalinoColors.forEvent(color))
-                        .border(if (selected == color) 3.dp else 0.dp, CalinoColors.Canvas, RoundedCornerShape(10.dp)),
+                        .size(36.dp)
+                        // The ring sits outside the fill: a border drawn on the
+                        // swatch itself shrinks the colour it is meant to show,
+                        // and the custom pick's whole point is seeing it exactly.
+                        // A 0.dp border is *not* nothing -- it still paints a
+                        // hairline -- so an unselected swatch gets no modifier.
+                        .then(
+                            if (selected == color) {
+                                Modifier.border(2.dp, CalinoColors.Ink.copy(alpha = .55f), RoundedCornerShape(13.dp))
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(CalinoColors.forEvent(color)),
+                    )
+                }
+            }
+        }
+        // Anything that is not one of the five: the web app has always allowed a
+        // full colour input, and a colour is data either way -- a custom one is
+        // written and synced exactly like a preset one.
+        val isPreset = SwatchColors.any { (_, color) -> color == selected }
+        val customLabel = stringResource(R.string.cal_color_custom)
+        val customState = stringResource(if (isPreset) R.string.cal_not_selected_state else R.string.cal_selected_state)
+        Box(
+            Modifier
+                .size(48.dp)
+                .calinoPressable(role = Role.Button) { picking = true }
+                .semantics {
+                    contentDescription = customLabel
+                    if (!isPreset) stateDescription = customState
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .then(
+                        if (isPreset) {
+                            Modifier
+                        } else {
+                            Modifier.border(2.dp, CalinoColors.Ink.copy(alpha = .55f), RoundedCornerShape(13.dp))
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .then(
+                            if (isPreset) {
+                                // A wheel drawn as arcs rather than a sweep gradient:
+                                // a gradient's closing edge leaves a visible seam on
+                                // a swatch this small.
+                                Modifier.drawBehind {
+                                    val steps = HueStops.size
+                                    val sweep = 360f / steps
+                                    HueStops.forEachIndexed { index, hue ->
+                                        drawArc(
+                                            color = hue,
+                                            startAngle = index * sweep,
+                                            sweepAngle = sweep + 1f,
+                                            useCenter = true,
+                                        )
+                                    }
+                                }
+                            } else {
+                                Modifier.background(CalinoColors.forEvent(selected))
+                            },
+                        ),
                 )
             }
         }
+    }
+    if (picking) {
+        CalinoColorPickerSheet(
+            initial = selected,
+            onDismiss = { picking = false },
+            onPick = { picked ->
+                picking = false
+                onSelect(picked)
+            },
+        )
     }
 }
 

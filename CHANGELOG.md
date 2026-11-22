@@ -5,6 +5,14 @@ history and their tags.
 
 ## Unreleased
 
+- **Any colour, not five.** The colour row in the event and task editors and in
+  category styles now ends in a custom swatch that opens a picker: drag for a
+  colour, or type the hex value when it has to match something exact. The value
+  stored is the same opaque `#rrggbb` a preset produces, so a custom colour is
+  no less portable -- and with settings sync on, it travels with the rules. A
+  colour that would vanish against the page's own value says so, and the choice
+  is still yours.
+
 - **Category styles can sync between devices.** They are Calino-only data — an
   event carries its category *names*, but a colour has nowhere in iCalendar to
   live — so they travel the way the web app already syncs its own settings: one
