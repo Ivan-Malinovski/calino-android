@@ -89,6 +89,8 @@ start() {
     echo $! > "$PIDFILE"
     for _ in $(seq 1 40); do
         if curl -s -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
+            ensure_address_book
+            ensure_fixtures
             echo "Radicale ready on http://127.0.0.1:$PORT/ (pid $(cat "$PIDFILE"))"
             echo "From the emulator: http://10.0.2.2:$PORT/"
             return 0
@@ -122,6 +124,63 @@ status() {
         echo "Not running"
         return 1
     fi
+}
+
+# CardDAV needs an address book to discover. A freshly wiped server has none,
+# so the live CardDAV test failed on a bare harness with "expected at least one
+# address book" -- a precondition, not a bug in the client. Create it on start so
+# a clean checkout can run the whole live suite.
+ensure_address_book() {
+    local book="http://127.0.0.1:$PORT/$USER_NAME/contacts/"
+    local probe
+    probe="$(curl -s -o /dev/null -w '%{http_code}' -u "$USER_NAME:$PASSWORD" -X PROPFIND "$book" \
+        -H 'Depth: 0' -H 'Content-Type: application/xml' --data \
+        '<propfind xmlns="DAV:"><prop><resourcetype/></prop></propfind>')"
+    case "$probe" in
+        207|200) return 0 ;;
+    esac
+    curl -s -o /dev/null -u "$USER_NAME:$PASSWORD" -X MKCOL "$book" \
+        -H 'Content-Type: application/xml' --data \
+        '<mkcol xmlns="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav"><set><prop><resourcetype><collection/><card:addressbook/></resourcetype><displayname>Contacts</displayname></prop></set></mkcol>'
+}
+
+# The live tests read more than they write, and two of them need content that a
+# wiped harness does not have: a repeating series (recurrence is expanded on the
+# client, so a series has to reach more than one date) and a contact. Seed both,
+# idempotently, with dates relative to today so the fetch window always covers
+# them.
+ensure_fixtures() {
+    local day0 day1 day2 base
+    day0="$(date -u +%Y%m%d)"
+    day1="$(date -u -d '+7 days' +%Y%m%d 2>/dev/null || date -u -v+7d +%Y%m%d)"
+    day2="$(date -u -d '+14 days' +%Y%m%d 2>/dev/null || date -u -v+14d +%Y%m%d)"
+    base="http://127.0.0.1:$PORT/$USER_NAME"
+    curl -s -o /dev/null -u "$USER_NAME:$PASSWORD" -X PUT \
+        -H 'Content-Type: text/calendar' --data-binary \
+        "BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Calino//live harness//EN
+BEGIN:VEVENT
+UID:live-recurring-series@calino
+DTSTAMP:${day0}T090000Z
+DTSTART;TZID=Europe/Copenhagen:${day0}T100000
+DTEND;TZID=Europe/Copenhagen:${day0}T110000
+RRULE:FREQ=WEEKLY;COUNT=3
+SUMMARY:Live recurring series
+END:VEVENT
+END:VCALENDAR" "$base/personal/live-recurring-series.ics"
+    curl -s -o /dev/null -u "$USER_NAME:$PASSWORD" -X PUT \
+        -H 'Content-Type: text/vcard' --data-binary \
+        "BEGIN:VCARD
+VERSION:3.0
+UID:live-contact@calino
+FN:Live Contact
+N:Contact;Live;;;
+EMAIL:live.contact@example.com
+END:VCARD" "$base/contacts/live-contact.vcf"
+    # A series whose every occurrence fell outside the window would look like no
+    # recurrence at all, so the seed is rewritten whenever it ages out.
+    : "${day1}${day2}" >/dev/null
 }
 
 reset_collections() {

@@ -27,6 +27,14 @@ Addresses:
 | this machine | `http://127.0.0.1:5232/` |
 | the emulator | `http://10.0.2.2:5232/` |
 
+`start` also seeds what the live tests read rather than write: an address book
+(`contacts/`), one contact in it, and a weekly series (`personal/live-recurring-
+series.ics`, three occurrences from today) so the fetch window always has a
+recurrence to expand. Without those two the suite failed on a fresh harness with
+"expected at least one address book" and "no series reached more than one date",
+which read like client bugs and were preconditions. The seed is idempotent: it is
+rewritten on every start, so an ageing series cannot fall out of the window.
+
 Credentials are `calino` / `calinopass`, throwaway and local. Override with
 `CALINO_RADICALE_USER`, `CALINO_RADICALE_PASS` and `CALINO_RADICALE_PORT`.
 
