@@ -66,6 +66,14 @@ data class CalinoCalendar(
      * stay the only way to attach something.
      */
     val inlineAttachments: Boolean = true,
+    /**
+     * False when the account's server does not advertise invitation
+     * scheduling (CalDAV `calendar-auto-schedule`, or a JMAP account that may
+     * not send scheduling messages). Calino never mails invitations itself, so
+     * attendees on such a calendar may not hear about the event; the editor
+     * says so. "Not advertised" is not "unsupported", hence the hedged wording.
+     */
+    val invitationsDelivered: Boolean = true,
 )
 
 /**

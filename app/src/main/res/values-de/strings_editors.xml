@@ -492,6 +492,7 @@
     <string name="ed_editor_add_attendee_email">E-Mail-Adresse hinzufügen…</string>
     <string name="ed_editor_add">Hinzufügen</string>
     <string name="ed_editor_remove_attendee">%1$s entfernen</string>
+    <string name="ed_editor_attendees_not_notified">Dieser Server gibt keine Unterstützung für Einladungsplanung an, daher werden die Teilnehmenden möglicherweise nicht benachrichtigt.</string>
     <string name="ed_zone">Zeitzone</string>
     <string name="ed_zone_start">Startzeitzone</string>
     <string name="ed_zone_separate_end">Separate Endzeitzone</string>

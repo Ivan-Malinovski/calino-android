@@ -321,6 +321,7 @@
     <string name="ed_editor_add_attendee_email">Add attendee email…</string>
     <string name="ed_editor_add">Add</string>
     <string name="ed_editor_remove_attendee">Remove %1$s</string>
+    <string name="ed_editor_attendees_not_notified">This server doesn\'t advertise invitation scheduling, so attendees may not be notified.</string>
     <string name="ed_zone">Time zone</string>
     <string name="ed_zone_start">Start time zone</string>
     <string name="ed_zone_separate_end">Separate end time zone</string>

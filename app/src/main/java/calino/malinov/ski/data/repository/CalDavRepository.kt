@@ -385,9 +385,15 @@ class CalDavRepository(
         val sameCalendars = sources.sameCalendarConfigurationAs(this.sources)
         val sameAddressBooks = addressBookSources.sameAddressBookConfigurationAs(this.addressBookSources)
         if (sameCalendars && sameAddressBooks) {
+            // A re-discovery can flip what the server advertises without
+            // touching a collection (the editor's "invitations may not be
+            // sent" note reads it off the snapshot), and that needs no fetch,
+            // only a fresh composition.
+            val schedulingChanged = sources.map { it.autoSchedule } != this.sources.map { it.autoSchedule }
             this.sources = sources
             this.addressBookSources = addressBookSources
             restoreQueuedOverlays()
+            if (schedulingChanged) publish()
             if (refreshAfterSourceChange) drainPendingWrites()
             return
         }
@@ -4859,6 +4865,7 @@ class CalDavRepository(
                 visible = source.visible,
                 showTasksInViews = source.showTasksInViews,
                 inlineAttachments = source.calendar.protocol != CalendarProtocol.Jmap,
+                invitationsDelivered = source.autoSchedule,
             )
         } + webcal.calendars
         val events = overlay.applyToEvents(fetched.events + webcal.events)

@@ -605,9 +605,13 @@ private fun EventEditorFields(
     EditorDivider()
     DescriptionSection(draft, descriptionOpen, onDescriptionOpen, onDraft)
     EditorDivider()
+    // A new event has no calendar yet and CalendarRow shows the first one, so
+    // the capability flags must read the same calendar the row displays.
+    val targetCalendar = calendars.firstOrNull { it.id == draft.calendarId } ?: calendars.firstOrNull()
     MoreSection(
         draft = draft,
-        inlineAttachments = calendars.firstOrNull { it.id == draft.calendarId }?.inlineAttachments ?: true,
+        inlineAttachments = targetCalendar?.inlineAttachments ?: true,
+        invitationsUndelivered = targetCalendar?.invitationsDelivered == false,
         open = moreOpen,
         categories = categories,
         onToggle = onMoreOpen,
@@ -1419,6 +1423,7 @@ private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -
 private fun MoreSection(
     draft: EditorDraft,
     inlineAttachments: Boolean,
+    invitationsUndelivered: Boolean,
     open: Boolean,
     categories: List<String>,
     onToggle: () -> Unit,
@@ -1520,6 +1525,13 @@ private fun MoreSection(
                             onClick = { onDraft(draft.copy(attendees = draft.attendees - attendee)) },
                         )
                     }
+                }
+                EditorReveal(invitationsUndelivered && draft.attendees.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.ed_editor_attendees_not_notified),
+                        style = CalinoTypography.bodySmall,
+                        color = CalinoColors.Ink3,
+                    )
                 }
                 AttachmentLinksSection(draft, inlineAttachments, onDraft)
                 CalinoColorSwatchRow(Color(draft.color)) { picked ->

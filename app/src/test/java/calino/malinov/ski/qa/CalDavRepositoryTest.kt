@@ -412,6 +412,21 @@ END:VCALENDAR
     }
 
     @Test
+    fun `a calendar reports whether its server delivers invitations`() = runBlocking {
+        val repository = repository()
+        enqueueAll()
+        val connected = calendar()
+        repository.setSources(listOf(CalDavSource(connected, credentials, "account", autoSchedule = false)))
+        repository.awaitSync()
+        assertEquals(false, repository.snapshot().calendars.single { it.id == connected.url }.invitationsDelivered)
+
+        enqueueAll()
+        repository.setSources(listOf(CalDavSource(connected, credentials, "account", autoSchedule = true)))
+        repository.awaitSync()
+        assertEquals(true, repository.snapshot().calendars.single { it.id == connected.url }.invitationsDelivered)
+    }
+
+    @Test
     fun `a scheduling server refuses attendees when no organizer address is known`() = runBlocking {
         val repository = repository()
         enqueueAll()
