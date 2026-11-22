@@ -202,6 +202,7 @@
     <string name="cal_search_selected">%1$s, %2$s</string>
     <string name="cal_search_hint">Oder gib ein Ereignis zum Hinzufügen ein – „lunch tue 12:30“.</string>
     <string name="cal_no_matching_records">Keine passenden Einträge für „%1$s“</string>
+    <string name="cal_search_go_to">Gehe zu %1$s</string>
     <string name="cal_search_jump_to">SPRINGEN ZU</string>
     <string name="cal_tomorrow">Morgen</string>
     <string name="cal_next_week">Nächste Woche</string>

@@ -98,6 +98,32 @@ import kotlinx.coroutines.flow.collect
 
 
 /** Floating capsule which grows from, and reverses back into, the add pill. */
+/**
+ * A named thing the sheet can do, not a record it found: "New task", "Sync
+ * now", "Go to Tasks". The web's command palette lists these beside search,
+ * and the sheet is the same surface here, so a typed word can be an
+ * instruction as well as a query.
+ */
+data class CalinoSearchCommand(
+    val id: String,
+    val label: String,
+    val description: String? = null,
+)
+
+/**
+ * The commands a query names, matched on any word of the label so "task" finds
+ * "New task" and "now" finds "Sync now". A blank query matches nothing here:
+ * the sheet's own first screen offers the four worth reaching in one tap.
+ */
+fun matchingCommands(commands: List<CalinoSearchCommand>, query: String): List<CalinoSearchCommand> {
+    val words = query.trim().lowercase(java.util.Locale.US).split(' ').filter { it.isNotEmpty() }
+    if (words.isEmpty()) return emptyList()
+    val label = { command: CalinoSearchCommand -> command.label.lowercase(java.util.Locale.US) }
+    // Every word has to be somewhere in the label, so "new task" is not answered
+    // by "New event" and "sync now" is not answered by "Sync settings".
+    return commands.filter { command -> words.all { it in label(command) } }
+}
+
 @Composable
 fun CalinoSearchSheet(
     query: String,
@@ -115,6 +141,8 @@ fun CalinoSearchSheet(
     recentSearches: List<String> = emptyList(),
     onRememberSearch: (String) -> Unit = {},
     onClearRecentSearches: () -> Unit = {},
+    commands: List<CalinoSearchCommand> = emptyList(),
+    onCommand: (String) -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
     var closeRequest by remember { mutableIntStateOf(0) }
@@ -264,9 +292,13 @@ fun CalinoSearchSheet(
         val resultCount = groupsCount(results)
         val filterHeight = if (filtersVisible) 234 else 0
         val expandedHeight = when {
-            // Header 70 + jump chips 76, then the recents (or, with none, the hint).
-            query.isBlank() && !filtersVisible ->
-                (if (recentSearches.isEmpty()) 200 else 214 + 44 * recentSearches.size).dp
+            // Header 70 + jump chips 76, then the commands the sheet offers at
+            // rest, then the recents (or, with none, the hint).
+            query.isBlank() && !filtersVisible -> {
+                val commandHeight = 32 + CommandRowHeightDp * minOf(commands.size, CommandReachAtRest)
+                val recentsHeight = if (recentSearches.isEmpty()) 64 else 78 + 44 * recentSearches.size
+                (140 + commandHeight + recentsHeight).dp
+            }
             query.isBlank() -> (80 + filterHeight).dp
             else -> minOf(680.dp, (150 + filterHeight + resultCount * 66).dp)
         }
@@ -392,8 +424,10 @@ fun CalinoSearchSheet(
                             showInitial = !filtersVisible,
                             baseDate = baseDate,
                             recents = recentSearches,
+                            commands = commands,
                             onQueryChange = onQueryChange,
                             onClearRecents = onClearRecentSearches,
+                            onCommand = { id -> onCommand(id) },
                             onSelect = { result ->
                                 // A query is worth remembering once it led somewhere; dates
                                 // and add-event drafts are derived from what was typed.
@@ -666,12 +700,16 @@ private fun SearchResults(
     onQueryChange: (String) -> Unit,
     onClearRecents: () -> Unit,
     onSelect: (CalinoSearchResult) -> Unit,
+    commands: List<CalinoSearchCommand> = emptyList(),
+    onCommand: (String) -> Unit = {},
 ) {
     val actionsHeading = stringResource(R.string.cal_search_group_actions)
     val eventsHeading = stringResource(R.string.cal_search_group_events)
     val tasksHeading = stringResource(R.string.cal_search_group_tasks)
     val journalHeading = stringResource(R.string.cal_search_group_journal)
     val contactsHeading = stringResource(R.string.cal_search_group_contacts)
+    val commandsHeading = stringResource(R.string.cal_search_group_actions)
+    val namedCommands = remember(commands, query) { matchingCommands(commands, query) }
     LazyColumn(
         modifier = Modifier.fillMaxWidth().then(if (query.isBlank()) Modifier else Modifier.heightIn(min = 160.dp)).padding(top = 4.dp),
         state = state,
@@ -680,6 +718,13 @@ private fun SearchResults(
             // With filters open the groups above are the whole story.
             if (showInitial) {
                 item("jump") { SearchJumpTo(baseDate, onSelect) }
+                val atRest = commands.take(CommandReachAtRest)
+                if (atRest.isNotEmpty()) {
+                    item("commands-header") { SearchCommandHeading(commandsHeading) }
+                    items(atRest, key = { "command:${it.id}" }) { command ->
+                        SearchCommandRow(command) { onCommand(command.id) }
+                    }
+                }
                 if (recents.isNotEmpty()) {
                     item("recent-header") { SearchRecentsHeader(onClearRecents) }
                     items(recents, key = { "recent:$it" }) { recent -> SearchRecentRow(recent) { onQueryChange(recent) } }
@@ -695,6 +740,12 @@ private fun SearchResults(
                 }
             }
         } else {
+            if (namedCommands.isNotEmpty()) {
+                item("commands-header") { SearchCommandHeading(commandsHeading) }
+                items(namedCommands, key = { "command:${it.id}" }) { command ->
+                    SearchCommandRow(command) { onCommand(command.id) }
+                }
+            }
             resultGroup(actionsHeading, groups.actions, onSelect)
             if (!groups.hasRecordMatches) item { SearchMessage(stringResource(R.string.cal_no_matching_records, query.trim())) }
             resultGroup(eventsHeading, groups.events, onSelect)
@@ -762,6 +813,52 @@ private fun SearchRecentsHeader(onClear: () -> Unit) {
                 .semantics { contentDescription = clearDescription },
             contentAlignment = Alignment.CenterEnd,
         ) { SectionLabel(stringResource(R.string.cal_search_clear), color = CalinoColors.Ink2) }
+    }
+}
+
+/**
+ * How many commands the sheet offers before anything is typed. Three fit under
+ * the jump chips without pushing the recents out of the sheet; everything else
+ * is one word away, which is what the query is for.
+ */
+private const val CommandReachAtRest = 3
+
+/** One command row, for the sheet's height budget. */
+private const val CommandRowHeightDp = 48
+
+@Composable
+private fun SearchCommandHeading(heading: String) {
+    Text(
+        heading,
+        style = CalinoTypography.labelSmall,
+        color = CalinoColors.Ink3,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun SearchCommandRow(command: CalinoSearchCommand, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = command.description ?: command.label }
+            .padding(horizontal = 20.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(CalinoIcons.Plus, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                command.label,
+                style = CalinoTypography.bodyLarge,
+                color = CalinoColors.Ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            command.description?.let { line ->
+                Text(line, style = CalinoTypography.bodySmall, color = CalinoColors.Ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 

@@ -11,6 +11,10 @@ sliding a time by quarter hours, and swiping or holding the pill. A step counts
 only when the gesture it teaches actually happens, an informational card covers
 Journal and Contacts when those are switched on, and Settings > Advanced > About
 can replay it. Swiping the offer away stops it for good; it never writes data.
+- **Search does things, not only finds them.** The sheet now carries named
+commands beside its results: New event, New task and Sync now are one tap away
+before you type, and typing "go to tasks", "settings" or "new task" answers with
+that command, the way the web app's command palette does.
 - **Quick add understands more of what you type.** The line now reads spoken
 tasks ("remind me to ...", "reminder: ..."), casual times of day ("tonight",
 "noon", "in the morning"), time ranges ("from 2pm to 3pm", "10-11", including

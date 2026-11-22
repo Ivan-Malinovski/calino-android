@@ -202,6 +202,7 @@
     <string name="cal_search_selected">%1$s, %2$s</string>
     <string name="cal_search_hint">Eller skriv en begivenhed, der skal tilføjes — “lunch tue 12:30”.</string>
     <string name="cal_no_matching_records">Ingen matchende poster for “%1$s”</string>
+    <string name="cal_search_go_to">Gå til %1$s</string>
     <string name="cal_search_jump_to">GÅ TIL</string>
     <string name="cal_tomorrow">I morgen</string>
     <string name="cal_next_week">Næste uge</string>

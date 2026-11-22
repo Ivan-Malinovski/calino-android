@@ -305,6 +305,7 @@ import calino.malinov.ski.ui.surfaces.JournalSurface
 import calino.malinov.ski.ui.surfaces.ContactsSurface
 import calino.malinov.ski.ui.surfaces.CategoryCatalog
 import calino.malinov.ski.ui.surfaces.SettingsSurface
+import calino.malinov.ski.ui.surfaces.CalinoSearchCommand
 import calino.malinov.ski.ui.surfaces.CalinoSearchSheet
 import calino.malinov.ski.ui.surfaces.Tasks
 import calino.malinov.ski.ui.surfaces.TaskMenuAction
@@ -3916,6 +3917,51 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         },
     )
 
+    val searchRoutes = listOf(
+        PockRoute.Day,
+        PockRoute.Year,
+        PockRoute.Range,
+        PockRoute.Agenda,
+        PockRoute.Tasks,
+        PockRoute.Journal,
+        PockRoute.Contacts,
+        PockRoute.Settings,
+    )
+    // What the search sheet can do, beside what it can find: the same set the
+    // web's command palette carries, named the way each surface is named in the
+    // sidebar so a typed word lands somewhere the person recognises.
+    val searchCommands = buildList {
+        add(CalinoSearchCommand("command:new-event", textContext.getString(R.string.host_new_event)))
+        add(CalinoSearchCommand("command:new-task", textContext.getString(R.string.ed_new_task)))
+        add(CalinoSearchCommand("command:sync", textContext.getString(R.string.set_sync_now)))
+        searchRoutes
+            .filter { it != PockRoute.Journal && it != PockRoute.Contacts }
+            .forEach { route ->
+                add(
+                    CalinoSearchCommand(
+                        "route:${pockRouteKey(route)}",
+                        textContext.getString(R.string.cal_search_go_to, pockRouteLabel(route)),
+                    ),
+                )
+            }
+        if (preferences.journalEnabled) {
+            add(
+                CalinoSearchCommand(
+                    "route:${pockRouteKey(PockRoute.Journal)}",
+                    textContext.getString(R.string.cal_search_go_to, pockRouteLabel(PockRoute.Journal)),
+                ),
+            )
+        }
+        if (preferences.contactsEnabled) {
+            add(
+                CalinoSearchCommand(
+                    "route:${pockRouteKey(PockRoute.Contacts)}",
+                    textContext.getString(R.string.cal_search_go_to, pockRouteLabel(PockRoute.Contacts)),
+                ),
+            )
+        }
+    }
+
     if (searchVisible) {
         CalinoSearchSheet(
             query = searchQuery,
@@ -3928,6 +3974,29 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             recentSearches = preferences.recentSearches,
             onRememberSearch = preferences.rememberSearch,
             onClearRecentSearches = preferences.clearRecentSearches,
+            commands = searchCommands,
+            onCommand = command@{ id ->
+                searchVisible = false
+                searchQuery = ""
+                when {
+                    id == "command:new-event" -> openQuickAdd(
+                        QuickAddKind.Event,
+                        PocReturnTarget.Search,
+                        morphFromAddPill = false,
+                    )
+                    id == "command:new-task" -> openQuickAdd(
+                        QuickAddKind.Task,
+                        PocReturnTarget.Search,
+                        morphFromAddPill = false,
+                    )
+                    id == "command:sync" -> pocViewModel.refresh()
+                    id.startsWith("route:") -> {
+                        val key = id.removePrefix("route:")
+                        val route = searchRoutes.firstOrNull { pockRouteKey(it) == key }
+                        if (route != null) navigateRoot(route)
+                    }
+                }
+            },
             onSelect = selectResult@{ candidate ->
                 val result = resolveCurrentSearchResult(
                     snapshot = pocViewModel.activeRepository.snapshot(),

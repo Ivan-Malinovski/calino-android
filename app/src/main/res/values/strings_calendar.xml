@@ -198,6 +198,7 @@
     <string name="cal_search_selected">%1$s, %2$s</string>
     <string name="cal_search_hint">Or type an event to add it — “lunch tue 12:30”.</string>
     <string name="cal_no_matching_records">No matching records for “%1$s”</string>
+    <string name="cal_search_go_to">Go to %1$s</string>
     <string name="cal_search_jump_to">JUMP TO</string>
     <string name="cal_tomorrow">Tomorrow</string>
     <string name="cal_next_week">Next week</string>
