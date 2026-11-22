@@ -1628,6 +1628,7 @@ fun HomeScreen(
     DisposableEffect(Unit) { onDispose { focusReporter.value(true) } }
     if (splitLayout) {
         SplitHomeLayout(
+            bottomClearance = bottomClearance,
             modifier = foldMorph,
             morphFraction = morphFraction,
             splitProgress = splitProgress,
@@ -2334,6 +2335,9 @@ fun HomeScreen(
 @Composable
 private fun SplitHomeLayout(
     modifier: Modifier = Modifier,
+    /** Bottom inset for the host's feedback lane; this layout has no zoom
+     * canvas to keep clear of it. */
+    bottomClearance: () -> Dp = { CalinoSpacing.PillClearance },
     morphFraction: Float,
     splitProgress: Float,
     windowWidth: Dp,
@@ -2417,7 +2421,11 @@ private fun SplitHomeLayout(
                 onToday = onToday,
             )
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                val gridHeight = maxHeight
+                // The wide layout draws the grid directly rather than through the
+                // zoom canvas, so it has to keep the feedback lane clear itself:
+                // a first-run notice floats over the bottom of this pane, and the
+                // last week row was disappearing under it.
+                val gridHeight = (maxHeight - bottomClearance()).coerceAtLeast(0.dp)
                 MonthPager(
                     state = monthPagerState,
                     selected = selected,
