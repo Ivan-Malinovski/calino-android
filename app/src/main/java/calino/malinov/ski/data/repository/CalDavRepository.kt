@@ -1207,11 +1207,12 @@ class CalDavRepository(
         writableRejection(source, "VEVENT")?.let { return it }
         source ?: return WriteResult.Rejected(WriteRejectionCode.NO_CALENDAR_CONNECTED)
 
-        val organizer = if (input.attendees.isNotEmpty()) {
-            if (!source.autoSchedule) return WriteResult.Rejected(WriteRejectionCode.CALENDAR_SERVER_INVITATION_SCHEDULING_UNSUPPORTED)
-            invitationOrganizer(source)
-                ?: return WriteResult.Rejected(WriteRejectionCode.INVITATION_ADDRESS_UNIDENTIFIED)
-        } else null
+        // Attendees never block a save. Server auto-schedule only governs
+        // whether the server delivers the invitations itself; an event with
+        // ORGANIZER and ATTENDEE lines is a plain calendar object either
+        // way. When no verified own address is known, the event is written
+        // without an ORGANIZER rather than refused.
+        val organizer = if (input.attendees.isNotEmpty()) invitationOrganizer(source) else null
 
         val local = overlay.newEvent(input.copy(calendarId = source.calendar.url))
         val candidate = local.copy(uid = input.uid ?: local.id, calendarId = source.calendar.url, organizer = organizer)
@@ -1232,9 +1233,6 @@ class CalDavRepository(
         val current = events().firstOrNull { it.id == id }
             ?: return WriteResult.Rejected(WriteRejectionCode.CALENDAR_EVENT_UNAVAILABLE)
         val currentSource = sourceForRecord(current.calendarId, current.href)
-        if (current.organizer == null && input.attendees.isNotEmpty() &&
-            (currentSource?.autoSchedule != true || invitationOrganizer(currentSource) == null)
-        ) return WriteResult.Rejected(WriteRejectionCode.INVITATION_ADDRESS_UNVERIFIED)
         if (current.organizer != null && currentSource != null &&
             normalizedCalendarAddress(current.organizer.address) !in
             currentSource.calendarUserAddresses.map(::normalizedCalendarAddress)
@@ -1374,7 +1372,6 @@ class CalDavRepository(
         val source = sourceForRecord(event.calendarId, event.href)
             ?: return WriteResult.Rejected(WriteRejectionCode.INVITATION_CALENDAR_UNCONNECTED)
         writableRejection(source, "VEVENT")?.let { return it }
-        if (!source.autoSchedule) return WriteResult.Rejected(WriteRejectionCode.SERVER_INVITATION_SCHEDULING_UNSUPPORTED)
         val addresses = source.calendarUserAddresses.map(::normalizedCalendarAddress).toSet()
         val own = event.attendees.filter { normalizedCalendarAddress(it.email) in addresses }
         if (own.size != 1) return WriteResult.Rejected(WriteRejectionCode.ATTENDEE_ADDRESS_NOT_UNIQUE)
