@@ -11,6 +11,10 @@ sliding a time by quarter hours, and swiping or holding the pill. A step counts
 only when the gesture it teaches actually happens, an informational card covers
 Journal and Contacts when those are switched on, and Settings > Advanced > About
 can replay it. Swiping the offer away stops it for good; it never writes data.
+- **Task rows carry their notes and priority.** Each row now shows the first
+line of the task's notes as a subtitle (markdown scaffolding stripped, a link
+reads as its text) and a tinted High/Medium/Low chip when the task has a
+priority, the way the web app's list does.
 - **Keyboard shortcuts.** On a Fold with its keyboard cover, or any hardware
 keyboard: Cmd/Ctrl+K opens search, Cmd/Ctrl+N starts a new event, and Esc closes
 what is open without leaving the app.

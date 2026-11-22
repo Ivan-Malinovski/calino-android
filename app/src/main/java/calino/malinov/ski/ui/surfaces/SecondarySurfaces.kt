@@ -216,6 +216,7 @@ import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.design.eventTint
+import calino.malinov.ski.design.priorityStripeColor
 import calino.malinov.ski.qa.TaskBucket
 import calino.malinov.ski.qa.taskBucket
 import calino.malinov.ski.ui.components.BottomDetailOverlay
@@ -3287,6 +3288,34 @@ private fun TaskGroupFooter(text: String, onClick: () -> Unit, modifier: Modifie
 }
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
+/**
+ * The first readable line of a task's notes, for the row's subtitle.
+ *
+ * Markdown scaffolding is not what the line says: heading marks, bullets,
+ * checklist boxes, rules and code fences are leading trivia, a link reads as its
+ * text, and emphasis markers do not belong on screen. What is left is the line a
+ * person would have written if they had known it would be shown this small.
+ */
+internal fun taskNotesExcerpt(notes: String?): String? = notes
+    ?.lineSequence()
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    // A rule or a fence is decoration around the text, not text.
+    ?.filter { line -> !line.startsWith("```") && !line.all { it in "-*_= " } }
+    // Inline marks come off before the leading bullet marks: "**Book**" would
+    // otherwise lose its opening pair to the bullet trim and keep the closing one.
+    ?.map { line ->
+        line.replace(Regex("\\[([^\\]]+)]\\([^)]*\\)"), "$1")
+            .replace(Regex("`([^`]*)`"), "$1")
+            .replace(Regex("(\\*\\*|__)(.*?)\\1"), "$2")
+            .replace(Regex("(?<!\\w)[*_]([^*_]+)[*_](?!\\w)"), "$1")
+            .trim()
+    }
+    ?.map { it.trimStart('#', '>', '*', '-', '+', ' ').trim() }
+    // A checklist box is a state, not a word: "- [ ] Tulips" says "Tulips".
+    ?.map { it.replace(Regex("^\\[[ xX]]\\s*"), "").trim() }
+    ?.firstOrNull { it.isNotEmpty() }
+
 @Composable
 private fun TaskRow(
     task: CalTask,
@@ -3553,8 +3582,29 @@ private fun TaskRow(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // The web shows the first line of a task's notes under its
+                    // title, and its priority as a chip; both are already here in
+                    // the data and neither needs a surface of its own.
+                    val noteExcerpt = remember(task.notes) { taskNotesExcerpt(task.notes) }
+                    if (noteExcerpt != null) {
+                        Text(
+                            noteExcerpt,
+                            style = CalinoTypography.bodySmall,
+                            color = CalinoColors.Ink3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 1.dp),
+                        )
+                    }
                     val meta = taskMetaLine(task, today, grouped)
-                    if (meta != null || task.category != null) {
+                    val priorityChip = when (task.priority) {
+                        in 1..3 -> context.getString(R.string.ed_priority_high)
+                        in 4..6 -> context.getString(R.string.ed_priority_medium)
+                        in 7..9 -> context.getString(R.string.ed_priority_low)
+                        else -> null
+                    }
+                    val priorityTint = priorityStripeColor(task.priority)
+                    if (meta != null || task.category != null || priorityChip != null) {
                         Row(
                             modifier = Modifier.padding(top = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3578,6 +3628,17 @@ private fun TaskRow(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(eventTint(color, .10f))
+                                        .padding(horizontal = 7.dp, vertical = 1.dp),
+                                )
+                            }
+                            if (priorityChip != null && priorityTint != null) {
+                                Text(
+                                    priorityChip,
+                                    style = CalinoTypography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                    color = priorityTint,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(priorityTint.copy(alpha = .12f))
                                         .padding(horizontal = 7.dp, vertical = 1.dp),
                                 )
                             }
