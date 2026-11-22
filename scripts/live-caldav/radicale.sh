@@ -66,6 +66,13 @@ htpasswd_encryption = bcrypt
 
 [storage]
 filesystem_folder = $DATA
+
+# Any authenticated account can read and write any collection, which is what
+# makes a "shared with me" collection testable: on this server a collection
+# outside a user's own home set is otherwise invisible to them, and Calino's
+# discovery of shared collections is exactly what needs exercising.
+[rights]
+type = authenticated
 EOF
 }
 

@@ -35,6 +35,22 @@ recurrence to expand. Without those two the suite failed on a fresh harness with
 which read like client bugs and were preconditions. The seed is idempotent: it is
 rewritten on every start, so an ageing series cannot fall out of the window.
 
+The server runs with `rights = authenticated`: any authenticated account may read
+and write any collection. That is what makes a *shared* collection testable — on
+the default owner-only rights a collection outside your own home set is invisible
+to you, which is the whole point of CalDAV sharing. Seed one with a props file:
+
+```bash
+mkdir -p state/collections/collection-root/shared-folder/team-calendar
+printf '{"tag":"VCALENDAR","displayname":"Team calendar"}' \
+  > state/collections/collection-root/shared-folder/team-calendar/.Radicale.props
+```
+
+The URL `http://127.0.0.1:5232/shared-folder/team-calendar/` (or
+`http://10.0.2.2:5232/...` from the emulator) then answers as a calendar you can
+read and write but which is not in your calendar-home — the shape issue #30 is
+about.
+
 Credentials are `calino` / `calinopass`, throwaway and local. Override with
 `CALINO_RADICALE_USER`, `CALINO_RADICALE_PASS` and `CALINO_RADICALE_PORT`.
 
