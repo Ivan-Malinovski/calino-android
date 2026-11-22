@@ -313,6 +313,17 @@ class JournalFlowTest : CalinoUiTest() {
         compose.activityRule.scenario.onActivity {
             it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+        // Wait for the rotation itself, not just for Compose to settle: the next
+        // test starts from this Activity's window, and a rotation still in flight
+        // swallows its first click.
+        compose.waitUntil(10_000) {
+            var portrait = false
+            compose.activityRule.scenario.onActivity {
+                portrait = it.resources.configuration.orientation ==
+                    android.content.res.Configuration.ORIENTATION_PORTRAIT
+            }
+            portrait
+        }
         compose.waitForIdle()
     }
 

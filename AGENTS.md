@@ -63,6 +63,14 @@ Before changing a gesture, identify its pointer-stream owner. Check conflicts be
   distrobox enter android-sdk -- bash -lc './gradlew test lintDebug assembleDebug'
   ```
 
+- **Clear the app's data on the emulator after any manual session that
+  connected an account**, before running the device suite:
+  `adb -s <serial> shell pm clear <applicationId>`, then install the build under
+  test. A live account left in the app switches every fixture-based test to real
+  data ("today" becomes the wall clock), and the whole suite fails on dates that
+  have nothing to do with the change being tested. It is also worth force-stopping
+  the app: a still-running instance keeps the account in memory even after the
+  files are cleared.
 - Instrumented tests are separate and require the pinned emulator. The `ANDROID_SERIAL` pin is mandatory so tests cannot run on an attached phone:
 
   ```bash

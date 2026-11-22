@@ -156,6 +156,25 @@ class PocFixturesTest {
     }
 
     @Test
+    fun journalCategories_surviveCreateUpdateAndReload() = runBlocking {
+        val repository = FixtureRepository()
+
+        val created = repository.addJournal(
+            NewJournal(fixtureDate, "After work", "A useful note.", listOf(" Focus ", "Work", "Focus")),
+        ).applied()
+
+        assertEquals(listOf("Focus", "Work"), created.categories)
+        assertEquals(listOf("Focus", "Work"), repository.journals().first { it.id == created.id }.categories)
+
+        val updated = repository.updateJournal(
+            created.id,
+            NewJournal(fixtureDate, "After work", "A revised note.", listOf("Ideas")),
+        ).applied()
+        assertEquals(listOf("Ideas"), updated.categories)
+        assertEquals(listOf("Ideas"), repository.journals().first { it.id == created.id }.categories)
+    }
+
+    @Test
     fun twoTaskCompletions_canBothBeUndoneWithoutClobberingEachOther() = runBlocking {
         val repository = FixtureRepository()
         val first = repository.setTaskDone("task-inbox", true).applied()
