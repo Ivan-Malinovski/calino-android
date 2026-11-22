@@ -102,6 +102,9 @@ data class CalinoPreferences(
     /** Whether the root pill rests as the dock of view icons (held into, held out of). */
     val pillDocked: Boolean = false,
     val setPillDocked: (Boolean) -> Unit = {},
+    /** Where the optional first-run tour stands: offered once, then answered or finished. */
+    val tourState: CalinoTourState = CalinoTourState.NotOffered,
+    val setTourState: (CalinoTourState) -> Unit = {},
     /**
      * Route names the root pill leaves out of its menu, dock and swipe. The
      * views stay reachable from the sidebar. Month is never hidden, so the
@@ -230,6 +233,8 @@ interface CalinoPreferenceStore {
     fun saveMenuPill(enabled: Boolean)
     fun loadPillDocked(): Boolean
     fun savePillDocked(docked: Boolean)
+    fun loadTourState(): CalinoTourState = CalinoTourState.NotOffered
+    fun saveTourState(state: CalinoTourState) {}
     /** Route names kept off the root pill's menu, dock and swipe. Empty shows every view. */
     fun loadPillHiddenViews(): Set<String> = emptySet()
     fun savePillHiddenViews(names: Set<String>) {}
@@ -374,6 +379,9 @@ interface CalinoPreferenceStore {
         override fun saveMenuPill(enabled: Boolean) { menuPill = enabled }
         override fun loadPillDocked() = pillDocked
         override fun savePillDocked(docked: Boolean) { pillDocked = docked }
+        private var tourState = CalinoTourState.NotOffered
+        override fun loadTourState() = tourState
+        override fun saveTourState(state: CalinoTourState) { tourState = state }
         private var pillHiddenViews = emptySet<String>()
         override fun loadPillHiddenViews() = pillHiddenViews
         override fun savePillHiddenViews(names: Set<String>) { pillHiddenViews = names }
@@ -497,6 +505,8 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
     override fun saveMenuPill(enabled: Boolean) = putBoolean(MenuPillKey, enabled)
     override fun loadPillDocked(): Boolean = prefs.getBoolean(PillDockedKey, false)
     override fun savePillDocked(docked: Boolean) = putBoolean(PillDockedKey, docked)
+    override fun loadTourState(): CalinoTourState = CalinoTourState.fromName(name(TourStateKey))
+    override fun saveTourState(state: CalinoTourState) = putString(TourStateKey, state.name)
     override fun loadPillHiddenViews(): Set<String> =
         prefs.getStringSet(PillHiddenViewsKey, emptySet()).orEmpty().toSet()
     override fun savePillHiddenViews(names: Set<String>) {
@@ -625,6 +635,7 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val GrowDetailFromEventKey = "grow_detail_from_event"
         const val MenuPillKey = "menu_pill"
         const val PillDockedKey = "pill_docked"
+        const val TourStateKey = "tour_state"
         const val PillHiddenViewsKey = "pill_hidden_views"
         const val WeekStartKey = "week_start"
         const val EventDensityKey = "event_density"
@@ -683,6 +694,7 @@ fun rememberCalinoPreferences(
     var growDetailFromEvent by remember(store) { mutableStateOf(store.loadGrowDetailFromEvent()) }
     var menuPill by remember(store) { mutableStateOf(store.loadMenuPill()) }
     var pillDocked by remember(store) { mutableStateOf(store.loadPillDocked()) }
+    var tourState by remember(store) { mutableStateOf(store.loadTourState()) }
     var pillHiddenViews by remember(store) { mutableStateOf(store.loadPillHiddenViews()) }
     var weekStartChoice by remember(store) { mutableStateOf(store.loadWeekStart()) }
     var eventDensity by remember(store) { mutableStateOf(store.loadEventDensity()) }
@@ -735,6 +747,8 @@ fun rememberCalinoPreferences(
         setMenuPill = { value -> menuPill = value; store.saveMenuPill(value) },
         pillDocked = pillDocked,
         setPillDocked = { value -> pillDocked = value; store.savePillDocked(value) },
+        tourState = tourState,
+        setTourState = { value -> tourState = value; store.saveTourState(value) },
         pillHiddenViews = pillHiddenViews,
         setPillViewHidden = { name, hidden ->
             pillHiddenViews = if (hidden) pillHiddenViews + name else pillHiddenViews - name

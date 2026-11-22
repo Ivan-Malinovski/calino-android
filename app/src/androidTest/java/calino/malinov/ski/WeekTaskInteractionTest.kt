@@ -102,6 +102,9 @@ class WeekTaskInteractionTest : CalinoUiTest() {
         // Quick Add owns the same prefilled draft, including its week range.
         awaitDescribed("Title, task")
         compose.onNodeWithContentDescription("Title, task").assertTextEquals("Plan dinner")
+        // The editor's pill morphs into its actions; the field is on screen
+        // before the Save lane is.
+        compose.waitUntil(5_000) { compose.hasDescribedNode("Save editor") }
         compose.onNodeWithContentDescription("Save editor").performClick()
         compose.waitUntil(5000) { repository.tasks().any { it.title == "Plan dinner" } }
         assertTrue(repository.tasks().first { it.title == "Plan dinner" }.isWeekTask())

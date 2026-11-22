@@ -2166,6 +2166,7 @@ fun AddPill(
     var dragX by remember { mutableFloatStateOf(0f) }
     var dragY by remember { mutableFloatStateOf(0f) }
     var suppressClickAfterDrag by remember { mutableStateOf(false) }
+    val tour = calino.malinov.ski.state.LocalCalinoTour.current
     val currentOnSwipe by rememberUpdatedState(onSwipe)
     val currentCanSwipe by rememberUpdatedState(canSwipe)
     val currentDestinationLabel by rememberUpdatedState(destinationLabel)
@@ -2196,17 +2197,30 @@ fun AddPill(
         !confirmationActive && !swipePreviewing
     val saveTrace = rememberPillSaveTrace()
     val deleteCountdown = remember { Animatable(0f) }
-    // The offer's own window, read from its deadline on every frame instead
-    // of animated beside it, so it cannot drift from the clock that actually
-    // withdraws the offer (a second timer here is how the two would disagree).
-    var undoRemaining by remember { mutableFloatStateOf(1f) }
+    // The offer's own window, started from its actual deadline instead of
+    // animated beside it, so it cannot drift from the clock that withdraws the
+    // offer (a second timer here is how the two would disagree). A finite drain
+    // rather than a frame-by-frame poll of the clock: a loop that never ends
+    // leaves the composition permanently "busy", so anything waiting for the
+    // screen to settle -- the device tests, a screenshot pass -- waits out the
+    // whole ten seconds with the pill frozen in the middle of its own frame.
+    val undoDrain = remember { Animatable(1f) }
     LaunchedEffect(laneUndo, undoActive) {
         val offer = laneUndo
-        if (offer == null || !undoActive) return@LaunchedEffect
-        while (true) {
-            undoRemaining = offer.remaining()
-            withFrameNanos { }
+        if (offer == null || !undoActive) {
+            undoDrain.snapTo(1f)
+            return@LaunchedEffect
         }
+        // Nothing draws the ring for an untimed offer (the tour's question), and
+        // a drain nobody sees would keep the composition busy for its whole
+        // window -- the thing the finite drain exists to avoid.
+        if (!offer.timed) {
+            undoDrain.snapTo(1f)
+            return@LaunchedEffect
+        }
+        val left = offer.remaining().coerceIn(0f, 1f)
+        undoDrain.snapTo(left)
+        undoDrain.animateTo(0f, tween((left * UndoHoldMillis).toInt().coerceAtLeast(1), easing = LinearEasing))
     }
     val currentUndoActive by rememberUpdatedState(undoActive)
     val haptics = LocalHapticFeedback.current
@@ -2376,9 +2390,11 @@ fun AddPill(
                         0, 2 -> {
                             val scrub = outcome == 2
                             if (scrub) {
+                                tour.report(calino.malinov.ski.state.TourEvent.PillSwipedUp)
                                 currentOnModeChange(AddPillMode.Menu)
                             } else {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                tour.report(calino.malinov.ski.state.TourEvent.PillModeSwitched)
                                 currentOnModeChange(AddPillMode.Dock)
                             }
                             // Keep the rest of this finger: in a scrub it
@@ -2499,6 +2515,7 @@ fun AddPill(
                         }
                     } else if (held) {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        tour.report(calino.malinov.ski.state.TourEvent.PillModeSwitched)
                         currentOnModeChange(AddPillMode.Rest)
                         // Swallow the rest so the release is not a tap on an icon.
                         while (true) {
@@ -2574,8 +2591,8 @@ fun AddPill(
                 // The same edge, running the other way: the confirmation fills
                 // up to its deadline, an undo offer drains toward its own.
                 .pillDeleteCountdown(
-                    progress = { undoRemaining },
-                    active = undoActive,
+                    progress = { undoDrain.value },
+                    active = undoActive && laneUndo?.timed != false,
                     color = CalinoColors.FloatAction,
                     strokeWidth = 3.dp,
                     strength = 1f,
@@ -2666,7 +2683,11 @@ fun AddPill(
                                         route = routes.firstOrNull { it.current },
                                         pressed = viewPressed,
                                         enabled = !menuInert,
-                                        onBounds = { viewButtonBounds = it },
+                                        onBounds = {
+                                            viewButtonBounds = it
+                                            // The tour's hold card points its finger at this button.
+                                            tour.pillButtonCenter = it.center
+                                        },
                                         onOpenMenu = { currentOnModeChange(AddPillMode.Menu) },
                                         onOpenDock = { currentOnModeChange(AddPillMode.Dock) },
                                     )
@@ -2724,7 +2745,10 @@ fun AddPill(
                                                 settle()
                                                 return@detectDragGestures
                                             }
-                                            if (vertical && dragY <= -commitPx) currentOnSearch()
+                                            if (vertical && dragY <= -commitPx) {
+                                                tour.report(calino.malinov.ski.state.TourEvent.PillSwipedUp)
+                                                currentOnSearch()
+                                            }
                                             if (horizontal) {
                                                 val direction = if (dragX <= -commitPx) 1 else if (dragX >= commitPx) -1 else 0
                                                 if (direction != 0 && currentCanSwipe(direction)) currentOnSwipe(direction)
@@ -2870,7 +2894,7 @@ fun AddPill(
                                             // in Saved -- this is that same kind of report,
                                             // just started somewhere else on screen.
                                             CalinoIcon(
-                                                CalinoIcon.Check,
+                                                laneUndo?.icon ?: CalinoIcon.Check,
                                                 tint = lerp(CalinoColors.Green, CalinoColors.OnFloat, .42f),
                                                 modifier = Modifier.size(19.dp),
                                                 contentDescription = null,
@@ -2890,12 +2914,17 @@ fun AddPill(
                                         PillSaveState.Idle -> text
                                     }
                                     if (state == PillSaveState.Idle && undoMessage != null) {
-                                        val undoDescription = stringResource(R.string.cal_undo_message, undoMessage)
+                                        val offerAction = laneUndo?.actionLabel
+                                        val undoDescription = if (offerAction != null) {
+                                            "$offerAction: $undoMessage"
+                                        } else {
+                                            stringResource(R.string.cal_undo_message, undoMessage)
+                                        }
                                         PillUndoPair(
                                             title = { PillLabelText(undoMessage) },
                                             action = {
                                                 Text(
-                                                    undoLabel,
+                                                    offerAction ?: undoLabel,
                                                     color = CalinoColors.FloatAction,
                                                     fontSize = 15.sp,
                                                     lineHeight = 20.sp,

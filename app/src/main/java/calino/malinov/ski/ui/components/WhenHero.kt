@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -211,6 +213,7 @@ private fun RowScope.HeroClock(
     onSlide: ((Int) -> Unit)? = null,
 ) {
     val locale = LocalCalinoLocale
+    val tour = calino.malinov.ski.state.LocalCalinoTour.current
     val dayFormat = localizedDateFormatter("EEE, d MMM")
     var typingTime by remember { mutableStateOf(false) }
     var typingDate by remember { mutableStateOf(false) }
@@ -240,6 +243,7 @@ private fun RowScope.HeroClock(
                 Modifier
                     .heightIn(min = 40.dp)
                     .quarterSwipe(time, onSlide)
+                    .onGloballyPositioned { if (align == Alignment.Start && time != null) tour.startClockCenter = it.boundsInRoot().center }
                     .pressable(onTime, onTimeTyped?.let { { typingTime = true } })
                     .semantics { contentDescription = timeDescription },
                 verticalAlignment = Alignment.Bottom,
@@ -574,6 +578,7 @@ private fun Modifier.quarterSwipe(time: LocalTime?, onMove: ((Int) -> Unit)?): M
     val haptics = LocalHapticFeedback.current
     val current by rememberUpdatedState(time)
     val move by rememberUpdatedState(onMove)
+    val tour = calino.malinov.ski.state.LocalCalinoTour.current
     return pointerInput(Unit) {
         val stepPx = QuarterStep.toPx()
         var travel = 0f
@@ -587,6 +592,7 @@ private fun Modifier.quarterSwipe(time: LocalTime?, onMove: ((Int) -> Unit)?): M
                 travel -= if (later) stepPx else -stepPx
                 val next = stepQuarter(at, later)
                 move(quarterDelta(at, next))
+                tour.report(calino.malinov.ski.state.TourEvent.ClockSlid)
                 at = next
                 haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
             }

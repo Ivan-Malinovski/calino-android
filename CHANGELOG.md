@@ -3,6 +3,28 @@
 Notable changes per release. Releases before 0.2.1 are recorded in the git
 history and their tags.
 
+## Unreleased
+
+- **A first-run tour.** Calino now offers a one-minute walk through its
+gestures once: swiping the calendar to zoom, holding empty space to create,
+sliding a time by quarter hours, and swiping or holding the pill. A step counts
+only when the gesture it teaches actually happens, an informational card covers
+Journal and Contacts when those are switched on, and Settings > Advanced > About
+can replay it. Swiping the offer away stops it for good; it never writes data.
+- **Quick add understands more of what you type.** The line now reads spoken
+tasks ("remind me to ...", "reminder: ..."), casual times of day ("tonight",
+"noon", "in the morning"), time ranges ("from 2pm to 3pm", "10-11", including
+one that crosses midnight), durations written as "1,5 hours", more date forms
+("20 May", "the 20th of May", "end of month", "in 3 days", "last friday") and
+recurrence written as "daily", "weekly" or "every other week". A bare number is
+no longer read as a clock time, so "meeting with 3 people" keeps its title.
+- **The pill settles again.** The pill's "Saved" beat and an undo offer's ten
+second window now run on the lane's own clock instead of borrowing the screen
+that started them, so a surface that leaves mid-beat can no longer leave the
+pill frozen on "Saved" with the undo hidden behind it and the add pill gone. The
+countdown ring drains once from the offer's real deadline instead of re-reading
+the clock every frame.
+
 ## 0.13.0 — 2026-11-07
 
 Calino 0.13.0 makes deleting safe: events, tasks, journals and contacts can be undone, and a 30-day Recently deleted screen keeps them for later. It also adds scrolling home screen widgets, reminders for overdue tasks and a calmer action pill.

@@ -699,6 +699,15 @@ private fun AboutSettings() {
             }
         }
         SettingDivider()
+        val tour = calino.malinov.ski.state.LocalCalinoTour.current
+        SettingActionRow(
+            title = t(R.string.set_replay_tour),
+            description = t(R.string.set_replay_tour_detail),
+            action = t(R.string.set_replay_tour_action),
+            enabled = !tour.running,
+            onClick = { tour.requestReplay() },
+        )
+        SettingDivider()
         SettingActionRow(
             title = t(R.string.set_releases),
             description = t(R.string.set_releases_detail),

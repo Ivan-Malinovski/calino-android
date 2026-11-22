@@ -13,7 +13,9 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -32,6 +34,14 @@ import kotlinx.coroutines.launch
 @Stable
 class CalinoPillLane(
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+    /**
+     * The lane's own clock. Reports and windows belong to the lane, not to the
+     * screen that started them: a caller's composition scope dies with the
+     * screen, and a "Saved" beat that dies with it leaves the pill frozen on a
+     * word it never finishes, with the offer queued behind it. Injected only so
+     * unit tests can drive it from their own scheduler.
+     */
+    private val timers: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
     /**
      * Where the root add pill last sat, in root coordinates, or null before it
@@ -234,18 +244,18 @@ class CalinoPillLane(
     }
 
     /**
-     * That write finished. [scope] drives the tail: the saving state is held
+     * That write finished. The lane's own clock drives the tail: the saving state is held
      * for [MinSavingMillis] from when it started so a write that returns in a
      * frame still reads as one beat instead of a flicker, and "Saved" is held
      * for [SavedHoldMillis] before the pill goes back to being an add button.
      */
-    fun saveFinished(scope: CoroutineScope, success: Boolean) {
+    fun saveFinished(success: Boolean) {
         writesInFlight = (writesInFlight - 1).coerceAtLeast(0)
         if (!success) runFailed = true
         if (writesInFlight > 0) return
         val landed = !runFailed
         settleJob?.cancel()
-        settleJob = scope.launch {
+        settleJob = timers.launch {
             val elapsed = nowMillis() - savingSinceMillis
             delay((MinSavingMillis - elapsed).coerceAtLeast(0L))
             if (!landed) {
@@ -277,10 +287,10 @@ class CalinoPillLane(
      * person always gets the whole of [UndoHoldMillis] to read and act.
      */
     private class UndoEntry(
-        val scope: CoroutineScope,
         var state: PillUndoState? = null,
         var job: Job? = null,
         var armedAt: Long = -1L,
+        val timed: Boolean = true,
     )
 
     private val undoStack = ArrayList<UndoEntry>()
@@ -290,8 +300,8 @@ class CalinoPillLane(
      * rather than replacing it: a later action must not take away the way back
      * from an earlier one. Taking an offer brings the next one up.
      */
-    fun showUndo(message: String, scope: CoroutineScope, onUndo: () -> Unit) {
-        val entry = UndoEntry(scope)
+    fun showUndo(message: String, onUndo: () -> Unit) {
+        val entry = UndoEntry()
         val state = PillUndoState(
             message = message,
             onUndo = {
@@ -310,16 +320,70 @@ class CalinoPillLane(
         if (saveState == PillSaveState.Idle) arm(entry)
     }
 
+    /**
+     * Puts a question in the lane that is not an undo: [message] and one
+     * [actionLabel]. It stays until answered. Taking it calls [onAccept];
+     * swiping the pill away calls [onDecline]. Stacks like an undo, so an
+     * outcome that lands meanwhile still gets the label first.
+     */
+    fun showOffer(
+        message: String,
+        actionLabel: String,
+        icon: CalinoIcon,
+        onAccept: () -> Unit,
+        onDecline: () -> Unit,
+    ): PillUndoState {
+        val entry = UndoEntry(timed = false)
+        val state = PillUndoState(
+            message = message,
+            onUndo = {
+                retire(entry)
+                onAccept()
+            },
+            onDismiss = {
+                retire(entry)
+                onDecline()
+            },
+            actionLabel = actionLabel,
+            icon = icon,
+            timed = false,
+        )
+        entry.state = state
+        undoStack += entry
+        while (undoStack.size > UndoStackLimit) undoStack.removeAt(0).job?.cancel()
+        undo = state
+        return state
+    }
+
+    /**
+     * Stops the lane's timers. The lane is composition-scoped (one per
+     * Activity), so a recreated Activity would otherwise leave the old
+     * lane's delayed jobs holding it for up to an offer's window.
+     */
+    fun close() {
+        settleJob?.cancel()
+        settleJob = null
+        undoStack.forEach { it.job?.cancel() }
+        undoStack.clear()
+        undo = null
+    }
+
+    /** Withdraws an offer from [showOffer] without answering it, e.g. when its moment has passed. */
+    fun withdraw(state: PillUndoState?) {
+        val entry = undoStack.firstOrNull { it.state === state } ?: return
+        retire(entry)
+    }
+
     private fun arm(entry: UndoEntry) {
-        if (entry.armedAt >= 0L) return
+        if (entry.armedAt >= 0L || !entry.timed) return
         entry.armedAt = nowMillis()
-        entry.job = entry.scope.launch {
+        entry.job = timers.launch {
             delay(UndoHoldMillis)
             retire(entry)
         }
     }
 
-    private fun armWaiting() = undoStack.toList().forEach(::arm)
+    private fun armWaiting() = undoStack.lastOrNull()?.let(::arm)
 
     /** How much of the window is left, 1 to 0, read from the clock on every frame. */
     private fun remaining(entry: UndoEntry): Float {
@@ -331,6 +395,10 @@ class CalinoPillLane(
         entry.job?.cancel()
         undoStack.remove(entry)
         undo = undoStack.lastOrNull()?.state
+        // The offer that surfaces next gets its own full window. Only the top
+        // one is armed, so two outcomes that land together are readable one
+        // after the other instead of both expiring behind the first.
+        undoStack.lastOrNull()?.let(::arm)
     }
 
     internal fun claim() {
@@ -366,8 +434,17 @@ data class PillUndoState(
     val onUndo: () -> Unit,
     /** Lets the offer go without taking it: the swipe away. */
     val onDismiss: () -> Unit = {},
-    /** What is left of its window, 1 to 0. Read per frame by whatever draws the countdown. */
+    /**
+     * What is left of its window, 1 to 0, read once when the drain starts. The
+     * ring animates from this to 0 over that time instead of polling it per
+     * frame: a per-frame read keeps the composition permanently busy.
+     */
     val remaining: () -> Float = { 1f },
+    /** The action's word. Null is "Undo"; an offer that is not an undo names its own. */
+    val actionLabel: String? = null,
+    val icon: CalinoIcon = CalinoIcon.Check,
+    /** False for an offer that waits for an answer instead of draining: no countdown ring. */
+    val timed: Boolean = true,
 )
 
 /**

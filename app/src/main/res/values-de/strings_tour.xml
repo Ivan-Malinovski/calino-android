@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tour_offer_message">Kurze Tour, 1 Minute?</string>
+    <string name="tour_offer_action">Start</string>
+    <string name="tour_step_count">%1$d von %2$d</string>
+    <string name="tour_skip">Überspringen</string>
+    <string name="tour_next">Weiter</string>
+    <string name="tour_finish">Fertig</string>
+    <string name="tour_card_description">Tour, Schritt %1$d von %2$d: %3$s</string>
+    <string name="tour_zoom_title">Nach oben oder unten wischen</string>
+    <string name="tour_zoom_line">Wische den Kalender nach unten, um mehr vom Monat zu sehen, nach oben für mehr vom Tag.</string>
+    <string name="tour_zoom_done">Genau so. Wische in beide Richtungen, wann immer du mehr oder weniger sehen willst.</string>
+    <string name="tour_hold_title">Leere Stelle gedrückt halten</string>
+    <string name="tour_hold_line">Halte dort gedrückt, wo nichts geplant ist, um an diesem Tag einen Termin anzulegen.</string>
+    <string name="tour_hold_done">Der Editor hat sich für den gehaltenen Tag geöffnet. Nichts wird gespeichert, solange du nicht speicherst.</string>
+    <string name="tour_pill_swipe_title">Pill nach oben wischen</string>
+    <string name="tour_pill_swipe_line">Wische von der Pill nach oben, um deine Ansichten und die Suche zu öffnen.</string>
+    <string name="tour_pill_swipe_done">So wechselst du schnell zwischen den Ansichten.</string>
+    <string name="tour_pill_hold_title">Pill gedrückt halten</string>
+    <string name="tour_pill_hold_line">Halte die Pill gedrückt, um zwischen der kompakten Pill und dem Dock zu wechseln.</string>
+    <string name="tour_pill_hold_done">Halte erneut gedrückt, um zurückzuwechseln. Danach ist sie wieder so eingestellt, wie du sie hattest.</string>
+    <string name="tour_clock_title">Zahlen verschieben</string>
+    <string name="tour_clock_line">Schiebe eine Uhrzeit zur Seite, um sie in Viertelstunden zu verschieben. Rechts ist später, links früher.</string>
+    <string name="tour_clock_done">Gut. Schiebe die Linie zwischen den Zeiten, um den ganzen Termin zu verschieben.</string>
+    <string name="tour_journal_title">Dein Tagebuch ist hier</string>
+    <string name="tour_journal_line">Schreibe an jedem Tag eine datierte Notiz. Öffne das Tagebuch über das Ansichtsmenü der Pill oder die Seitenleiste.</string>
+    <string name="tour_contacts_title">Auch Kontakte</string>
+    <string name="tour_contacts_line">Dein Adressbuch gibt es ebenfalls in Calino. Öffne die Kontakte über das Ansichtsmenü der Pill oder die Seitenleiste.</string>
+    <string name="set_replay_tour">Rundgang wiederholen</string>
+    <string name="set_replay_tour_detail">Der kurze Rundgang durch die Gesten von Calino, noch einmal</string>
+    <string name="set_replay_tour_action">Starten</string>
+</resources>

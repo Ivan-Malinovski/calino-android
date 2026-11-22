@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tour_offer_message">Vil du have en rundvisning på 1 minut?</string>
+    <string name="tour_offer_action">Start</string>
+    <string name="tour_step_count">%1$d af %2$d</string>
+    <string name="tour_skip">Spring over</string>
+    <string name="tour_next">Næste</string>
+    <string name="tour_finish">Færdig</string>
+    <string name="tour_card_description">Rundvisning, trin %1$d af %2$d: %3$s</string>
+    <string name="tour_zoom_title">Stryg op eller ned</string>
+    <string name="tour_zoom_line">Stryg kalenderen ned for at se mere af måneden, op for at se mere af dagen.</string>
+    <string name="tour_zoom_done">Sådan. Stryg begge veje, når du vil se mere eller mindre.</string>
+    <string name="tour_hold_title">Hold på et tomt sted</string>
+    <string name="tour_hold_line">Tryk og hold, hvor intet er planlagt, for at starte en begivenhed den dag.</string>
+    <string name="tour_hold_done">Editoren åbnede på den dag, du holdt på. Intet gemmes, medmindre du gemmer det.</string>
+    <string name="tour_pill_swipe_title">Stryg pillen op</string>
+    <string name="tour_pill_swipe_line">Stryg op fra pillen for at åbne dine visninger og søgning.</string>
+    <string name="tour_pill_swipe_done">Det er den hurtige måde at skifte visning på.</string>
+    <string name="tour_pill_hold_title">Hold på pillen</string>
+    <string name="tour_pill_hold_line">Tryk og hold på pillen for at skifte mellem den kompakte pille og docken.</string>
+    <string name="tour_pill_hold_done">Hold igen for at skifte tilbage. Den vender tilbage til, som du havde den, når du er færdig.</string>
+    <string name="tour_clock_title">Træk i tallene</string>
+    <string name="tour_clock_line">Træk et klokkeslæt sidelæns for at flytte det i kvarterer. Højre er senere, venstre er tidligere.</string>
+    <string name="tour_clock_done">Flot. Træk i stregen mellem tiderne for at flytte hele begivenheden.</string>
+    <string name="tour_journal_title">Din dagbog er her</string>
+    <string name="tour_journal_line">Skriv en dateret note en hvilken som helst dag. Åbn Dagbog fra pillens visningsmenu eller sidepanelet.</string>
+    <string name="tour_contacts_title">Kontakter også</string>
+    <string name="tour_contacts_line">Din adressebog findes også i Calino. Åbn Kontakter fra pillens visningsmenu eller sidepanelet.</string>
+    <string name="set_replay_tour">Afspil rundvisningen igen</string>
+    <string name="set_replay_tour_detail">Den korte gennemgang af Calinos bevægelser, endnu en gang</string>
+    <string name="set_replay_tour_action">Afspil</string>
+</resources>

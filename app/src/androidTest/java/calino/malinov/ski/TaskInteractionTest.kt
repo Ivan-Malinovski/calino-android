@@ -3,7 +3,6 @@ package calino.malinov.ski
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -92,9 +91,9 @@ class TaskInteractionTest : CalinoUiTest() {
     /**
      * Rescheduling through the task detail's due-date chips.
      *
-     * A long press opens the detail editor rather than a context menu; the
-     * chips there are the reschedule affordance, and they report their own
-     * selection.
+     * A tap opens the detail editor; a long press opens the row's context menu
+     * instead, so the detail is reached the way a person reaches it. The chips
+     * there are the reschedule affordance, and they report their own selection.
      */
     @Test fun theDueDateChipsRescheduleATask() {
         openTaskDetail()
@@ -165,7 +164,7 @@ class TaskInteractionTest : CalinoUiTest() {
     private fun openTaskDetail() {
         compose.openRoute("Tasks")
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("Open task: $DatedTask").performTouchInput { longClick() }
+        compose.onNodeWithContentDescription("Open task: $DatedTask").performClick()
         compose.waitForIdle()
         // Save only occupies its lane once the draft is dirty, so it cannot
         // stand for "the detail opened". Cancel is always on the pill.
@@ -188,11 +187,16 @@ class TaskInteractionTest : CalinoUiTest() {
         const val Task = "Buy flowers"
         const val DatedTask = "Review calendar notes"
         const val DoneTask = "Book accommodation"
-        const val UndoExpiryTimeoutMillis = 9_000L
+        /**
+         * The offer's window plus slack. The window itself is
+         * [calino.malinov.ski.ui.components.UndoHoldMillis]; a timeout under it
+         * asserts the offer has gone while it is still, correctly, standing.
+         */
+        const val UndoExpiryTimeoutMillis = calino.malinov.ski.ui.components.UndoHoldMillis + 4_000L
     }
 
     /** The pill names the change once its "Saved" beat has passed. */
     private fun awaitPillUndo() {
-        compose.waitUntil(UndoExpiryTimeoutMillis) { compose.hasDescribedNode("Undo: Completed $Task") }
+        compose.waitUntil(9_000L) { compose.hasDescribedNode("Undo: Completed $Task") }
     }
 }

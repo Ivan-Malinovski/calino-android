@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tour_offer_message">Take a 1-minute tour?</string>
+    <string name="tour_offer_action">Start</string>
+    <string name="tour_step_count">%1$d of %2$d</string>
+    <string name="tour_skip">Skip</string>
+    <string name="tour_next">Next</string>
+    <string name="tour_finish">Done</string>
+    <string name="tour_card_description">Tour step %1$d of %2$d: %3$s</string>
+    <string name="tour_zoom_title">Swipe up or down</string>
+    <string name="tour_zoom_line">Swipe the calendar down to see more of the month, up to see more of the day.</string>
+    <string name="tour_zoom_done">That\'s it. Swipe either way whenever you want more or less.</string>
+    <string name="tour_hold_title">Hold an empty space</string>
+    <string name="tour_hold_line">Press and hold where nothing is scheduled to start an event on that day.</string>
+    <string name="tour_hold_done">The editor opened on the day you held. Nothing is saved unless you save it.</string>
+    <string name="tour_pill_swipe_title">Swipe the pill up</string>
+    <string name="tour_pill_swipe_line">Swipe up from the pill to open your views and search.</string>
+    <string name="tour_pill_swipe_done">That\u2019s the quick way to move between views.</string>
+    <string name="tour_pill_hold_title">Hold the pill</string>
+    <string name="tour_pill_hold_line">Press and hold the pill to switch it between the compact pill and the dock.</string>
+    <string name="tour_pill_hold_done">Hold it again to switch back. It returns to how you had it when you finish.</string>
+    <string name="tour_clock_title">Slide the numbers</string>
+    <string name="tour_clock_line">Slide a time sideways to move it by quarter hours. Right is later, left is earlier.</string>
+    <string name="tour_clock_done">Nice. Slide the line between the times to move the whole event.</string>
+    <string name="tour_journal_title">Your journal is here</string>
+    <string name="tour_journal_line">Write a dated note any day. Open Journal from the pill\u2019s view menu or the sidebar.</string>
+    <string name="tour_contacts_title">Contacts too</string>
+    <string name="tour_contacts_line">Your address book lives in Calino as well. Open Contacts from the pill\u2019s view menu or the sidebar.</string>
+    <string name="set_replay_tour">Replay the tour</string>
+    <string name="set_replay_tour_detail">The short walk through Calino\u2019s gestures, again</string>
+    <string name="set_replay_tour_action">Replay</string>
+</resources>

@@ -1,6 +1,7 @@
 package calino.malinov.ski
 
 import android.content.pm.ActivityInfo
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
@@ -73,7 +74,11 @@ class SplitDayPanePagingTest : CalinoUiTest() {
         compose.openRoute("Year")
         compose.onNodeWithTag(DayPanePager).performTouchInput {
             down(percentOffset(.85f, .65f))
-            moveTo(percentOffset(.20f, .65f), 1_000)
+            // A slow drag is a stream of small moves, not one jump: a single
+            // moveTo over a second reports one change and the pager has no
+            // travel to follow, which is not what a hand does.
+            val travel = (right - left) * .65f / 12f
+            repeat(12) { moveBy(Offset(-travel, 0f), 80) }
         }
         awaitDescribed("Add on Mon, 18 May. Swipe up for views")
         compose.onNodeWithTag(DayPanePager).performTouchInput { advanceEventTime(200); up() }
@@ -146,7 +151,14 @@ class SplitDayPanePagingTest : CalinoUiTest() {
         assertPaneDay("Jan 1, 2027")
         compose.waitUntil(5_000) { compose.hasTextNode("2027") && !compose.hasTextNode("2026") }
         compose.onNodeWithText("2027").assertIsDisplayed()
-        awaitDescribed("Add on Fri, 1 Jan. Swipe up for views")
+        // The pill names the day the pane landed on. The split layout writes
+        // the day out in full ("Add on Jan 1, 2027") rather than the compact
+        // portrait form, and one label is composed per pager page, so the one
+        // on screen is what has to carry it.
+        val pills = compose.onAllNodes(hasContentDescription("Add on Jan 1, 2027", substring = true))
+        compose.waitUntil(5_000) { pills.fetchSemanticsNodes().isNotEmpty() }
+        val onScreen = pills.fetchSemanticsNodes().indices.first { pills[it].isDisplayed() }
+        pills[onScreen].assertIsDisplayed()
     }
 
     @Test

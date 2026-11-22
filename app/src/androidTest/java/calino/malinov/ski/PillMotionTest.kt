@@ -419,7 +419,7 @@ class PillMotionTest {
         compose.mainClock.advanceTimeByFrame()
         assertSame("Root restarted the modal's outline", before, renderedTrace)
         // A failed write fades its existing segment without drawing a success ring.
-        compose.runOnIdle { lane.saveFinished(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main), false) }
+        compose.runOnIdle { lane.saveFinished(success = false) }
         compose.waitUntil(2_000) { lane.saveState == PillSaveState.Idle }
         compose.mainClock.advanceTimeBy(200)
         assertEquals(0f, renderedTrace!!.alpha.value, .001f)

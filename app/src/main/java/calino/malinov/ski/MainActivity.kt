@@ -1026,6 +1026,10 @@ fun CalinoApp() {
         CalinoThemeChoice.Dark -> true
     }
     val pressPoint = remember { CalinoPressPoint() }
+    val pillLane = remember { CalinoPillLane() }
+    // The lane owns delayed work (a write's "Saved" beat, an offer's window),
+    // so a recreated Activity has to take its timer down with it.
+    androidx.compose.runtime.DisposableEffect(pillLane) { onDispose { pillLane.close() } }
     CalinoTheme(if (dark) CalinoThemes.PaperDark else CalinoThemes.PaperLight) {
         SystemBarAppearance(light = !dark)
         CompositionLocalProvider(
@@ -1037,7 +1041,8 @@ fun CalinoApp() {
             LocalHingeOpenness provides rememberHingeOpenness(),
             // One pill lane for the whole app: the root add pill and every
             // modal's action pill are the same object changing shape in it.
-            LocalCalinoPillLane provides remember { CalinoPillLane() },
+            LocalCalinoPillLane provides pillLane,
+            calino.malinov.ski.state.LocalCalinoTour provides remember { calino.malinov.ski.state.CalinoTour() },
             LocalCalinoPressPoint provides pressPoint,
         ) {
             CalinoPillFeedback {
@@ -1170,6 +1175,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     val DateLabel = calino.malinov.ski.util.localizedDateFormatter("EEE, d MMM")
     val now = LocalCalinoNow.current
     val preferences = LocalCalinoPreferences.current
+    val tour = calino.malinov.ski.state.LocalCalinoTour.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val appUpdateState = pocViewModel.appUpdateState
     val repository = pocViewModel.activeRepository
@@ -1254,6 +1260,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         mutableStateOf(if (pocViewModel.hasLiveData) LocalDate.now() else FixtureNow.today)
     }
     var sampleNoticeDismissed by rememberSaveable { mutableStateOf(false) }
+    // How much room the feedback lane above the add pill is currently taking,
+    // so the calendar can keep its zoom handle clear of it.
+    var toastLaneHeight by remember { mutableStateOf(0.dp) }
+    val toastLaneDensity = androidx.compose.ui.platform.LocalDensity.current
+    val toastClearance by animateDpAsState(
+        targetValue = toastLaneHeight,
+        animationSpec = androidx.compose.animation.core.tween(CalinoMotion.ContentEnterMillis),
+        label = "toast lane clearance",
+    )
     // The two days a live swipe has the add pill's label between, ahead of
     // the commit. Only chrome that merely names the day reads this; the
     // calendar itself still follows the committed [selectedDate].
@@ -1667,7 +1682,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         } catch (error: Throwable) {
             writeError = error.message ?: textContext.getString(R.string.host_write_error)
         } finally {
-            if (indicate != null) savePillLane.saveFinished(writeScope, success = landed)
+            if (indicate != null) savePillLane.saveFinished(success = landed)
         }
         return landed
     }
@@ -1701,7 +1716,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             writeError = error.message ?: textContext.getString(R.string.host_task_write_error)
             return false
         } finally {
-            savePillLane.saveFinished(writeScope, success = landed)
+            savePillLane.saveFinished(success = landed)
         }
     }
 
@@ -1709,7 +1724,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         // Named on the add pill rather than a banner of its own: the pill
         // already narrates the deliberate saves it starts, and an undoable
         // change from elsewhere on screen is the same kind of outcome.
-        savePillLane.showUndo(calino.malinov.ski.util.localizedUndoDescription(textContext, change), writeScope) {
+        savePillLane.showUndo(calino.malinov.ski.util.localizedUndoDescription(textContext, change)) {
             launchWrite({ repository.undo(change) })
         }
     }
@@ -2290,6 +2305,10 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             saveableStateHolder.SaveableStateProvider("root:${currentRoute.saveableKey()}") {
                 when (currentRoute) {
                     PockRoute.Day -> HomeScreen(
+                        // A toast sits in the lane the zoom handle travels to at
+                        // the detailed month level; the calendar gives that lane
+                        // its own room so the handle stays tappable.
+                        bottomClearance = CalinoSpacing.PillClearance + toastClearance,
                         repository = repository,
                         journals = snapshot.journals,
                         tasks = calendarTasks,
@@ -2336,6 +2355,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         onEventDrop = ::handleEventDrop,
                         onEventTimeDrop = ::handleEventTimeDrop,
                         onCreateEventAt = { start ->
+                            tour.report(calino.malinov.ski.state.TourEvent.EditorOpenedByHold)
                             selectCalendarDate(start.toLocalDate())
                             openQuickAdd(
                                 QuickAddKind.Event,
@@ -2345,6 +2365,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             )
                         },
                         onCreateEventOnDay = { day ->
+                            tour.report(calino.malinov.ski.state.TourEvent.EditorOpenedByHold)
                             selectCalendarDate(day)
                             openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true, date = day)
                         },
@@ -2595,7 +2616,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             } catch (error: Throwable) {
                                 writeError = error.message ?: textContext.getString(R.string.host_reminder_write_error)
                             } finally {
-                                savePillLane.saveFinished(writeScope, success = landed)
+                                savePillLane.saveFinished(success = landed)
                             }
                         },
                         onOpenMenu = { sidebarVisible = true },
@@ -3063,7 +3084,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             writeError = error.message ?: textContext.getString(R.string.host_write_error)
                             false
                         } finally {
-                            savePillLane.saveFinished(writeScope, success = landed)
+                            savePillLane.saveFinished(success = landed)
                         }
                     },
                     occurrenceDate = selectedEventOccurrenceDay?.let(LocalDate::ofEpochDay),
@@ -3121,7 +3142,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             writeError = error.message ?: textContext.getString(R.string.host_write_error)
                             false
                         } finally {
-                            savePillLane.saveFinished(writeScope, success = landed)
+                            savePillLane.saveFinished(success = landed)
                         }
                     },
                     onSaved = {
@@ -3144,7 +3165,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             writeError = error.message ?: textContext.getString(R.string.host_checklist_write_error)
                             false
                         } finally {
-                            savePillLane.saveFinished(writeScope, success = landed)
+                            savePillLane.saveFinished(success = landed)
                         }
                     },
                     onDelete = { scope ->
@@ -3178,7 +3199,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             writeError = error.message ?: textContext.getString(R.string.host_task_delete_error)
                             false
                         } finally {
-                            savePillLane.saveFinished(writeScope, success = landed)
+                            savePillLane.saveFinished(success = landed)
                         }
                     },
                     onAddSubtask = {
@@ -3344,6 +3365,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
+                // The calendar keeps its detailed month endpoint above this
+                // lane: the zoom handle travels to the bottom of the surface,
+                // and a toast sitting on top of it made the wrap back a level
+                // impossible to tap. Published rather than assumed, so the
+                // handle moves up exactly as far as the lane actually is.
+                .onGloballyPositioned { coordinates ->
+                    val measured = with(toastLaneDensity) { coordinates.size.height.toDp() }
+                    toastLaneHeight = (measured - CalinoSpacing.PillClearance - 8.dp).coerceAtLeast(0.dp)
+                }
                 .padding(
                     start = 16.dp,
                     end = 16.dp,
@@ -3797,6 +3827,83 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
         },
     )
 
+    // The optional first-run tour. It is offered once, in the pill lane, when
+    // the calendar is quiet: on the calendar itself, nothing open over it, and
+    // the first read finished so the offer does not land on an empty grid.
+    // Answering it is the swipe away (decline) or Start. Nothing the tour does
+    // writes data: the editor a step opens is closed without saving.
+    val tourLane = LocalCalinoPillLane.current
+    val tourQuiet = route == PockRoute.Day && !showDayModal && !sidebarVisible && !searchVisible &&
+        !journalReviewVisible && !tour.running &&
+        snapshot.sync !is calino.malinov.ski.data.repository.SyncState.Loading
+    LaunchedEffect(tourQuiet, preferences.tourState) {
+        if (!tourQuiet || preferences.tourState != calino.malinov.ski.state.CalinoTourState.NotOffered) return@LaunchedEffect
+        delay(1800)
+        preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Offered)
+        tourLane.showOffer(
+            message = textContext.getString(R.string.tour_offer_message),
+            actionLabel = textContext.getString(R.string.tour_offer_action),
+            icon = CalinoIcon.Calendar,
+            onAccept = {
+                tour.start(calino.malinov.ski.state.tourSteps(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled))
+            },
+            onDecline = { preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Declined) },
+        )
+    }
+    LaunchedEffect(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled) {
+        tour.refreshSteps(calino.malinov.ski.state.tourSteps(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled))
+    }
+    // "Replay tour" in Settings: back to the calendar, then the cards again.
+    LaunchedEffect(tour.replayRequests) {
+        if (tour.replayRequests == 0) return@LaunchedEffect
+        navigateRoot(PockRoute.Day)
+        delay(600)
+        tour.start(calino.malinov.ski.state.tourSteps(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled))
+    }
+    // The Clock step needs an editor that already has a time to slide: the Hold
+    // step's draft has none, so this one is opened with a start. It is closed,
+    // unsaved, when the step is left.
+    LaunchedEffect(tour.step) {
+        if (tour.step == calino.malinov.ski.state.TourStep.Clock && route != PockRoute.QuickAdd) {
+            delay(450)
+            openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true, startMinute = 10 * 60)
+        }
+    }
+    // The pill's shape when the hold card began, so the tour hands it back as found.
+    var tourPillDocked by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(tour.step) {
+        if (tour.step == calino.malinov.ski.state.TourStep.PillHold) tourPillDocked = preferences.pillDocked
+    }
+    fun leaveTourStep() {
+        when (tour.step) {
+            // The Hold step opens the editor; leaving it drops that draft.
+            calino.malinov.ski.state.TourStep.Hold, calino.malinov.ski.state.TourStep.Clock -> if (route == PockRoute.QuickAdd) dismissQuickAdd()
+            // The swipe step leaves the menu open, or lands on whichever view the finger released over.
+            calino.malinov.ski.state.TourStep.PillSwipe -> {
+                pillMode = pillBaseMode
+                if (route != PockRoute.Day) navigateRoot(PockRoute.Day)
+            }
+            calino.malinov.ski.state.TourStep.PillHold -> {
+                tourPillDocked?.let { if (it != preferences.pillDocked) preferences.setPillDocked(it) }
+                tourPillDocked = null
+                pillMode = if (preferences.menuPill && preferences.pillDocked) AddPillMode.Dock else AddPillMode.Rest
+            }
+            else -> Unit
+        }
+    }
+    calino.malinov.ski.ui.tour.CalinoTourHost(
+        tour = tour,
+        onNext = {
+            leaveTourStep()
+            if (!tour.advance()) preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Completed)
+        },
+        onSkip = {
+            leaveTourStep()
+            tour.stop()
+            preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Declined)
+        },
+    )
+
     EventDeleteDialog(
         event = eventDeleteDialogTarget,
         onDismiss = { eventDeleteDialogTarget = null },
@@ -3936,7 +4043,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 }) { changes ->
                     // One undo reopens the whole family, newest first.
                     val all = (listOfNotNull(parentChange) + changes).asReversed()
-                    savePillLane.showUndo(textContext.getString(R.string.host_completed_tasks, all.size), writeScope) {
+                    savePillLane.showUndo(textContext.getString(R.string.host_completed_tasks, all.size)) {
                         launchWrite({
                             for (change in all) {
                                 val result = repository.undo(change)
@@ -3985,7 +4092,6 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             }
                         } finally {
                             savePillLane.saveFinished(
-                                writeScope,
                                 success = failed == 0 && imported + queued == candidates.size,
                             )
                         }

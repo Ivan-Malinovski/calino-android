@@ -218,6 +218,8 @@ import calino.malinov.ski.ui.components.MenuButton
 import calino.malinov.ski.ui.components.TaskRow
 import calino.malinov.ski.ui.components.calinoPressable
 import calino.malinov.ski.ui.components.calinoLongPressDrag
+import calino.malinov.ski.state.LocalCalinoTour
+import calino.malinov.ski.state.TourEvent
 import calino.malinov.ski.ui.components.SplitDayPaneState
 import calino.malinov.ski.ui.components.DayPaneDivider
 import calino.malinov.ski.ui.components.animatedDayPaneWidth
@@ -613,6 +615,13 @@ fun HomeScreen(
     onOpenDay: ((LocalDate) -> Unit)? = null,
     interactionEnabled: Boolean = true,
     /**
+     * How much room the host keeps free at the bottom of the surface for its
+     * own chrome: the add pill's lane, plus anything currently floating above
+     * it (a toast, a sync alert). The detailed month endpoint stops here so
+     * the zoom handle it carries is never underneath one of those.
+     */
+    bottomClearance: Dp = CalinoSpacing.PillClearance,
+    /**
      * A one-shot ask to open at the month level: each new value snaps the zoom
      * there, without a zoom animation, because the host's route transition is
      * already carrying the motion in. Year uses it when a tile is tapped.
@@ -859,6 +868,15 @@ fun HomeScreen(
     LaunchedEffect(interactionEnabled) {
         if (!interactionEnabled) {
             cancelMotion()
+        }
+    }
+
+    // The tour's hold step needs empty agenda space under the events, which the
+    // month zoom leaves little of: settle to the agenda when that step starts.
+    val zoomTour = LocalCalinoTour.current
+    LaunchedEffect(zoomTour.step) {
+        if (zoomTour.step == calino.malinov.ski.state.TourStep.Hold && zoomState.floatValue > .001f) {
+            animateZoomTo(0f)
         }
     }
 
@@ -1736,7 +1754,7 @@ fun HomeScreen(
             // Using the shared clearance keeps this aligned with the other
             // root surfaces and lets the existing zoom interpolation reveal
             // the space continuously rather than jumping at level 2.
-            val detailedGridHeight = (maxHeight - handleHeight - CalinoSpacing.PillClearance)
+            val detailedGridHeight = (maxHeight - handleHeight - bottomClearance)
                 .coerceAtLeast(splitGridHeight)
             val daySurfaceHeight = (maxHeight - handleHeight - 80.dp).coerceAtLeast(0.dp)
             // Keep the expensive month and day surfaces at stable measured
@@ -1780,6 +1798,7 @@ fun HomeScreen(
             val edgeDrag by rememberUpdatedState(onEdgeDrag)
             val edgeRelease by rememberUpdatedState(onEdgeRelease)
             var gestureCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+            val tour = LocalCalinoTour.current
             val calendarZoomGesture = Modifier.pointerInput(handleHeight, calendarEdgeSwipes) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -1831,17 +1850,18 @@ fun HomeScreen(
                                         // Returning from the new root must restore the
                                         // endpoint reached by this same continuous pull.
                                         settledZoom = zoomState.floatValue
+                                        tour.report(TourEvent.CalendarZoomed)
                                         edgeRelease(if (edge == CalendarEdge.Year) velocity.y.toDp().value else -velocity.y.toDp().value, false)
                                     } else {
                                         edgeDrag(null, 0f)
-                                        animateZoomTo(
-                                            zoomSettleLevel(
-                                                zoom = zoomState.floatValue,
-                                                anchorLevel = anchorLevel,
-                                                // Positive y velocity means a downward pull.
-                                                zoomVelocityDpPerSecond = velocity.y.toDp().value,
-                                            ).toFloat(),
+                                        val settleLevel = zoomSettleLevel(
+                                            zoom = zoomState.floatValue,
+                                            anchorLevel = anchorLevel,
+                                            // Positive y velocity means a downward pull.
+                                            zoomVelocityDpPerSecond = velocity.y.toDp().value,
                                         )
+                                        if (settleLevel != anchorLevel) tour.report(TourEvent.CalendarZoomed)
+                                        animateZoomTo(settleLevel.toFloat())
                                     }
                                 } else edgeDrag(null, 0f)
                                 released = true

@@ -1,6 +1,7 @@
 package calino.malinov.ski
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -36,7 +37,15 @@ class CalendarColdDetailedEntryTest : CalinoUiTest(CalinoDefaultView.Month) {
 
 @RunWith(AndroidJUnit4::class)
 class AgendaColdEntryTest : CalinoUiTest(CalinoDefaultView.Agenda) {
+    /**
+     * The Agenda reading list is the root page on a saved Agenda default. The
+     * Day route's own chrome ("Agenda for <day>", the zoom handle) belongs to a
+     * different page, so its absence is half the assertion: opening on the
+     * right page means the calendar surface is not behind it.
+     */
     @Test fun savedAgendaOpensOnAgenda() {
-        compose.onNodeWithContentDescription("Agenda for Monday, May 18").assertIsDisplayed()
+        compose.onNode(hasTestTag("agenda-month-list")).assertExists()
+        assertFalse(compose.exists(hasTestTag(CalinoTestActions.MonthPager)))
+        assertFalse(compose.exists(hasContentDescription("Change calendar zoom", substring = true)))
     }
 }

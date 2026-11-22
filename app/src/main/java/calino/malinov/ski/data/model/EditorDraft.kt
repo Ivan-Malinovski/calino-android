@@ -283,6 +283,9 @@ fun EditorDraft.applyInput(
 ): EditorDraft {
     val parsed = parseQuickAdd(kind, input, baseDate)
     return copy(
+        // A line that says "remind me to ..." is a task whatever surface it was
+        // typed on; the parser reports the kind it heard.
+        kind = parsed.kind,
         rawInput = input,
         title = if (input.isBlank()) "" else parsed.title,
         date = if (EditorField.Date in touched) date else parsed.date,
