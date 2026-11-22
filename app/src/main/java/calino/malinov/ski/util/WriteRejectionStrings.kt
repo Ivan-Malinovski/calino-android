@@ -75,13 +75,9 @@ private fun WriteRejectionCode.stringResource(): Int = when (this) {
     WriteRejectionCode.RECURRING_EVENT_RAW_CACHE_UNAVAILABLE -> R.string.err_recurring_event_raw_cache_unavailable
     WriteRejectionCode.INVITATION_ADDRESS_UNIDENTIFIED -> R.string.err_invitation_address_unidentified
     WriteRejectionCode.INVITATION_ADDRESS_UNVERIFIED -> R.string.err_invitation_address_unverified
-    WriteRejectionCode.CALENDAR_SERVER_INVITATION_SCHEDULING_UNSUPPORTED ->
-        R.string.err_calendar_server_invitation_scheduling_unsupported
     WriteRejectionCode.DETACHED_OCCURRENCE_NO_SERIES_RULE -> R.string.err_detached_occurrence_no_series_rule
     WriteRejectionCode.EVENT_NO_OCCURRENCE_TO_ANSWER -> R.string.err_event_no_occurrence_to_answer
     WriteRejectionCode.INVITATION_RAW_CACHE_UNAVAILABLE -> R.string.err_invitation_raw_cache_unavailable
-    WriteRejectionCode.SERVER_INVITATION_SCHEDULING_UNSUPPORTED ->
-        R.string.err_server_invitation_scheduling_unsupported
     WriteRejectionCode.ATTENDEE_ADDRESS_NOT_UNIQUE -> R.string.err_attendee_address_not_unique
     WriteRejectionCode.ATTENDEE_LINE_UNREADABLE -> R.string.err_attendee_line_unreadable
 }

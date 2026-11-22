@@ -45,11 +45,9 @@
     <string name="err_recurring_event_raw_cache_unavailable">Der wiederkehrende Termin ist nicht im Rohdaten-Cache verfügbar. Aktualisiere und versuche es erneut.</string>
     <string name="err_invitation_address_unidentified">Der Server hat deine Einladungsadresse nicht erkannt. Aktualisiere das Konto und versuche es erneut.</string>
     <string name="err_invitation_address_unverified">Für diesen Kalender gibt es keine bestätigte Einladungsadresse.</string>
-    <string name="err_calendar_server_invitation_scheduling_unsupported">Dieser Kalender-Server unterstützt keine Einladungsplanung.</string>
     <string name="err_detached_occurrence_no_series_rule">Für dieses einzelne Vorkommen gibt es keine Serienregel. Zukünftige Vorkommen können daher nicht geändert werden.</string>
     <string name="err_event_no_occurrence_to_answer">Für diesen Termin gibt es kein Vorkommen, auf das separat geantwortet werden kann.</string>
     <string name="err_invitation_raw_cache_unavailable">Diese Einladung ist nicht im Rohdaten-Cache verfügbar. Aktualisiere und versuche es erneut.</string>
-    <string name="err_server_invitation_scheduling_unsupported">Dieser Server unterstützt keine Einladungsplanung.</string>
     <string name="err_attendee_address_not_unique">Die Teilnehmeradresse konnte nicht eindeutig ermittelt werden.</string>
     <string name="err_attendee_line_unreadable">Die Teilnehmerzeile konnte nicht sicher gelesen werden.</string>
     <string name="err_queue_fallback_save_failure">Die Änderung konnte nicht gespeichert werden.</string>

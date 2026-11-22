@@ -1207,12 +1207,17 @@ class CalDavRepository(
         writableRejection(source, "VEVENT")?.let { return it }
         source ?: return WriteResult.Rejected(WriteRejectionCode.NO_CALENDAR_CONNECTED)
 
-        // Attendees never block a save. Server auto-schedule only governs
-        // whether the server delivers the invitations itself; an event with
-        // ORGANIZER and ATTENDEE lines is a plain calendar object either
-        // way. When no verified own address is known, the event is written
-        // without an ORGANIZER rather than refused.
-        val organizer = if (input.attendees.isNotEmpty()) invitationOrganizer(source) else null
+        // A server that does not auto-schedule never sends the invitations,
+        // but the event is still a plain calendar object, so attendees do not
+        // block the save and ORGANIZER is simply left off when no own address
+        // is known. A scheduling server is different: ATTENDEE lines without
+        // an ORGANIZER are not valid iTIP there, so that case is refused.
+        val organizer = if (input.attendees.isNotEmpty()) {
+            invitationOrganizer(source)
+                ?: if (source.autoSchedule) {
+                    return WriteResult.Rejected(WriteRejectionCode.INVITATION_ADDRESS_UNIDENTIFIED)
+                } else null
+        } else null
 
         val local = overlay.newEvent(input.copy(calendarId = source.calendar.url))
         val candidate = local.copy(uid = input.uid ?: local.id, calendarId = source.calendar.url, organizer = organizer)
@@ -1233,6 +1238,11 @@ class CalDavRepository(
         val current = events().firstOrNull { it.id == id }
             ?: return WriteResult.Rejected(WriteRejectionCode.CALENDAR_EVENT_UNAVAILABLE)
         val currentSource = sourceForRecord(current.calendarId, current.href)
+        // Same rule as addEvent: only a scheduling server needs an organizer
+        // before attendees can be added to an event that has none.
+        if (current.organizer == null && input.attendees.isNotEmpty() &&
+            currentSource?.autoSchedule == true && invitationOrganizer(currentSource) == null
+        ) return WriteResult.Rejected(WriteRejectionCode.INVITATION_ADDRESS_UNVERIFIED)
         if (current.organizer != null && currentSource != null &&
             normalizedCalendarAddress(current.organizer.address) !in
             currentSource.calendarUserAddresses.map(::normalizedCalendarAddress)

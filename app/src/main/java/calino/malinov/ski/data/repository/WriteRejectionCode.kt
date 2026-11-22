@@ -47,11 +47,9 @@ enum class WriteRejectionCode(val englishFallback: String) {
     RECURRING_EVENT_RAW_CACHE_UNAVAILABLE("The recurring event is not available in the raw cache. Refresh and try again."),
     INVITATION_ADDRESS_UNIDENTIFIED("The server did not identify your invitation address. Refresh the account and try again."),
     INVITATION_ADDRESS_UNVERIFIED("This calendar does not have a verified invitation address."),
-    CALENDAR_SERVER_INVITATION_SCHEDULING_UNSUPPORTED("This calendar server does not advertise invitation scheduling."),
     DETACHED_OCCURRENCE_NO_SERIES_RULE("This detached occurrence has no series rule, so future occurrences cannot be changed."),
     EVENT_NO_OCCURRENCE_TO_ANSWER("This event has no occurrence to answer separately."),
     INVITATION_RAW_CACHE_UNAVAILABLE("This invitation is not available in the raw cache. Refresh and try again."),
-    SERVER_INVITATION_SCHEDULING_UNSUPPORTED("This server does not advertise invitation scheduling."),
     ATTENDEE_ADDRESS_NOT_UNIQUE("Your attendee address could not be identified uniquely."),
     ATTENDEE_LINE_UNREADABLE("Your attendee line could not be read safely."),
 }

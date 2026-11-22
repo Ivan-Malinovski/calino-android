@@ -45,11 +45,9 @@
     <string name="err_recurring_event_raw_cache_unavailable">Den gentagne begivenhed findes ikke i den rå cache. Opdater, og prøv igen.</string>
     <string name="err_invitation_address_unidentified">Serveren kunne ikke finde adressen til invitationer. Opdater kontoen, og prøv igen.</string>
     <string name="err_invitation_address_unverified">Denne kalender har ingen bekræftet invitationsadresse.</string>
-    <string name="err_calendar_server_invitation_scheduling_unsupported">Denne kalenderserver annoncerer ikke understøttelse af invitationsplanlægning.</string>
     <string name="err_detached_occurrence_no_series_rule">Den løsrevne forekomst har ingen serieregel, så fremtidige forekomster kan ikke ændres.</string>
     <string name="err_event_no_occurrence_to_answer">Begivenheden har ingen forekomst, som du kan svare separat på.</string>
     <string name="err_invitation_raw_cache_unavailable">Invitationen findes ikke i den rå cache. Opdater, og prøv igen.</string>
-    <string name="err_server_invitation_scheduling_unsupported">Serveren annoncerer ikke understøttelse af invitationsplanlægning.</string>
     <string name="err_attendee_address_not_unique">Deltageradressen kunne ikke identificeres entydigt.</string>
     <string name="err_attendee_line_unreadable">Deltagerlinjen kunne ikke læses sikkert.</string>
     <string name="err_queue_fallback_save_failure">Ændringen kunne ikke gemmes.</string>

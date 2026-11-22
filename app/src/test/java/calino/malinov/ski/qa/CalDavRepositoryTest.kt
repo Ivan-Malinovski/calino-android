@@ -15,6 +15,7 @@ import calino.malinov.ski.data.model.RecurrenceEditScope
 import calino.malinov.ski.data.repository.CalDavRepository
 import calino.malinov.ski.data.repository.CalDavSource
 import calino.malinov.ski.data.repository.CalinoSnapshot
+import calino.malinov.ski.data.repository.WriteRejectionCode
 import calino.malinov.ski.data.repository.FilePendingChangeStore
 import calino.malinov.ski.data.repository.PendingChangeStore
 import calino.malinov.ski.data.repository.PendingChangeType
@@ -408,6 +409,31 @@ END:VCALENDAR
         val record = (result as WriteResult.Applied).record
         assertEquals(null, record.organizer)
         assertEquals(listOf("guest@example.com"), record.attendees.map { it.email })
+    }
+
+    @Test
+    fun `a scheduling server refuses attendees when no organizer address is known`() = runBlocking {
+        val repository = repository()
+        enqueueAll()
+        val connected = calendar()
+        repository.setSources(listOf(CalDavSource(connected, credentials, "account", autoSchedule = true)))
+        repository.awaitSync()
+
+        val result = repository.addEvent(
+            NewEvent(
+                title = "Neighbourhood AGM",
+                date = LocalDate.of(2026, 9, 8),
+                startTime = java.time.LocalTime.of(20, 0),
+                durationMinutes = 60,
+                attendees = listOf(Attendee(name = "Guest", email = "guest@example.com")),
+                calendarId = connected.url,
+            ),
+        )
+
+        assertEquals(
+            WriteResult.Rejected(WriteRejectionCode.INVITATION_ADDRESS_UNIDENTIFIED),
+            result,
+        )
     }
 
     @Test

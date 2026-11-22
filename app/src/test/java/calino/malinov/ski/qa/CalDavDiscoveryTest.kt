@@ -62,12 +62,17 @@ class CalDavDiscoveryTest {
         </prop><status>HTTP/1.1 404 Not Found</status></propstat></response></multistatus>""",
     )
 
-    /** well-known miss, principal, home, scheduling — the walk before the listing. */
+    /**
+     * well-known miss, principal, home, scheduling (PROPFIND, then the OPTIONS
+     * probe it triggers when PROPFIND does not advertise auto-schedule) — the
+     * walk before the listing. Six requests.
+     */
     private fun enqueueWalk() {
         server.enqueue(MockResponse().setResponseCode(404))
         server.enqueue(principalResponse("/principals/test-user/"))
         server.enqueue(homeSetResponse("/test-user/"))
         server.enqueue(noScheduling())
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("DAV", "1, 3"))
     }
 
     private fun discovery() = CalDavDiscovery(DavHttp())
@@ -89,9 +94,9 @@ class CalDavDiscoveryTest {
 
         assertEquals(listOf("Team calendar"), account.calendars.map { it.displayName })
         assertEquals(url("/shared-folder/team-calendar/"), account.calendars.single().url)
-        // Five requests: the walk, then the entered URL. The home was never listed.
-        assertEquals(5, server.requestCount)
-        val paths = (1..5).map { server.takeRequest().path }
+        // Six requests: the walk, then the entered URL. The home was never listed.
+        assertEquals(6, server.requestCount)
+        val paths = (1..6).map { server.takeRequest().path }
         assertTrue("the entered collection was not probed: $paths", paths.last() == "/shared-folder/team-calendar/")
     }
 
@@ -106,7 +111,7 @@ class CalDavDiscoveryTest {
 
         assertEquals(2, account.calendars.size)
         assertTrue(account.calendars.none { it.url.endsWith("/contacts/") })
-        assertEquals(6, server.requestCount)
+        assertEquals(7, server.requestCount)
     }
 
     @Test
@@ -119,7 +124,7 @@ class CalDavDiscoveryTest {
         val account = discovery().discoverAccount(url("/"), credentials)
 
         assertEquals(2, account.calendars.size)
-        assertEquals(7, server.requestCount)
+        assertEquals(8, server.requestCount)
     }
 
     // --- the collection listing ----------------------------------------------
@@ -309,6 +314,7 @@ class CalDavDiscoveryTest {
             server.enqueue(principalResponse("/principals/test-user/"))
             server.enqueue(homeSetResponse("/calendars/test-user/"))
             server.enqueue(multiStatus("<multistatus xmlns=\"DAV:\"/>")) // scheduling identity
+            server.enqueue(MockResponse().setResponseCode(200)) // OPTIONS probe, no DAV header
             server.enqueue(multiStatus(
                 """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response>
                     <href>${other.url("/calendar/")}</href><propstat><prop>
@@ -323,7 +329,7 @@ class CalDavDiscoveryTest {
             assertTrue("expected a rejected DAV href, got $error", error is CalDavException)
             assertEquals(CalDavErrorCode.NotCalDav, (error as CalDavException).code)
             assertEquals(0, other.requestCount)
-            assertEquals(5, server.requestCount)
+            assertEquals(6, server.requestCount)
         } finally {
             other.shutdown()
         }

@@ -45,11 +45,9 @@
     <string name="err_recurring_event_raw_cache_unavailable">The recurring event is not available in the raw cache. Refresh and try again.</string>
     <string name="err_invitation_address_unidentified">The server did not identify your invitation address. Refresh the account and try again.</string>
     <string name="err_invitation_address_unverified">This calendar does not have a verified invitation address.</string>
-    <string name="err_calendar_server_invitation_scheduling_unsupported">This calendar server does not advertise invitation scheduling.</string>
     <string name="err_detached_occurrence_no_series_rule">This detached occurrence has no series rule, so future occurrences cannot be changed.</string>
     <string name="err_event_no_occurrence_to_answer">This event has no occurrence to answer separately.</string>
     <string name="err_invitation_raw_cache_unavailable">This invitation is not available in the raw cache. Refresh and try again.</string>
-    <string name="err_server_invitation_scheduling_unsupported">This server does not advertise invitation scheduling.</string>
     <string name="err_attendee_address_not_unique">Your attendee address could not be identified uniquely.</string>
     <string name="err_attendee_line_unreadable">Your attendee line could not be read safely.</string>
     <string name="err_queue_fallback_save_failure">The change could not be saved.</string>
