@@ -183,6 +183,8 @@
     <string name="ed_journal_cancel">Cancel</string>
     <string name="ed_journal_cancel_editing">Cancel journal editing</string>
     <string name="ed_journal_close_entry">Close journal entry</string>
+    <string name="ed_journal_add_tag">Add a tag</string>
+    <string name="ed_journal_add_tag_action">Add</string>
     <string name="ed_journal_save">Save</string>
     <string name="ed_journal_save_entry_description">Save journal entry</string>
     <string name="ed_journal_edit">Edit</string>

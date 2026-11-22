@@ -1084,6 +1084,12 @@ private fun JournalEditPane(
                         onToggle = { category ->
                             if (category in categories) categories.remove(category) else categories.add(category)
                         },
+                        // The web's tag editor also takes a tag that is not in the
+                        // list yet: the vocabulary is the person's, not the calendar's.
+                        onAddTag = { tag ->
+                            val exists = categories.any { it.equals(tag, ignoreCase = true) }
+                            if (!exists) categories.add(tag)
+                        },
                     )
                 }
             }

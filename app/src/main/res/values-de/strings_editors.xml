@@ -164,6 +164,8 @@
     <string name="ed_journal_cancel">Abbrechen</string>
     <string name="ed_journal_cancel_editing">Journalbearbeitung abbrechen</string>
     <string name="ed_journal_close_entry">Journaleintrag schließen</string>
+    <string name="ed_journal_add_tag">Tag hinzufügen</string>
+    <string name="ed_journal_add_tag_action">Hinzufügen</string>
     <string name="ed_journal_save">Speichern</string>
     <string name="ed_journal_save_entry_description">Journaleintrag speichern</string>
     <string name="ed_journal_edit">Bearbeiten</string>

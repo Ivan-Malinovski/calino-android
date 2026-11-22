@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -192,7 +193,9 @@ class JournalFlowTest : CalinoUiTest() {
         compose.waitForIdle()
 
         compose.onNodeWithContentDescription("Cancel journal editing").performClick()
-        compose.waitForIdle()
+        // The question is a pill that animates in; ask for it rather than
+        // assuming the frame after the tap.
+        compose.waitUntil(5_000) { compose.hasDescribedNode("Discard changes and close") }
         compose.onNodeWithContentDescription("Discard changes and close").performClick()
 
         awaitDescribed("Open journal entry $Existing")
@@ -267,6 +270,14 @@ class JournalFlowTest : CalinoUiTest() {
         compose.waitUntil(5_000) {
             compose.exists(androidx.compose.ui.test.hasContentDescription("Toggle category Personal", substring = true))
         }
+        // A tag that is not in the calendar's list can be typed, as on the web.
+        compose.onNodeWithContentDescription("Add a tag").performTextInput("Ideas")
+        compose.onNodeWithContentDescription("Add").performClick()
+        compose.waitForIdle()
+        compose.waitUntil(5_000) {
+            compose.exists(androidx.compose.ui.test.hasContentDescription("Toggle category Ideas", substring = true))
+        }
+
         // Tag it Work as well; that also makes the draft dirty, which is when
         // the pill offers Save.
         compose.onNodeWithContentDescription("Toggle category Work", substring = true).performClick()
