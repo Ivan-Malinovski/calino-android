@@ -125,6 +125,7 @@ import calino.malinov.ski.ui.components.rememberMonthYearPicker
 import calino.malinov.ski.ui.components.CompactDropdownControl
 import calino.malinov.ski.ui.components.CalinoIcons
 import calino.malinov.ski.ui.home.CompactLaneScrim
+import calino.malinov.ski.ui.components.TimelineNowMarker
 import calino.malinov.ski.ui.home.HourRailContent
 import calino.malinov.ski.ui.home.PendingDropHoldMillis
 import calino.malinov.ski.ui.home.PendingTimelineDrop
@@ -1181,6 +1182,12 @@ private fun RangePage(
                         compactRangeCards = true,
                         growFromEvents = days.size > 1,
                         onEventDragEnd = null,
+                    )
+                    // The web's time views both carry a current-time line; Range
+                    // is Android's multi-day one.
+                    TimelineNowMarker(
+                        day = day,
+                        hourHeight = (62 * timelineScale).dp,
                     )
                     tasks.filter { it.due == day && it.dueTime != null && (!hideDone || !it.done) }.forEach { task ->
                         val minute = task.dueTime!!.hour * 60 + task.dueTime.minute

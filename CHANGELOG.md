@@ -11,6 +11,10 @@ sliding a time by quarter hours, and swiping or holding the pill. A step counts
 only when the gesture it teaches actually happens, an informational card covers
 Journal and Contacts when those are switched on, and Settings > Advanced > About
 can replay it. Swiping the offer away stops it for good; it never writes data.
+- **Range shows where "now" is.** The multi-day grid now draws the same
+current-time line the day timeline does, on today's column — the web's Week view
+has one and ours did not. Both surfaces share one marker now, and it moves by the
+minute rather than only on the hour.
 - **Journal entries carry categories.** The editor tags an entry with the same
 category chips events and tasks use (several at once, like the web's journal
 tags), the overview cards and the reader show them, and they live on the

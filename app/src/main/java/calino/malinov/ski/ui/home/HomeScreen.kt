@@ -210,7 +210,9 @@ import calino.malinov.ski.state.openTasksDueOn
 import calino.malinov.ski.state.tasksDueOn
 import calino.malinov.ski.util.EventDateIndex
 import calino.malinov.ski.util.sortAgendaEvents
+import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
+import calino.malinov.ski.ui.components.TimelineNowMarker
 import calino.malinov.ski.ui.components.CalinoMonthHeading
 import calino.malinov.ski.ui.components.rememberMonthYearPicker
 import calino.malinov.ski.ui.components.eventDescription
@@ -6898,28 +6900,13 @@ internal fun HourRailContent(
 
 
         }
-        // The current-time marker, on today's rail only. It used to be drawn at
-        // a hard-coded 11.33 hours on every page, so every day claimed to be
-        // 11:20 and the line never moved. LocalCalinoNow re-reads on the minute.
-        val now = LocalCalinoNow.current
-        val currentTimeDescription = stringResource(R.string.cal_current_time, timeFormat.format(now.time, locale))
-        if (day == now.today) {
-                Canvas(
-                    Modifier.fillMaxWidth()
-                    .offset(y = (now.hourOfDay * hourHeight.value).dp)
-                    .height(8.dp)
-                    .semantics { contentDescription = currentTimeDescription },
-            ) {
-                // The marker belongs to the day, so it starts where the day's
-                // rail starts -- which is the hour gutter when this page draws
-                // one, and the very edge of the column when it does not. A
-                // fixed 44.dp inset was neither, and left the line floating
-                // short of the column it was supposed to cross.
-                val markerStart = railStart.toPx()
-                drawLine(colors.Rose, androidx.compose.ui.geometry.Offset(markerStart, 4.dp.toPx()), androidx.compose.ui.geometry.Offset(size.width, 4.dp.toPx()), 1.5f)
-                drawCircle(colors.Rose, 4.dp.toPx(), androidx.compose.ui.geometry.Offset(markerStart + 4.dp.toPx(), 4.dp.toPx()))
-            }
-        }
+        // The current-time marker, on today's rail only; TimelineNowMarker owns
+        // the drawing so Range's multi-day rails show the same line.
+        TimelineNowMarker(
+            day = day,
+            hourHeight = hourHeight.value.dp,
+            railStart = railStart,
+        )
     }
 }
 

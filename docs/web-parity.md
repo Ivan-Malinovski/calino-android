@@ -26,7 +26,7 @@ is the way between them.
 | Tasks | `TasksSurface` root | Rows carry the notes excerpt, priority chip, category and due cue, as the web's list does. |
 | Journal | `JournalScreen` root | Entries carry the web's tags as category chips (editor, cards, reader) on VJOURNAL `CATEGORIES`, so a tag set on either side survives an edit on the other. |
 | Contacts | `ContactsScreen` root | |
-| — | **Range** (1 / 3 / 7 days) with the week-task shelf | Android only. The web has no multi-day range surface; planning "sometime this week" happens here. |
+| — | **Range** (1 / 3 / 7 days) with the week-task shelf | Android's answer to the web's Week grid: same hour rail (now marker included) plus the shelf for planning "sometime this week". The web has no multi-day range surface; planning "sometime this week" happens here. |
 
 ## Feature areas
 
