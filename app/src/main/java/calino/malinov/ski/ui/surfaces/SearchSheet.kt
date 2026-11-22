@@ -72,6 +72,9 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.runtime.SideEffect
@@ -277,7 +280,22 @@ fun CalinoSearchSheet(
         repeat(2) { withFrameNanos { } }
         windowShown = true
     }
-    BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
+    // Esc closes the sheet from inside its own window. The Activity's
+    // dispatchKeyEvent never sees it: a Dialog is a separate window, so a
+    // hardware keyboard's Escape lands here, on the focused field's ancestors.
+    BoxWithConstraints(
+        Modifier.fillMaxSize().imePadding().onPreviewKeyEvent { composeKey ->
+            // `type` and `key` are Compose's extensions on the platform
+            // KeyEvent, which this file also uses for the dialog window.
+            if (composeKey.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                composeKey.key == androidx.compose.ui.input.key.Key.Escape
+            ) {
+                requestClose()
+                true
+            } else false
+        },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
         val layoutSpec = calinoLayoutSpec(
             maxWidth.value.roundToInt(), maxHeight.value.roundToInt(), LocalFoldPosture.current,
         )
