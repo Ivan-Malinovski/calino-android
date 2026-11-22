@@ -451,25 +451,28 @@ class MainActivity : ComponentActivity() {
      * close what is open. Handled before focus so a text field cannot swallow
      * them, and only for the plain press (no repeats, no Alt combos).
      */
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !event.isAltPressed) {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        // `onKeyDown` rather than `dispatchKeyEvent`: the latter is a restricted
+        // API on ComponentActivity (lint), and a chord with a modifier is not
+        // something a focused text field consumes, so it still reaches here.
+        if (event.repeatCount == 0 && !event.isAltPressed) {
             val withCommand = event.isCtrlPressed || event.isMetaPressed
             when {
-                event.keyCode == KeyEvent.KEYCODE_ESCAPE -> {
+                keyCode == KeyEvent.KEYCODE_ESCAPE -> {
                     hotkeyRequest = CalinoHotkey.Dismiss
                     return true
                 }
-                withCommand && event.keyCode == KeyEvent.KEYCODE_K -> {
+                withCommand && keyCode == KeyEvent.KEYCODE_K -> {
                     hotkeyRequest = CalinoHotkey.Search
                     return true
                 }
-                withCommand && event.keyCode == KeyEvent.KEYCODE_N -> {
+                withCommand && keyCode == KeyEvent.KEYCODE_N -> {
                     hotkeyRequest = CalinoHotkey.NewEvent
                     return true
                 }
             }
         }
-        return super.dispatchKeyEvent(event)
+        return super.onKeyDown(keyCode, event)
     }
 
     /**
