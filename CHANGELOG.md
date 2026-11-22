@@ -15,6 +15,10 @@ can replay it. Swiping the offer away stops it for good; it never writes data.
 current-time line the day timeline does, on today's column — the web's Week view
 has one and ours did not. Both surfaces share one marker now, and it moves by the
 minute rather than only on the hour.
+- **Journal tags now reach the server on a new entry too.** A tag typed on a
+*new* entry was dropped on the way out (`SUMMARY` arrived without `CATEGORIES`);
+editing an existing entry kept them. Fixed and pinned by a unit test, then
+confirmed on the wire against a local CalDAV server while offline.
 - **Journal entries carry categories.** The editor tags an entry with the same
 category chips events and tasks use (several at once, like the web's journal
 tags), the overview cards and the reader show them, and they live on the

@@ -24,4 +24,16 @@ class JournalDraftTest {
         assertEquals("Morning", entry.title)
         assertEquals("A thought.", entry.body)
     }
+
+    @Test
+    fun draftCommit_carriesTheTagsTheEditorCollected() {
+        // A new entry is written through this commit, not straight from the
+        // editor state: the tags used to stop here, so the first write of a
+        // tagged entry reached the server without its CATEGORIES.
+        val entry = JournalDraft("draft-3", fixtureDate)
+            .commit("Morning", "A thought.", listOf(" Focus ", "", "Work", "Focus"))
+
+        requireNotNull(entry)
+        assertEquals(listOf("Focus", "Work"), entry.categories)
+    }
 }

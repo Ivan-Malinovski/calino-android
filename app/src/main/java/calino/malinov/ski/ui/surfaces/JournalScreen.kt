@@ -332,7 +332,7 @@ fun JournalSurface(
                 onDraftDateChange = { picked -> draftDateEpochDay = picked.toEpochDay() },
                 onSave = { updated ->
                     if (draft?.id == updated.id) {
-                        draft?.commit(updated.title, updated.body)?.let { onCreate(it) } ?: false
+                        draft?.commit(updated.title, updated.body, updated.categories)?.let { onCreate(it) } ?: false
                     } else {
                         onUpdate(updated)
                     }
@@ -1072,7 +1072,10 @@ private fun JournalEditPane(
                     )
                 }
             }
-            if (knownCategories.isNotEmpty() || categories.isNotEmpty()) {
+            // Always offered: the "Add a tag" line is how the *first* tag on an
+            // account with no categories yet gets created, which is exactly the
+            // case a closed, list-only picker cannot serve.
+            run {
                 // Above the body rather than under it: the tags are part of what
                 // the entry *is*, and at the bottom of a 260 dp note they would
                 // need scrolling to find.
