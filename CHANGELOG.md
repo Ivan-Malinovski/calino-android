@@ -11,6 +11,9 @@ sliding a time by quarter hours, and swiping or holding the pill. A step counts
 only when the gesture it teaches actually happens, an informational card covers
 Journal and Contacts when those are switched on, and Settings > Advanced > About
 can replay it. Swiping the offer away stops it for good; it never writes data.
+- **Keyboard shortcuts.** On a Fold with its keyboard cover, or any hardware
+keyboard: Cmd/Ctrl+K opens search, Cmd/Ctrl+N starts a new event, and Esc closes
+what is open without leaving the app.
 - **Search does things, not only finds them.** The sheet now carries named
 commands beside its results: New event, New task and Sync now are one tap away
 before you type, and typing "go to tasks", "settings" or "new task" answers with

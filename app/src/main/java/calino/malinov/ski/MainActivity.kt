@@ -19,6 +19,7 @@ import calino.malinov.ski.ui.components.pockRouteKey
 import calino.malinov.ski.ui.components.AddPillCreate
 import calino.malinov.ski.ui.components.AddPillMode
 import android.app.Application
+import android.view.KeyEvent
 import android.content.Intent
 import android.provider.CalendarContract
 import android.graphics.Bitmap
@@ -415,6 +416,9 @@ private fun PockRoute.rootOrder(): Int = when (this) {
 
 data class CalendarViewRequest(val date: LocalDate? = null, val eventId: String? = null)
 
+/** What a hardware-keyboard shortcut asked for; the composition decides what it means. */
+enum class CalinoHotkey { Search, NewEvent, Dismiss }
+
 class MainActivity : ComponentActivity() {
     var incomingImage by mutableStateOf<Uri?>(null)
         private set
@@ -430,6 +434,43 @@ class MainActivity : ComponentActivity() {
         private set
     var searchShortcutPending by mutableStateOf(false)
         private set
+
+    /**
+     * A hardware-keyboard shortcut waiting for the composition to act on it.
+     * Held like the other pending requests: the composition owns the routes and
+     * the sheets, so the Activity only reports the key.
+     */
+    var hotkeyRequest by mutableStateOf<CalinoHotkey?>(null)
+        private set
+
+    fun consumeHotkey(): CalinoHotkey? = hotkeyRequest.also { hotkeyRequest = null }
+
+    /**
+     * A keyboard cover on a Fold is a real keyboard, and the web app's palette is
+     * reached with one: Cmd/Ctrl+K for search, Cmd/Ctrl+N for a new event, Esc to
+     * close what is open. Handled before focus so a text field cannot swallow
+     * them, and only for the plain press (no repeats, no Alt combos).
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !event.isAltPressed) {
+            val withCommand = event.isCtrlPressed || event.isMetaPressed
+            when {
+                event.keyCode == KeyEvent.KEYCODE_ESCAPE -> {
+                    hotkeyRequest = CalinoHotkey.Dismiss
+                    return true
+                }
+                withCommand && event.keyCode == KeyEvent.KEYCODE_K -> {
+                    hotkeyRequest = CalinoHotkey.Search
+                    return true
+                }
+                withCommand && event.keyCode == KeyEvent.KEYCODE_N -> {
+                    hotkeyRequest = CalinoHotkey.NewEvent
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
 
     /**
      * Settings asking Calino to add an account, through the account
@@ -2069,6 +2110,28 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 route = PockRoute.Day
                 showDayModal = false
             }
+        }
+    }
+
+    LaunchedEffect(activity.hotkeyRequest) {
+        when (activity.consumeHotkey()) {
+            CalinoHotkey.Search -> {
+                searchOriginRoute = route
+                sidebarVisible = false
+                searchVisible = true
+            }
+            CalinoHotkey.NewEvent -> {
+                if (!searchVisible) openQuickAdd(QuickAddKind.Event, PocReturnTarget.Calendar, morphFromAddPill = true)
+            }
+            // Esc closes the topmost thing that is open, and nothing else: it
+            // must not walk the person back out of the app.
+            CalinoHotkey.Dismiss -> when {
+                searchVisible -> searchVisible = false
+                showDayModal -> showDayModal = false
+                sidebarVisible -> sidebarVisible = false
+                route == PockRoute.QuickAdd -> dismissQuickAdd()
+            }
+            null -> Unit
         }
     }
 
