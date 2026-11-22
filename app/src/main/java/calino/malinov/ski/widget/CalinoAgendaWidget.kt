@@ -223,16 +223,17 @@ abstract class CalinoAgendaWidget internal constructor(
     @Composable
     private fun HeaderPills(today: LocalDate, lookAhead: WidgetLookAhead) {
         val context = androidx.glance.LocalContext.current
-        // The header carries its own action, like the footer pill: the pills
-        // float over the agenda list, and the list consumes taps before the
-        // root box's click can fire, so a header without one is dead chrome.
+        // The pills carry their own action, like the footer pill: they float
+        // over the agenda list, and the list consumes taps before the root
+        // box's click can fire, so a pill without one is dead chrome. The
+        // action sits on the pills, not the row, so the empty strip between
+        // them still lets the list row underneath take its own tap.
+        val open = if (content == WidgetContent.Tasks) openTasks() else openAgenda(today)
         Row(
-            modifier = GlanceModifier.fillMaxWidth()
-                .padding(start = 10.wdp, end = 10.wdp, top = PillInset)
-                .clickable(if (content == WidgetContent.Tasks) openTasks() else openAgenda(today)),
+            modifier = GlanceModifier.fillMaxWidth().padding(start = 10.wdp, end = 10.wdp, top = PillInset),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Pill {
+            Pill(GlanceModifier.clickable(open)) {
                 Text(
                     text = if (content == WidgetContent.Tasks) context.getString(R.string.sys_tasks) else context.getString(R.string.sys_today),
                     style = TextStyle(color = CalinoWidgetColors.ink, fontSize = 13.widgetSp, fontWeight = FontWeight.Medium),
@@ -245,7 +246,7 @@ abstract class CalinoAgendaWidget internal constructor(
             }
             Spacer(GlanceModifier.defaultWeight())
             if (lookAhead != WidgetLookAhead.Today) {
-                Pill {
+                Pill(GlanceModifier.clickable(open)) {
                     Text(
                         text = context.getString(R.string.sys_widget_next_days, lookAhead.days),
                         style = TextStyle(color = CalinoWidgetColors.ink2, fontSize = 11.widgetSp),
