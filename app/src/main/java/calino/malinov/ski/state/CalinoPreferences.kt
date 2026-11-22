@@ -2,6 +2,7 @@ package calino.malinov.ski.state
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -193,6 +194,13 @@ data class CalinoPreferences(
     /** Ordered rules that style an event by its categories. Defaults to the web's two. */
     val categoryStyleRules: List<CategoryStyleRule> = DefaultCategoryStyleRules,
     val setCategoryStyleRules: (List<CategoryStyleRule>) -> Unit = {},
+    /**
+     * Whether those rules travel through the account's hidden Calino Settings
+     * calendar, the same one the web app uses. Off by default: it writes to the
+     * server, and nobody should discover that by surprise.
+     */
+    val settingsSyncEnabled: Boolean = false,
+    val setSettingsSyncEnabled: (Boolean) -> Unit = {},
     /** Last few queries the person acted on in search, newest first. Stays on the device. */
     val recentSearches: List<String> = emptyList(),
     val rememberSearch: (String) -> Unit = {},
@@ -326,6 +334,18 @@ interface CalinoPreferenceStore {
     fun saveAutoCategoryRules(rules: List<AutoCategoryRule>) {}
     fun loadCategoryStyleRules(): List<CategoryStyleRule> = DefaultCategoryStyleRules
     fun saveCategoryStyleRules(rules: List<CategoryStyleRule>) {}
+    /** Whether category styles travel through the account's Calino Settings calendar. */
+    fun loadSettingsSyncEnabled(): Boolean = false
+    fun saveSettingsSyncEnabled(enabled: Boolean) {}
+    /** When the remote was last read, epoch millis; 0 means never. */
+    fun loadSettingsSyncPulledAt(): Long = 0L
+    fun saveSettingsSyncPulledAt(millis: Long) {}
+    /** When the rules were last changed here, epoch millis; 0 means never. */
+    fun loadSettingsSyncChangedAt(): Long = 0L
+    fun saveSettingsSyncChangedAt(millis: Long) {}
+    /** The hidden collection, remembered so a sync need not rediscover it. */
+    fun loadSettingsSyncCollection(): String? = null
+    fun saveSettingsSyncCollection(url: String?) {}
     fun loadRecentSearches(): List<String> = emptyList()
     fun saveRecentSearches(queries: List<String>) {}
     /**
@@ -422,6 +442,18 @@ interface CalinoPreferenceStore {
         override fun saveEventSyncRange(range: CalinoEventSyncRange) { syncRange = range }
         override fun loadJournalEnabled() = journal
         override fun saveJournalEnabled(enabled: Boolean) { journal = enabled }
+        private var settingsSync = false
+        private var settingsSyncPulledAt = 0L
+        private var settingsSyncChangedAt = 0L
+        private var settingsSyncCollection: String? = null
+        override fun loadSettingsSyncEnabled() = settingsSync
+        override fun saveSettingsSyncEnabled(enabled: Boolean) { settingsSync = enabled }
+        override fun loadSettingsSyncPulledAt() = settingsSyncPulledAt
+        override fun saveSettingsSyncPulledAt(millis: Long) { settingsSyncPulledAt = millis }
+        override fun loadSettingsSyncChangedAt() = settingsSyncChangedAt
+        override fun saveSettingsSyncChangedAt(millis: Long) { settingsSyncChangedAt = millis }
+        override fun loadSettingsSyncCollection() = settingsSyncCollection
+        override fun saveSettingsSyncCollection(url: String?) { settingsSyncCollection = url }
         override fun loadContactsEnabled() = contacts
         override fun saveContactsEnabled(enabled: Boolean) { contacts = enabled }
         private var eventReminders = true
@@ -626,6 +658,16 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         putString(CategoryStyleRulesKey, encodeCategoryStyleRules(rules))
     override fun loadNotificationPromptShown(): Boolean = prefs.getBoolean(NotificationPromptKey, false)
     override fun saveNotificationPromptShown(shown: Boolean) = putBoolean(NotificationPromptKey, shown)
+    override fun loadSettingsSyncEnabled(): Boolean = prefs.getBoolean(SettingsSyncEnabledKey, false)
+    override fun saveSettingsSyncEnabled(enabled: Boolean) = putBoolean(SettingsSyncEnabledKey, enabled)
+    override fun loadSettingsSyncPulledAt(): Long = prefs.getLong(SettingsSyncPulledAtKey, 0L)
+    override fun saveSettingsSyncPulledAt(millis: Long) = prefs.edit().putLong(SettingsSyncPulledAtKey, millis).apply()
+    override fun loadSettingsSyncChangedAt(): Long = prefs.getLong(SettingsSyncChangedAtKey, 0L)
+    override fun saveSettingsSyncChangedAt(millis: Long) = prefs.edit().putLong(SettingsSyncChangedAtKey, millis).apply()
+    override fun loadSettingsSyncCollection(): String? = name(SettingsSyncCollectionKey)
+    override fun saveSettingsSyncCollection(url: String?) =
+        if (url == null) prefs.edit().remove(SettingsSyncCollectionKey).apply()
+        else putString(SettingsSyncCollectionKey, url)
 
     private companion object {
         const val ThemeChoiceKey = "theme_choice"
@@ -670,6 +712,10 @@ class SharedPreferencesPreferenceStore(context: Context) : CalinoPreferenceStore
         const val UserCategoriesKey = "user_categories"
         const val AutoCategoryRulesKey = "auto_category_rules"
         const val CategoryStyleRulesKey = "category_style_rules"
+        const val SettingsSyncEnabledKey = "settings_sync_enabled"
+        const val SettingsSyncPulledAtKey = "settings_sync_pulled_at"
+        const val SettingsSyncChangedAtKey = "settings_sync_changed_at"
+        const val SettingsSyncCollectionKey = "settings_sync_collection"
         const val RecentSearchesKey = "recent_searches"
     }
 }
@@ -686,6 +732,12 @@ fun rememberCalinoPreferences(
     onRemindersChanged: () -> Unit = {},
     /** Called when Journal or Contacts availability changes so private search can be reconciled. */
     onSearchAvailabilityChanged: (journalsEnabled: Boolean, contactsEnabled: Boolean) -> Unit = { _, _ -> },
+    /**
+     * Bumped when something outside this Composable rewrites the store -- in
+     * practice a settings sync pulling rules from the server. The mirror has to
+     * re-read, or the person would see their old colours until a restart.
+     */
+    settingsRevision: Int = 0,
 ): CalinoPreferences {
     var themeChoice by remember(store) { mutableStateOf(store.loadThemeChoice()) }
     var timeFormatChoice by remember(store) { mutableStateOf(store.loadTimeFormat()) }
@@ -720,6 +772,7 @@ fun rememberCalinoPreferences(
     var showCardCountdowns by remember(store) { mutableStateOf(store.loadShowCardCountdowns()) }
     var eventSyncRange by remember(store) { mutableStateOf(store.loadEventSyncRange()) }
     var journalEnabled by remember(store) { mutableStateOf(store.loadJournalEnabled()) }
+    var settingsSyncEnabled by remember(store) { mutableStateOf(store.loadSettingsSyncEnabled()) }
     var contactsEnabled by remember(store) { mutableStateOf(store.loadContactsEnabled()) }
     var eventRemindersEnabled by remember(store) { mutableStateOf(store.loadEventRemindersEnabled()) }
     var taskRemindersEnabled by remember(store) { mutableStateOf(store.loadTaskRemindersEnabled()) }
@@ -730,6 +783,15 @@ fun rememberCalinoPreferences(
     var userCategories by remember(store) { mutableStateOf(store.loadUserCategories()) }
     var autoCategoryRules by remember(store) { mutableStateOf(store.loadAutoCategoryRules()) }
     var categoryStyleRules by remember(store) { mutableStateOf(store.loadCategoryStyleRules()) }
+    // Declared after the state it writes: a sync that pulled new rules has to
+    // show them without a restart, and the mirror is the only thing holding them.
+    LaunchedEffect(settingsRevision) {
+        if (settingsRevision > 0) {
+            categoryStyleRules = store.loadCategoryStyleRules()
+            settingsSyncEnabled = store.loadSettingsSyncEnabled()
+        }
+    }
+
     var recentSearches by remember(store) { mutableStateOf(store.loadRecentSearches()) }
     return CalinoPreferences(
         themeChoice = themeChoice,
@@ -848,7 +910,18 @@ fun rememberCalinoPreferences(
         autoCategoryRules = autoCategoryRules,
         setAutoCategoryRules = { value -> autoCategoryRules = value; store.saveAutoCategoryRules(value) },
         categoryStyleRules = categoryStyleRules,
-        setCategoryStyleRules = { value -> categoryStyleRules = value; store.saveCategoryStyleRules(value) },
+        setCategoryStyleRules = { value ->
+            categoryStyleRules = value
+            store.saveCategoryStyleRules(value)
+            // A local edit is what a push is for; the timestamp is the only
+            // thing the conflict rule needs to know about it.
+            store.saveSettingsSyncChangedAt(System.currentTimeMillis())
+        },
+        settingsSyncEnabled = settingsSyncEnabled,
+        setSettingsSyncEnabled = { value ->
+            settingsSyncEnabled = value
+            store.saveSettingsSyncEnabled(value)
+        },
         recentSearches = recentSearches,
         rememberSearch = { query ->
             val next = withRecentSearch(recentSearches, query)

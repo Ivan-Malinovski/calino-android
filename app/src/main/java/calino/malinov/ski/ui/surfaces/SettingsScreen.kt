@@ -1518,6 +1518,19 @@ private fun CategoryStyleSettings() {
     SettingsGroup(t(R.string.set_category_styles)) {
         SettingNote(t(R.string.set_cs_description))
         SettingDivider()
+        // The rules are Calino-only data: the names travel on each event as
+        // CATEGORIES, but a colour has nowhere in iCalendar to live. The web app
+        // solved that with a hidden calendar, and this is the same choice, so a
+        // phone and a browser agree without inventing a property no other client
+        // can read.
+        SettingToggleRow(
+            label = t(R.string.set_cs_sync_title),
+            description = t(R.string.set_cs_sync_desc),
+            checked = preferences.settingsSyncEnabled,
+        ) { enabled ->
+            preferences.setSettingsSyncEnabled(enabled)
+        }
+        SettingDivider()
         AnimatedSettingRows(rules, keyOf = { it.id }) { rule ->
             val label = rule.categories.ifBlank { t(R.string.set_cs_new_rule) }
             val index = rules.indexOfFirst { it.id == rule.id }

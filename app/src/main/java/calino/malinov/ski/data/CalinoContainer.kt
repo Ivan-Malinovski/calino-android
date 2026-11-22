@@ -67,7 +67,14 @@ import calino.malinov.ski.platform.AndroidCalendarWriter
 import calino.malinov.ski.platform.CalendarProjection
 import calino.malinov.ski.platform.CalendarProjectionBridge
 import calino.malinov.ski.platform.CalinoAccounts
+import calino.malinov.ski.data.caldav.SettingsCalendarClient
+import calino.malinov.ski.data.caldav.SettingsCollection
+import calino.malinov.ski.data.model.CategoryStyleRule
+import calino.malinov.ski.data.settings.SettingsSyncState
+import calino.malinov.ski.data.settings.SettingsSyncer
 import calino.malinov.ski.state.CalinoPreferenceStore
+import kotlinx.coroutines.flow.MutableStateFlow
+import java.time.Instant
 import calino.malinov.ski.state.SharedPreferencesPreferenceStore
 import calino.malinov.ski.widget.CalinoWidgetBridge
 import calino.malinov.ski.wear.PhoneWearBridge
@@ -188,6 +195,54 @@ class CalinoContainer private constructor(context: Context) {
     private val pendingChangeStore =
         FilePendingChangeStore(File(application.filesDir, "caldav-write-queue.json"))
 
+    /**
+     * Bumped when a settings sync rewrites what this device's preferences say,
+     * so the Compose state that mirrors them can re-read the store.
+     */
+    val settingsRevision = MutableStateFlow(0)
+
+    /**
+     * The device's half of settings sync, read straight from the preference
+     * store: the repository runs in the container's scope, below Compose, and a
+     * pull that only updated Compose state would not survive a push from it.
+     */
+    private val settingsSyncState = object : SettingsSyncState {
+        override val enabled: Boolean get() = preferenceStore.loadSettingsSyncEnabled()
+
+        override val lastPulledAt: Instant?
+            get() = preferenceStore.loadSettingsSyncPulledAt().takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+
+        override val rulesChangedAt: Instant?
+            get() = preferenceStore.loadSettingsSyncChangedAt().takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+
+        override fun localRules(): List<CategoryStyleRule> = preferenceStore.loadCategoryStyleRules()
+
+        override fun rememberPulled(at: Instant, rules: List<CategoryStyleRule>) {
+            preferenceStore.saveCategoryStyleRules(rules)
+            preferenceStore.saveSettingsSyncPulledAt(at.toEpochMilli())
+            settingsRevision.value++
+        }
+
+        override fun rememberPushed(at: Instant) {
+            // A successful push *is* the newest remote state this device knows
+            // about, so it counts as a pull too. Without this the next cycle
+            // compares against "never pulled" and lets the event we just wrote
+            // overwrite an edit made a moment later.
+            preferenceStore.saveSettingsSyncPulledAt(at.toEpochMilli())
+            preferenceStore.saveSettingsSyncChangedAt(0L)
+        }
+
+        override var collection: SettingsCollection?
+            get() = preferenceStore.loadSettingsSyncCollection()?.let { url ->
+                SettingsCollection(url = url, resourceUrl = url.trimEnd('/') + "/calino-settings.ics")
+            }
+            set(value) {
+                preferenceStore.saveSettingsSyncCollection(value?.url)
+            }
+    }
+
+    private val settingsSyncer = SettingsSyncer(SettingsCalendarClient(http), settingsSyncState)
+
     val calDavRepository = CalDavRepository(
         fetcher = ProtocolCalendarFetcher(
             caldav = CalDavFetcher(http),
@@ -207,6 +262,11 @@ class CalinoContainer private constructor(context: Context) {
             carddav = cardDavWriter,
             jmap = JmapContactsWriter(jmapClients, jmapContactsFetcher, cardDavWriter, calendarCache),
         ),
+        settingsSync = { homeUrl, credentials ->
+            if (homeUrl != null && credentials != null) {
+                settingsSyncer.synchronize(homeUrl, credentials)
+            }
+        },
         pendingStore = pendingChangeStore,
         trash = FileTrashStore(File(application.filesDir, "caldav-trash.json.gz")),
         // A device with no network should not make the person wait for a socket

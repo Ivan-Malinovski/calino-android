@@ -12,6 +12,8 @@ object DavNs {
     const val CardDav = "urn:ietf:params:xml:ns:carddav"
     const val CalendarServer = "http://calendarserver.org/ns/"
     const val Apple = "http://apple.com/ns/ical/"
+    /** RFC 7986's colour and related properties, which some servers use instead of Apple's. */
+    const val ICalendar = "urn:ietf:params:xml:ns:icalendar"
 }
 
 /**

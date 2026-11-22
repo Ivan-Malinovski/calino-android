@@ -453,7 +453,7 @@ Letzte erfolgreiche Synchronisierung: %2$s</string>
     <string name="set_nag_daily">Täglich</string>
     <string name="set_nag_hourly">Stündlich</string>
     <string name="set_category_styles">Stil nach Kategorie</string>
-    <string name="set_cs_description">Ereignisse nach ihren Kategorien gestalten. Änderungen werden automatisch gespeichert und bleiben auf diesem Gerät.</string>
+    <string name="set_cs_description">Ereignisse nach ihren Kategorien gestalten. Änderungen werden automatisch gespeichert.</string>
     <string name="set_cs_reset">Standard wiederherstellen</string>
     <string name="set_cs_empty">Keine Regeln. Eine hinzufügen oder den Standard wiederherstellen.</string>
     <string name="set_cs_precedence">Passende Regeln werden kombiniert. Bei derselben Eigenschaft gewinnt die untere Regel. Kalenderfarben bleiben erhalten, sofern keine Regel den Hintergrund ändert. Visuelle Stile ändern weder den Status noch die Erledigung eines Ereignisses.</string>
@@ -485,4 +485,6 @@ Letzte erfolgreiche Synchronisierung: %2$s</string>
     <string name="set_cs_enable_description">Stilregel für %1$s anwenden</string>
     <string name="set_cs_add_preset_description">Regel ausgehend von %1$s hinzufügen</string>
     <string name="set_search_terms_category_styles">Stil Kategorien Bleistift Skizze gestrichelt Muster durchgestrichen Handschrift</string>
+    <string name="set_cs_sync_title">Zwischen Geräten synchronisieren</string>
+    <string name="set_cs_sync_desc">Regeln im Calino-Settings-Kalender auf dem Server speichern, demselben, den die Web-App nutzt. Andere Kalender-Apps sehen sie nie.</string>
 </resources>

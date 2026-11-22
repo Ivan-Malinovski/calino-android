@@ -5,6 +5,17 @@ history and their tags.
 
 ## Unreleased
 
+- **Category styles can sync between devices.** They are Calino-only data — an
+  event carries its category *names*, but a colour has nowhere in iCalendar to
+  live — so they travel the way the web app already syncs its own settings: one
+  event in a hidden `Calino Settings` calendar on your server. Off by default;
+  Settings > Category styles turns it on. A push merges into what the server
+  holds, so settings this app does not know about are never dropped.
+- **Calendar colours are written in both spellings.** RFC 7986 names the standard
+  property `COLOR`, while Apple's `calendar-color` is the one servers persist and
+  clients read. Creating or recolouring a calendar now sends both, and reading a
+  calendar accepts either.
+
 - **A calendar shared with you can be added by its own URL.** Calino used to
   connect to the address it was given and then list your own calendars: discovery
   always walked to your principal and its calendar-home, so a collection outside

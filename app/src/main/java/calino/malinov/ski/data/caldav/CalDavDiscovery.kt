@@ -6,6 +6,7 @@ import calino.malinov.ski.data.model.CalendarProtocol
 import calino.malinov.ski.state.CalDavConnectResult
 import calino.malinov.ski.state.normalizeServerUrl
 import calino.malinov.ski.data.repository.CalDavClient
+import calino.malinov.ski.data.settings.SettingsEvent
 import java.net.URI
 import org.w3c.dom.Element
 
@@ -220,6 +221,15 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
         if (DavXml.hasElement(resourceType, "addressbook")) return null
         // Scheduling collections are not user-facing calendars.
         if (SchedulingTypes.any { DavXml.hasElement(resourceType, it) }) return null
+        // Calino's own settings collection is a calendar by protocol and nothing
+        // a person should see, edit or delete: it holds one event at the Unix
+        // epoch carrying preferences. Settings sync finds it by itself.
+        val settingsUrl = url.trimEnd('/')
+        if (settingsUrl.endsWith("/" + SettingsEvent.CollectionName) ||
+            settingsUrl.endsWith("/" + SettingsEvent.FileName)
+        ) {
+            return null
+        }
 
         val components = DavXml.successfulProperty(entry, DavNs.CalDav, "supported-calendar-component-set")
             ?.let { set ->
@@ -233,7 +243,13 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
             url = url,
             displayName = DavXml.successfulText(entry, DavNs.Dav, "displayname")
                 ?: url.trimEnd('/').substringAfterLast('/'),
-            color = normalizeColor(DavXml.successfulText(entry, DavNs.Apple, "calendar-color")),
+            // Apple's property first: it is the one servers store and the one
+            // this app writes. RFC 7986's COLOR is the standard spelling, and a
+            // server that only answers that one must still get its colour seen.
+            color = normalizeColor(
+                DavXml.successfulText(entry, DavNs.Apple, "calendar-color")
+                    ?: DavXml.successfulText(entry, DavNs.ICalendar, "color"),
+            ),
             readOnly = isReadOnly(entry),
             components = components,
             ctag = DavXml.successfulText(entry, DavNs.CalendarServer, "getctag")
@@ -310,7 +326,7 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
 
         const val PropfindCalendars =
             """<?xml version="1.0" encoding="UTF-8"?>
-<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/">
+<d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/" xmlns:i="urn:ietf:params:xml:ns:icalendar">
   <d:prop>
     <d:resourcetype/>
     <d:displayname/>
@@ -319,6 +335,7 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
     <cs:getctag/>
     <cs:subscribed/>
     <ic:calendar-color/>
+    <i:color/>
     <c:supported-calendar-component-set/>
     <c:calendar-description/>
   </d:prop>

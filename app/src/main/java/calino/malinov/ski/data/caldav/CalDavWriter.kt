@@ -185,6 +185,41 @@ class CalDavWriter(
         fetchEtag(url, credentials)
 
     /**
+     * Recolours a collection, writing the colour in both spellings.
+     *
+     * This is a property write on the collection, not a change to any calendar
+     * object, so it needs no ETag: the last writer wins, which is what a person
+     * moving a colour slider expects. RFC 7986 names the standard property
+     * `COLOR` in the iCalendar namespace; Apple's `calendar-color` is the one
+     * servers actually persist (Nextcloud maps it to its own colour column) and
+     * the one every client reads. Writing only the standard leaves the calendar
+     * grey in Apple Calendar, Nextcloud and SOGo; writing only Apple's ignores
+     * the standard. A server that does not know a property ignores it inside the
+     * propstat, so sending both is compatible in either direction.
+     */
+    suspend fun setCalendarColor(calendarUrl: String, colorArgb: Int, credentials: DavCredentials) {
+        val hex = "#%06x".format(colorArgb and 0xFFFFFF)
+        val response = http.request(
+            method = "PROPPATCH",
+            url = calendarUrl,
+            credentials = credentials,
+            headers = mapOf("Content-Type" to "application/xml; charset=utf-8"),
+            body = colorProppatch(hex),
+        )
+        requireSuccess(response)
+    }
+
+    private fun colorProppatch(hex: String): String = """<?xml version="1.0" encoding="utf-8"?>
+<propertyupdate xmlns="DAV:" xmlns:ic="http://apple.com/ns/ical/" xmlns:i="urn:ietf:params:xml:ns:icalendar">
+  <set>
+    <prop>
+      <ic:calendar-color>$hex</ic:calendar-color>
+      <i:color>$hex</i:color>
+    </prop>
+  </set>
+</propertyupdate>"""
+
+    /**
      * Removes a component from its resource, or deletes the resource when it
      * was the last schedulable component in it.
      */

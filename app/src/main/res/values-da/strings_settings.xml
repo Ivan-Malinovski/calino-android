@@ -453,7 +453,7 @@ Seneste vellykkede synkronisering: %2$s</string>
     <string name="set_nag_daily">Dagligt</string>
     <string name="set_nag_hourly">Hver time</string>
     <string name="set_category_styles">Stil efter kategori</string>
-    <string name="set_cs_description">Giv begivenheder et udseende ud fra deres kategorier. Ændringer gemmes automatisk og bliver på denne enhed.</string>
+    <string name="set_cs_description">Giv begivenheder et udseende ud fra deres kategorier. Ændringer gemmes automatisk.</string>
     <string name="set_cs_reset">Gendan standarder</string>
     <string name="set_cs_empty">Ingen regler. Tilføj en, eller gendan standarderne.</string>
     <string name="set_cs_precedence">Matchende regler kombineres. For samme egenskab vinder den nederste regel. Kalenderfarver bevares, medmindre en regel ændrer baggrunden. Visuelle stile ændrer ikke begivenhedens status eller fuldførelse.</string>
@@ -485,4 +485,6 @@ Seneste vellykkede synkronisering: %2$s</string>
     <string name="set_cs_enable_description">Anvend stilreglen for %1$s</string>
     <string name="set_cs_add_preset_description">Tilføj en regel ud fra %1$s</string>
     <string name="set_search_terms_category_styles">stil kategorier blyant skitse stiplet mønster gennemstregning håndskrift</string>
+    <string name="set_cs_sync_title">Synkroniser mellem enheder</string>
+    <string name="set_cs_sync_desc">Gem reglerne i Calino Settings-kalenderen på din server, den samme som webappen bruger. Andre kalenderapps ser dem aldrig.</string>
 </resources>

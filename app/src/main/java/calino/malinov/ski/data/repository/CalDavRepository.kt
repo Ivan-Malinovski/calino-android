@@ -239,6 +239,14 @@ class CalDavRepository(
      * test without a network stack behaves like one online.
      */
     private val networkAvailable: () -> Boolean = { true },
+    /**
+     * One run of the Calino Settings sync, injected by the app.
+     *
+     * Called after a successful synchronize, outside the sync lock: settings sit
+     * in their own hidden collection, and a slow answer there must not delay the
+     * calendars the person is looking at. Null means the feature is not wired.
+     */
+    private val settingsSync: SettingsSyncHook? = null,
 ) : CalinoRepository {
 
     private var windowMonths: Long = windowMonths
@@ -412,8 +420,8 @@ class CalDavRepository(
     fun refresh() = reload(useCache = false)
 
     /** Replay eligible writes, then refresh through the repository's serialized sync lane. */
-    suspend fun synchronize(isCurrent: () -> Boolean = { true }): RepositorySyncResult =
-        syncMutex.withLock {
+    suspend fun synchronize(isCurrent: () -> Boolean = { true }): RepositorySyncResult {
+        val result = syncMutex.withLock {
             if (sources.isEmpty() && addressBookSources.isEmpty()) return@withLock RepositorySyncResult.NoSources
             if (!isCurrent()) return@withLock RepositorySyncResult.AccountsRemoved
             val token = ++generation
@@ -425,6 +433,28 @@ class CalDavRepository(
                 refreshWhileLocked(token, start, end, isCurrent)
             }
         }
+        // Outside the sync lock on purpose: settings live in their own collection
+        // and a slow server must not hold up the calendars the person is looking at.
+        if (result is RepositorySyncResult.Success) {
+            settingsSync?.let { hook ->
+                runCatching { hook.synchronize(settingsHome(), firstCredentials()) }
+            }
+        }
+        return result
+    }
+
+    /** The calendar home of the first usable source: the settings collection lives beside the calendars. */
+    private fun settingsHome(): String? {
+        val url = sources.firstOrNull()?.calendar?.url ?: return null
+        return url.trimEnd('/').substringBeforeLast('/') + "/"
+    }
+
+    private fun firstCredentials(): DavCredentials? = sources.firstOrNull()?.credentials
+
+    /** One run of the Calino Settings sync, injected by the app. */
+    fun interface SettingsSyncHook {
+        suspend fun synchronize(homeUrl: String?, credentials: DavCredentials?)
+    }
 
     /** Starts one serialized replay of durable writes, if a queue is configured. */
     fun drainPendingWrites() {

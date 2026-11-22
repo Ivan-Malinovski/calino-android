@@ -111,6 +111,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -325,6 +326,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 
 private val PredictiveBackEasing = CubicBezierEasing(0f, 0f, 0f, 1f)
@@ -759,6 +761,9 @@ class PocRepositoryViewModel(application: Application) : AndroidViewModel(applic
     /** Display preferences (clock, and whatever joins it), persisted. */
     val preferenceStore get() = container.preferenceStore
 
+    /** Bumped when a settings sync rewrites the store underneath Compose. */
+    val settingsRevision = container.settingsRevision.asStateFlow()
+
     /** Real discovery. This is the seam `FixtureCalDavClient` used to fill. */
     val calDavClient: CalDavClient get() = container.calDavClient
 
@@ -1053,6 +1058,7 @@ fun CalinoApp() {
     val deviceDefaults = rememberCalinoDeviceDefaults()
     // Read before the theme, not inside it: the palette is a function of a
     // preference, so the preference has to exist first.
+    val settingsRevision by pocViewModel.settingsRevision.collectAsState()
     val preferences = rememberCalinoPreferences(
         store = pocViewModel.preferenceStore,
         deviceDefaults = deviceDefaults,
@@ -1060,6 +1066,7 @@ fun CalinoApp() {
         // sync happens to publish something.
         onRemindersChanged = { pocViewModel.replanReminders() },
         onSearchAvailabilityChanged = pocViewModel::setSearchAvailability,
+        settingsRevision = settingsRevision,
     )
     val notificationPermission = rememberNotificationPermission(pocViewModel.preferenceStore)
     LaunchedEffect(preferences.eventSyncRange) {
