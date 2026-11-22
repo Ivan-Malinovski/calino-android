@@ -13,6 +13,59 @@ class VCardMapperTest {
 
     private val mapper = VCardMapper()
 
+    /**
+     * Issue #29: Nextcloud writes numbers as `VALUE=uri:tel:+45…`, and ez-vcard
+     * leaves their `text` null. Reading only `text` dropped the number, so the
+     * next write removed it from the card — silent data loss for exactly the
+     * "Home" numbers the report is about.
+     */
+    @Test
+    fun aPhoneStoredAsATelUriIsReadAsTheNumberItNames() {
+        val contact = mapper.map(
+            """
+            BEGIN:VCARD
+            VERSION:3.0
+            UID:uri-1
+            N:Uri;Home;;;
+            FN:Home Uri
+            TEL;VALUE=uri;TYPE=HOME:tel:+4512345678
+            TEL;TYPE=CELL:01234 456789
+            END:VCARD
+            """.trimIndent(),
+            addressBookId = "book",
+            accountId = "account",
+            href = "https://example.test/book/uri.vcf",
+            etag = "abc",
+        )
+
+        requireNotNull(contact)
+        assertEquals(2, contact.phones.size)
+        assertEquals("+4512345678", contact.phones.first { it.type == ContactPhoneType.Home }.value)
+        assertEquals("01234 456789", contact.phones.first { it.type == ContactPhoneType.Cell }.value)
+    }
+
+    @Test
+    fun aPhoneNumberThatIsNotAUriIsLeftExactlyAsWritten() {
+        val contact = mapper.map(
+            """
+            BEGIN:VCARD
+            VERSION:3.0
+            UID:plain-1
+            N:Plain;Home;;;
+            FN:Plain Home
+            TEL;TYPE=HOME:01234 456789
+            END:VCARD
+            """.trimIndent(),
+            addressBookId = "book",
+            accountId = "account",
+            href = "https://example.test/book/plain.vcf",
+            etag = "abc",
+        )
+
+        requireNotNull(contact)
+        assertEquals("01234 456789", contact.phones.single().value)
+    }
+
     @Test
     fun mapsVcard30AndAppleLabels_withPrimaryAndOpaqueLines() {
         val contact = mapper.map(

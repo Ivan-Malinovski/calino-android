@@ -45,8 +45,82 @@ class CalDavDiscoveryTest {
         </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
     )
 
+    private fun singleCalendar(href: String, name: String) = multiStatus(
+        """<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response><href>$href</href><propstat><prop>
+            <resourcetype><C:calendar /><collection /></resourcetype><displayname>$name</displayname>
+        </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
+    )
+
+    private fun plainCollection(href: String) = multiStatus(
+        """<multistatus xmlns="DAV:"><response><href>$href</href><propstat><prop>
+            <resourcetype><collection /></resourcetype><displayname>Shared</displayname>
+        </prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""",
+    )
+
+    private fun noScheduling() = multiStatus(
+        """<multistatus xmlns="DAV:"><response><href>/principals/test-user/</href><propstat><prop>
+        </prop><status>HTTP/1.1 404 Not Found</status></propstat></response></multistatus>""",
+    )
+
+    /** well-known miss, principal, home, scheduling — the walk before the listing. */
+    private fun enqueueWalk() {
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(principalResponse("/principals/test-user/"))
+        server.enqueue(homeSetResponse("/test-user/"))
+        server.enqueue(noScheduling())
+    }
+
     private fun discovery() = CalDavDiscovery(DavHttp())
     private fun url(path: String = "/") = server.url(path).toString()
+
+    // --- what the person actually pointed at ---------------------------------
+
+    /**
+     * Issue #30: a calendar shared with the person usually lives outside their
+     * own calendar-home. Adding the account by that collection's URL used to
+     * connect and then list the home's calendars instead.
+     */
+    @Test
+    fun `a collection entered by url is the account even outside the home`() = runBlocking {
+        enqueueWalk()
+        server.enqueue(singleCalendar("/shared-folder/team-calendar/", "Team calendar"))
+
+        val account = discovery().discoverAccount(url("/shared-folder/team-calendar/"), credentials)
+
+        assertEquals(listOf("Team calendar"), account.calendars.map { it.displayName })
+        assertEquals(url("/shared-folder/team-calendar/"), account.calendars.single().url)
+        // Five requests: the walk, then the entered URL. The home was never listed.
+        assertEquals(5, server.requestCount)
+        val paths = (1..5).map { server.takeRequest().path }
+        assertTrue("the entered collection was not probed: $paths", paths.last() == "/shared-folder/team-calendar/")
+    }
+
+    /** The issue also asks for the folder above the shared calendars. */
+    @Test
+    fun `a folder of calendars entered by url offers the calendars inside it`() = runBlocking {
+        enqueueWalk()
+        server.enqueue(plainCollection("/shared-folder/"))
+        server.enqueue(multiStatus(CalDavFixtures.Calendars))
+
+        val account = discovery().discoverAccount(url("/shared-folder/"), credentials)
+
+        assertEquals(2, account.calendars.size)
+        assertTrue(account.calendars.none { it.url.endsWith("/contacts/") })
+        assertEquals(6, server.requestCount)
+    }
+
+    @Test
+    fun `a server root still falls back to the calendar-home`() = runBlocking {
+        enqueueWalk()
+        server.enqueue(plainCollection("/"))
+        server.enqueue(plainCollection("/"))   // Depth 1 has no calendars in it
+        server.enqueue(multiStatus(CalDavFixtures.Calendars))
+
+        val account = discovery().discoverAccount(url("/"), credentials)
+
+        assertEquals(2, account.calendars.size)
+        assertEquals(7, server.requestCount)
+    }
 
     // --- the collection listing ----------------------------------------------
 
@@ -140,6 +214,10 @@ class CalDavDiscoveryTest {
         server.enqueue(multiStatus(CalDavFixtures.Principal))   // current-user-principal
         server.enqueue(multiStatus(CalDavFixtures.HomeSet))     // calendar-home-set
         server.enqueue(multiStatus("""<multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><response><propstat><prop><C:calendar-user-address-set><href>mailto:test@example.com</href></C:calendar-user-address-set></prop><status>HTTP/1.1 200 OK</status></propstat></response></multistatus>""").setHeader("DAV", "1, 3, calendar-auto-schedule"))
+        // The URL the person typed is probed for a collection of its own first:
+        // at the server root there is none, at either depth.
+        server.enqueue(plainCollection("/"))
+        server.enqueue(plainCollection("/"))
         server.enqueue(multiStatus(CalDavFixtures.Calendars))   // the listing
 
         val account = discovery().discoverAccount(url().trimEnd('/'), credentials)
@@ -150,7 +228,7 @@ class CalDavDiscoveryTest {
         assertEquals(setOf("mailto:test@example.com"), account.calendarUserAddresses)
         assertTrue(account.autoSchedule)
 
-        val methods = (1..5).map { server.takeRequest().method }
+        val methods = (1..7).map { server.takeRequest().method }
         assertTrue("every discovery step uses PROPFIND", methods.all { it == "PROPFIND" })
     }
 

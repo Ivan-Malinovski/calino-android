@@ -242,7 +242,11 @@ class VCardWriter {
         card.removeProperties(Telephone::class.java)
         values.filter { it.value.isNotBlank() }
             .forEachIndexed { index, item ->
-                val value = item.value.trim()
+                // A number that was read from a `tel:` URI (or typed as one) is
+                // written back as the number itself, never as a URI: the value and
+                // the parameter must agree, and plain text is what every server
+                // accepts.
+                val value = plainPhoneNumber(item.value)
                 val source = old.getOrNull(index)
                 val property = copyMetadata(source, Telephone(value))
                 property.types.clear()
@@ -399,10 +403,23 @@ class VCardWriter {
         value.nullIfBlank()?.let { card.addProperty(copyMetadata(old, create(it))) }
     }
 
+    /**
+     * Carries the parts of the old property that still describe the new values:
+     * its group, its label parameter and (for phones) nothing about the value's
+     * encoding.
+     *
+     * `VALUE` is deliberately not copied. It says how the *old* value was
+     * written — `VALUE=uri` for a `tel:` URI is the one that bites — and applying
+     * it to a plain number produces a card that validates as a URI and then
+     * isn't one. Servers reject exactly that: Nextcloud answers with
+     * "Global number must start with \"+\"". The writer emits plain values, so the
+     * parameter has to go with the value it described.
+     */
     private fun <T : VCardProperty> copyMetadata(source: T?, target: T): T {
         source?.let {
             target.group = it.group
             target.parameters = ezvcard.parameter.VCardParameters(it.parameters)
+            target.parameters.removeAll("VALUE")
         }
         return target
     }

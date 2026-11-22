@@ -5,6 +5,21 @@ history and their tags.
 
 ## Unreleased
 
+- **A calendar shared with you can be added by its own URL.** Calino used to
+  connect to the address it was given and then list your own calendars: discovery
+  always walked to your principal and its calendar-home, so a collection outside
+  it — which is where a shared calendar usually lives — was never seen. The URL
+  you enter is now checked first, and a calendar there (or a folder of them, e.g.
+  "…/shared-folder/") is what the account gets. Issue #30.
+- **Contacts whose numbers are stored as `tel:` URIs keep their numbers.** Nextcloud
+  writes phone numbers as `TEL;VALUE=uri:tel:+45…`; Calino read only the plain-text
+  form, so those numbers arrived empty and were dropped on the next save — the
+  "Home" numbers in issue #29. They are now read, written back as plain numbers,
+  and never carry a `VALUE=uri` parameter that no longer describes the value.
+- **An offline save is instant.** With no network the write is prepared and queued
+  without opening a socket, instead of waiting for a connection that cannot
+  succeed before the entry appears. Issue #28.
+
 - **A first-run tour.** Calino now offers a one-minute walk through its
 gestures once: swiping the calendar to zoom, holding empty space to create,
 sliding a time by quarter hours, and swiping or holding the pill. A step counts

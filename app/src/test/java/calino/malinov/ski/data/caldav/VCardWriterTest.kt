@@ -17,6 +17,61 @@ class VCardWriterTest {
     private val writer = VCardWriter()
     private val timestamp = Instant.parse("2026-09-10T12:00:00Z")
 
+    /**
+     * Issue #29: the reported server rejection ("Global number must start with
+     * \"+\"") comes from a `VALUE=uri` parameter left sitting on a plain number —
+     * the parameter described the old `tel:` URI, not the value being written.
+     */
+    @Test
+    fun aPhoneIsWrittenAsANumberWithoutTheValueParameterThatDescribedTheOldUri() {
+        val original = """BEGIN:VCARD
+VERSION:3.0
+UID:uri:2299
+N:Uri;Home;;;
+FN:Home Uri
+TEL;VALUE=uri;TYPE=HOME:tel:+4512345678
+TEL;TYPE=CELL:01234 456789
+VERSION:3.0
+END:VCARD"""
+        val contact = VCardMapper().map(
+            original,
+            addressBookId = "book",
+            accountId = "account",
+            href = "https://example.test/book/uri.vcf",
+            etag = "abc",
+        )!!
+
+        val written = writer.write(contact, uid = contact.uid ?: contact.id, now = timestamp)
+
+        val telLines = written.lines().filter { it.startsWith("TEL", ignoreCase = true) }
+        assertEquals("both numbers must survive the rewrite: $telLines", 2, telLines.size)
+        assertTrue(
+            "a Home number must keep its number and its type: $telLines",
+            telLines.any { it.uppercase().contains("HOME") && it.contains("+4512345678") },
+        )
+        assertTrue(
+            "no TEL may carry VALUE=uri any more: $telLines",
+            telLines.none { it.uppercase().contains("VALUE=") },
+        )
+    }
+
+    @Test
+    fun aNationalNumberIsWrittenBackUnchanged() {
+        val contact = Contact(
+            id = "c-1",
+            uid = "c-1",
+            addressBookId = "book",
+            displayName = "Plain Home",
+            phones = listOf(ContactPhone("01234 456789", ContactPhoneType.Home)),
+        )
+
+        val written = writer.write(contact, now = timestamp)
+
+        val telLine = written.lines().single { it.startsWith("TEL", ignoreCase = true) }
+        assertTrue("the number must not be reformatted: $telLine", telLine.contains("01234 456789"))
+        assertFalse("a plain value must not claim to be a URI: $telLine", telLine.contains("VALUE=", ignoreCase = true))
+    }
+
     @Test
     fun patchReplacesModeledValuesAndPreservesForeignPropertiesAndParameters() {
         val original = """BEGIN:VCARD

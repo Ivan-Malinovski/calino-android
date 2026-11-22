@@ -209,6 +209,14 @@ class CalinoContainer private constructor(context: Context) {
         ),
         pendingStore = pendingChangeStore,
         trash = FileTrashStore(File(application.filesDir, "caldav-trash.json.gz")),
+        // A device with no network should not make the person wait for a socket
+        // to time out before their entry appears: the write is queued at once.
+        // "Active network" rather than "validated internet" on purpose — a local
+        // or tailnet-only calendar server is perfectly reachable without one.
+        networkAvailable = {
+            application.getSystemService(android.net.ConnectivityManager::class.java)
+                ?.activeNetwork != null
+        },
     )
 
     private val connections = CalDavConnectionManager(

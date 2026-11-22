@@ -71,6 +71,7 @@ class CalDavRepositoryTest {
         cache: CalendarCache = CalendarCache.None,
         windowMonths: Long = CalDavRepository.DefaultWindowMonths,
         pendingStore: PendingChangeStore? = null,
+        networkAvailable: () -> Boolean = { true },
     ) = CalDavRepository(
         fetcher = CalDavFetcher(DavHttp()),
         scope = scope,
@@ -79,6 +80,7 @@ class CalDavRepositoryTest {
         today = { LocalDate.of(2026, 9, 8) },
         windowMonths = windowMonths,
         pendingStore = pendingStore,
+        networkAvailable = networkAvailable,
     )
 
     /** A cache held in memory, so the repository's use of it is observable. */
@@ -544,6 +546,38 @@ END:VCALENDAR
         val old = puts.single { it.precondition != "*" }
         assertTrue("the old series is cut short", old.body.contains("UNTIL="))
         assertEquals("the new series is written first", "*", puts.first().precondition)
+    }
+
+    /**
+     * Issue #28, problem 1: an offline save must not wait for the server. With
+     * no network the write is prepared and queued without opening a socket, so
+     * the local record and the confirmation land at once.
+     */
+    @Test
+    fun `an offline save is queued without contacting the server at all`() = runBlocking {
+        val queueFile = java.io.File.createTempFile("calino-offline-queue", ".json").also { it.deleteOnExit() }
+        val store = FilePendingChangeStore(queueFile)
+        val repository = repository(FakeCache(), pendingStore = store, networkAvailable = { false })
+        val puts = serveRecurringRecordingPuts()
+        repository.setSources(listOf(source(calendar("/dav.php/calendars/test-user/mail_events/"))))
+        repository.awaitSync()
+
+        val saved = repository.addTask(NewTask("Offline task", LocalDate.of(2026, 9, 8)))
+
+        assertTrue("write result: $saved", saved is WriteResult.Queued)
+        assertEquals("no PUT may be attempted while offline: ${puts.map { it.path }}", 0, puts.size)
+        val queued = store.snapshot()
+        val created = queued.filter { it.type == PendingChangeType.CREATE && it.component == "VTODO" }
+        assertEquals("one queued task create: $queued", 1, created.size)
+        assertTrue(
+            "the prepared payload travels with the queue entry: ${created.single().data}",
+            created.single().data.orEmpty().contains("Offline task"),
+        )
+        assertEquals(
+            "the entry is visible locally straight away",
+            "Offline task",
+            repository.tasks().first { it.title == "Offline task" }.title,
+        )
     }
 
     @Test

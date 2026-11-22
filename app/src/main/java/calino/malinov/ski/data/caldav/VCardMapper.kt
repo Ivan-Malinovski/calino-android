@@ -73,7 +73,12 @@ class VCardMapper {
         val phones = card.telephoneNumbers.map { property ->
             val label = labels[property.group?.lowercase(Locale.US)]
             ContactPhone(
-                value = property.text.orEmpty().trim(),
+                // Nextcloud stores numbers as `VALUE=uri:tel:+45…`, where ez-vcard
+                // leaves `text` null and puts the number in `uri`. Reading only
+                // `text` dropped those numbers, and a dropped number is worse than
+                // a badly formatted one: the next write removes it from the card.
+                value = property.text?.trim().orEmpty()
+                    .ifEmpty { property.uri?.toString()?.let(::plainPhoneNumber).orEmpty() },
                 type = phoneTypeOf(property.types.map { it.value } + label),
                 isPrimary = isPrimary(property.pref, property.types.map { it.value }),
             )

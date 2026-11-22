@@ -229,6 +229,16 @@ class CalDavRepository(
     private val pendingStore: PendingChangeStore? = null,
     /** Deleted resources kept on the device so Undo and "Recently deleted" can bring them back. */
     private val trash: TrashStore = InMemoryTrashStore(),
+    /**
+     * Whether a write should try the server at all.
+     *
+     * The device knows when it has no network; asking it first is what keeps an
+     * offline save instant. Attempting the request anyway means the person waits
+     * for a DNS lookup or a socket timeout before their entry appears, which is
+     * what made adding a task in airplane mode feel slow. Defaults to "yes" so a
+     * test without a network stack behaves like one online.
+     */
+    private val networkAvailable: () -> Boolean = { true },
 ) : CalinoRepository {
 
     private var windowMonths: Long = windowMonths
@@ -2812,12 +2822,23 @@ class CalDavRepository(
         var requestedEtag = etag
         var prepared: PreparedCalendarWrite? = null
         var preparedBaseData: String? = null
-        var outcome = attemptWrite(source.calendar.url) {
+        fun prepareWrite(): PreparedCalendarWrite =
             prepare(requestedEtag).also {
                 prepared = it
                 preparedBaseData = cachedCalendarBase(source, it)
             }
-                .let { writer.putPrepared(source.calendar, source.credentials, it) }
+        var outcome: Result<WrittenCalendarResource> = if (networkAvailable()) {
+            attemptWrite(source.calendar.url) {
+                writer.putPrepared(source.calendar, source.credentials, prepareWrite())
+            }
+        } else {
+            // Offline: build the payload a write would have sent and hand it to
+            // the queue. No socket is opened, so the local record and the pill's
+            // confirmation land at once; the queue carries it to the server.
+            runCatching { prepareWrite() }
+                .exceptionOrNull()
+                ?.let { Result.failure(it) }
+                ?: Result.failure(OfflineWriteException())
         }
         var error = outcome.exceptionOrNull()
 
@@ -3213,7 +3234,7 @@ class CalDavRepository(
         var requestedEtag = contact.etag
         var prepared: PreparedCardWrite? = null
         var preparedBaseData: String? = null
-        var outcome = attemptWrite(source.addressBook.url) {
+        fun prepareWrite(): PreparedCardWrite =
             cardWriter.prepareContact(
                 source.addressBook,
                 contact.copy(uid = uid, etag = requestedEtag),
@@ -3221,7 +3242,17 @@ class CalDavRepository(
                 prepared = it
                 preparedBaseData = cachedCardBase(source, it)
             }
-                .let { cardWriter.putPrepared(source.addressBook, source.credentials, it) }
+        var outcome: Result<CardResource> = if (networkAvailable()) {
+            attemptWrite(source.addressBook.url) {
+                cardWriter.putPrepared(source.addressBook, source.credentials, prepareWrite())
+            }
+        } else {
+            // As for calendars: with no network the card is queued from the
+            // payload a write would have sent, without waiting on a socket.
+            runCatching { prepareWrite() }
+                .exceptionOrNull()
+                ?.let { Result.failure(it) }
+                ?: Result.failure(OfflineWriteException())
         }
         var error = outcome.exceptionOrNull()
         if (error != null && classifyWriteError(error, changeType).disposition == WriteDisposition.StaleEtag) {

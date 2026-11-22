@@ -71,7 +71,12 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
             baseUrl = base,
             principalUrl = principal,
             homeSetUrl = home,
-            calendars = listCalendars(home, credentials),
+            // What the person pointed at comes first. A calendar shared with
+            // them usually lives *outside* their own calendar-home, and the walk
+            // above only ever lists that home -- so adding an account by the
+            // shared collection's URL used to connect and then quietly present
+            // the person's own calendars instead.
+            calendars = collectionsAt(enteredUrl, credentials) ?: listCalendars(home, credentials),
             calendarUserAddresses = scheduling.first,
             autoSchedule = scheduling.second,
         )
@@ -123,6 +128,42 @@ class CalDavDiscovery(private val http: DavHttp = DavHttp()) : CalDavClient {
         // opinion; treat it as unsupported rather than as the calendar root.
         if (landed.contains("/.well-known/")) return null
         return stripTrailingSlash(landed)
+    }
+
+    /**
+     * The collections at exactly the URL that was entered: the URL itself when
+     * it is a calendar, or the calendars directly inside it when it is a folder
+     * of them (".../shared-folder/" as well as ".../shared-folder/team/").
+     *
+     * Null means there is nothing calendar-shaped here, and discovery falls back
+     * to the principal's calendar-home as it always did. Anything that goes
+     * wrong is also a null: a server that dislikes PROPFIND at this depth should
+     * not lose the person their account.
+     */
+    private suspend fun collectionsAt(
+        enteredUrl: String,
+        credentials: DavCredentials,
+    ): List<DiscoveredCalendar>? {
+        val depthZero = runCatching {
+            propfind(enteredUrl, credentials, depth = "0", body = PropfindCalendars)
+        }.getOrNull()
+        if (depthZero == null || !depthZero.isMultiStatus) return null
+        val root = DavXml.parse(depthZero.body) ?: return null
+        DavXml.elements(root, DavNs.Dav, "response")
+            .mapNotNull { parseCalendarResponse(it, enteredUrl) }
+            .firstOrNull()
+            ?.let { return listOf(it) }
+
+        val depthOne = runCatching {
+            propfind(enteredUrl, credentials, depth = "1", body = PropfindCalendars)
+        }.getOrNull()
+        if (depthOne == null || !depthOne.isMultiStatus) return null
+        val childRoot = DavXml.parse(depthOne.body) ?: return null
+        val target = stripTrailingSlash(enteredUrl)
+        val children = DavXml.elements(childRoot, DavNs.Dav, "response")
+            .mapNotNull { parseCalendarResponse(it, enteredUrl) }
+            .filterNot { stripTrailingSlash(it.url) == target }
+        return children.takeIf { it.isNotEmpty() }
     }
 
     // --- step 2 and 3: principal, then calendar home --------------------------
