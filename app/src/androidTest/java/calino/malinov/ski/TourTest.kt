@@ -104,6 +104,21 @@ class TourTest : CalinoUiTest() {
         assertFalse("the tour was offered again after finishing", compose.hasDescriptionContaining(OfferMessage))
     }
 
+    /**
+     * The question does not travel with the person. Leaving the calendar before
+     * answering takes the offer out of the lane, so it cannot hide the label of
+     * the page they moved to.
+     */
+    @Test fun leavingTheCalendarWithdrawsTheUnansweredOffer() {
+        awaitOffer()
+
+        compose.openRoute("Tasks")
+        compose.waitForIdle()
+        compose.waitUntil(WaitMillis) { !compose.hasDescriptionContaining(OfferMessage) }
+        // Tasks' own pill is back, and nothing asked the question again there.
+        compose.onNodeWithContentDescription("New task. Swipe up for views").assertIsDisplayed()
+    }
+
     private fun awaitOffer() {
         compose.waitUntil(OfferTimeoutMillis) { compose.hasDescribedNode(OfferAction) }
     }

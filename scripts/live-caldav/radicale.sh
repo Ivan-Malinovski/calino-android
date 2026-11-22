@@ -150,10 +150,8 @@ ensure_address_book() {
 # idempotently, with dates relative to today so the fetch window always covers
 # them.
 ensure_fixtures() {
-    local day0 day1 day2 base
+    local day0 base
     day0="$(date -u +%Y%m%d)"
-    day1="$(date -u -d '+7 days' +%Y%m%d 2>/dev/null || date -u -v+7d +%Y%m%d)"
-    day2="$(date -u -d '+14 days' +%Y%m%d 2>/dev/null || date -u -v+14d +%Y%m%d)"
     base="http://127.0.0.1:$PORT/$USER_NAME"
     curl -s -o /dev/null -u "$USER_NAME:$PASSWORD" -X PUT \
         -H 'Content-Type: text/calendar' --data-binary \
@@ -178,9 +176,6 @@ FN:Live Contact
 N:Contact;Live;;;
 EMAIL:live.contact@example.com
 END:VCARD" "$base/contacts/live-contact.vcf"
-    # A series whose every occurrence fell outside the window would look like no
-    # recurrence at all, so the seed is rewritten whenever it ages out.
-    : "${day1}${day2}" >/dev/null
 }
 
 reset_collections() {

@@ -3834,28 +3834,49 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // Answering it is the swipe away (decline) or Start. Nothing the tour does
     // writes data: the editor a step opens is closed without saving.
     val tourLane = LocalCalinoPillLane.current
-    // Offered on any root page, not only the calendar: a person whose saved view
-    // is Range or Agenda would otherwise never be asked. Starting it goes to the
-    // calendar first, because that is the surface every gesture it teaches lives
-    // on.
-    val tourQuiet = route in listOf(PockRoute.Day, PockRoute.Year, PockRoute.Range, PockRoute.Agenda, PockRoute.Tasks) &&
-        !showDayModal && !sidebarVisible && !searchVisible &&
-        !journalReviewVisible && !tour.running &&
-        snapshot.sync !is calino.malinov.ski.data.repository.SyncState.Loading
-    LaunchedEffect(tourQuiet, preferences.tourState) {
-        if (!tourQuiet || preferences.tourState != calino.malinov.ski.state.CalinoTourState.NotOffered) return@LaunchedEffect
+    // The offer belongs to the calendar, because that is the surface every
+    // gesture it teaches lives on. "Quiet" is about the page, not the lane: the
+    // lane check happens once, when the offer is about to be shown, because
+    // showing it makes the lane busy by definition.
+    val tourOnCalendar = route == PockRoute.Day &&
+        !showDayModal && !sidebarVisible && !searchVisible && !journalReviewVisible
+    var tourOffer by remember { mutableStateOf<calino.malinov.ski.ui.components.PillUndoState?>(null) }
+    LaunchedEffect(tourOnCalendar, preferences.tourState) {
+        if (!tourOnCalendar || preferences.tourState != calino.malinov.ski.state.CalinoTourState.NotOffered) return@LaunchedEffect
         delay(1800)
+        // A standing undo offer is newer news than a question, and a write in
+        // flight owns the label; ask again later rather than over the top of it.
+        if (tour.running || tourLane.undo != null ||
+            snapshot.sync is calino.malinov.ski.data.repository.SyncState.Loading
+        ) {
+            return@LaunchedEffect
+        }
         preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Offered)
-        tourLane.showOffer(
+        tourOffer = tourLane.showOffer(
             message = textContext.getString(R.string.tour_offer_message),
             actionLabel = textContext.getString(R.string.tour_offer_action),
             icon = CalinoIcon.Calendar,
             onAccept = {
-                navigateRoot(PockRoute.Day)
+                tourOffer = null
                 tour.start(calino.malinov.ski.state.tourSteps(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled))
             },
-            onDecline = { preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Declined) },
+            onDecline = {
+                tourOffer = null
+                preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Declined)
+            },
         )
+    }
+    // Leaving the page takes the question with us rather than parking it in the
+    // lane of whatever page the person moved to, where it would hide that page's
+    // own label ("New task" on Tasks, "Add on ..." on Agenda) until answered. It
+    // is still written as offered, so it is not asked a second time; Settings can
+    // replay it.
+    LaunchedEffect(tourOnCalendar, tourOffer) {
+        if (tourOnCalendar) return@LaunchedEffect
+        tourOffer?.let { offer ->
+            tourLane.withdraw(offer)
+            tourOffer = null
+        }
     }
     LaunchedEffect(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled) {
         tour.refreshSteps(calino.malinov.ski.state.tourSteps(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled))
@@ -3937,9 +3958,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // web's command palette carries, named the way each surface is named in the
     // sidebar so a typed word lands somewhere the person recognises.
     val searchCommands = buildList {
-        add(CalinoSearchCommand("command:new-event", textContext.getString(R.string.host_new_event)))
-        add(CalinoSearchCommand("command:new-task", textContext.getString(R.string.ed_new_task)))
-        add(CalinoSearchCommand("command:sync", textContext.getString(R.string.set_sync_now)))
+        add(CalinoSearchCommand("command:new-event", textContext.getString(R.string.host_new_event), pockRouteIcon(PockRoute.Day)))
+        add(CalinoSearchCommand("command:new-task", textContext.getString(R.string.ed_new_task), pockRouteIcon(PockRoute.Tasks)))
+        add(CalinoSearchCommand("command:sync", textContext.getString(R.string.set_sync_now), calino.malinov.ski.ui.components.CalinoIcons.Refresh))
         searchRoutes
             .filter { it != PockRoute.Journal && it != PockRoute.Contacts }
             .forEach { route ->
@@ -3947,6 +3968,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     CalinoSearchCommand(
                         "route:${pockRouteKey(route)}",
                         textContext.getString(R.string.cal_search_go_to, pockRouteLabel(route)),
+                        // The glyph the sidebar gives that surface, so the sheet
+                        // and the sidebar name the same place the same way.
+                        icon = pockRouteIcon(route),
                     ),
                 )
             }
@@ -3955,6 +3979,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 CalinoSearchCommand(
                     "route:${pockRouteKey(PockRoute.Journal)}",
                     textContext.getString(R.string.cal_search_go_to, pockRouteLabel(PockRoute.Journal)),
+                    pockRouteIcon(PockRoute.Journal),
                 ),
             )
         }
@@ -3963,6 +3988,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 CalinoSearchCommand(
                     "route:${pockRouteKey(PockRoute.Contacts)}",
                     textContext.getString(R.string.cal_search_go_to, pockRouteLabel(PockRoute.Contacts)),
+                    pockRouteIcon(PockRoute.Contacts),
                 ),
             )
         }

@@ -107,6 +107,7 @@ import kotlinx.coroutines.flow.collect
 data class CalinoSearchCommand(
     val id: String,
     val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector = CalinoIcons.Plus,
     val description: String? = null,
 )
 
@@ -846,7 +847,7 @@ private fun SearchCommandRow(command: CalinoSearchCommand, onClick: () -> Unit) 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Icon(CalinoIcons.Plus, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(16.dp))
+        Icon(command.icon, contentDescription = null, tint = CalinoColors.Ink3, modifier = Modifier.size(16.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 command.label,
