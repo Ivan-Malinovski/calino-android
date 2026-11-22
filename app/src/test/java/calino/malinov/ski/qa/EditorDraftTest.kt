@@ -239,6 +239,38 @@ class EditorDraftTest {
     }
 
     @Test
+    fun aNewTask_hasNoDueDateUntilOneIsGiven() {
+        val draft = blankEditorDraft(PocQuickAddKind.Task, fixtureDate, "Call Alex")
+        assertEquals(null, draft.toNewTask().due)
+
+        // Picking a day (or a time) is what gives it one.
+        assertEquals(fixtureDate, draft.copy(taskDueChanged = true).toNewTask().due)
+    }
+
+    @Test
+    fun aNewTask_takesItsDueDateFromTheLineItWasTypedAs() {
+        assertEquals(fixtureDate.plusDays(1),
+            blankEditorDraft(PocQuickAddKind.Task, fixtureDate, "Call Alex tomorrow").toNewTask().due)
+        // "Today" is a stated day even though it equals the seeded one.
+        assertEquals(fixtureDate,
+            blankEditorDraft(PocQuickAddKind.Task, fixtureDate, "Call Alex today").toNewTask().due)
+        assertEquals(fixtureDate,
+            blankEditorDraft(PocQuickAddKind.Task, fixtureDate, "Call Alex at 17:00").toNewTask().due)
+
+        // Deleting the day word takes the due date with it again.
+        val typed = blankEditorDraft(PocQuickAddKind.Task, fixtureDate, "Call Alex tomorrow")
+        assertEquals(null, typed.applyInput("Call Alex", fixtureDate).toNewTask().due)
+    }
+
+    @Test
+    fun aNewTask_keepsADueDateThePersonPickedWhileTyping() {
+        val picked = blankEditorDraft(PocQuickAddKind.Task, fixtureDate, "Call Alex")
+            .copy(date = fixtureDate.plusDays(4), taskDueChanged = true,
+                touched = setOf(EditorField.Date))
+        assertEquals(fixtureDate.plusDays(4), picked.applyInput("Call Alexander", fixtureDate).toNewTask().due)
+    }
+
+    @Test
     fun editingAnUndatedTask_doesNotInventADueDate() {
         val task = CalTask(id = "undated", title = "Call Alex", color = 1L,
             due = null, reminder = Reminder(0, absoluteAt = java.time.Instant.parse("2026-05-20T12:00:00Z")))

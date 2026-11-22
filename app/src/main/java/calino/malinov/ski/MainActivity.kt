@@ -2542,7 +2542,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                             else {
                                 openQuickAdd(QuickAddKind.Task, PocReturnTarget.Range, morphFromAddPill = true, date = first)
                                 externalDraft = blankEditorDraft(kind = PocQuickAddKind.Task, date = last, title = title)
-                                    .copy(taskStartDate = first, calendarId = calendar.id, color = calendar.color, allDay = true,
+                                    .copy(taskStartDate = first, taskDueAbsent = false, calendarId = calendar.id, color = calendar.color, allDay = true,
                                         touched = setOf(calino.malinov.ski.data.model.EditorField.Date, calino.malinov.ski.data.model.EditorField.Time))
                             }
                         },

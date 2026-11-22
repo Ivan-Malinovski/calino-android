@@ -22,6 +22,8 @@ data class ParsedQuickAdd(
     val location: String? = null,
     val recurrence: String? = null,
     val body: String = title,
+    /** True when the line named a day; false when [date] is only the fallback. */
+    val dateStated: Boolean = false,
 )
 
 fun CalEvent.toQuickAddDraft(): ParsedQuickAdd = ParsedQuickAdd(
@@ -61,7 +63,8 @@ fun parseQuickAdd(kind: PocQuickAddKind, input: String, baseDate: LocalDate): Pa
     // series repeats on is also the day it starts ("gym every monday" is next
     // Monday), and the date reader needs to still see that word.
     val recurrence = findRecurrence(text, spokenKind)
-    val date = readDate(text, spokenKind, baseDate)
+    val statedDate = readDate(text, spokenKind, baseDate)
+    val date = statedDate ?: baseDate
     recurrence?.let { text.erase(it.second) }
     val timeRange = readTimeRange(text) ?: readSingleTime(text)
     val explicitDuration = readDuration(text)
@@ -77,6 +80,7 @@ fun parseQuickAdd(kind: PocQuickAddKind, input: String, baseDate: LocalDate): Pa
         location = location,
         recurrence = recurrence?.first,
         body = if (spokenKind == PocQuickAddKind.Journal) raw else raw.trim(),
+        dateStated = statedDate != null,
     )
 }
 
@@ -182,11 +186,11 @@ private fun monthFor(value: String): Month? {
 }
 
 /** Reads the first date phrase the line offers, and erases it. */
-private fun readDate(text: MaskedText, kind: PocQuickAddKind, baseDate: LocalDate): LocalDate {
-    val phrase = findDatePhrase(text.text(), baseDate) ?: return baseDate
+private fun readDate(text: MaskedText, kind: PocQuickAddKind, baseDate: LocalDate): LocalDate? {
+    val phrase = findDatePhrase(text.text(), baseDate) ?: return null
     // A journal is prose: "A clear Monday" is what the person wrote, not a
     // booking for next Monday, so a bare weekday is left in the entry.
-    if (kind == PocQuickAddKind.Journal && BareWeekday.matches(phrase.phrase)) return baseDate
+    if (kind == PocQuickAddKind.Journal && BareWeekday.matches(phrase.phrase)) return null
     if (!phrase.alsoATime) text.erase(phrase.range)
     return phrase.date
 }

@@ -294,6 +294,11 @@ fun EditorDraft.applyInput(
         rawInput = input,
         title = if (input.isBlank()) "" else parsed.title,
         date = if (EditorField.Date in touched) date else parsed.date,
+        // A new task has no due date until the person gives one, by picking it
+        // or by writing "friday" or "at 5pm". The seeded day is only where the
+        // picker opens. Saved tasks and hand-set dates keep what they have.
+        taskDueAbsent = if (isEditing || taskDueChanged || EditorField.Date in touched) taskDueAbsent
+        else !(parsed.dateStated || parsed.time != null),
         startTime = when {
             EditorField.Time in touched -> startTime
             kind == PocQuickAddKind.Event || kind == PocQuickAddKind.Task -> parsed.time
