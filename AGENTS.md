@@ -8,6 +8,14 @@ Before substantial work, read [`HANDOFF.md`](HANDOFF.md) for current behavior, a
 
 - [ ] Resume the authorized Bitwarden Secrets Manager migration for Asahi and Jankyboi. Read [the BWS handover](/home/ivan/reports/BWS-HANDOVER-2026-10-04.md) first: host projects and read-only machine accounts are created and tested, but no secrets are imported and no host integration is deployed. Reuse the recorded resources and follow the handover's resume steps. Keep credentials out of this repository.
 
+## Parity with the web app
+
+The Android app must stay at least 1:1 with the web app in features, feel and
+polish, and better where the platform allows. [`docs/web-parity.md`](docs/web-parity.md)
+is the checklist that claim is measured against: the view and feature mapping,
+the native extras, and the divergences that are deliberate. Add a row there when
+either app grows a surface, and say why when a difference is intentional.
+
 ## Scope and privacy
 
 - Keep the frozen May 2026 fixture contract. With no account connected, `FixtureRepository` remains the default.
