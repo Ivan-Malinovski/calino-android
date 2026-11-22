@@ -847,6 +847,14 @@ class ICalMapper(private val zone: ZoneId = ZoneId.systemDefault()) {
             body = vjournal.descriptions
                 .mapNotNull { it.value?.trim()?.takeIf(String::isNotEmpty) }
                 .joinToString("\n\n"),
+            // The web's journal tags are CATEGORIES on the VJOURNAL. One property
+            // may carry several comma-separated values, and a resource may carry
+            // more than one property, so both are flattened.
+            categories = vjournal.categories
+                .flatMap { it.values }
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .distinct(),
             uid = uid,
             href = href,
             etag = etag,

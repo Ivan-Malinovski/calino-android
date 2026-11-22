@@ -94,6 +94,7 @@ import calino.malinov.ski.ui.components.BottomDetailCard
 import calino.malinov.ski.ui.components.ImeResizeWhile
 import calino.malinov.ski.ui.components.imeOverlapPadding
 import calino.malinov.ski.ui.components.CalinoChip
+import calino.malinov.ski.ui.components.CategoryPicker
 import calino.malinov.ski.ui.components.CalinoColorSwatchRow
 import calino.malinov.ski.ui.components.CalinoSearchField
 import calino.malinov.ski.ui.components.CalinoToggleRow
@@ -380,7 +381,11 @@ fun EditorSurface(
                             pickStartTime = pickStartTime,
                             pickUntil = pickUntil,
                         )
-                        else -> JournalEditorFields(draft) { body -> draft = draft.copy(body = body) }
+                        else -> JournalEditorFields(
+                            draft = draft,
+                            categories = (categories + draft.categories).distinct(),
+                            onDraft = { draft = it },
+                        )
                     }
                         }
                     }
@@ -728,7 +733,12 @@ private fun TaskEditorFields(
     }
     EditorDivider()
     if (categories.isNotEmpty()) {
-        CategoriesSection(draft, categories, single = true, onDraft = onDraft)
+        CategoryPicker(
+            categories = categories,
+            isSelected = { it in draft.categories },
+            single = true,
+            onToggle = { onDraft(draft.withCategoryToggled(it, true)) },
+        )
         EditorDivider()
     }
     EditorValueRow(CalinoIcon.Bell, stringResource(R.string.ed_editor_reminder), reminderSummary(draft.reminders, context, LocalTimeFormat, LocalCalinoLocale), onRemindersOpen)
@@ -744,14 +754,18 @@ private fun TaskEditorFields(
 }
 
 @Composable
-private fun JournalEditorFields(draft: EditorDraft, onBody: (String) -> Unit) {
+private fun JournalEditorFields(
+    draft: EditorDraft,
+    categories: List<String>,
+    onDraft: (EditorDraft) -> Unit,
+) {
     val bodyDescription = stringResource(R.string.ed_journal_body_semantics)
     Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.Top) {
         CalinoIcon(CalinoIcon.Note, tint = CalinoColors.Ink3, modifier = Modifier.size(20.dp), contentDescription = null)
         Spacer(Modifier.size(14.dp))
         BasicTextField(
             value = draft.body,
-            onValueChange = onBody,
+            onValueChange = { onDraft(draft.copy(body = it)) },
             modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp).semantics { contentDescription = bodyDescription },
             textStyle = CalinoTypography.bodyLarge.copy(color = CalinoColors.Ink),
             cursorBrush = SolidColor(CalinoColors.Accent),
@@ -766,6 +780,17 @@ private fun JournalEditorFields(draft: EditorDraft, onBody: (String) -> Unit) {
         )
     }
     EditorDivider()
+    if (categories.isNotEmpty()) {
+        // The web's journal entries carry tags; the same chips the event editor
+        // uses, multi-select here because an entry can belong to several.
+        CategoryPicker(
+            categories = categories,
+            isSelected = { it in draft.categories },
+            single = false,
+            onToggle = { onDraft(draft.withCategoryToggled(it, false)) },
+        )
+        EditorDivider()
+    }
 }
 
 @Composable
@@ -1391,32 +1416,6 @@ private fun RecurrenceScopeSelector(draft: EditorDraft, onDraft: (EditorDraft) -
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CategoriesSection(
-    draft: EditorDraft,
-    categories: List<String>,
-    single: Boolean,
-    onDraft: (EditorDraft) -> Unit,
-) {
-    val label = if (single) stringResource(R.string.ed_editor_category) else stringResource(R.string.ed_editor_categories)
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        EditorLabel(label)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            categories.forEach { category ->
-                val on = category in draft.categories
-                CalinoChip(
-                    text = category,
-                    selected = on,
-                    description = if (single) stringResource(R.string.ed_editor_choose_category) else stringResource(R.string.ed_editor_toggle_category),
-                    semanticsRole = if (single) Role.RadioButton else Role.Checkbox,
-                    onClick = { onDraft(draft.withCategoryToggled(category, single)) },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
 private fun MoreSection(
     draft: EditorDraft,
     inlineAttachments: Boolean,
@@ -1465,7 +1464,14 @@ private fun MoreSection(
                         )
                     }
                 }
-                if (categories.isNotEmpty()) CategoriesSection(draft, categories, single = false, onDraft = onDraft)
+                if (categories.isNotEmpty()) {
+                    CategoryPicker(
+                        categories = categories,
+                        isSelected = { it in draft.categories },
+                        single = false,
+                        onToggle = { onDraft(draft.withCategoryToggled(it, false)) },
+                    )
+                }
                 if (relatedCandidates.isNotEmpty()) {
                     EditorLabel(stringResource(R.string.ed_editor_related_to))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {

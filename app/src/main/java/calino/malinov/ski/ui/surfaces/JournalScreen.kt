@@ -46,6 +46,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -97,6 +99,7 @@ import calino.malinov.ski.design.CalinoShapes
 import calino.malinov.ski.design.CalinoTypography
 import calino.malinov.ski.ui.components.CalinoIcon
 import calino.malinov.ski.ui.components.CalinoIcons
+import calino.malinov.ski.ui.components.CategoryPicker
 import calino.malinov.ski.ui.components.CompactSegmentedControl
 import calino.malinov.ski.ui.components.AdaptiveDetailCard
 import calino.malinov.ski.ui.components.BottomDetailOverlay
@@ -148,6 +151,8 @@ fun JournalSurface(
     onOpenMenu: (() -> Unit)? = null,
     onOpenSearch: (() -> Unit)? = null,
     startEntryRequest: Int = 0,
+    /** Categories the calendar already knows, offered as chips beside the entry's own. */
+    knownCategories: List<String> = emptyList(),
 ) {
     val monthFormat = localizedDateFormatter("MMMM yyyy")
     val journalSearchDescription = stringResource(R.string.ed_journal_search)
@@ -319,6 +324,7 @@ fun JournalSurface(
             JournalEditor(
                 entry = currentEntry,
                 entries = sorted,
+                knownCategories = knownCategories,
                 onNavigate = { selectEditor(it.id) },
                 onDismiss = { closeEntry(currentEntry) },
                 // A draft's date lives in the host, which rebuilds the
@@ -614,7 +620,8 @@ private fun JournalMonthRule(month: YearMonth, count: Int, level: Int) {
 
 @Composable
 private fun JournalCard(entry: JournalEntry, mostRecent: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val dayName = entry.date.dayOfWeek.getDisplayName(TextStyle.SHORT, LocalCalinoLocale)
+    val locale = LocalCalinoLocale
+    val dayName = entry.date.dayOfWeek.getDisplayName(TextStyle.SHORT, locale)
     val title = entry.title.ifBlank { stringResource(R.string.ed_journal_untitled_note) }
     val openDescription = stringResource(R.string.ed_journal_open_entry, title)
     Box(
@@ -640,6 +647,28 @@ private fun JournalCard(entry: JournalEntry, mostRecent: Boolean, modifier: Modi
             Column(Modifier.weight(1f).padding(start = 13.dp)) {
                 Text(title, style = CalinoTypography.titleSmall.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(entry.body, style = CalinoTypography.bodyMedium, color = CalinoColors.Ink2, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                if (entry.categories.isNotEmpty()) {
+                    // The web shows its journal tags as chips under the excerpt.
+                    Row(
+                        Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        entry.categories.take(3).forEach { category ->
+                            Text(
+                                category.uppercase(locale),
+                                style = CalinoTypography.labelSmall,
+                                color = CalinoColors.Ink3,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(CalinoColors.Ink.copy(alpha = .06f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -666,6 +695,7 @@ private val EpochDaySaver = androidx.compose.runtime.saveable.Saver<LocalDate, L
 private fun JournalEditor(
     entry: JournalEntry,
     entries: List<JournalEntry>,
+    knownCategories: List<String>,
     onNavigate: (JournalEntry) -> Unit,
     onDismiss: () -> Unit,
     onSave: suspend (JournalEntry) -> Boolean,
@@ -680,6 +710,12 @@ private fun JournalEditor(
     // from it; an existing entry's date is editor state until it is saved.
     var editedDate by rememberSaveable(entry.id, stateSaver = EpochDaySaver) { mutableStateOf(entry.date) }
     val date = if (isNewEntry) entry.date else editedDate
+    // The web's journal tags: chips the person toggles, kept as editor state so
+    // a rotation does not lose them.
+    val categories = rememberSaveable(
+        entry.id,
+        saver = listSaver(save = { it.toList() }, restore = { it.toMutableStateList() }),
+    ) { entry.categories.toMutableStateList() }
     var isEditing by rememberSaveable(entry.id) { mutableStateOf(isNewEntry) }
     var editorMode by rememberSaveable(entry.id) { mutableStateOf(0) }
     var confirmDelete by rememberSaveable(entry.id) { mutableStateOf(false) }
@@ -689,7 +725,8 @@ private fun JournalEditor(
     // Dismissal handlers outlive the composition that installed their gesture
     // stream; read the latest comparison when the person actually releases.
     val dirty by androidx.compose.runtime.rememberUpdatedState(
-        title != entry.title || body.text != entry.body || date != entry.date
+        title != entry.title || body.text != entry.body || date != entry.date ||
+            categories.toList() != entry.categories
     )
     val canSave = title.isNotBlank() || body.text.isNotBlank()
     val focusTitle = isNewEntry
@@ -796,7 +833,12 @@ private fun JournalEditor(
                     if (isEditing && !saving) {
                         saving = true
                         showDiscard = false
-                        val updated = entry.copy(date = date, title = title.trim(), body = body.text.trim())
+                        val updated = entry.copy(
+                            date = date,
+                            title = title.trim(),
+                            body = body.text.trim(),
+                            categories = categories.toList(),
+                        )
                         saveScope.launch {
                             try {
                                 if (onSave(updated)) closeAnimated(onSaved)
@@ -877,6 +919,8 @@ private fun JournalEditor(
                             onDateChange = { picked ->
                                 if (isNewEntry) onDraftDateChange(picked) else editedDate = picked
                             },
+                            categories = categories,
+                            knownCategories = knownCategories,
                             wordCount = wordCount,
                             isEditing = isEditing,
                             editorMode = editorMode,
@@ -900,6 +944,8 @@ private fun ColumnScope.JournalEditorContent(
     onTitleChange: (String) -> Unit,
     body: TextFieldValue,
     onBodyChange: (TextFieldValue) -> Unit,
+    categories: androidx.compose.runtime.snapshots.SnapshotStateList<String>,
+    knownCategories: List<String>,
     date: LocalDate,
     onDateChange: (LocalDate) -> Unit,
     wordCount: Int,
@@ -926,6 +972,8 @@ private fun ColumnScope.JournalEditorContent(
                 onTitleChange = onTitleChange,
                 body = body,
                 onBodyChange = onBodyChange,
+                categories = categories,
+                knownCategories = knownCategories,
                 date = date,
                 onDateChange = onDateChange,
                 wordCount = wordCount,
@@ -955,6 +1003,8 @@ private fun JournalEditPane(
     onTitleChange: (String) -> Unit,
     body: TextFieldValue,
     onBodyChange: (TextFieldValue) -> Unit,
+    categories: androidx.compose.runtime.snapshots.SnapshotStateList<String>,
+    knownCategories: List<String>,
     date: LocalDate,
     onDateChange: (LocalDate) -> Unit,
     wordCount: Int,
@@ -1019,6 +1069,21 @@ private fun JournalEditPane(
                         onSelected = onModeChange,
                         semanticLabel = stringResource(R.string.ed_journal_editor_mode),
                         maxControlWidth = 168.dp,
+                    )
+                }
+            }
+            if (knownCategories.isNotEmpty() || categories.isNotEmpty()) {
+                // Above the body rather than under it: the tags are part of what
+                // the entry *is*, and at the bottom of a 260 dp note they would
+                // need scrolling to find.
+                item(key = "editor-categories") {
+                    CategoryPicker(
+                        categories = (knownCategories + categories).distinct(),
+                        isSelected = { it in categories },
+                        single = false,
+                        onToggle = { category ->
+                            if (category in categories) categories.remove(category) else categories.add(category)
+                        },
                     )
                 }
             }
@@ -1133,6 +1198,30 @@ private fun JournalReadPane(
                     Text(pluralStringResource(R.plurals.ed_journal_words, wordCount, wordCount).uppercase(LocalCalinoLocale), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
                     Box(Modifier.padding(horizontal = 8.dp).size(3.dp).clip(CircleShape).background(CalinoColors.Ink3))
                     Text(pluralStringResource(R.plurals.ed_journal_minutes_read, readingMinutes, readingMinutes).uppercase(LocalCalinoLocale), style = CalinoTypography.labelSmall, color = CalinoColors.Ink3)
+                }
+            }
+        }
+        if (entry.categories.isNotEmpty()) {
+            // Tags read as chips here too: the web's reader carries them, and
+            // they are the only record of what the entry belongs to.
+            item(key = "read-categories") {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    entry.categories.forEach { category ->
+                        Text(
+                            category.uppercase(LocalCalinoLocale),
+                            style = CalinoTypography.labelSmall,
+                            color = CalinoColors.Ink3,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(CalinoColors.Ink.copy(alpha = .06f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
         }

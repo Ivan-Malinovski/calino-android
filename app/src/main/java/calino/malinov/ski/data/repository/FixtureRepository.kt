@@ -508,6 +508,7 @@ class FixtureRepository : CalinoRepository {
             date = input.date,
             title = input.title,
             body = input.body,
+            categories = input.categories.map(String::trim).filter(String::isNotEmpty).distinct(),
         )
         update { it.copy(journals = it.journals + journal) }
         return WriteResult.Applied(journal)
@@ -515,7 +516,13 @@ class FixtureRepository : CalinoRepository {
 
     override suspend fun updateJournal(id: String, input: NewJournal): WriteResult<JournalEntry> {
         snapshot().journals.firstOrNull { it.id == id } ?: error("Unknown fixture journal: $id")
-        val journal = JournalEntry(id = id, date = input.date, title = input.title, body = input.body)
+        val journal = JournalEntry(
+            id = id,
+            date = input.date,
+            title = input.title,
+            body = input.body,
+            categories = input.categories.map(String::trim).filter(String::isNotEmpty).distinct(),
+        )
         update { current -> current.copy(journals = current.journals.map { if (it.id == id) journal else it }) }
         return WriteResult.Applied(journal)
     }
@@ -970,15 +977,21 @@ private fun fixtureRepeatingTask(
 }
 
 private fun fixtureJournals(): List<JournalEntry> {
-    fun entry(id: String, date: LocalDate, title: String, body: String) = JournalEntry(id, date, title, body)
+    fun entry(
+        id: String,
+        date: LocalDate,
+        title: String,
+        body: String,
+        categories: List<String> = emptyList(),
+    ) = JournalEntry(id, date, title, body, categories = categories)
     return listOf(
-        entry("journal-1", FixtureRepository.FixtureDate, "A clear Monday", "A small, useful beginning to the week."),
+        entry("journal-1", FixtureRepository.FixtureDate, "A clear Monday", "A small, useful beginning to the week.", listOf("Personal")),
         entry("journal-may-08", LocalDate.of(2026, 5, 8), "", "A quiet day to reset and notice what is working."),
-        entry("journal-may-15", LocalDate.of(2026, 5, 15), "Lunch with Mom", "Good food, familiar stories, and time away from the screen."),
-        entry("journal-may-16", LocalDate.of(2026, 5, 16), "Design Sprint — Day 1", "The first sketches made the problem feel smaller."),
-        entry("journal-may-22", LocalDate.of(2026, 5, 22), "Product Planning Workshop", "The team left with three decisions and one useful question."),
-        entry("journal-may-27", LocalDate.of(2026, 5, 27), "Brunch with Friends", "A sunny table and no rush to leave."),
-        entry("journal-may-30", LocalDate.of(2026, 5, 30), "Q1 Retrospective", "Keep the small rituals; remove the needless handoffs."),
+        entry("journal-may-15", LocalDate.of(2026, 5, 15), "Lunch with Mom", "Good food, familiar stories, and time away from the screen.", listOf("Personal")),
+        entry("journal-may-16", LocalDate.of(2026, 5, 16), "Design Sprint — Day 1", "The first sketches made the problem feel smaller.", listOf("Work", "Ideas")),
+        entry("journal-may-22", LocalDate.of(2026, 5, 22), "Product Planning Workshop", "The team left with three decisions and one useful question.", listOf("Work")),
+        entry("journal-may-27", LocalDate.of(2026, 5, 27), "Brunch with Friends", "A sunny table and no rush to leave.", listOf("Personal")),
+        entry("journal-may-30", LocalDate.of(2026, 5, 30), "Q1 Retrospective", "Keep the small rituals; remove the needless handoffs.", listOf("Work")),
     )
 }
 

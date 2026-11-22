@@ -250,6 +250,8 @@ data class JournalEntry(
     val date: LocalDate,
     val title: String,
     val body: String,
+    /** Categories, as the web's journal tags: unordered, trimmed, no duplicates. */
+    val categories: List<String> = emptyList(),
     /** iCalendar UID. Null for records created locally. */
     val uid: String? = null,
     /** Absolute CalDAV resource URL. Null for records created locally. */
@@ -334,4 +336,5 @@ data class NewJournal(
     val date: LocalDate,
     val title: String,
     val body: String,
+    val categories: List<String> = emptyList(),
 )

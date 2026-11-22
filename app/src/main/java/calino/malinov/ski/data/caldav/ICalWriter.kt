@@ -340,6 +340,10 @@ class ICalWriter(private val zone: ZoneId = ZoneId.systemDefault()) {
         vjournal.removeProperties(Description::class.java)
         entry.body.trim().takeIf(String::isNotEmpty)?.let { vjournal.addProperty(Description(it)) }
 
+        // Categories are the web's journal tags; an empty list clears the ones
+        // Calino can see, exactly as the event and task writers do.
+        vjournal.writeCategories(entry.categories)
+
         vjournal.stamp(now)
         return vjournal
     }

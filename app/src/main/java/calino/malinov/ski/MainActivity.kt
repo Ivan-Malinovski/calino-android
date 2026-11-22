@@ -2622,11 +2622,32 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     PockRoute.Journal -> JournalSurface(
                         entries = snapshot.journals,
                         newEntryDate = selectedDate,
+                        // The same category list the event and task editors offer,
+                        // so an entry can be tagged with what the calendar uses.
+                        knownCategories = remember(snapshot.categories, preferences.userCategories, preferences.autoCategoryRules) {
+                            (snapshot.categories + preferences.userCategories + preferences.autoCategoryRules.map { it.category })
+                                .distinct()
+                        },
                         onCreate = { entry ->
-                            performWrite(operation = { repository.addJournal(NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
+                            performWrite(
+                                operation = {
+                                    repository.addJournal(
+                                        NewJournal(entry.date, entry.title, entry.body, entry.categories),
+                                    )
+                                },
+                                indicate = PillWriteKind.Save,
+                            )
                         },
                         onUpdate = { entry ->
-                            performWrite(operation = { repository.updateJournal(entry.id, NewJournal(entry.date, entry.title, entry.body)) }, indicate = PillWriteKind.Save)
+                            performWrite(
+                                operation = {
+                                    repository.updateJournal(
+                                        entry.id,
+                                        NewJournal(entry.date, entry.title, entry.body, entry.categories),
+                                    )
+                                },
+                                indicate = PillWriteKind.Save,
+                            )
                         },
                         onDelete = { entry -> launchWrite(operation = { repository.deleteJournal(entry.id) }, indicate = PillWriteKind.Remove) { it?.let(::showUndo) } },
                         onEditingChanged = { editing ->

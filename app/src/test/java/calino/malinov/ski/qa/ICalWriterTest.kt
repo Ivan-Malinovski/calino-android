@@ -363,6 +363,40 @@ class ICalWriterTest {
         assertEquals(LocalDate.of(2026, 3, 5), back.date)
     }
 
+    @Test
+    fun `a journal entry keeps its categories through a write and read`() {
+        val entry = JournalEntry(
+            id = "j-2", date = LocalDate.of(2026, 3, 6),
+            title = "Retro", body = "Keep the small rituals.", uid = "j-2",
+            categories = listOf("Work", "Ideas"),
+        )
+        val ics = serialize(writer.writeJournal(entry, now = now))
+        assertTrue(ics, ics.contains("CATEGORIES:Work,Ideas"))
+
+        val back = reparse(ics).journals.single()
+        assertEquals(listOf("Work", "Ideas"), back.categories)
+    }
+
+    @Test
+    fun `a journal entry from another client keeps tags Calino can see`() {
+        // A VJOURNAL may carry more than one CATEGORIES property; both are read.
+        val ics = """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            PRODID:-//Other//EN
+            BEGIN:VJOURNAL
+            UID:j-3
+            DTSTART;VALUE=DATE:20260307
+            SUMMARY:Read elsewhere
+            CATEGORIES:Travel
+            CATEGORIES:Personal,Ideas
+            END:VJOURNAL
+            END:VCALENDAR
+        """.trimIndent()
+        val back = reparse(ics).journals.single()
+        assertEquals(listOf("Travel", "Personal", "Ideas"), back.categories)
+    }
+
     // --- VALARM ---------------------------------------------------------------
 
     private fun timedEvent(reminders: List<Reminder>) = CalEvent(

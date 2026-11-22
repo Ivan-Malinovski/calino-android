@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -252,6 +253,30 @@ class JournalFlowTest : CalinoUiTest() {
         compose.onNodeWithContentDescription("Change journal overview, level 1 of 2").assertIsDisplayed()
     }
 
+    /**
+     * Journal entries carry the web's tags. The card shows them as chips and the
+     * editor toggles them with the same category controls events and tasks use.
+     */
+    @Test fun anEntryShowsItsCategoriesAndTheEditorTogglesThem() {
+        openEntry()
+        beginEditing()
+        // The chip merges its label with its category, so the description reads
+        // "Personal, Toggle category Personal".
+        // The chip merges its label with its category, so the description reads
+        // "Personal, Toggle category Personal".
+        compose.waitUntil(5_000) {
+            compose.exists(androidx.compose.ui.test.hasContentDescription("Toggle category Personal", substring = true))
+        }
+        // Tag it Work as well; that also makes the draft dirty, which is when
+        // the pill offers Save.
+        compose.onNodeWithContentDescription("Toggle category Work", substring = true).performClick()
+        compose.waitForIdle()
+        compose.waitUntil(5_000) { compose.hasDescribedNode("Save journal entry") }
+        compose.onNodeWithContentDescription("Save journal entry").performClick()
+        compose.waitForIdle()
+        awaitDescribed("Open journal entry $Existing")
+    }
+
     private fun openJournal() {
         compose.openRoute("Journal")
         compose.waitForIdle()
@@ -267,6 +292,11 @@ class JournalFlowTest : CalinoUiTest() {
      */
     private fun openEntry() {
         openJournal()
+        // Bring the card clear of the floating "New entry" pill first: the list
+        // grew taller when cards gained their category chips, and a card under
+        // the pill hands the click to the pill.
+        compose.onNodeWithContentDescription("Open journal entry $Existing").performScrollTo()
+        compose.waitForIdle()
         compose.onNodeWithContentDescription("Open journal entry $Existing").performTouchInput {
             click(percentOffset(.5f, .15f))
         }

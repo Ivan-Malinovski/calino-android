@@ -11,6 +11,11 @@ sliding a time by quarter hours, and swiping or holding the pill. A step counts
 only when the gesture it teaches actually happens, an informational card covers
 Journal and Contacts when those are switched on, and Settings > Advanced > About
 can replay it. Swiping the offer away stops it for good; it never writes data.
+- **Journal entries carry categories.** The editor tags an entry with the same
+category chips events and tasks use (several at once, like the web's journal
+tags), the overview cards and the reader show them, and they live on the
+VJOURNAL's `CATEGORIES`, so a tag set on the web shows up here and survives an
+edit in either app.
 - **Task rows carry their notes and priority.** Each row now shows the first
 line of the task's notes as a subtitle (markdown scaffolding stripped, a link
 reads as its text) and a tinted High/Medium/Low chip when the task has a

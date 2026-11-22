@@ -474,7 +474,9 @@
     <string name="ed_editor_category">Kategori</string>
     <string name="ed_editor_categories">Kategorier</string>
     <string name="ed_editor_choose_category">Vælg kategori</string>
+    <string name="ed_editor_choose_category_named">Vælg kategori %1$s</string>
     <string name="ed_editor_toggle_category">Slå kategori til eller fra</string>
+    <string name="ed_editor_toggle_category_named">Slå kategori %1$s til eller fra</string>
     <string name="ed_editor_more_options">Flere muligheder</string>
     <string name="ed_editor_fewer_options">Færre muligheder</string>
     <string name="ed_editor_available">Tilgængelig</string>

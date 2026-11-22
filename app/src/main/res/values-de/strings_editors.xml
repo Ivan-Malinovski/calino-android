@@ -474,7 +474,9 @@
     <string name="ed_editor_category">Kategorie</string>
     <string name="ed_editor_categories">Kategorien</string>
     <string name="ed_editor_choose_category">Kategorie auswählen</string>
+    <string name="ed_editor_choose_category_named">Kategorie %1$s auswählen</string>
     <string name="ed_editor_toggle_category">Kategorie umschalten</string>
+    <string name="ed_editor_toggle_category_named">Kategorie %1$s umschalten</string>
     <string name="ed_editor_more_options">Weitere Optionen</string>
     <string name="ed_editor_fewer_options">Weniger Optionen</string>
     <string name="ed_editor_available">Verfügbar</string>

@@ -254,7 +254,12 @@ data class EditorDraft(
         recurrenceScope = recurrenceScope,
     )
 
-    fun toNewJournal(): NewJournal = NewJournal(date = date, title = title.trim(), body = body.trim())
+    fun toNewJournal(): NewJournal = NewJournal(
+        date = date,
+        title = title.trim(),
+        body = body.trim(),
+        categories = categories,
+    )
 
     companion object {
         const val DefaultDurationMinutes = 60

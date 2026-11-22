@@ -176,14 +176,19 @@ internal class LocalOverlay(private val now: () -> Instant = Instant::now) {
             date = input.date,
             title = input.title,
             body = input.body,
+            categories = input.categories.map(String::trim).filter(String::isNotEmpty).distinct(),
         )
 
     fun addJournal(input: NewJournal): JournalEntry = newJournal(input).also { journals[it.id] = it }
 
     fun updateJournal(id: String, input: NewJournal, existing: List<JournalEntry>): JournalEntry {
         val current = journals[id] ?: existing.firstOrNull { it.id == id } ?: error("Unknown journal: $id")
-        return current.copy(date = input.date, title = input.title, body = input.body)
-            .also(::putJournal)
+        return current.copy(
+            date = input.date,
+            title = input.title,
+            body = input.body,
+            categories = input.categories.map(String::trim).filter(String::isNotEmpty).distinct(),
+        ).also(::putJournal)
     }
 
     fun putJournal(entry: JournalEntry): JournalEntry = entry.also {
