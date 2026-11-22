@@ -32,6 +32,21 @@ class CalinoSearchTest {
         assertFalse(searchCalino(snapshot, journalNeedle, base).journals.isEmpty())
     }
 
+    @Test fun `a journal tag finds the entries that carry it`() {
+        // "Ideas" appears on the Design Sprint fixture entry as a tag, not in its
+        // title or body; a search for it should still reach that entry.
+        val tagged = searchCalino(snapshot, "Ideas", base).journals
+        assertTrue(
+            "a tag is part of what the entry is about",
+            tagged.any { it.journal.categories.contains("Ideas") },
+        )
+        assertTrue(
+            "the match is on the tag, and the entry's own title does not say it",
+            tagged.filter { it.journal.categories.contains("Ideas") }
+                .none { it.journal.title.contains("Ideas", ignoreCase = true) },
+        )
+    }
+
     @Test fun `pure relative date is navigation rather than creation`() {
         val result = searchCalino(snapshot, "next Friday", base).actions.single()
         assertTrue(result is CalinoSearchResult.NavigateDate)

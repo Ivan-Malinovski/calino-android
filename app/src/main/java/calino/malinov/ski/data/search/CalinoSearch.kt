@@ -116,7 +116,11 @@ fun searchCalino(
             dateAllowed(it.date, options, baseDate) && isJournalVisible(snapshot, it) &&
                 (candidateRecordIds == null || journalSearchId(it) in candidateRecordIds)
         }
-        .mapNotNull { journal -> scoreFields(needle, journal.title, listOf(journal.body))?.let { journal to it } }
+        // Tags are part of what an entry is about: "focus" should find the entries
+        // tagged Focus, not only the ones that happen to use the word.
+        .mapNotNull { journal ->
+            scoreFields(needle, journal.title, listOf(journal.body) + journal.categories)?.let { journal to it }
+        }
         .sortedWith(compareBy<Pair<JournalEntry, Int>> { it.second }.thenByDescending { it.first.date }.thenBy { it.first.id })
         .take(limitPerGroup).map { CalinoSearchResult.Journal(it.first) }.toList()
     else emptyList()

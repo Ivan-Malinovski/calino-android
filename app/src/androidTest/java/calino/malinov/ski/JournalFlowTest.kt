@@ -288,6 +288,34 @@ class JournalFlowTest : CalinoUiTest() {
         awaitDescribed("Open journal entry $Existing")
     }
 
+    /**
+     * The tag list is editor state, so a rotation must not eat a tag that has
+     * not been saved yet — the title and body already survive it.
+     */
+    @Test fun aTypedTagSurvivesRecreation() {
+        openEntry()
+        beginEditing()
+        compose.onNodeWithContentDescription("Add a tag").performTextInput("Focus")
+        compose.onNodeWithContentDescription("Add").performClick()
+        compose.waitForIdle()
+        compose.waitUntil(5_000) {
+            compose.exists(androidx.compose.ui.test.hasContentDescription("Toggle category Focus", substring = true))
+        }
+
+        compose.activityRule.scenario.onActivity {
+            it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+        compose.waitForIdle()
+        compose.waitUntil(5_000) {
+            compose.exists(androidx.compose.ui.test.hasContentDescription("Toggle category Focus", substring = true))
+        }
+
+        compose.activityRule.scenario.onActivity {
+            it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        compose.waitForIdle()
+    }
+
     private fun openJournal() {
         compose.openRoute("Journal")
         compose.waitForIdle()
