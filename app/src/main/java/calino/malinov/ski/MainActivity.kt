@@ -3834,7 +3834,12 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // Answering it is the swipe away (decline) or Start. Nothing the tour does
     // writes data: the editor a step opens is closed without saving.
     val tourLane = LocalCalinoPillLane.current
-    val tourQuiet = route == PockRoute.Day && !showDayModal && !sidebarVisible && !searchVisible &&
+    // Offered on any root page, not only the calendar: a person whose saved view
+    // is Range or Agenda would otherwise never be asked. Starting it goes to the
+    // calendar first, because that is the surface every gesture it teaches lives
+    // on.
+    val tourQuiet = route in listOf(PockRoute.Day, PockRoute.Year, PockRoute.Range, PockRoute.Agenda, PockRoute.Tasks) &&
+        !showDayModal && !sidebarVisible && !searchVisible &&
         !journalReviewVisible && !tour.running &&
         snapshot.sync !is calino.malinov.ski.data.repository.SyncState.Loading
     LaunchedEffect(tourQuiet, preferences.tourState) {
@@ -3846,6 +3851,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             actionLabel = textContext.getString(R.string.tour_offer_action),
             icon = CalinoIcon.Calendar,
             onAccept = {
+                navigateRoot(PockRoute.Day)
                 tour.start(calino.malinov.ski.state.tourSteps(preferences.menuPill, preferences.journalEnabled, preferences.contactsEnabled))
             },
             onDecline = { preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Declined) },
