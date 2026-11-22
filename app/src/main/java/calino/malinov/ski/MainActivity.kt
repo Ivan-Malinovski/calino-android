@@ -1309,11 +1309,15 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // so the calendar can keep its zoom handle clear of it.
     var toastLaneHeight by remember { mutableStateOf(0.dp) }
     val toastLaneDensity = androidx.compose.ui.platform.LocalDensity.current
-    val toastClearance by animateDpAsState(
+    val toastClearance = animateDpAsState(
         targetValue = toastLaneHeight,
         animationSpec = androidx.compose.animation.core.tween(CalinoMotion.ContentEnterMillis),
         label = "toast lane clearance",
     )
+    // Read inside the calendar's composition, not here: the route content is
+    // memoised, so a changed parameter value would never reach it. A lambda that
+    // reads the state does.
+    val bottomClearance = remember { { CalinoSpacing.PillClearance + toastClearance.value } }
     // The two days a live swipe has the add pill's label between, ahead of
     // the commit. Only chrome that merely names the day reads this; the
     // calendar itself still follows the committed [selectedDate].
@@ -2375,7 +2379,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                         // A toast sits in the lane the zoom handle travels to at
                         // the detailed month level; the calendar gives that lane
                         // its own room so the handle stays tappable.
-                        bottomClearance = CalinoSpacing.PillClearance + toastClearance,
+                        bottomClearance = bottomClearance,
                         repository = repository,
                         journals = snapshot.journals,
                         tasks = calendarTasks,

@@ -620,7 +620,7 @@ fun HomeScreen(
      * it (a toast, a sync alert). The detailed month endpoint stops here so
      * the zoom handle it carries is never underneath one of those.
      */
-    bottomClearance: Dp = CalinoSpacing.PillClearance,
+    bottomClearance: () -> Dp = { CalinoSpacing.PillClearance },
     /**
      * A one-shot ask to open at the month level: each new value snaps the zoom
      * there, without a zoom animation, because the host's route transition is
@@ -1754,7 +1754,7 @@ fun HomeScreen(
             // Using the shared clearance keeps this aligned with the other
             // root surfaces and lets the existing zoom interpolation reveal
             // the space continuously rather than jumping at level 2.
-            val detailedGridHeight = (maxHeight - handleHeight - bottomClearance)
+            val detailedGridHeight = (maxHeight - handleHeight - bottomClearance())
                 .coerceAtLeast(splitGridHeight)
             val daySurfaceHeight = (maxHeight - handleHeight - 80.dp).coerceAtLeast(0.dp)
             // Keep the expensive month and day surfaces at stable measured
