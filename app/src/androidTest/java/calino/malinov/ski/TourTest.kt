@@ -72,6 +72,38 @@ class TourTest : CalinoUiTest() {
         assertFalse(compose.hasDescriptionContaining(OfferMessage))
     }
 
+    /**
+     * Walking every card with Next, including the two that open a real editor
+     * and the two that touch the pill, has to leave the app where it started:
+     * no card, no editor, and no offer again. Next is always available, so this
+     * does not depend on performing each gesture.
+     */
+    @Test fun walkingToTheEndCompletesTheTourAndLeavesNothingOpen() {
+        awaitOffer()
+        compose.onNodeWithContentDescription(OfferAction).performClick()
+        awaitTourStep(1)
+
+        // Five cards on a menu pill with Journal and Contacts off, but the walk
+        // follows whatever this install actually offers.
+        repeat(8) {
+            if (compose.hasTextNode(Done)) return@repeat
+            compose.onNodeWithText(Next).performClick()
+            compose.waitForIdle()
+        }
+        compose.onNodeWithText(Done).performClick()
+        compose.waitForIdle()
+
+        compose.waitUntil(WaitMillis) { !compose.hasDescriptionContaining(TourCardPrefix) }
+        // The editor a step opened is closed by the step leaving, so the
+        // calendar is the surface on screen again.
+        compose.waitUntil(WaitMillis) { compose.hasDescribedNode("Views, current: Month") }
+        assertFalse(compose.hasDescriptionContaining("Cancel editor"))
+
+        Thread.sleep(OfferDelayMillis + 1_500L)
+        compose.waitForIdle()
+        assertFalse("the tour was offered again after finishing", compose.hasDescriptionContaining(OfferMessage))
+    }
+
     private fun awaitOffer() {
         compose.waitUntil(OfferTimeoutMillis) { compose.hasDescribedNode(OfferAction) }
     }
@@ -94,6 +126,8 @@ class TourTest : CalinoUiTest() {
         const val ZoomLine = "Swipe the calendar down to see more of the month, up to see more of the day."
         const val ZoomDoneLine = "That's it. Swipe either way whenever you want more or less."
         const val Skip = "Skip"
+        const val Next = "Next"
+        const val Done = "Done"
         const val OfferDelayMillis = 1_800L
         const val OfferTimeoutMillis = 8_000L
         const val WaitMillis = 9_000L
