@@ -3838,6 +3838,9 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
     // gesture it teaches lives on. "Quiet" is about the page, not the lane: the
     // lane check happens once, when the offer is about to be shown, because
     // showing it makes the lane busy by definition.
+    // How long the question may hold the pill lane. Long enough to read and
+    // answer, short enough that an ignored question stops hiding the add pill.
+    val TourOfferLingerMillis = 12_000L
     val tourOnCalendar = route == PockRoute.Day &&
         !showDayModal && !sidebarVisible && !searchVisible && !journalReviewVisible
     var tourOffer by remember { mutableStateOf<calino.malinov.ski.ui.components.PillUndoState?>(null) }
@@ -3852,7 +3855,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             return@LaunchedEffect
         }
         preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Offered)
-        tourOffer = tourLane.showOffer(
+        val shown = tourLane.showOffer(
             message = textContext.getString(R.string.tour_offer_message),
             actionLabel = textContext.getString(R.string.tour_offer_action),
             icon = CalinoIcon.Calendar,
@@ -3865,6 +3868,20 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                 preferences.setTourState(calino.malinov.ski.state.CalinoTourState.Declined)
             },
         )
+        tourOffer = shown
+    }
+    // A question that stands in the lane forever hides the add pill's label
+    // behind it, so it lets go of the lane by itself. It is still recorded as
+    // offered (asked once), and Settings can replay the tour. Its own effect,
+    // not the tail of the one above: writing the state above restarts that one
+    // and would cancel the wait with it.
+    LaunchedEffect(tourOffer) {
+        val standing = tourOffer ?: return@LaunchedEffect
+        delay(TourOfferLingerMillis)
+        if (tourOffer === standing) {
+            tourLane.withdraw(standing)
+            tourOffer = null
+        }
     }
     // Leaving the page takes the question with us rather than parking it in the
     // lane of whatever page the person moved to, where it would hide that page's

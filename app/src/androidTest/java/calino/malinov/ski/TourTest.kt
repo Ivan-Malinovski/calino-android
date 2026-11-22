@@ -105,6 +105,24 @@ class TourTest : CalinoUiTest() {
     }
 
     /**
+     * An unanswered question lets go of the lane by itself: it is a question,
+     * not the app's primary action, and it cannot stand over the add pill
+     * forever.
+     */
+    @Test fun anIgnoredOfferLetsGoOfTheLaneOnItsOwn() {
+        awaitOffer()
+
+        compose.waitUntil(OfferTimeoutMillis + LingerMillis) {
+            !compose.hasDescriptionContaining(OfferMessage)
+        }
+        // The add pill is back, and the question is not asked again afterwards.
+        compose.onNodeWithContentDescription("Add on Mon, 18 May. Swipe up for views").assertIsDisplayed()
+        Thread.sleep(OfferDelayMillis + 1_200L)
+        compose.waitForIdle()
+        assertFalse(compose.hasDescriptionContaining(OfferMessage))
+    }
+
+    /**
      * The question does not travel with the person. Leaving the calendar before
      * answering takes the offer out of the lane, so it cannot hide the label of
      * the page they moved to.
@@ -144,6 +162,8 @@ class TourTest : CalinoUiTest() {
         const val Next = "Next"
         const val Done = "Done"
         const val OfferDelayMillis = 1_800L
+        /** `TourOfferLingerMillis` in MainActivity: how long the offer may hold the lane. */
+        const val LingerMillis = 12_000L
         const val OfferTimeoutMillis = 8_000L
         const val WaitMillis = 9_000L
     }
