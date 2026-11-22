@@ -284,10 +284,10 @@ private val CasualTimes = listOf(
     Regex("\\b(?:at\\s+|this\\s+)?(?:midnight)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(0, 0),
     Regex("\\b(?:at\\s+|this\\s+)?(?:noon|midday|lunchtime)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(12, 0),
     Regex("\\b(?:at\\s+|this\\s+)?(?:tonight)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(20, 0),
-    Regex("\\b(?:in\\s+the\\s+|this\\s+)(morning)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(9, 0),
-    Regex("\\b(?:in\\s+the\\s+|this\\s+)(afternoon)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(13, 0),
-    Regex("\\b(?:in\\s+the\\s+|this\\s+)(evening)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(19, 0),
-    Regex("\\b(?:at\\s+)?(night)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(21, 0),
+    Regex("\\b(?:(?:in\\s+the|this|today)\\s+)?(morning)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(9, 0),
+    Regex("\\b(?:(?:in\\s+the|this|today)\\s+)?(afternoon)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(13, 0),
+    Regex("\\b(?:(?:in\\s+the|this|today)\\s+)?(evening)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(19, 0),
+    Regex("\\b(?:at\\s+|in\\s+the\\s+|this\\s+)(night)\\b", RegexOption.IGNORE_CASE) to LocalTime.of(21, 0),
 )
 
 /** A range needs no "for": "10-11", "2pm to 3:30pm", "between 9 and 10". */
@@ -307,9 +307,29 @@ private val ClockTimePatterns = listOf(
     Regex("\\b(\\d{1,2})\\s*(am|pm)\\b", RegexOption.IGNORE_CASE),
 )
 
-private val DurationPattern = Regex(
-    "\\b(?:for\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(hours?|hrs?|h|minutes?|mins?|m|days?)\\b",
-    RegexOption.IGNORE_CASE,
+/**
+ * Durations, longest form first so "1 h 30 min" is not read as "1 h": hours and
+ * minutes, days and hours, then a single unit. "for" is optional everywhere --
+ * it is how people write it, not what makes it a duration.
+ */
+private val DurationPatterns: List<Pair<Regex, (MatchResult) -> Int>> = listOf(
+    Regex(
+        "\\b(?:for|lasting|duration|during\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:hours?|hrs?|h)\\s*(?:and\\s+)?(\\d+)\\s*(?:minutes?|mins?|m|min)\\b",
+        RegexOption.IGNORE_CASE,
+    ) to { match -> (match.groupValues[1].replace(',', '.').toDouble() * 60).toInt() + (match.groupValues[2].toIntOrNull() ?: 0) },
+    Regex(
+        "\\b(?:for|lasting|duration|during\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:days?)\\s*(?:and\\s+)?(\\d+)\\s*(?:hours?|hrs?|h)\\b",
+        RegexOption.IGNORE_CASE,
+    ) to { match -> ((match.groupValues[1].replace(',', '.').toDouble() * 24) + (match.groupValues[2].toIntOrNull() ?: 0)).toInt() * 60 },
+    Regex("\\b(?:for|lasting|duration|during\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:hours?|hrs?|h)\\b", RegexOption.IGNORE_CASE) to { match ->
+        (match.groupValues[1].replace(',', '.').toDouble() * 60).toInt()
+    },
+    Regex("\\b(?:for|lasting|duration|during\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:minutes?|mins?|min|m)\\b", RegexOption.IGNORE_CASE) to { match ->
+        match.groupValues[1].replace(',', '.').toDouble().toInt()
+    },
+    Regex("\\b(?:for|lasting|duration|during\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:days?)\\b", RegexOption.IGNORE_CASE) to { match ->
+        (match.groupValues[1].replace(',', '.').toDouble() * 24 * 60).toInt()
+    },
 )
 
 private fun readTimeRange(text: MaskedText): TimeSpan? {
@@ -372,17 +392,14 @@ private fun clockTime(hour: Int, minute: Int, meridiem: String): LocalTime? {
 }
 
 private fun readDuration(text: MaskedText): Int? {
-    val match = DurationPattern.find(text.text()) ?: return null
-    val amount = match.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
-    val unit = match.groupValues[2].lowercase(Locale.US)
-    val minutes = when {
-        unit.startsWith("h") -> amount * 60
-        unit.startsWith("d") -> amount * 24 * 60
-        else -> amount
-    }.toInt()
-    if (minutes <= 0 || minutes > 7 * 24 * 60) return null
-    text.erase(match.range)
-    return minutes
+    for ((regex, minutes) in DurationPatterns) {
+        val match = regex.find(text.text()) ?: continue
+        val value = minutes(match)
+        if (value <= 0 || value > 7 * 24 * 60) continue
+        text.erase(match.range)
+        return value
+    }
+    return null
 }
 
 // -- Location and recurrence --------------------------------------------
@@ -425,6 +442,7 @@ private fun findRecurrence(text: MaskedText, kind: PocQuickAddKind): Pair<String
         when {
             unit == "day" -> fields += "FREQ=DAILY"
             unit == "weekday" -> { fields += "FREQ=WEEKLY"; fields += "BYDAY=MO,TU,WE,TH,FR" }
+            unit == "weekend" -> { fields += "FREQ=WEEKLY"; fields += "BYDAY=SA,SU" }
             unit == "week" -> fields += "FREQ=WEEKLY"
             unit == "month" -> fields += "FREQ=MONTHLY"
             unit == "year" -> fields += "FREQ=YEARLY"
@@ -439,6 +457,12 @@ private fun findRecurrence(text: MaskedText, kind: PocQuickAddKind): Pair<String
     }
     // "daily", "weekly", "monthly", "yearly": the same series without the
     // "every" in front, which is how most lines are actually written.
+    // "weekdays"/"weekends" name a series on their own, the way the web's
+    // parser reads them; "weekday" alone is a word ("weekday desk meeting").
+    val weekend = Regex("\\bweekends\\b", RegexOption.IGNORE_CASE).find(text.text())
+    if (weekend != null) return "FREQ=WEEKLY;BYDAY=SA,SU" to weekend.range
+    val weekdays = Regex("\\bweekdays\\b", RegexOption.IGNORE_CASE).find(text.text())
+    if (weekdays != null) return "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" to weekdays.range
     val standalone = Regex("\\b(daily|weekly|monthly|yearly|annually)\\b", RegexOption.IGNORE_CASE)
         .find(text.text()) ?: return null
     val frequency = when (standalone.groupValues[1].lowercase(Locale.US)) {

@@ -75,6 +75,21 @@ class PocQuickAddParserNaturalLanguageTest {
         assertEquals(LocalTime.of(0, 0), event("wrap up at midnight").time)
     }
 
+    @Test fun aBareDayPartWordIsStillATime() {
+        assertEquals(LocalTime.of(9, 0), event("standup morning").time)
+        assertEquals(LocalTime.of(13, 0), event("review afternoon").time)
+        assertEquals(LocalTime.of(19, 0), event("dinner evening").time)
+        // "night" needs a preposition or a demonstrative: "night shift" is a
+        // kind of shift, not a 9 pm start.
+        assertNull(event("night shift").time)
+        assertEquals(LocalTime.of(21, 0), event("shift at night").time)
+    }
+
+    @Test fun durationsAreReadAfterTheirOwnIntroductoryWords() {
+        assertEquals(45, event("planning lasting 45 minutes").durationMinutes)
+        assertEquals(30, event("sync duration 30 mins").durationMinutes)
+    }
+
     @Test fun anExplicitClockTimeBeatsAWord() {
         val draft = event("drinks tonight at 8pm")
 
@@ -139,6 +154,23 @@ class PocQuickAddParserNaturalLanguageTest {
         assertEquals("FREQ=WEEKLY", draft.recurrence)
         assertEquals(90, draft.durationMinutes)
         assertEquals("yoga", draft.title)
+    }
+
+    @Test fun aCompoundDurationAddsItsParts() {
+        assertEquals(90, event("workshop for 1 h 30 min").durationMinutes)
+        assertEquals(90, event("workshop for 1 hour and 30 minutes").durationMinutes)
+        assertEquals(120, event("workshop 2 hrs").durationMinutes)
+        assertEquals(26 * 60, event("trip 1 day 2 hours").durationMinutes)
+        // The parts leave the title with the duration they came from.
+        assertEquals("workshop", event("workshop for 1 h 30 min").title)
+    }
+
+    @Test fun weekdaysAndWeekendsNameASeriesOnTheirOwn() {
+        assertEquals("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", event("standup weekdays at 9am").recurrence)
+        assertEquals("FREQ=WEEKLY;BYDAY=SA,SU", event("market weekends").recurrence)
+        assertEquals("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", event("standup every weekday at 9am").recurrence)
+        // "weekday" on its own is a word, not a series.
+        assertNull(event("weekday desk meeting").recurrence)
     }
 
     @Test fun aFractionalDurationIsRoundedToWholeMinutes() {
