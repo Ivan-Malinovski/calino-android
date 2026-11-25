@@ -427,6 +427,26 @@ knowingly, which is why it is off until they make it.
   outbound, these are **not** flattened into something else; they are absent.
 - Anything outside the same past/future window the projection uses.
 
+### The sample steps aside
+
+Amended 2026-10-25, after the first report of imports landing over the demo. An
+imported calendar is live data, not an overlay on the frozen May 2026 fixture.
+The two cannot coexist: the fixture's dates are fixed, so a real event beside
+one sits months away from the day the app opens on, and the sample clock keeps
+saying 18 May 2026 while the phone's own calendars are listed in the sidebar
+with nothing in them.
+
+So any imported calendar is enough to leave sample mode: the active repository
+becomes the CalDAV one (empty with no account, which is the truth), the clock
+runs on the wall clock, the app opens on today, the widget and phone search
+stop treating the data as a sample, and the reminder bridge attaches. Turning
+the last import off returns to the sample, exactly as turning off a last
+subscription does.
+
+A workaround that predated this — filtering fixture records out of the *search*
+snapshot when an import existed over the fixture — is gone with it: sample
+records can no longer reach a snapshot that also holds a person's data.
+
 ### Reversibility
 
 Turning an imported calendar off drops its events from the next snapshot and

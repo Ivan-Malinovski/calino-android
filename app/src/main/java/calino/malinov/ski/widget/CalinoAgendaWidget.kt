@@ -82,13 +82,13 @@ abstract class CalinoAgendaWidget internal constructor(
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val container = CalinoContainer.get(context)
-        val connected = container.hasAccounts
+        val live = container.hasLiveData
 
-        // Fixture mode renders the prompt rather than the sample agenda: the
+        // Not-live mode renders the prompt rather than the sample agenda: the
         // fixtures live around May 2026, so a real "today" against them is
         // permanently empty and reads as a broken widget. Reminders decline to
-        // schedule in fixture mode for the same reason.
-        if (connected) {
+        // schedule in that mode for the same reason.
+        if (live) {
             container.ensureCachedData()
             // Only to make the *first* frame correct; from then on the
             // composition below reads the repository itself.
@@ -114,7 +114,7 @@ abstract class CalinoAgendaWidget internal constructor(
 
         provideContent {
             CompositionLocalProvider(LocalWidgetScale provides scale) {
-                Body(if (connected) currentSnapshot(container) else null, options)
+                Body(if (live) currentSnapshot(container) else null, options)
             }
         }
     }

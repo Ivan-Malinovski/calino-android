@@ -35,10 +35,10 @@ internal class ToggleTaskAction : ActionCallback {
         val done = parameters[DoneKey] ?: return
 
         val container = CalinoContainer.get(context)
-        // Fixture mode shows the prompt rather than rows, so there is nothing
+        // Not-live mode shows the prompt rather than rows, so there is nothing
         // to have tapped; bailing keeps a stray broadcast from writing to the
         // sample data.
-        if (!container.hasAccounts) return
+        if (!container.hasLiveData) return
 
         // The launcher may have woken a process that has never read the cache,
         // in which case the repository does not yet know this task and the

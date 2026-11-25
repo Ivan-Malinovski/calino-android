@@ -3481,7 +3481,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             AnimatedVisibility(
-                visible = !pocViewModel.hasAccounts && !sampleNoticeDismissed && writeError == null &&
+                visible = !pocViewModel.hasLiveData && !sampleNoticeDismissed && writeError == null &&
                     route == currentRootRoute && !showDayModal && !journalReviewVisible &&
                     currentRootRoute in listOf(PockRoute.Day, PockRoute.Year, PockRoute.Range, PockRoute.Agenda),
                 enter = slideInVertically(CalinoMotion.expressiveSpatial(), initialOffsetY = { it / 2 }) +
