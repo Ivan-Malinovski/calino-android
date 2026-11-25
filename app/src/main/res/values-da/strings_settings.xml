@@ -191,6 +191,9 @@ Seneste vellykkede synkronisering: %2$s</string>
     <string name="set_calino_cannot_read_this_device_s_calendars_without_the_calen">Calino kan ikke læse denne enheds kalendere uden kalendertilladelse. Det, der blev vist, skjules, indtil tilladelsen gives igen i Androids indstillinger.</string>
     <string name="set_stop_showing_this_device_s_calendars">Stop med at vise denne enheds kalendere</string>
     <string name="set_stop_showing_them">Skjul dem</string>
+    <string name="set_allow_calendar_access">Tillad kalenderadgang</string>
+    <string name="set_allow_calendar_access_to_read_this_device_s_calendars">Tillad kalenderadgang for at vise de kalendere, som enheden allerede har. De læses på enheden; intet sendes nogen steder.</string>
+    <string name="set_no_calendars_on_this_device_are_available_right_now">Der er ingen kalendere tilgængelige på denne enhed lige nu. De er måske blevet fjernet i den app, der ejer dem.</string>
     <string name="set_this_device">Denne enhed</string>
     <string name="set_allow_editing_in_calino">Tillad redigering i Calino</string>
     <string name="set_read_only_in_the_owning_provider">Skrivebeskyttet hos udbyderen</string>

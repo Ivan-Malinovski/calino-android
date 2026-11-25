@@ -148,6 +148,23 @@ Refusal is a supported state: projection stays off, the toggle reflects that,
 and Calino continues exactly as it does today. Opting *out* never asks, so a
 person who later revokes the permission can still turn the projection off.
 
+### Reading needs the permission before there is anything to tap
+
+Amended 2026-10-25, after the first report from someone using DAVx⁵. The
+"On this device" card was rendered only when the roster of importable calendars
+was non-empty, and the roster is empty without `READ_CALENDAR` because the
+provider refuses the query. The only prompt that asked for the permission lived
+inside that card, so on a fresh install the sequence could not start: no
+permission, no roster, no card, no prompt. Every system calendar was invisible,
+whatever app owned it — DAVx⁵, Google, Exchange — and Settings showed a
+Calendars screen with no device section at all.
+
+The card is therefore rendered when access is missing, with a single button
+that launches the same `READ_CALENDAR` + `WRITE_CALENDAR` request. The roster is
+read once more after a grant and on every resume, because it also changes when
+an account is added elsewhere. Nothing is asked at launch, and a person who
+turns imports off still never sees a prompt.
+
 ### The opt-in is the only switch
 
 Amended 2026-09-18, during implementation. This review assumed two controls: a

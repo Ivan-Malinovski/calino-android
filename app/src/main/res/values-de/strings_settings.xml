@@ -191,6 +191,9 @@ Letzte erfolgreiche Synchronisierung: %2$s</string>
     <string name="set_calino_cannot_read_this_device_s_calendars_without_the_calen">Calino kann die Kalender dieses Geräts ohne Kalenderberechtigung nicht lesen. Bisherige Inhalte bleiben verborgen, bis die Berechtigung in den Android-Einstellungen erneut erteilt wird.</string>
     <string name="set_stop_showing_this_device_s_calendars">Kalender dieses Geräts nicht mehr anzeigen</string>
     <string name="set_stop_showing_them">Nicht mehr anzeigen</string>
+    <string name="set_allow_calendar_access">Kalenderzugriff erlauben</string>
+    <string name="set_allow_calendar_access_to_read_this_device_s_calendars">Erlaube den Kalenderzugriff, um die Kalender aufzulisten, die dieses Gerät bereits hat. Sie werden auf dem Gerät gelesen; nichts wird irgendwohin gesendet.</string>
+    <string name="set_no_calendars_on_this_device_are_available_right_now">Auf diesem Gerät sind derzeit keine Kalender verfügbar. Möglicherweise wurden sie in der App entfernt, der sie gehören.</string>
     <string name="set_this_device">Dieses Gerät</string>
     <string name="set_allow_editing_in_calino">Bearbeitung in Calino erlauben</string>
     <string name="set_read_only_in_the_owning_provider">Beim zuständigen Anbieter schreibgeschützt</string>

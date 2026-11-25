@@ -191,6 +191,9 @@ Last successful sync: %2$s</string>
     <string name="set_calino_cannot_read_this_device_s_calendars_without_the_calen">Calino cannot read this device\'s calendars without the calendar permission. Whatever was showing is hidden until it is granted again in Android\'s settings.</string>
     <string name="set_stop_showing_this_device_s_calendars">Stop showing this device\'s calendars</string>
     <string name="set_stop_showing_them">Stop showing them</string>
+    <string name="set_allow_calendar_access">Allow calendar access</string>
+    <string name="set_allow_calendar_access_to_read_this_device_s_calendars">Allow calendar access to list the calendars this device already has. They are read on the device; nothing is sent anywhere.</string>
+    <string name="set_no_calendars_on_this_device_are_available_right_now">No calendars on this device are available right now. They may have been removed in the app that owns them.</string>
     <string name="set_this_device">This device</string>
     <string name="set_allow_editing_in_calino">Allow editing in Calino</string>
     <string name="set_read_only_in_the_owning_provider">Read only in the owning provider</string>
