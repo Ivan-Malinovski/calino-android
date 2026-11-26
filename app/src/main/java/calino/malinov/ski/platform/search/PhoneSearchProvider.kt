@@ -48,8 +48,8 @@ class PhoneSearchProvider : ContentProvider() {
         if (query.isNullOrBlank()) return cursor
 
         val container = CalinoContainer.get(context)
-        // Fixture mode is sample data, not the person's calendar.
-        if (!container.hasAccounts) return cursor
+        // Sample data is not the person's calendar.
+        if (!container.hasLiveData) return cursor
         container.ensureCachedData()
         val limit = uri.getQueryParameter(SearchManager.SUGGEST_PARAMETER_LIMIT)?.toIntOrNull()
             ?: AssistantCalendar.MaxSearchResults

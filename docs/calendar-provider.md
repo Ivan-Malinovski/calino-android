@@ -148,6 +148,23 @@ Refusal is a supported state: projection stays off, the toggle reflects that,
 and Calino continues exactly as it does today. Opting *out* never asks, so a
 person who later revokes the permission can still turn the projection off.
 
+### Reading needs the permission before there is anything to tap
+
+Amended 2026-10-25, after the first report from someone using DAVx⁵. The
+"On this device" card was rendered only when the roster of importable calendars
+was non-empty, and the roster is empty without `READ_CALENDAR` because the
+provider refuses the query. The only prompt that asked for the permission lived
+inside that card, so on a fresh install the sequence could not start: no
+permission, no roster, no card, no prompt. Every system calendar was invisible,
+whatever app owned it — DAVx⁵, Google, Exchange — and Settings showed a
+Calendars screen with no device section at all.
+
+The card is therefore rendered when access is missing, with a single button
+that launches the same `READ_CALENDAR` + `WRITE_CALENDAR` request. The roster is
+read once more after a grant and on every resume, because it also changes when
+an account is added elsewhere. Nothing is asked at launch, and a person who
+turns imports off still never sees a prompt.
+
 ### The opt-in is the only switch
 
 Amended 2026-09-18, during implementation. This review assumed two controls: a
@@ -409,6 +426,26 @@ knowingly, which is why it is off until they make it.
 - Attendees, organiser and any property the provider does not model. As
   outbound, these are **not** flattened into something else; they are absent.
 - Anything outside the same past/future window the projection uses.
+
+### The sample steps aside
+
+Amended 2026-10-25, after the first report of imports landing over the demo. An
+imported calendar is live data, not an overlay on the frozen May 2026 fixture.
+The two cannot coexist: the fixture's dates are fixed, so a real event beside
+one sits months away from the day the app opens on, and the sample clock keeps
+saying 18 May 2026 while the phone's own calendars are listed in the sidebar
+with nothing in them.
+
+So any imported calendar is enough to leave sample mode: the active repository
+becomes the CalDAV one (empty with no account, which is the truth), the clock
+runs on the wall clock, the app opens on today, the widget and phone search
+stop treating the data as a sample, and the reminder bridge attaches. Turning
+the last import off returns to the sample, exactly as turning off a last
+subscription does.
+
+A workaround that predated this — filtering fixture records out of the *search*
+snapshot when an import existed over the fixture — is gone with it: sample
+records can no longer reach a snapshot that also holds a person's data.
 
 ### Reversibility
 

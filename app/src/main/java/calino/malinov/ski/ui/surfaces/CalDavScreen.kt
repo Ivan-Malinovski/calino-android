@@ -49,6 +49,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalContext
@@ -109,6 +113,12 @@ private val ImportPermissions = arrayOf(
 )
 private val ImportWritePermissions = arrayOf(android.Manifest.permission.WRITE_CALENDAR)
 
+/** Both halves of calendar access, which importing asks for together. */
+private fun calendarAccessGranted(context: android.content.Context): Boolean =
+    ImportPermissions.all { permission ->
+        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
 private const val SheetExitMillis = CalinoMotion.SurfaceFadeMillis.toLong()
 
 /**
@@ -129,8 +139,15 @@ fun CalendarAccountsSurface(
     /** The calendars currently published into Android's calendar store. */
     projectedCalendarIds: Set<String> = emptySet(),
     onProjectedCalendarsChanged: (Set<String>) -> Unit = {},
-    /** The device's own calendars, discovered from the provider. */
-    availableDeviceCalendars: List<AndroidCalendarSource.ImportableCalendar> = emptyList(),
+    /**
+     * Reads the device's own calendars from the provider.
+     *
+     * A reader rather than a value because the roster changes for reasons this
+     * surface cannot observe -- calendar access being granted, an account being
+     * added in Android's settings -- and it has to be read again at exactly
+     * those moments. The surface holds the most recent read.
+     */
+    readDeviceCalendars: () -> List<AndroidCalendarSource.ImportableCalendar> = { emptyList() },
     /** Those of them Calino shows, and those it also reminds for. */
     importedCalendarIds: Set<String> = emptySet(),
     onImportedCalendarsChanged: (Set<String>) -> Unit = {},
@@ -219,6 +236,37 @@ fun CalendarAccountsSurface(
             pendingImport = next
             importPermissions.launch(ImportPermissions)
         }
+    }
+
+    // Importing cannot bootstrap itself. Without calendar access the provider
+    // returns nothing, so the roster is empty, so this card used to stay hidden
+    // -- and the only prompt that asks for the permission lived inside it. The
+    // roster and the permission are therefore read here, and the card asks
+    // instead of waiting to be asked for.
+    var calendarAccess by remember { mutableStateOf(calendarAccessGranted(context)) }
+    var calendarAccessRefused by rememberSaveable { mutableStateOf(false) }
+    var deviceCalendars by remember { mutableStateOf(readDeviceCalendars()) }
+    val requestCalendarAccess = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        calendarAccess = granted.values.all { it }
+        calendarAccessRefused = !calendarAccess
+        if (calendarAccess) deviceCalendars = readDeviceCalendars()
+    }
+
+    // The roster is a snapshot of what the phone holds, so a trip out of Calino
+    // can invalidate it either way round: access may have been granted in
+    // Android's settings, or an account added there.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                calendarAccess = calendarAccessGranted(context)
+                deviceCalendars = readDeviceCalendars()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     var pendingWritableImport by remember { mutableStateOf<Set<String>?>(null) }
@@ -335,16 +383,18 @@ fun CalendarAccountsSurface(
                         )
                     }
                 }
-                // Shown when there is something to offer, and also when
-                // something is already imported but the roster came back
-                // empty -- which is what a revoked permission looks like.
-                // Hiding it then would strand the import switched on with no
-                // way to reach it, the exact thing the "opting out never
-                // needs permission" rule exists to prevent.
-                if (availableDeviceCalendars.isNotEmpty() || importedCalendarIds.isNotEmpty()) {
+                // Shown when there is something to offer, when something is
+                // already imported but the roster came back empty -- which is
+                // what a revoked permission looks like -- and when access has
+                // not been granted yet, because that is the only place it can
+                // be asked for.
+                if (deviceCalendars.isNotEmpty() || importedCalendarIds.isNotEmpty() || !calendarAccess) {
                     item {
                         DeviceCalendarsCard(
-                            calendars = availableDeviceCalendars,
+                            calendars = deviceCalendars,
+                            needsPermission = !calendarAccess,
+                            permissionRefused = calendarAccessRefused,
+                            onRequestPermission = { requestCalendarAccess.launch(ImportPermissions) },
                             importedCalendarIds = importedCalendarIds,
                             onImportChanged = { calendarId, imported ->
                                 setImported(
@@ -501,6 +551,9 @@ private fun formatSyncTime(instant: java.time.Instant, timeFormat: CalinoTimeFor
 @Composable
 private fun DeviceCalendarsCard(
     calendars: List<AndroidCalendarSource.ImportableCalendar>,
+    needsPermission: Boolean,
+    permissionRefused: Boolean,
+    onRequestPermission: () -> Unit,
     importedCalendarIds: Set<String>,
     onImportChanged: (calendarId: String, imported: Boolean) -> Unit,
     reminderCalendarIds: Set<String>,
@@ -514,23 +567,65 @@ private fun DeviceCalendarsCard(
         style = CalinoTypography.bodySmall,
         color = CalinoColors.Ink3,
     )
-    if (calendars.isEmpty()) {
-        // Reached only with something still imported, so say what happened
-        // and offer the way out rather than leaving a card with nothing in
-        // it.
+    if (needsPermission) {
+        // The prompt has to live here: without access there is no roster, and
+        // until now there was no card, so the permission could never be asked
+        // for at all.
         HorizontalDivider(color = CalinoColors.Line)
         Text(
-            t(R.string.set_calino_cannot_read_this_device_s_calendars_without_the_calen),
+            t(R.string.set_allow_calendar_access_to_read_this_device_s_calendars),
             style = CalinoTypography.bodySmall,
             color = CalinoColors.Ink2,
         )
-        val stopShowingDescription = t(R.string.set_stop_showing_this_device_s_calendars)
-        TextButton(
-            onClick = { importedCalendarIds.forEach { onImportChanged(it, false) } },
-            modifier = Modifier.heightIn(min = 44.dp)
-                .semantics { contentDescription = stopShowingDescription },
+        if (permissionRefused) {
+            // Refusal is a supported state, but it needs a next step that does
+            // not depend on the prompt coming back.
+            Text(
+                t(R.string.set_calino_cannot_read_this_device_s_calendars_without_the_calen),
+                style = CalinoTypography.bodySmall,
+                color = CalinoColors.Ink3,
+            )
+        }
+        val allowAccessDescription = t(R.string.set_allow_calendar_access)
+        Button(
+            onClick = onRequestPermission,
+            modifier = Modifier.fillMaxWidth().height(50.dp)
+                .semantics { contentDescription = allowAccessDescription },
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(CalinoColors.Ink),
         ) {
-            Text(t(R.string.set_stop_showing_them), color = CalinoColors.Rose)
+            Text(t(R.string.set_allow_calendar_access))
+        }
+        if (importedCalendarIds.isNotEmpty()) {
+            // Opting out must never need the permission, or a revoke would
+            // strand the import with no way to switch it off.
+            val stopShowingDescription = t(R.string.set_stop_showing_this_device_s_calendars)
+            TextButton(
+                onClick = { importedCalendarIds.forEach { onImportChanged(it, false) } },
+                modifier = Modifier.heightIn(min = 44.dp)
+                    .semantics { contentDescription = stopShowingDescription },
+            ) {
+                Text(t(R.string.set_stop_showing_them), color = CalinoColors.Rose)
+            }
+        }
+    } else if (calendars.isEmpty()) {
+        // Access is there but the provider returned nothing: the calendars were
+        // removed in the app that owns them. Say so, and keep the way out.
+        HorizontalDivider(color = CalinoColors.Line)
+        Text(
+            t(R.string.set_no_calendars_on_this_device_are_available_right_now),
+            style = CalinoTypography.bodySmall,
+            color = CalinoColors.Ink2,
+        )
+        if (importedCalendarIds.isNotEmpty()) {
+            val stopShowingDescription = t(R.string.set_stop_showing_this_device_s_calendars)
+            TextButton(
+                onClick = { importedCalendarIds.forEach { onImportChanged(it, false) } },
+                modifier = Modifier.heightIn(min = 44.dp)
+                    .semantics { contentDescription = stopShowingDescription },
+            ) {
+                Text(t(R.string.set_stop_showing_them), color = CalinoColors.Rose)
+            }
         }
     }
     calendars.groupBy { it.accountName }.forEach { (accountName, owned) ->

@@ -2757,12 +2757,11 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
                     )
                     PockRoute.Accounts -> CalendarAccountsSurface(
                         accounts = calDavAccounts,
-                        // Re-read whenever the surface is entered: a person
-                        // who leaves to add a Google account in Settings
-                        // comes back expecting to see it here.
-                        availableDeviceCalendars = remember(route) {
-                            pocViewModel.availableDeviceCalendars()
-                        },
+                        // Read on entry, on resume and after a grant: the
+                        // roster is what exists on the device, which changes
+                        // while Calino is not looking. The surface holds the
+                        // last read so nothing is queried per frame.
+                        readDeviceCalendars = { pocViewModel.availableDeviceCalendars() },
                         importedCalendarIds = pocViewModel.importedCalendarIds,
                         onImportedCalendarsChanged = {
                             pocViewModel.onImportedCalendarsChanged(it)
@@ -3482,7 +3481,7 @@ private fun CalinoAppContent(pocViewModel: PocRepositoryViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             AnimatedVisibility(
-                visible = !pocViewModel.hasAccounts && !sampleNoticeDismissed && writeError == null &&
+                visible = !pocViewModel.hasLiveData && !sampleNoticeDismissed && writeError == null &&
                     route == currentRootRoute && !showDayModal && !journalReviewVisible &&
                     currentRootRoute in listOf(PockRoute.Day, PockRoute.Year, PockRoute.Range, PockRoute.Agenda),
                 enter = slideInVertically(CalinoMotion.expressiveSpatial(), initialOffsetY = { it / 2 }) +

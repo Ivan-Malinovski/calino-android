@@ -311,8 +311,18 @@ class CalinoContainer private constructor(context: Context) {
 
     val hasAccounts: Boolean get() = accountStore.accounts().isNotEmpty()
 
+    /**
+     * Whether the person's own data is being shown rather than the frozen
+     * sample. The clock, the starting date, search, the widget and the reminder
+     * bridge all branch on this; see [LiveDataSource] for why an imported
+     * device calendar counts.
+     */
     val hasLiveData: Boolean
-        get() = hasAccounts || webcalStore.subscriptions().isNotEmpty()
+        get() = LiveDataSource.isLive(
+            hasAccounts = hasAccounts,
+            hasWebcalSubscriptions = webcalStore.subscriptions().isNotEmpty(),
+            hasImportedCalendars = importedCalendarIds.isNotEmpty(),
+        )
 
     @Volatile
     private var connected = false
@@ -636,12 +646,6 @@ class CalinoContainer private constructor(context: Context) {
             if (!isLatestSearchIndexRequest(request)) continue
             val requestedSnapshot = request.snapshot
 
-            val fixtureKeys = if (hasImportedDataOverFixture(repository)) {
-                appSearchRecords(fixtureRepository.snapshot(), journalsEnabled, contactsEnabled)
-                    .map { it.stableId }.toSet()
-            } else {
-                emptySet()
-            }
             val indexedCandidates = try {
                 if (repository === fixtureRepository) {
                     appSearchIndex.reconcile(requestedSnapshot, journalsEnabled, contactsEnabled)
@@ -662,7 +666,7 @@ class CalinoContainer private constructor(context: Context) {
             if (!isLatestSearchIndexRequest(request) || currentRevision != request.snapshot.revision) continue
             if (indexedCandidates == null) return null
             markSearchIndexRequestApplied(request)
-            return indexedCandidates + fixtureKeys
+            return indexedCandidates
         }
     }
 
@@ -783,24 +787,11 @@ class CalinoContainer private constructor(context: Context) {
         repository: CalinoRepository,
         snapshot: CalinoSnapshot,
     ): CalinoSnapshot? {
+        // Fixture-only mode keeps its in-memory search authoritative and never
+        // indexes the sample. Every other repository is the person's data.
         if (repository === fixtureRepository) return null
-        if (!hasImportedDataOverFixture(repository)) return snapshot
-        val fixture = fixtureRepository.snapshot()
-        val fixtureEventIds = fixture.events.map { it.id }.toSet()
-        val fixtureTaskIds = fixture.tasks.map { it.id }.toSet()
-        val fixtureJournalIds = fixture.journals.map { it.id }.toSet()
-        val fixtureContactIds = fixture.contacts.map { it.id }.toSet()
-        return snapshot.copy(
-            events = snapshot.events.filterNot { it.id in fixtureEventIds },
-            tasks = snapshot.tasks.filterNot { it.id in fixtureTaskIds },
-            journals = snapshot.journals.filterNot { it.id in fixtureJournalIds },
-            contacts = snapshot.contacts.filterNot { it.id in fixtureContactIds },
-        )
+        return snapshot
     }
-
-    private fun hasImportedDataOverFixture(repository: CalinoRepository) =
-        repository is ImportingRepository && !hasAccounts &&
-            webcalStore.subscriptions().isEmpty() && importedCalendarIds.isNotEmpty()
 
     private fun emptySearchSnapshot() = CalinoSnapshot(
         events = emptyList(),
@@ -1199,8 +1190,9 @@ class CalinoContainer private constructor(context: Context) {
     }
 
     private fun updateActiveRepository() {
-        // hasLiveData, not hasAccounts: a subscription with no account
-        // behind it is still live data, and fixtures would hide it.
+        // hasLiveData, not hasAccounts: a subscription or an imported device
+        // calendar with no account behind it is still live data, and the
+        // fixtures would be drawn over it.
         val base: CalinoRepository = if (hasLiveData) calDavRepository else fixtureRepository
         val next: CalinoRepository = if (importedCalendarIds.isEmpty()) {
             importing?.close()
