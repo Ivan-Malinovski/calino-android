@@ -16,6 +16,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Calino's answers to the phone's own search (Samsung Finder and other
@@ -48,13 +50,18 @@ class PhoneSearchProvider : ContentProvider() {
         if (query.isNullOrBlank()) return cursor
 
         val container = CalinoContainer.get(context)
-        // Sample data is not the person's calendar.
-        if (!container.hasLiveData) return cursor
         container.ensureCachedData()
+        // Sample data is not the person's calendar.
+        if (container.liveRepository == null) return cursor
+        // Queries are synchronous. Give the in-flight local provider read a
+        // bounded wait so a slow provider cannot block system search indefinitely.
+        runBlocking { withTimeoutOrNull(3_000L) { container.awaitImportedCalendars() } }
+        if (!PhoneSearchAccess.isEnabled(context)) return cursor
+        val repository = container.liveRepository ?: return cursor
         val limit = uri.getQueryParameter(SearchManager.SUGGEST_PARAMETER_LIMIT)?.toIntOrNull()
             ?: AssistantCalendar.MaxSearchResults
         val clock24 = DateFormat.is24HourFormat(context)
-        AssistantCalendar.search(container.activeRepository.snapshot(), query, LocalDate.now())
+        AssistantCalendar.search(repository.snapshot(), query, LocalDate.now())
             .take(limit)
             .forEachIndexed { index, item ->
                 cursor.addRow(

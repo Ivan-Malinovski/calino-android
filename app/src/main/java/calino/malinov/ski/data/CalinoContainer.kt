@@ -89,6 +89,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -309,6 +310,9 @@ class CalinoContainer private constructor(context: Context) {
     @Volatile var activeRepository: CalinoRepository = fixtureRepository
         private set
 
+    internal val liveRepository: CalinoRepository?
+        get() = activeRepository.takeUnless { it === fixtureRepository }
+
     val hasAccounts: Boolean get() = accountStore.accounts().isNotEmpty()
 
     /**
@@ -356,6 +360,7 @@ class CalinoContainer private constructor(context: Context) {
 
     private val androidCalendarWriter = AndroidCalendarWriter(application)
     private val importGeneration = AtomicLong(0)
+    @Volatile private var importRefresh: Job? = null
 
     private var importing: ImportingRepository? = null
 
@@ -439,11 +444,13 @@ class CalinoContainer private constructor(context: Context) {
      * Deliberately not folded into [ensureConnected]'s flag: a widget render
      * must not stop a later foreground from actually syncing.
      */
+    @Synchronized
     fun ensureCachedData() {
         if (cacheRestored || connected) return
         cacheRestored = true
         connections.restoreFromCache()
         webcal.restoreFromCache()
+        restoreImport()
         updateActiveRepository()
         startSearchIndexing()
     }
@@ -1118,6 +1125,7 @@ class CalinoContainer private constructor(context: Context) {
     private fun restoreImport() {
         if (importedCalendarIds.isNotEmpty()) return
         importedCalendarIds = preferenceStore.loadImportedCalendarIds()
+        if (importedCalendarIds.isEmpty()) return
         importedReminderCalendarIds =
             preferenceStore.loadImportedReminderCalendarIds() intersect importedCalendarIds
         writableImportedCalendarIds = if (preferenceStore.hasWritableImportedCalendarPreference()) {
@@ -1144,12 +1152,22 @@ class CalinoContainer private constructor(context: Context) {
     /** Revalidate provider access and runtime permissions on foreground entry. */
     fun refreshImportedCalendars() = refreshImport()
 
+    /** Let local readers wait for the provider snapshot that is being loaded. */
+    suspend fun awaitImportedCalendars() {
+        var pending: Job?
+        do {
+            pending = importRefresh
+            pending?.join()
+        } while (pending !== importRefresh)
+    }
+
+    @Synchronized
     private fun refreshImport() {
         val target = importing ?: return
         val wanted = importedCalendarIds
         val writable = writableImportedCalendarIds
         val generation = importGeneration.incrementAndGet()
-        scope.launch {
+        importRefresh = scope.launch(Dispatchers.IO) {
             val read = AndroidCalendarSource.read(application, wanted, writable)
             // Both opt-in sets and the generation must still match. A read
             // started before a provider write must never overwrite the

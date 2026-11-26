@@ -82,18 +82,8 @@ abstract class CalinoAgendaWidget internal constructor(
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val container = CalinoContainer.get(context)
-        val live = container.hasLiveData
-
-        // Not-live mode renders the prompt rather than the sample agenda: the
-        // fixtures live around May 2026, so a real "today" against them is
-        // permanently empty and reads as a broken widget. Reminders decline to
-        // schedule in that mode for the same reason.
-        if (live) {
-            container.ensureCachedData()
-            // Only to make the *first* frame correct; from then on the
-            // composition below reads the repository itself.
-            awaitCachedSnapshot(container)
-        }
+        container.ensureCachedData()
+        container.awaitImportedCalendars()
 
         val preferences = container.preferenceStore
         val deviceDefaults = CalinoDeviceDefaults.from(context)
@@ -114,7 +104,7 @@ abstract class CalinoAgendaWidget internal constructor(
 
         provideContent {
             CompositionLocalProvider(LocalWidgetScale provides scale) {
-                Body(if (live) currentSnapshot(container) else null, options)
+                Body(currentSnapshot(container), options)
             }
         }
     }
@@ -146,11 +136,18 @@ abstract class CalinoAgendaWidget internal constructor(
      * alive the widget follows the repository without waiting to be told.
      */
     @Composable
-    private fun currentSnapshot(container: CalinoContainer): CalinoSnapshot {
-        val repository = container.activeRepository
-        var snapshot by remember(repository) { mutableStateOf(repository.snapshot()) }
-        DisposableEffect(repository) {
-            val handle = repository.observe { snapshot = it }
+    private fun currentSnapshot(container: CalinoContainer): CalinoSnapshot? {
+        var repository by remember { mutableStateOf(container.liveRepository) }
+        DisposableEffect(container) {
+            val handle = container.observeRepository {
+                repository = container.liveRepository
+            }
+            onDispose { handle.close() }
+        }
+        val liveRepository = repository ?: return null
+        var snapshot by remember(liveRepository) { mutableStateOf(liveRepository.snapshot()) }
+        DisposableEffect(liveRepository) {
+            val handle = liveRepository.observe { snapshot = it }
             onDispose { handle.close() }
         }
         return snapshot

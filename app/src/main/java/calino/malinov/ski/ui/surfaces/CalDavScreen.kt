@@ -396,6 +396,7 @@ fun CalendarAccountsSurface(
                             permissionRefused = calendarAccessRefused,
                             onRequestPermission = { requestCalendarAccess.launch(ImportPermissions) },
                             importedCalendarIds = importedCalendarIds,
+                            onStopShowing = { setImported(emptySet()) },
                             onImportChanged = { calendarId, imported ->
                                 setImported(
                                     if (imported) importedCalendarIds + calendarId
@@ -555,6 +556,7 @@ private fun DeviceCalendarsCard(
     permissionRefused: Boolean,
     onRequestPermission: () -> Unit,
     importedCalendarIds: Set<String>,
+    onStopShowing: () -> Unit,
     onImportChanged: (calendarId: String, imported: Boolean) -> Unit,
     reminderCalendarIds: Set<String>,
     onReminderChanged: (calendarId: String, remind: Boolean) -> Unit,
@@ -601,7 +603,7 @@ private fun DeviceCalendarsCard(
             // strand the import with no way to switch it off.
             val stopShowingDescription = t(R.string.set_stop_showing_this_device_s_calendars)
             TextButton(
-                onClick = { importedCalendarIds.forEach { onImportChanged(it, false) } },
+                onClick = onStopShowing,
                 modifier = Modifier.heightIn(min = 44.dp)
                     .semantics { contentDescription = stopShowingDescription },
             ) {
@@ -620,7 +622,7 @@ private fun DeviceCalendarsCard(
         if (importedCalendarIds.isNotEmpty()) {
             val stopShowingDescription = t(R.string.set_stop_showing_this_device_s_calendars)
             TextButton(
-                onClick = { importedCalendarIds.forEach { onImportChanged(it, false) } },
+                onClick = onStopShowing,
                 modifier = Modifier.heightIn(min = 44.dp)
                     .semantics { contentDescription = stopShowingDescription },
             ) {
