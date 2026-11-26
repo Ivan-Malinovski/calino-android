@@ -15,3 +15,10 @@
 -keep class biweekly.io.text.** { *; }
 -keep class biweekly.util.** { *; }
 -keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod
+
+# ez-vcard discovers parameter constants and constructs extension values by
+# reflection. In particular, Nextcloud emits TYPE=HOME,VOICE on landlines.
+-keep class ezvcard.parameter.** extends ezvcard.parameter.VCardParameter {
+    public static <fields>;
+    <init>(...);
+}
